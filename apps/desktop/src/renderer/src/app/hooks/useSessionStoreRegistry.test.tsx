@@ -1,6 +1,6 @@
 // What the registry this hook mints folds with and is fed by: the projectors its stores open with
 // and the subscriber that binds the open session. A store with no projectors still holds a
-// timeline and one nothing feeds still renders, so each case drives the hook's own registry.
+// transcript and one nothing feeds still renders, so each case drives the hook's own registry.
 
 import { act, render } from "@testing-library/react";
 import { type ReactNode } from "react";

@@ -3,7 +3,7 @@
 // `run-group-fold.ts`. A pass keeps only what it republishes, so the table never outgrows the
 // window.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 
@@ -15,8 +15,8 @@ import { type ViewportRow } from "../viewport/viewport-snapshot.js";
  * shared table would thrash.
  */
 export class TranscriptRowRetention {
-  #retainedRowsById = new Map<string, TimelineRow>();
-  #publishedRowsById = new Map<string, TimelineRow>();
+  #retainedRowsById = new Map<string, TranscriptEventRow>();
+  #publishedRowsById = new Map<string, TranscriptEventRow>();
   #retainedIdentitiesByKey = new Map<string, ViewportRow>();
   #publishedIdentitiesByKey = new Map<string, ViewportRow>();
 
@@ -33,7 +33,7 @@ export class TranscriptRowRetention {
   }
 
   /** The projected row, as the last pass published it when nothing about it moved. */
-  public retainRow(row: TimelineRow): TimelineRow {
+  public retainRow(row: TranscriptEventRow): TranscriptEventRow {
     const retained = this.#retainedRowsById.get(row.id);
     const published = retained !== undefined && hasSameMembers(retained, row) ? retained : row;
     this.#publishedRowsById.set(row.id, published);
@@ -41,7 +41,7 @@ export class TranscriptRowRetention {
   }
 
   /** One projected row's place in the identity list; takes the row and parent key, not a triple. */
-  public retainRowIdentity(row: TimelineRow, parentKey: string | undefined): ViewportRow {
+  public retainRowIdentity(row: TranscriptEventRow, parentKey: string | undefined): ViewportRow {
     // Each row is its own cut unit, the finest the window cap can act on: a cursor shared across
     // a page would make the cap all-or-nothing over every row the page delivered.
     return this.#retainIdentity(row.id, parentKey, row.id);
@@ -71,13 +71,13 @@ export class TranscriptRowRetention {
 
 /**
  * Whether two projections of one row are equal member for member, by identity. Compares the
- * candidate's own keys, not a list written here, so a member added to `TimelineRow` cannot be
- * forgotten and make a changed row compare equal (a stale card). `payload` is the delivered
+ * candidate's own keys, not a list written here, so a member added to `TranscriptEventRow` cannot
+ * be forgotten and make a changed row compare equal (a stale card). `payload` is the delivered
  * envelope's own object, held by the store across revisions. A row whose envelope has no payload
  * gets a fresh `{}` each pass, so it takes a new identity and redraws each time; that is correct,
  * and it costs one row.
  */
-function hasSameMembers(previous: TimelineRow, candidate: TimelineRow): boolean {
+function hasSameMembers(previous: TranscriptEventRow, candidate: TranscriptEventRow): boolean {
   const previousMembers = new Map<string, unknown>(Object.entries(previous));
   const candidateMembers = Object.entries(candidate);
   if (previousMembers.size !== candidateMembers.length) {

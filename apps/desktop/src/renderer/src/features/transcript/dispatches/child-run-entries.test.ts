@@ -3,11 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ChildRunSummary } from "@ai-sidekicks/contracts/timeline/child-run-summary";
+import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
 import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */
@@ -24,11 +24,15 @@ function completeSummary(childRunId: string, eventCount: number): ChildRunSummar
   };
 }
 
-function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSummary): TimelineRow {
+function rowCarryingChildRun(
+  id: string,
+  sequence: number,
+  summary: ChildRunSummary,
+): TranscriptEventRow {
   return {
     ...runRow({ id, sequence, type: "run.started", runId: "run-parent", position: sequence }),
     childRunSummary: summary,
-  } as TimelineRow;
+  } as TranscriptEventRow;
 }
 
 describe("child-run entries — one card per child, at the row that first named it", () => {
@@ -84,7 +88,7 @@ describe("child-run entries — one card per child, at the row that first named 
       {
         ...generalRow({ id: "g1", sequence: 1, type: "session.note" }),
         childRunSummary: completeSummary("run-child", 2),
-      } as TimelineRow,
+      } as TranscriptEventRow,
     ]);
     expect(entries.map((entry) => entry.rowId)).toEqual(["g1"]);
   });
@@ -179,7 +183,7 @@ describe("handoff entries — the three members, each read as itself", () => {
         payload: { childRunId: "run-from-payload" },
       }),
       childRunSummary: completeSummary("run-from-summary", 1),
-    } as TimelineRow;
+    } as TranscriptEventRow;
     expect(deriveHandoffEntries([row])[0]?.childRunId).toBe("run-from-summary");
   });
 });

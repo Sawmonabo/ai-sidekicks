@@ -1,6 +1,5 @@
 // The renderer's test tiers as Vitest projects: renderer (unit), browser, accessibility, bundle,
-// e2e and endurance, plus two kept off the aggregate `test` script: `screenshot`, a local capture
-// aid that compares nothing, and `bench`, which appends to the benchmark ledger.
+// e2e and endurance.
 //
 // No tier is configured by a Playwright runner config, and none exists. `e2e` and `endurance` are
 // Vitest projects in a Node environment, because the test file drives the app, which runs in
@@ -21,19 +20,8 @@ import {
   BROWSER_MODE_SETUP_FILES,
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
-import {
-  pinScreenshotTierUpdateMode,
-  SCREENSHOT_TIER_MATCH_OPTIONS,
-  SCREENSHOT_TIER_PROVIDER_OPTIONS,
-  SCREENSHOT_TIER_TIMEOUT_MS,
-} from "./screenshot-pins.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
 import { PATH_ALIASES } from "./path-aliases.js";
-
-// Always write, never compare. Called while this module is evaluated, before any project's
-// snapshot mode is decided, so a bare `vitest run --project=screenshot` behaves as the package
-// script does. `screenshot-pins.ts` says why it is an environment variable.
-pinScreenshotTierUpdateMode();
 
 /**
  * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
@@ -71,29 +59,6 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       globals: true,
       setupFiles: BROWSER_MODE_SETUP_FILES,
       browser: browserModeOptions(),
-    },
-  },
-  {
-    // Tier: screenshot (component half), a local capture aid. It writes every surface's picture
-    // into the gitignored `__screenshots__/` and compares against nothing, so it gates no branch
-    // and runs in no CI job.
-    define: { __FIXTURE_BUILD__: "true" },
-    resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
-    optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
-    test: {
-      name: "screenshot",
-      include: ["tests/screenshot/**/*.test.{ts,tsx}"],
-      globals: true,
-      setupFiles: BROWSER_MODE_SETUP_FILES,
-      // Derived from the wait a capture at the window ceiling is given, never written down;
-      // `screenshot-pins.ts` owns the arithmetic. Both figures, because a suite here mounts its
-      // surface in a hook.
-      testTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
-      hookTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
-      browser: {
-        ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
-        expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },
-      },
     },
   },
   {
@@ -180,18 +145,6 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       testTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
       hookTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
       fileParallelism: false,
-    },
-  },
-  {
-    // Tier: bench. It gates on a speed-up ratio with a wide margin rather than a time, and stays
-    // off the aggregate `test` script because each run appends to `tests/bench/ledger.json`. The
-    // fixture flag is `false`: a benchmark measures the shipping path, and the flag decides whether
-    // imported renderer modules publish tripwires onto `globalThis`.
-    define: { __FIXTURE_BUILD__: "false" },
-    test: {
-      name: "bench",
-      environment: "node",
-      include: ["tests/bench/**/*.test.ts"],
     },
   },
 ];

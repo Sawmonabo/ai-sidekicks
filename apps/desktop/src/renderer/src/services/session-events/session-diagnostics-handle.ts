@@ -13,7 +13,7 @@ export interface SessionDiagnostics {
   openSessionIds: () => readonly string[];
   /**
    * Events this window has put through one session's apply chokepoint, counting deliveries the
-   * registry accepted for the session's apply queue. It is not the store's timeline length, which
+   * registry accepted for the session's apply queue. It is not the store's transcript length, which
    * is zero until a read gives the store a base state. It is zero on a window whose registry can
    * initialize no store, since that window takes no wire subscription. It is retained after a
    * session closes, so the count freezes rather than vanishing.

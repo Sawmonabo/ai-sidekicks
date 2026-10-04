@@ -102,8 +102,6 @@ sidekicks daemon status              # prints the refusal line while a pinned re
 
 `sidekicks sign-in` and `sidekicks daemon status` are [Spec-006](./006-local-ipc-and-daemon-control.md)'s; there is no first-run command.
 
-Every `sidekicks` command is also reachable through the short alias `sk`, which [Plan-005](../plans/005-local-ipc-and-daemon-control.md) registers beside `sidekicks` in one `bin` map; the long form stays the unambiguous spelling, because an unrelated `sk` already on the user's `PATH` wins or loses on `PATH` order alone (`which -a sk` reports which).
-
 ### Event Taxonomy Additions
 
 | Event or error | Shape |

@@ -4,7 +4,7 @@
 // sent. Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 
@@ -96,7 +96,7 @@ const ROW_KIND_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
  *
  * `undefined` is the ordinary case: only six event types carry a body a transcript card draws.
  */
-export function classifyTranscriptRow(row: TimelineRow): RowKindDescriptor | undefined {
+export function classifyTranscriptRow(row: TranscriptEventRow): RowKindDescriptor | undefined {
   const kind = ROW_KIND_BY_EVENT_TYPE.get(row.type);
   return kind === undefined ? undefined : DESCRIPTORS_BY_ROW_KIND[kind];
 }

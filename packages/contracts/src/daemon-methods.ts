@@ -53,7 +53,7 @@ import type { SessionInspectorMethodDescriptors } from "./session-inspector.js";
 import type { SessionRestoreMethodDescriptors } from "./session-restore.js";
 import type { SessionMethodDescriptors } from "./session.js";
 import type { SkillMethodDescriptors } from "./skill.js";
-import type { TimelineMethodDescriptorRegistry } from "./timeline/methods.js";
+import type { TranscriptMethodDescriptorRegistry } from "./transcript/methods.js";
 import type { TurnMethodDescriptors } from "./turn.js";
 import type { VoiceMethodDescriptors } from "./voice.js";
 import type { WorkflowDefinitionMethodDescriptors } from "./workflow-definition-methods.js";
@@ -112,7 +112,7 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   SessionRestoreMethodDescriptors &
   SessionMethodDescriptors &
   SkillMethodDescriptors &
-  TimelineMethodDescriptorRegistry &
+  TranscriptMethodDescriptorRegistry &
   TurnMethodDescriptors &
   VoiceMethodDescriptors &
   WorkflowDefinitionMethodDescriptors &

@@ -17,7 +17,7 @@ Every V1 feature has a governing spec; feature #21 (Remote Control) is governed 
 | 5 | Approval gates | [Spec-010](../specs/010-approvals-permissions-and-trust-boundaries.md) |
 | 6 | Repo attach and workspace binding | [Spec-007](../specs/007-repo-attachment-and-workspace-binding.md) |
 | 7 | Worktree-based execution | [Spec-008](../specs/008-worktree-lifecycle-and-execution-modes.md) |
-| 8 | Session timeline with replay | [Spec-011](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-013](../specs/013-persistence-recovery-and-replay.md) |
+| 8 | Session transcript with replay | [Spec-011](../specs/011-transcript-and-reasoning.md), [Spec-013](../specs/013-persistence-recovery-and-replay.md) |
 | 9 | Local daemon with CLI | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | 10 | Event audit log | [Spec-005](../specs/005-session-event-taxonomy-and-audit-log.md) |
 | 11 | Artifact publication | [Spec-012](../specs/012-artifacts-files-and-attachments.md) — a session's artifacts stay on the machine that runs the session, which lists them on every linked device; a device reads them through Remote Control's method proxy, and the relay keeps no copy |
@@ -55,9 +55,11 @@ Per [ADR-018: Windows V1 Tier and PTY Sidecar Strategy](../decisions/018-windows
 | --- | --- | --- |
 | macOS (arm64, x64) | GA | `NodePtyHost` (in-process `node-pty`) |
 | Linux (x64, arm64) | GA | `NodePtyHost` (in-process `node-pty`) |
-| Windows 10/11 (x64) | GA | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) primary; `NodePtyHost` fallback |
+| Windows 10/11 (x64) | GA | `RustSidecarPtyHost` (child-process Rust sidecar on `portable-pty`) |
 
 Windows GA is contingent on the Rust PTY sidecar strategy in ADR-018, driven by the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647). Implementation detail lives in Plan-021. The `PtyHost` interface is declared in `packages/contracts/` so consumers never see the backend choice — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
+
+On every platform a chat session's managed workspace, the git folder the daemon owns for it, lives at `<home>/.ai-sidekicks/workspaces/<session-id>`.
 
 ## Supporting V1 Specs (Cross-Cutting)
 
@@ -75,7 +77,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-26 and SA-27 items in its own body; SA-24, SA-28, SA-29 and SA-30 live in Plan-014 as implementation detail.
+- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25 and SA-26 items in its own body; SA-23, SA-27, SA-28 and SA-29 live in Plan-014 as implementation detail.
 
 ## Backlog Coverage Assessment
 

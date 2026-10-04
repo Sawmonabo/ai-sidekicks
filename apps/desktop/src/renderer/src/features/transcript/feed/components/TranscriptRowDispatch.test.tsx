@@ -48,7 +48,7 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
   function foldedRunGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return foldRunGroupHeaders(
-      deriveTranscriptWindow(sessionStore.snapshot().timeline),
+      deriveTranscriptWindow(sessionStore.snapshot().transcript),
       new Set<string>(),
     ).window;
   }

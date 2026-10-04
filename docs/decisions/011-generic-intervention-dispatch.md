@@ -11,7 +11,7 @@
 
 ## Context
 
-No reference app or provider runtime exposes pause or steer as driver-level operations. Vercel AI SDK uses a registry plus middleware pattern for cross-cutting concerns. Codex treats steer as a protocol-level turn extension, not a driver capability. Pause is fundamentally an orchestration concern: interrupt the run, persist state, queue a resume event. Encoding specific intervention verbs into the driver interface creates rigidity -- each new intervention type would require an interface change.
+No reference app or provider runtime exposes pause or steer as driver-level operations. Vercel AI SDK uses a registry plus middleware pattern for cross-cutting concerns. Codex treats steer as a protocol-level turn extension, not a driver capability. Pause is fundamentally an orchestration concern: stop the run after the step in flight and persist its state. Encoding specific intervention verbs into the driver interface creates rigidity -- each new intervention type would require an interface change.
 
 ## Problem Statement
 
@@ -23,7 +23,7 @@ Neither reference apps nor provider runtimes support pause natively, and the lis
 
 ## Decision
 
-Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. `pause` is not a capability flag. Pause is an orchestration-layer construct: the daemon interrupts the run, persists checkpoint state, and queues a resume event. Steer and other future interventions follow the same generic dispatch path.
+Add `applyIntervention(type, payload)` as a generic dispatcher in the driver contract. `pause` is not a capability flag. Pause is an orchestration-layer construct: the daemon stops the run after the step in flight — with the provider's own hooks, registered for the session, where the provider has them, and with a boundary interrupt where it does not — and persists conversation history and run state. Nothing is queued to resume it: the same toggle, or anything sent to the run, continues it from where it stopped. Where the pause is a hook holding the agent's next tool call, the hold has no time limit and ends only by an answer, allow or deny, never by the hook timing out ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). Steer and other future interventions follow the same generic dispatch path.
 
 **Authorization.** The caller of `applyIntervention` is the connection, which carries its device: on the daemon's local socket one of the owner's own clients, admitted by socket reachability and the session token; a linked device only inside its encrypted channel to the machine, from a device key the account's statement chain trusts. The write records the device it came from, never a person, and nothing checks session ownership or run authorship. A request carries no actor field.
 
@@ -62,5 +62,6 @@ Add `applyIntervention(type, payload)` as a generic dispatcher in the driver con
 ## References
 
 - [ADR-003: Daemon-Backed Queue And Interventions](./003-daemon-backed-queue-and-interventions.md)
+- [Spec-003: Queue Steer Pause Resume](../specs/003-queue-steer-pause-resume.md)
 - [ADR-005: Provider Drivers Use A Normalized Interface](./005-provider-drivers-use-a-normalized-interface.md)
 - [Vercel AI SDK Registry Pattern](https://sdk.vercel.ai/docs)

@@ -1,6 +1,6 @@
 // Thread routing and usage metering, driven through the real ingest path: raw JSON-RPC
 // notifications go into the fake provider's byte channel and the assertions read what comes out of
-// the manager. A frame routed to the wrong timeline leaks one conversation into another, and a
+// the manager. A frame routed to the wrong transcript leaks one conversation into another, and a
 // misbased meter bills spend twice or not at all.
 
 import { describe, expect, it } from "vitest";
@@ -310,7 +310,8 @@ describe("Codex rewind rebind", () => {
       { threadId: FORKED_THREAD_ID, input: 50 },
     ]);
 
-    // A late frame from the abandoned thread waits instead of projecting into the rewound timeline.
+    // A late frame from the abandoned thread waits instead of projecting into the rewound
+    // transcript.
     const projectedBeforeStaleFrame = harness.notifications.length;
     emitQueueChanged(harness, THREAD_ID);
     await Promise.resolve();

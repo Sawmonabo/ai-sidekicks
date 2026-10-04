@@ -21,7 +21,7 @@ describe("durable MCP task-handle observation", () => {
   it("hands the sink the dispatch identity with the handle, and nothing otherwise", () => {
     // `commandId` reaches the sink verbatim: it names the `command_receipts` row the handle is
     // written to, which the MCP server and tool names cannot. A dispatch without a handle calls
-    // nothing, so the column stays NULL and the receipt halts as manual_reconcile_only.
+    // nothing, so the column stays NULL and after a restart the call stays halted.
     const observations: McpTaskHandleObservation[] = [];
     const collectingSink = (observation: McpTaskHandleObservation): void => {
       observations.push(observation);

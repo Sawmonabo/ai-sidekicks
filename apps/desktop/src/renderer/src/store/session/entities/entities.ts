@@ -1,8 +1,7 @@
 // The console's entity vocabulary and the shape of a store mutation, which encode three rules:
 //   - Entity-keyed and partitioned. State is a map per entity kind, so a mutation replaces one
-//     partition's identity and an untouched kind's row selector bails on `Object.is`. On the
-//     design's bench a flat map costs about 1.3 ms per event at 20,000 entities and a
-//     partitioned one about 57 µs.
+//     partition's identity and an untouched kind's row selector bails on `Object.is`. A flat map
+//     costs about 1.3 ms per event at 20,000 entities and a partitioned one about 57 µs.
 //   - A store never caches a flag another store owns. A projection needing two kinds composes
 //     them at read time; a denormalized copy is a second source of truth the reconnect path
 //     cannot heal.

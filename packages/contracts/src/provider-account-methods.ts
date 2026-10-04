@@ -217,7 +217,7 @@ export const ProviderAccountSetCurrentRequestSchema: z.ZodType<
 
 /**
  * One running session the switch is moving. The move is in place and takes effect at the
- * session's next provider request; it settles on that session's own timeline.
+ * session's next provider request; it settles on that session's own transcript.
  */
 export interface ProviderAccountMovingSession {
   sessionId: SessionId;

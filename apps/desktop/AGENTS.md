@@ -108,11 +108,9 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 ## Tests
 
 - A test sits beside its subject as `*.test.ts(x)`, across `src/**`, `build/**` and `scripts/**`; the desktop has no `__tests__/`. Playwright runs inside Vitest as the Electron driver.
-- `tests/` holds only tests spanning modules or the app: `helpers/` and the tiers `browser/`, `e2e/`, `endurance/`, `screenshot/`, `accessibility/`, `budget/`, `bench/`, one Vitest project each, globs disjoint. A test reading one scenario's data sits beside that scenario.
+- `tests/` holds only tests spanning modules or the app: `helpers/` and the tiers `browser/`, `e2e/`, `endurance/`, `accessibility/`, `budget/`, one Vitest project each, globs disjoint. A test reading one scenario's data sits beside that scenario.
 - Shared scaffolding lives once per role in `tests/helpers/`; a module one tier alone uses sits in that tier's folder; a tier hand-rolling a role another has is rejected. Helper tests sit beside their helpers in `main-unit`, except those needing the renderer's DOM: `RENDERER_TESTS_OUTSIDE_SOURCE` in `vitest/tier-projects.ts` moves them, and the scenario contract check's suite, to `renderer`.
 - A test never reimplements the rule it checks or drives a stand-in for the module under test. Every clean result has a negative control that fails.
-- The screenshot tier is a local capture aid, never a gate: `test:screenshot` writes every surface to the gitignored `tests/screenshot/__screenshots__/`, compares nothing, versions no image, runs in no CI job or `pnpm test` chain, and fails only when a surface cannot be captured. Every Vitest run here resolves `UPDATE_SNAPSHOT=all`.
-- `captureSettled` refuses a tree still carrying the pending marker; a mount or spec never waits for a deferred body itself.
 - A test launching Electron goes through `tests/helpers/electron-harness.ts`, `tests/helpers/smoke-probe-harness.ts` or `tests/lifecycle.gc.test-support.ts` (they set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1`). No `show()`, `showInactive()` or `focus()` outside `src/main/windows/window-reveal.ts`.
 - A spawned child's lifetime belongs to the test (gate 5's module kills it on `onTestFinished`), and a spawner's deadline fires before its per-test budget.
 
@@ -137,14 +135,14 @@ The mechanical gates. Before adding or changing a gate, read its file set and li
 3. No `export default` outside the package-root tool configs.
 4. No module-level `let` in shipped renderer source.
 5. `spawn` from `node:child_process` only in `tests/helpers/electron-child.ts`, which registers the kill on `onTestFinished`.
-6. A screenshot is written only through `tests/screenshot/settled-capture.ts`.
+6. No `toMatchScreenshot` matcher.
 7. A `.css` import follows [Styling](#styling): its own folder's sheet, except from a chunk root and `main.tsx`.
 8. No directory `import.meta.glob` under `src/`.
-9. No text-snapshot matcher: under `UPDATE_SNAPSHOT=all` it rewrites itself and passes. Assert the value.
+9. No text-snapshot matcher: it records whatever the code produced on its first run and passes. Assert the value.
 10. Renderer file sections: exported types and interfaces, the exported class, the exported function, then everything private. A private type that exactly one helper uses may sit directly above that helper. The constants a file already has stay where they are.
 11. Class order: fields, constructor, public methods, then everything else.
 12. Windows are built only in `src/main/windows/window.ts`. `contextIsolation`, `sandbox` and `webSecurity` are written only as the literal `true`, `nodeIntegration` and `nodeIntegrationInWorker` only as the literal `false`.
-13. `tests/` and `fixtures/` carry the renderer's time bans (see Chokepoints) and its exported-collection ban, and the test bans: no `enum`, no `export *`, no `export default`, no screenshot matcher outside its one module (gate 6), no text-snapshot matcher (gate 9), and no dynamic `child_process` reach (gate 5).
+13. `tests/` and `fixtures/` carry the renderer's time bans (see Chokepoints) and its exported-collection ban, and the test bans: no `enum`, no `export *`, no `export default`, no screenshot matcher (gate 6), no text-snapshot matcher (gate 9), and no dynamic `child_process` reach (gate 5).
 14. No deep relative import (three or more `../`) in renderer source.
 15. Only `app/App.tsx` reads `__FIXTURE_BUILD__` in renderer source.
 

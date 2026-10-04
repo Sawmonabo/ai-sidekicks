@@ -23,7 +23,7 @@ The control plane serves several consumers (CLI, desktop app, browser clients, r
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions. Use one WebSocket (WSS) connection to the relay for each device and each machine as the bidirectional device channel: it carries the sealed Noise channel frames [Spec-027](../specs/027-remote-control.md) defines, one channel per device and machine, and inside each channel the device calls the machine's own JSON-RPC 2.0 methods per [ADR-009](./009-json-rpc-ipc-wire-format.md). Session timelines and run output ride those channels, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment; the control plane carries no session stream.
+Use tRPC v11 for control plane request-response operations and SSE subscriptions. Use one WebSocket (WSS) connection to the relay for each device and each machine as the bidirectional device channel: it carries the sealed Noise channel frames [Spec-027](../specs/027-remote-control.md) defines, one channel per device and machine, and inside each channel the device calls the machine's own JSON-RPC 2.0 methods per [ADR-009](./009-json-rpc-ipc-wire-format.md). Session transcripts and run output ride those channels, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment; the control plane carries no session stream.
 
 ## Alternatives Considered
 

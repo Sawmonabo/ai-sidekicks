@@ -2,7 +2,7 @@
 // it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
 // `system-message-kinds.ts`. Superseded turns are ranked separately in `superseded-turns.ts`.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import {
   SYSTEM_MESSAGE_KINDS,
@@ -35,7 +35,7 @@ export class SystemMessageClassifier {
   }
 
   /** One row's system message, or `undefined` when the row is not one. */
-  public classify(row: TimelineRow): SystemMessageReading | undefined {
+  public classify(row: TranscriptEventRow): SystemMessageReading | undefined {
     const kind = row.kind === "rollback_boundary" ? "rollback" : this.#kindByWireType.get(row.type);
     if (kind === undefined) {
       return undefined;
@@ -44,7 +44,7 @@ export class SystemMessageClassifier {
   }
 
   /** Every system message in one loaded window, in log order. */
-  public systemMessages(rows: readonly TimelineRow[]): readonly SystemMessageReading[] {
+  public systemMessages(rows: readonly TranscriptEventRow[]): readonly SystemMessageReading[] {
     const systemMessages: SystemMessageReading[] = [];
     for (const row of rows) {
       const systemMessage = this.classify(row);

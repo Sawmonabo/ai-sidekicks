@@ -1,27 +1,18 @@
-// The readiness a view owes any tier that reads it when a lazily-drawn graph is on it. The
-// accessibility tier waits on it before an axe run; the pre-fit transform named here is a fact
-// about the graph library, so a tier carrying its own reading would silently stop waiting.
+// The readiness the accessibility tier waits on before an axe run over a view that draws the run's
+// phase graph. The pre-fit transform named here is a fact about the graph library, so it is read
+// in one place rather than restated by each audit.
 //
-// The run's phase graph is a lazily-loaded chunk: it renders a loading placeholder at once,
-// `import()`s the renderer, and mounts the canvas when it arrives. The renderer stamps no
-// pending-body marker, so a mount helper's own wait does not wait for the picture. An audit run at
-// that point checks a loading placeholder, so a regression in the canvas, its focusable nodes or
-// the library's attribution link leaves the tier green. A capture may hold a drawn graph anyway,
-// but the graph is fitted rather than placed: the fit lands as a fractional scale on the viewport,
-// so every line box sits at a fractional device-pixel offset. Two captures on either side of the
-// fit's commit rasterize those offsets to different pixels, and individual text lines move by one
-// pixel.
+// The phase graph is a lazily-loaded chunk: it renders a loading placeholder at once, `import()`s
+// the renderer, and mounts the canvas when it arrives, so a mount helper's own wait does not wait
+// for the picture. An audit run at that point checks a loading placeholder, so a regression in the
+// canvas, its focusable nodes or the library's attribution link leaves the tier green.
 //
-// So the wait is on a state, never a clock: the fitted transform, then its survival across an
-// animation frame, which separates "the fit has been computed" from "the fit is what the
-// compositor last drew". An auditing caller needs only the first and pays the frame for the same
-// readiness rule the capture tier uses.
+// So the wait is on a state, never a clock: the fitted transform has been computed.
 //
 // The transform alone is not the picture. The library writes a fitted transform at any container
 // size, including a root collapsed to zero height, so readiness is two readings: the fit has been
 // computed, and the picture is on screen (a painted root with height, holding at least one phase).
-// Refusing matters: a throw fails the audit and writes no capture, where a silent pass would write
-// a bad capture and pass the audit.
+// Refusing matters: a throw fails the audit, where a silent pass would audit an empty box.
 
 import { waitFor } from "@testing-library/react";
 
@@ -34,19 +25,12 @@ import { waitFor } from "@testing-library/react";
 const UNFITTED_VIEWPORT_TRANSFORM = "translate(0px, 0px) scale(1)";
 
 /**
- * How long a fit may take before the capture is refused rather than taken.
+ * How long a fit may take before the wait throws.
  *
  * A ceiling on a hang: the fit lands about 150 ms after the mount on an idle host. A timeout
- * throws, since a capture of a half-drawn graph is a reference nobody could reproduce.
+ * throws, since an audit of a half-drawn graph says nothing about the drawn one.
  */
 const FIT_DEADLINE_MS = 5_000;
-
-/** One animation frame, awaited. */
-function nextAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-}
 
 /**
  * The fitted transform on this element's graph, or `undefined` while there is none.
@@ -110,12 +94,11 @@ export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
 }
 
 /**
- * Hold until this element's graph has been fitted and that fit has survived a frame.
+ * Hold until this element's graph has been fitted and painted; throws past the deadline.
  *
  * The fit arrives on a React state update, so it is waited for through the library's `waitFor`,
  * whose polling runs in the async act every other wait goes through; a hand-rolled loop would
- * produce an act warning per commit. The stillness is not a React event, so a frame is the only
- * clock that answers it.
+ * produce an act warning per commit.
  */
 export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise<void> {
   if (mountedElement.querySelector(".meridian-run-graph") === null) {
@@ -135,13 +118,4 @@ export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise
     },
     { timeout: FIT_DEADLINE_MS },
   );
-  const fitted = fittedViewportTransform(mountedElement);
-  await nextAnimationFrame();
-  const afterOneFrame = fittedViewportTransform(mountedElement);
-  if (afterOneFrame !== fitted) {
-    throw new Error(
-      `the phase graph's fitted transform moved across a frame (\`${String(fitted)}\` then ` +
-        `\`${String(afterOneFrame)}\`) — the picture is still changing under the capture`,
-    );
-  }
 }

@@ -163,7 +163,7 @@ export interface ClaudeProviderProcess {
    * Registers the inbound-frame observer (replacing any earlier one). The transport calls it for
    * every frame before its own consumer and delivers only DELIVER routes (`project`,
    * `route-connection-scoped`, `carve-out-interactive-request`); else a child's output would land
-   * in the parent's timeline.
+   * in the parent's transcript.
    */
   onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void;
 

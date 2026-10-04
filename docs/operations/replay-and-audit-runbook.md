@@ -6,7 +6,7 @@ Recover replay and audit projections when session history appears incomplete, st
 
 ## Symptoms
 
-- Timeline is missing known events
+- Transcript is missing known events
 - Audit history stops before the current session state
 - The daemon is in its degraded read-only mode after a projection rebuild failed
 - Scope and blast radius: one session projection, or the machine's local event store
@@ -30,18 +30,18 @@ Recover replay and audit projections when session history appears incomplete, st
 3. Restart the daemon (`Restart` on Settings › Runtime, or `sidekicks daemon restart`). Startup runs `ProjectionRebuild`, which rebuilds every session projection from canonical events, idempotently, before any new mutable work is accepted.
 4. If canonical local storage is damaged or unreadable, stop and follow [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md) before rebuilding again.
 5. Validate command receipts and artifact manifests for any side-effecting ranges that were replayed.
-6. Re-open mutable work only after the session timeline matches canonical event ranges again.
+6. Re-open mutable work only after the session transcript matches canonical event ranges again.
 
 ## Validation
 
 - `sidekicks daemon status` reads the service as running with its store open
-- Timeline and audit projections match canonical event ranges for the affected session
+- Transcript and audit projections match canonical event ranges for the affected session
 - No duplicate side effects appear after replay rebuild
 - `ReplayReadAfterCursor` from the prior failure point returns the expected missing range without divergence
 
 ## Escalation
 
-- When canonical events are missing, the rebuild is not idempotent, or the timeline diverges again immediately after a rebuild, report it to the project as a bug with the daemon's logs attached
+- When canonical events are missing, the rebuild is not idempotent, or the transcript diverges again immediately after a rebuild, report it to the project as a bug with the daemon's logs attached
 
 ## CLI Commands
 

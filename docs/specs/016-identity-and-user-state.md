@@ -43,7 +43,6 @@ This spec covers the hosted account and its one user record, user profile state,
 - The hosted account is one user record: every passkey the account holds resolves to that user, and no sign-in, passkey or device link makes a second user.
 - The person may reach a session from several devices at once, and each is the same user.
 - User display state is the stable id and the display name.
-- Historical user authorship must remain stable even when display metadata later changes.
 - User state changes must be represented in session history when they affect session semantics.
 - Every machine and every linked device holds its own identity key. A machine's is one Ed25519 key, minted by its background service at first start, and again only when a removed machine is linked again, and kept as its own item in the operating system's credential store; it never leaves the machine. A phone's or browser's is made on the device and never exported: P-256 in the iPhone's Secure Enclave or the Android Keystore, a non-extractable WebCrypto key in the web client. Every public key carries its algorithm (`p256` or `ed25519`). The control plane keeps one `devices` row per linked device and one `runtime_nodes` row per machine, each holding its public key, name, platform and version; the account's trust in those keys is the signed statement chain, kept in `trust_statements`, of [Spec-027 §Device registration and revocation](./027-remote-control.md#device-registration-and-revocation), and the Devices page in Settings lists the machines, the devices and the passkeys.
 - A key enters the account only with its statement in the account's statement chain: the person's first machine opens the chain with a `runtimenode.added` it signs itself, every later machine joins by linking, which records its `runtimenode.added` signed by the device or machine that links it, and a device's key enters with its `device.linked` ([Spec-027 §Device registration and revocation](./027-remote-control.md#device-registration-and-revocation); built by [Plan-025 §Phase 2 — Identity keys and the statement chain](../plans/025-remote-control.md#phase-2--identity-keys-and-the-statement-chain)). No `user.*` verb registers a key. `sidekicks sign-in` enrolls the machine's identity key with the control plane, which then accepts the service's `runtimenode.register` only for that key: enrollment is the control plane's admission record, and the statement is the trust record. The key moves only when a removed machine is linked again, which first mints a new identity key under its same machine id, re-enrolls it and records its new `runtimenode.added`, moving every device's pin for that id; the machine's store, sessions and id stay.
@@ -63,14 +62,13 @@ This spec covers the hosted account and its one user record, user profile state,
 
 ## Fallback Behavior
 
-- If a user later loses access, authorship on prior events remains attached to the stable user id.
 - A ceremony that cannot be verified fails closed and is never partially applied: no credential row is written on a failed registration verification, no session is established on a failed assertion verification, and the challenge is consumed either way, so a failed attempt cannot be retried against the same challenge. The caller restarts the ceremony from a fresh options issue.
 - Credential unavailable fails closed: when the daemon credential seam cannot mint — no issued token, refresh-family reuse detected (a burned family is never retried), or the provider still bound to the refusing stub — the mint refuses and the calling surface degrades honestly on its own retry/backoff path; no caller falls back to `Bearer`, a cached stale proof, or an uncredentialed call.
 
 ## Interfaces And Contracts
 
 - `UserProjectionRead` exposes the stable user id and the display metadata, and no presence.
-- `UserStateUpdate` must support display metadata changes that do not rewrite historical events.
+- `UserStateUpdate` changes the user's display metadata.
 - No `user.*` read carries presence, and nothing in a session names which devices are connected. The Devices page in Settings draws each machine's and device's connected state and last-seen time from `device.list`, and a machine reports the devices connected to it through `presence.read` and `presence.subscribe` ([Spec-027](./027-remote-control.md)).
 - No verification-key bytes ride `UserProjection`, no `user.*` operation registers a key and no operation reads a user's key set (the one key write is a machine's enrollment at `sidekicks sign-in`); another machine learns a key only from the statement chain ([Spec-027 §Device registration and revocation](./027-remote-control.md#device-registration-and-revocation)).
 - The daemon credential provider (`DaemonCredentialProvider`) mints per-attempt header material: the access token under `Authorization: DPoP` plus the RFC 9449 proof whose `ath` hashes the presented token.
@@ -83,7 +81,6 @@ This spec covers the hosted account and its one user record, user profile state,
 
 - The user record belongs to shared control-plane storage.
 - The account is keyed by its own id. The user's `identity_ref` is the account's WebAuthn user handle: random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and carried by every passkey the account holds. A passkey resolves to its one user through its `webauthn_credentials` row. (See [shared-postgres-schema.md](../architecture/schemas/shared-postgres-schema.md).)
-- Historical event authorship must reference stable user ids, not mutable display names.
 - User-state changes with session impact must be durable.
 - WebAuthn credentials and ceremony challenges live in shared control-plane storage. `webauthn_credentials` holds one row per enrolled passkey — the credential id, the COSE public key and the signature counter — FK-anchored to `users(id)` and therefore inside the Spec-020 Path-2 erasure closure. `webauthn_challenges` holds the outstanding ceremony transactions and is the **single-use fence**: a challenge is a row, and consuming it is deleting it. A sealed stateless challenge would not remove that write — single-use is the property that matters, and a self-contained token is replayable until it expires unless a durable fence records its consumption — so it would only add a second secret to manage beside the fence.
 - Device keys live in shared control-plane storage in the `devices` table and machine keys in `runtime_nodes`, one row per linked device and per machine, and the account's statement chain in `trust_statements`, each FK-anchored to `users(id)` and therefore inside the Spec-020 Path-2 erasure closure, safe because every consumer verifies at live time. `identity_ref` is the passkey user handle, never key material: one user, one `identity_ref`, N key fingerprints.
@@ -91,17 +88,15 @@ This spec covers the hosted account and its one user record, user profile state,
 ## Example Flows
 
 - `Example: One authenticated user joins the same session from desktop and CLI. The session still shows one user, and nothing in it names which devices are connected.`
-- `Example: A user changes display name after joining. Future projections show the updated name while historical authorship remains stable to the same user id.`
+- `Example: A user changes display name after joining. Future projections show the updated name.`
 
 ## Implementation Notes
 
 - Separate session-scoped user state from global account state.
-- The person uses several devices, but user identity remains the stable unit of authorship.
 
 ## Pitfalls To Avoid
 
 - Creating a new user record per device connection
-- Rewriting old event authorship when display metadata changes
 - An uninjected credential seam fails silently: a production composition root left bound to the refusing stub makes every daemon-resident control-plane call unreachable by construction — ship the runtime assertion beside the real provider, never assume the wiring
 - Hand-rolling COSE key decoding or CBOR attestation parsing instead of using a maintained verification library — the attestation formats are a moving target and a parser bug here is an authentication bypass
 - Putting verification-key bytes on the default user projection, or minting a second daemon proof key — both erode invariants this spec pins
@@ -109,7 +104,6 @@ This spec covers the hosted account and its one user record, user profile state,
 ## Acceptance Criteria
 
 - [ ] One authenticated user appears as one user per session, even with multiple active devices.
-- [ ] Historical event authorship remains stable when the display name changes.
 - [ ] No session projection and no `user.*` read carries a presence state or names a connected device.
 - [ ] A WebAuthn challenge verifies at most once: a second verification against the same challenge is refused.
 - [ ] A successful authentication verification carrying a valid token-request DPoP proof returns a token pair whose `cnf.jkt` is that proof key's JWK thumbprint; the same verification carrying a proof with `ath` present returns no pair.

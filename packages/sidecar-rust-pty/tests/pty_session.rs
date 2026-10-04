@@ -321,7 +321,7 @@ async fn registry_drop_escalates_to_sigkill_for_sighup_ignoring_child() {
 
     drop(registry);
 
-    // Twice `DROP_KILL_ESCALATION_DEADLINE` (2000 ms); see the doc comment for the timeline.
+    // Twice `DROP_KILL_ESCALATION_DEADLINE` (2000 ms); see the doc comment for the timing.
     let close_result = timeout(Duration::from_millis(2000), async {
         loop {
             match rx.recv().await {

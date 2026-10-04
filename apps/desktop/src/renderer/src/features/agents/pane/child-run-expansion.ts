@@ -5,9 +5,9 @@
 // per child run (children expand independently) and per session (session stores outlive a
 // navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
-import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -24,7 +24,7 @@ export type ChildRunExpansionStatus = "summarized" | "expanding" | "expanded" | 
 export interface ChildRunExpansion {
   readonly status: ChildRunExpansionStatus;
   /** The entries the expansion returned, in the order the daemon sent them. */
-  readonly entries: readonly TimelineRow[];
+  readonly entries: readonly TranscriptEventRow[];
   /** Whether the daemon has more entries than this expansion read. */
   readonly hasUnreadEntries: boolean;
   /** Why the expansion failed, on the `expand-failed` arm only. */
@@ -174,5 +174,5 @@ async function readChildRunEntries(
   childRunId: RunId,
   signal: AbortSignal,
 ): Promise<DaemonReply<ChildRunExpandResponse>> {
-  return callDaemon(bridge, "timeline.childRunExpand", { runId: childRunId }, { signal });
+  return callDaemon(bridge, "transcript.childRunExpand", { runId: childRunId }, { signal });
 }

@@ -1,7 +1,7 @@
-// Browser-mode options shared by the three browser tiers (browser, screenshot, accessibility), so
-// they render under the same conditions from one home.
+// Browser-mode options shared by the two browser tiers (browser, accessibility), so they render
+// under the same conditions from one home.
 
-import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
+import { playwright } from "@vitest/browser-playwright";
 
 /**
  * Conditions that resolve workspace value imports to TS source rather than a stale `dist/`. Every
@@ -74,11 +74,10 @@ export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
  * share one `instances` array, so the second finds the first's name stamped and the run aborts
  * with "the project name ... was already defined".
  *
- * `screenshotFailures` is off because Vitest would write failure captures into `__screenshots__`,
- * the directory the screenshot tier writes its capture aids into, mixing throwaway PNGs of red
- * tests with the pictures a person came to look at.
+ * `screenshotFailures` is off so a failing test writes no picture into a `__screenshots__` folder
+ * beside it in the source tree.
  */
-export function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
+export function browserModeOptions(): {
   enabled: true;
   provider: ReturnType<typeof playwright>;
   headless: true;
@@ -88,7 +87,7 @@ export function browserModeOptions(providerOptions?: PlaywrightProviderOptions):
 } {
   return {
     enabled: true,
-    provider: playwright(providerOptions),
+    provider: playwright(),
     headless: true,
     screenshotFailures: false,
     viewport: { ...BROWSER_MODE_VIEWPORT },

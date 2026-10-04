@@ -1,10 +1,10 @@
-// The governance events the log keeps. A kept event never carries a folder path, and names the
-// live leg exactly when a session observed the change.
+// The status notice never carries a folder path, and names the live leg exactly when a session
+// observed the change.
 import { describe, expect, it } from "vitest";
 
 import { McpServerStatusChangedPayloadSchema } from "../mcp-governance.js";
 
-describe("governance event payloads", () => {
+describe("status notice payload", () => {
   const auditRef = { provider: "claude", scope: "project", serverName: "docs" } as const;
   const change = { ...auditRef, previousStatus: "starting", status: "failed" };
 

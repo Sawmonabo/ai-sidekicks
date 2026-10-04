@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import {
   emptyFindResult,
@@ -55,7 +55,7 @@ export interface TranscriptFindInputs {
    * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
    * the whole projection on every appended row while a query is set.
    */
-  readonly foldedAwayRows: readonly TimelineRow[];
+  readonly foldedAwayRows: readonly TranscriptEventRow[];
 }
 
 /**
@@ -153,7 +153,7 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
  * Matches in one stage's removals. A stage that removed nothing hands back the shared empty
  * set the memo keys on, so an appended row never reaches this.
  */
-function matchesAmong(rows: readonly TimelineRow[], query: string): number {
+function matchesAmong(rows: readonly TranscriptEventRow[], query: string): number {
   if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }

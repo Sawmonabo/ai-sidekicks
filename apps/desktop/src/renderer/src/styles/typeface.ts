@@ -1,6 +1,6 @@
 // The app's faces, self-hosted: IBM Plex Sans for UI text and IBM Plex Mono for every wire-true
 // figure, as variable builds from the foundry's own packages, so the type scale and every
-// screenshot do not depend on the host's fonts.
+// rendered view do not depend on the host's fonts.
 //
 // A module and not a stylesheet: a bare package specifier inside CSS `url()` is invisible to the
 // compiler and the dead-code check, so the font packages would look unused. The faces install

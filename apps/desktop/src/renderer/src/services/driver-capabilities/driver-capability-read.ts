@@ -42,7 +42,7 @@ const NO_DECLARATIONS: ReadonlyMap<ProviderName, DeclaredDriverFlags> = new Map<
  */
 class BridgeCapabilityRead implements ReadTriggerTarget {
   /**
-   * Nothing in a session's timeline says the service's declarations changed: a driver declares at
+   * Nothing in a session's transcript says the service's declarations changed: a driver declares at
    * the service and session events are about that session's runs. The reading goes stale when the
    * window has been away or the connection was repaired, never because a run ended.
    */

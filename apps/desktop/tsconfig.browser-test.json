@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates the three browser-mode tiers (browser, screenshot, accessibility) and the
-  // helpers they share.
+  // Type-validates the two browser-mode tiers (browser, accessibility) and the helpers they
+  // share.
   //
   // They need their own config because they sit in two contexts at once: they live under the
   // package-root `tests/` directory, which the Node-context `tsconfig.test.json` owns, but they
@@ -14,12 +14,8 @@
   // because these files sit outside `src/renderer/` (a `noEmit` pass still enforces `rootDir`
   // containment, TS6059).
   //
-  // `types` carries three entries and each is load-bearing:
+  // `types` carries two entries and each is load-bearing:
   //   • `vitest/globals`: `describe`, `it` and `expect` on the global scope.
-  //   • `@vitest/browser/matchers`: registers `toMatchScreenshot` and the jest-dom matchers on
-  //     `expect`; without it the screenshot tier does not compile. This is also why `apps/desktop`
-  //     declares `@vitest/browser` directly rather than leaning on it transitively: under pnpm's
-  //     strict layout a `types` entry can only name a visible package.
   //   • `@vitest/browser-playwright`: its entry point carries
   //     `declare module "vitest/browser" { interface CDPSession … }`, which gives `cdp()` its
   //     `send` method. `vitest/internal/browser` declares `CDPSession` as an empty interface on
@@ -35,17 +31,12 @@
     "rootDir": ".",
     "outDir": "out/tsc-browser-test",
     "tsBuildInfoFile": null,
-    "types": ["vitest/globals", "@vitest/browser/matchers", "@vitest/browser-playwright"]
+    "types": ["vitest/globals", "@vitest/browser-playwright"]
   },
   "include": [
     "tests/helpers/app-harness.ts",
     "tests/helpers/run-graph-settled.ts",
-    // One glob rather than a line per feature: `tests/helpers/feature-mounts/` holds the mount
-    // helpers each feature's screenshot and accessibility suites drive, and a per-file entry is a
-    // line every feature branch has to remember to add.
-    "tests/helpers/feature-mounts/**/*",
     "tests/browser/**/*",
-    "tests/screenshot/**/*",
     "tests/accessibility/**/*",
     "src/renderer/src/**/*.d.ts"
   ],

@@ -9,7 +9,7 @@
 // across a process boundary. The renderer records the instant itself: `revealWindow` runs from
 // `ready-to-show`, emitted once the page has rendered, so the renderer's own
 // `first-contentful-paint` entry is the instant the window became showable. It sits on
-// `performance`'s monotonic timeline, where the end of the interval is also read, so the whole
+// `performance`'s monotonic transcript, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //
 // The session route is opened, the frozen clock is walked over the concurrent-streaming script, and
@@ -78,7 +78,7 @@ interface UnmeasuredLaunch {
   readonly unmeasured: UnmeasuredLaunchCause;
 }
 
-/** What one launch measured, on the renderer's own monotonic timeline. */
+/** What one launch measured, on the renderer's own monotonic transcript. */
 interface FirstTranscriptRowReading {
   /** `first-contentful-paint`, which is when the window was shown. */
   readonly windowShownAtMs: number;

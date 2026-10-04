@@ -8,7 +8,7 @@ import { type SessionStore } from "../../session/session-store.js";
 import { type SessionStoreState } from "../../session/session-state.js";
 
 /**
- * The two triggers that are properties of one session: the repair edge and the timeline.
+ * The two triggers that are properties of one session: the repair edge and the transcript.
  *
  * Both stores are subscribed to in the render body and examined in an effect, because
  * advancing a memory is a mutation that would run twice under strict double-invoke and again on
@@ -34,12 +34,12 @@ export function useSessionReadTriggers(
   // this re-runs the effect for a reading whose declared set is a getter over something that
   // moves.
   const { triggeringEventKinds } = reader;
-  const timeline = useSessionStore(sessionStore, selectTimeline);
+  const transcript = useSessionStore(sessionStore, selectTranscript);
   useEffect(() => {
-    if (memory.observeTimeline(timeline, reader)) {
+    if (memory.observeTranscript(transcript, reader)) {
       reader.requestRead("terminal-event");
     }
-  }, [memory, reader, timeline, triggeringEventKinds]);
+  }, [memory, reader, transcript, triggeringEventKinds]);
 }
 
 /**
@@ -64,15 +64,15 @@ class ReadTriggerMemory {
   /**
    * Examines the newly appended tail and answers whether it owes a re-read. The three sequence
    * numbers are one invariant: the newest signal is meaningful only relative to how far the
-   * timeline has been examined, and re-requesting a signal already requested is the re-read
+   * transcript has been examined, and re-requesting a signal already requested is the re-read
    * loop this cursor stops.
    */
-  public observeTimeline(
-    timeline: readonly ProjectedSessionEvent[],
+  public observeTranscript(
+    transcript: readonly ProjectedSessionEvent[],
     target: ReadTriggerTarget,
   ): boolean {
-    for (let position = timeline.length - 1; position >= 0; position -= 1) {
-      const entry = timeline[position];
+    for (let position = transcript.length - 1; position >= 0; position -= 1) {
+      const entry = transcript[position];
       if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
         break;
       }
@@ -82,7 +82,7 @@ class ReadTriggerMemory {
         this.#latestSignalSequence = entry.sequence;
       }
     }
-    const newest = timeline.at(-1);
+    const newest = transcript.at(-1);
     if (newest !== undefined) {
       this.#examinedThroughSequence = Math.max(this.#examinedThroughSequence, newest.sequence);
     }
@@ -94,6 +94,6 @@ class ReadTriggerMemory {
   }
 }
 
-function selectTimeline(state: SessionStoreState): readonly ProjectedSessionEvent[] {
-  return state.timeline;
+function selectTranscript(state: SessionStoreState): readonly ProjectedSessionEvent[] {
+  return state.transcript;
 }

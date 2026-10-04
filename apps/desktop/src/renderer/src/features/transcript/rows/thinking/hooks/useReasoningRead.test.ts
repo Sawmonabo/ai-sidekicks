@@ -14,7 +14,7 @@ import { useReasoningRead } from "./useReasoningRead.js";
 const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 /** A second run, for the cases about a row re-addressed while a read is in flight. */
 const OTHER_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
-const REASONING_READ = "timeline.reasoningSurfaceRead";
+const REASONING_READ = "transcript.reasoningSurfaceRead";
 
 /** One `ReasoningSurfaceReadResponse` on the arm that carries no entries. */
 const UNAVAILABLE_REASONING: Record<string, unknown> = { availability: "unavailable" };

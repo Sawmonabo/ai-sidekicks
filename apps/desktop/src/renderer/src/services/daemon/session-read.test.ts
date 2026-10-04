@@ -19,7 +19,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
     expect(baseState).toStrictEqual({
       cursor: 0,
       entities: [],
-      timelineCursors: { latest: "concurrent-streaming-cursor-45" },
+      transcriptCursors: { latest: "concurrent-streaming-cursor-45" },
     });
   });
 

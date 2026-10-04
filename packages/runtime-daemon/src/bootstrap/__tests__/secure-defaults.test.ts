@@ -1,5 +1,5 @@
 // Binding before load throws, invalid config fails closed with a typed error, the settings view
-// holds only its two keys, and an insecure setting is refused on the wire. The module holds
+// holds only its one key, and an insecure setting is refused on the wire. The module holds
 // singleton state, so every case imports a fresh module graph.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,6 @@ import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   localIpcPath: "/tmp/ai-sidekicks-test.sock",
-  bannerFormat: "text",
 };
 
 let SecureDefaults: typeof import("../secure-defaults.js").SecureDefaults;
@@ -42,40 +41,21 @@ describe("load-before-bind", () => {
 // class and code rather than a message regex, and checks that the failed load left nothing
 // loaded.
 describe("fail-closed on invalid config", () => {
-  it("refuses a bad value, a non-object and a missing key, each with its code, and stays unloaded", () => {
-    // Per-field validation; unknown keys are covered by the refusal cases below.
-    let caught = captureThrow(() =>
-      SecureDefaults.load({
-        ...VALID_BASE_CONFIG,
-        bannerFormat: "yaml",
-      } as unknown as SecureDefaultsConfig),
-    );
-
-    expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
-    if (!(caught instanceof SecureDefaultsValidationError)) return;
-    expect(caught.code).toBe("invalid_banner_format");
-    // The message names the offending value and the allowed set.
-    expect(caught.message).toMatch(/yaml/);
-    expect(caught.message).toMatch(/\["text", "json"\]/);
-    expect(SecureDefaults.isLoaded()).toBe(false);
-    expect(() => SecureDefaults.effectiveSettings()).toThrow();
-
+  it("refuses a non-object and a missing key, each with its code, and stays unloaded", () => {
+    // Unknown keys are covered by the refusal cases below.
     // The type rules this out; the runtime guard is what is pinned here.
-    caught = captureThrow(() => SecureDefaults.load(null as unknown as SecureDefaultsConfig));
+    let caught = captureThrow(() => SecureDefaults.load(null as unknown as SecureDefaultsConfig));
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("invalid_config");
     expect(SecureDefaults.isLoaded()).toBe(false);
+    expect(() => SecureDefaults.effectiveSettings()).toThrow();
 
-    caught = captureThrow(() =>
-      SecureDefaults.load({
-        localIpcPath: "/tmp/ai-sidekicks-test.sock",
-      } as unknown as SecureDefaultsConfig),
-    );
+    caught = captureThrow(() => SecureDefaults.load({} as unknown as SecureDefaultsConfig));
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("missing_required_setting");
-    expect(caught.message).toMatch(/bannerFormat/);
+    expect(caught.message).toMatch(/localIpcPath/);
     expect(SecureDefaults.isLoaded()).toBe(false);
   });
 });
@@ -84,19 +64,17 @@ describe("fail-closed on invalid config", () => {
 // hard-coded constant.
 
 describe("effectiveSettings non-secret typed values", () => {
-  it("returns exactly the two config keys, each carrying the loaded value", () => {
+  it("returns exactly the config key, carrying the loaded value", () => {
     bootstrap(VALID_BASE_CONFIG);
     const eff = SecureDefaults.effectiveSettings();
 
-    // Sorted, so the order of the returned literal does not matter.
-    expect(Object.keys(eff).sort()).toEqual(["bannerFormat", "localIpcPath"]);
+    expect(Object.keys(eff)).toEqual(["localIpcPath"]);
 
     expect(eff.localIpcPath).toBe("/tmp/ai-sidekicks-test.sock");
-    expect(eff.bannerFormat).toBe("text");
   });
 });
 
-// Any key outside the validation scope (`localIpcPath` and `bannerFormat`) is refused with
+// Any key outside the validation scope (`localIpcPath`) is refused with
 // `unknown_setting`, both as the typed error and as the JSON-RPC envelope from
 // `mapJsonRpcError`. The rest of the config is valid, so the key refusal is the only thing
 // that can fire.

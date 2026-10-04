@@ -14,7 +14,7 @@ import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
-import { TIMELINE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/timeline/methods";
+import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
 import type { AnyMethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon-methods";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
@@ -38,7 +38,7 @@ export type DaemonMethodBindings = {
 /** The namespaces the app calls into, merged so one lookup finds any of their methods. */
 const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...DRIVER_METHOD_DESCRIPTORS,
-  ...TIMELINE_METHOD_DESCRIPTORS,
+  ...TRANSCRIPT_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
   ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
   ...PRESENCE_METHOD_DESCRIPTORS,

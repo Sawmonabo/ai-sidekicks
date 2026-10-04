@@ -130,8 +130,8 @@ interface CodexNormalizedCategoryEmission {
 }
 
 /**
- * A known frame with no session-timeline capability, so no category. The `reason` is required so a
- * non-emission is always justified; an unknown method throws instead.
+ * A known frame with no session-transcript capability, so no category. The `reason` is required so
+ * a non-emission is always justified; an unknown method throws instead.
  */
 interface CodexNotEventedFrameDisposition {
   readonly disposition: "not-evented";
@@ -230,20 +230,20 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: "approval_request",
   },
   // Control-plane requests answered on the transport; adopting either would put a handshake on the
-  // timeline.
+  // transcript.
   "attestation/generate": {
     disposition: "not-evented",
     nativeMethod: "attestation/generate",
     transport: "server-request",
     reason:
-      "control-plane request answered on the transport (the initialize-declared requestAttestation capability); it asks the daemon to mint an attestation and carries no session observation, so it has no timeline capability to lose",
+      "control-plane request answered on the transport (the initialize-declared requestAttestation capability); it asks the daemon to mint an attestation and carries no session observation, so it has no transcript capability to lose",
   },
   "account/chatgptAuthTokens/refresh": {
     disposition: "not-evented",
     nativeMethod: "account/chatgptAuthTokens/refresh",
     transport: "server-request",
     reason:
-      "credential-refresh brokering answered on the transport (provider-account plane, which stores no credential material); routing a credential frame onto the session timeline would put an auth-plane event in the audit log and is exactly what that plane's un-evented posture forbids",
+      "credential-refresh brokering answered on the transport (provider-account plane, which stores no credential material); routing a credential frame onto the session transcript would put an auth-plane event in the audit log and is exactly what that plane's un-evented posture forbids",
   },
   error: {
     disposition: "normalized",
@@ -384,14 +384,14 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/reverted",
     transport: "server-notification",
     reason:
-      "correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon requested. The rewind-confirmation consumer is the lifecycle leg, not the timeline: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused",
+      "correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon requested. The rewind-confirmation consumer is the lifecycle leg, not the transcript: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused",
   },
   "thread/queue/changed": {
     disposition: "not-evented",
     nativeMethod: "thread/queue/changed",
     transport: "server-notification",
     reason:
-      "provider-side queue-depth notice; the daemon's own queue is the authority and already emits the `queue_item.*` interactive_request rows, so this frame carries no capability the timeline lacks",
+      "provider-side queue-depth notice; the daemon's own queue is the authority and already emits the `queue_item.*` interactive_request rows, so this frame carries no capability the transcript lacks",
   },
   "project/changed": {
     disposition: "not-evented",
@@ -421,7 +421,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/environment/disconnected",
     transport: "server-notification",
     reason:
-      "the paired disconnect of `thread/environment/connected`; same daemon-owned-liveness reason, and the run-terminal consequence of a real disconnect reaches the timeline through the lifecycle module's terminal emission rather than through this notice",
+      "the paired disconnect of `thread/environment/connected`; same daemon-owned-liveness reason, and the run-terminal consequence of a real disconnect reaches the transcript through the lifecycle module's terminal emission rather than through this notice",
   },
   "thread/settings/updated": {
     disposition: "not-evented",

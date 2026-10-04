@@ -4,7 +4,7 @@
 
 import { useCallback } from "react";
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type FindStepDirection } from "../../find/find-model.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
@@ -23,7 +23,7 @@ export interface TranscriptFindAndJump {
 /** Wire the find field to the window it searches and the scroll writer it jumps through. */
 export function useTranscriptFindAndJump(inputs: {
   /** What the run group fold reported withholding, for the count beside the field. */
-  readonly foldedAwayRows: readonly TimelineRow[];
+  readonly foldedAwayRows: readonly TranscriptEventRow[];
   readonly visible: VisibleTranscriptWindow;
   /** The transcript's ONE scroll writer. Nothing here touches an element. */
   readonly jumpToRow: (rowId: string) => void;

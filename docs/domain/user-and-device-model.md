@@ -23,7 +23,7 @@ One user, many devices, one executing machine per session.
 
 A **user** is the identity everything else hangs off. There is one, and every device and every runtime node in the picture belongs to that one account.
 
-A **device** is a client. It reads the timeline, sends, steers, stops, approves, drives agents, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
+A **device** is a client. It reads the transcript, sends, steers, stops, approves, drives agents, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
 
 A **runtime node** is the machine where the work happens: provider processes, the working tree, the shell. A person may have any number of machines. A session runs on exactly one of them, the one it was started on, for its whole life. The desktop app on that computer acts with the machine's own key, so the computer is one machine under one name, never a machine and a device.
 
@@ -64,20 +64,20 @@ A device moves through three states and does not come back:
 `linked → active → revoked`
 
 - **Linked.** A device or machine the account already trusts has signed a `device.linked` statement for the device's public identity key, after the same six digits were confirmed on both screens. The device has a name and a card on the Devices page.
-- **Active.** The device is reachable and driving. Its per-device liveness reads `online`, and degrades through `reconnecting` to `offline` when its presence beats stop — which is a statement about reachability, not about the lifecycle state. Its card reads `Connected now` or `Last seen <when>`.
+- **Active.** The device is reachable and driving. Its card reads `Connected now` while it holds a relay connection this moment, and `Last seen <when>`, the end of its last one, otherwise — a statement about reachability read from the relay connection itself, with no heartbeat, and not about the lifecycle state.
 - **Revoked.** A `device.revoked` statement ends the device's key at that point in the chain: any connection it held is closed, every machine refuses a statement the key signs afterward from the time it hears of it, and what the key signed before stands, so every device it linked stays linked, its card reading `Linked from <device>, which you revoked. Revoke it if that device was lost.` An ended key is never trusted again, so the same key never links again. The card moves to the `Revoked` group, where `Forget` removes it. A device that comes back links again as a new device with a new key.
 
 ## Example Flows
 
 - `Example: A user starts a session on their laptop. The laptop's account is the user's, so the user owns the session, and the laptop's daemon holds it. The laptop is the runtime node, and its desktop app acts with the laptop's own key, so the laptop is one machine card and never also a device.`
 - `Example: The user links their phone. The phone mints an identity key, the laptop signs a device.linked statement for its public half, and the phone appears under Devices on the laptop's Settings › Devices. It opens the same session and drives it — the work still runs on the laptop.`
-- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the timeline, recorded as sent from the phone.`
+- `Example: The phone is lost. From the laptop the user revokes it. The phone's key stops resolving and its connection closes; the messages it sent yesterday are still in the transcript, recorded as sent from the phone.`
 
 ## Edge Cases
 
 - **The runtime node is offline.** Devices report the machine as unreachable. Nothing queues on their behalf.
 - **The last device is revoked from itself.** The account keeps its sessions and its runtime nodes; a new device links with a passkey, or from a machine's own Devices page.
-- **A device is offline for a long time.** It is still linked and still active; only its liveness reading says offline.
+- **A device is offline for a long time.** It is still linked and still active; only its card's `Last seen <when>` says how long.
 
 ## Related Specs
 

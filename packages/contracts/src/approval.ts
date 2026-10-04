@@ -67,7 +67,6 @@ const APPROVAL_CATEGORY_VALUES = [
   "destructive_git",
   "plan_approval",
   "gate",
-  "human_step_contribution",
 ] as const;
 
 /**

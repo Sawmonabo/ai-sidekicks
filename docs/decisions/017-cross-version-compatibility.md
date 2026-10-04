@@ -39,9 +39,9 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 4. **Outside the range, the console is read-only and names the side that is behind.** The service answers an out-of-range `DaemonHello` with `DaemonHelloAck { compatible: false, reason }`, where `reason` is `version.floor_exceeded` (the app is older than the service accepts) or `version.ceiling_exceeded` (the app is newer than the service knows). The app draws that machine read-only ([Spec-021](../specs/021-desktop-app-and-renderer.md)), and the working line names the side that is behind, the app or the service, with a press to its fix: the app's own update, or `Update the background service` on Runtime. Nothing crashes and nothing is disconnected.
 
-5. **Unknown event types MUST persist as version stubs, never dropped.** A version stub preserves the full original canonical bytes verbatim, plus a version-stub-metadata record (`original_version`, `original_type`, `received_at`, `stub_reason`). The canonical row's `.version` field stays the producer's original — version-stubbing is a read-side behavior, not a rewrite.
+5. **Unknown event types MUST persist as version stubs, never dropped.** A version stub preserves the full original canonical bytes verbatim, plus a version-stub-metadata record (`original_version`, `original_type`, `received_at`, `stub_reason`). The canonical row's `.version` field stays the producer's original — version-stubbing is a read-side behavior, not a rewrite. Stubs are what let a service rolled back to the previous version keep every event a newer one wrote.
 
-6. **Upcaster chain on read, never log rewrite.** When a client upgrades and can now interpret previously-version-stubbed events, transformation happens at dispatch time via an explicit upcaster chain keyed on `(original_version, original_type)`. The upcaster chain is a sequence of pure functions, each registered for a specific `(original_version, original_type) → (target_version, target_type)` transformation; on read, the receiver looks up the matching chain entry by the stub's metadata and produces the typed event for application-layer dispatch. The immutable log is never rewritten. This matches event-sourcing discipline established by [event-driven.io's versioning guidance](https://event-driven.io/en/how_to_do_event_versioning/).
+6. **Stubs are re-read, never converted, and the log is never rewritten.** When a receiver upgrades and now knows a stubbed event's type, it parses the stub's kept canonical bytes with its own schema at read time. There is no converter chain from one version's shape to another's, and the immutable log is never rewritten. This matches the event-sourcing rule that events are immutable ([event-driven.io's versioning guidance](https://event-driven.io/en/how_to_do_event_versioning/)).
 
 7. **MAJOR envelope bumps are breaking.** A MAJOR bump ships in a release whose app still reads the previous service version's envelopes, so the version range in item 3 holds across it. Minor versions within the same MAJOR MUST be bidirectionally forward-compatible.
 
@@ -55,7 +55,7 @@ How do we evolve `EventEnvelope` and event-type semantics when the app, the back
 
 12. **Provider-CLI skew is a different axis and is not governed here.** This ADR governs skew in shapes this corpus defines — the `EventEnvelope` between the user's own service and its clients, where the version range applies and unknowns are stubbed and re-emitted. A provider vendor owns its own surface and ships it faster than we re-verify, so [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior) sets that axis separately: every installed build is admitted, and every capability is decided individually by a zero-turn probe of the running build. Accept-and-stub has no analogue there, because a provider surface that moved cannot be stubbed and replayed, only detected and degraded. It is decided at runtime, by the daemon's probes at spawn.
 
-13. **Until the first release, nothing is kept for an older daemon.** The additive-only MINOR rule, version stubs and the upcaster chain protect envelopes already written to a production audit log, and they apply from the point of no return ([§Reversibility Assessment](#reversibility-assessment)). Before it, no daemon has shipped: a shape changes in place, and no field is made optional, and no arm is kept, for an older daemon.
+13. **Until the first release, nothing is kept for an older daemon.** The additive-only MINOR rule and version stubs protect envelopes already written to a production audit log, and they apply from the point of no return ([§Reversibility Assessment](#reversibility-assessment)). Before it, no daemon has shipped: a shape changes in place, and no field is made optional, and no arm is kept, for an older daemon.
 
 ### Thesis — Why This Option
 
@@ -69,24 +69,24 @@ Together, these give us a scheme that handles skew in both directions without a 
 
 ### Antithesis — The Strongest Case Against
 
-The simpler alternative is to pin the envelope version at session creation and refuse mixed-version participation entirely. Under this model, every device and daemon must run the exact version the session was created with; a version mismatch when one connects is a hard rejection. This eliminates the upcaster chain, the stub persistence, the negotiation protocol, the reviewer-checklist author discipline, and most of the failure modes in §Failure Mode Analysis. For a product where every device and daemon can be upgraded in one step, this is cheap operationally and defensible on simplicity grounds. The asymmetric read/write tolerance only pays off if mixed-version participation is empirically common — and we don't yet have V1 data to prove it will be.
+The simpler alternative is to pin the envelope version at session creation and refuse mixed-version participation entirely. Under this model, every device and daemon must run the exact version the session was created with; a version mismatch when one connects is a hard rejection. This eliminates the stub persistence, the negotiation protocol, the reviewer-checklist author discipline, and most of the failure modes in §Failure Mode Analysis. For a product where every device and daemon can be upgraded in one step, this is cheap operationally and defensible on simplicity grounds. The asymmetric read/write tolerance only pays off if mixed-version participation is empirically common — and we don't yet have V1 data to prove it will be.
 
 ### Synthesis — Why It Still Holds
 
-Pin-at-session assumes every client updates in the same step as the service, and nothing in the product does. The app and the service are updated separately — the app from its own update, the service from Runtime — and a phone app takes each linked machine's console from that machine, staged for its next start. There is no forced-update channel. The Kubernetes version-skew policy exists precisely because heterogeneous deployment is the reality of distributed systems — treating mixed versions as "the bad case" rather than "the normal case" has historically produced systems that are brittle at exactly the moment they need to be flexible. Taking on the upcaster chain and stub persistence now is the cost of shipping a product that can evolve its wire format at all after release. The alternative is either a frozen wire format (no new event types ever) or a forced-lockstep upgrade that leaves a device unable to reach its own machine between updates.
+Pin-at-session assumes every client updates in the same step as the service, and nothing in the product does. The app and the service are updated separately — the app from its own update, the service from Runtime — and a phone app takes each linked machine's console from that machine, staged for its next start. There is no forced-update channel. The Kubernetes version-skew policy exists precisely because heterogeneous deployment is the reality of distributed systems — treating mixed versions as "the bad case" rather than "the normal case" has historically produced systems that are brittle at exactly the moment they need to be flexible. Taking on stub persistence and the version range now is the cost of shipping a product that can evolve its wire format at all after release. The alternative is either a frozen wire format (no new event types ever) or a forced-lockstep upgrade that leaves a device unable to reach its own machine between updates.
 
 ## Alternatives Considered
 
-### Option A: Envelope version + the handshake version range + accept-and-stub + upcaster chain on read (Chosen)
+### Option A: Envelope version + the handshake version range + accept-and-stub (Chosen)
 
 - **What:** The decision above.
 - **Steel man:** Composes three proven industry patterns. Handles skew in both directions between the app, the service and the phone front ends. Preserves audit immutability. Needs no central registry. Enforcement at each end fits an app and a service that are updated separately.
-- **Weaknesses:** Author discipline burden (semantic breaks can slip past the structural checker). Upcaster chain grows with every MAJOR bump and must be actively maintained. Stub storage is unbounded until re-interpretation.
+- **Weaknesses:** Author discipline burden (semantic breaks can slip past the structural checker). A MAJOR bump's release carries the previous version's reader. Stub storage grows with each stub until its session is deleted.
 
 ### Option B: Pin session version at creation; refuse mixed-version participation (Rejected)
 
 - **What:** Session metadata carries `wire_version` set at creation. Every device and daemon must run exactly that version. A version mismatch when one connects is a hard rejection.
-- **Steel man:** Dramatically simpler. No upcaster chain. No stub persistence. No negotiation protocol. No reviewer-checklist author discipline. Failure modes collapse to a single "version mismatch" error.
+- **Steel man:** Dramatically simpler. No stub persistence. No negotiation protocol. No reviewer-checklist author discipline. Failure modes collapse to a single "version mismatch" error.
 - **Why rejected:** Forces lockstep upgrades across every device and machine at once. The app and the service are updated separately and a phone app's console for a machine can trail that machine until the phone app's next start, so a pinned session would lock a device out of its own machine between updates; the product has no forced-update channel.
 
 ### Option C: Central control-plane event-type registry with publish-time rejection (Rejected)
@@ -112,9 +112,8 @@ Pin-at-session assumes every client updates in the same step as the service, and
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Mixed versions are common in V1. | The app and the service are updated separately; a phone app's console for a machine may trail that machine until the phone app's next start; the user's devices and machines update independently. | Pin-at-session (Option B) becomes the better choice; most of this ADR collapses to "version must match exactly." |
-| 2 | Event-log durability guarantees stubs remain parseable for the full audit-retention lifetime. | Event-sourcing immutability rule; the daemon's one schema, with no upgrade steps, per [data-architecture.md §Schema Evolution](../architecture/data-architecture.md#schema-evolution). | Stubs become unparseable on storage-format evolution; upcaster chain loses its input. |
+| 2 | Event-log durability guarantees stubs remain parseable for the full audit-retention lifetime. | Event-sourcing immutability rule; the daemon's one schema, with no upgrade steps, per [data-architecture.md §Schema Evolution](../architecture/data-architecture.md#schema-evolution). | Stubs become unparseable on storage-format evolution; an upgraded receiver cannot re-read them. |
 | 3 | Semver is sufficient to distinguish additive vs. breaking changes when paired with reviewer discipline. | Schema Registry FORWARD_TRANSITIVE uses exactly this split; Protobuf Editions relies on author discipline for semantic-equivalence. | Authors ship semantic breaks inside MINOR bumps; receivers crash or silently misinterpret. |
-| 4 | The upcaster chain can be authored and maintained safely enough to run on every replay without introducing non-determinism. | `event-driven.io` versioning guidance establishes the pattern; upcasters are pure functions over typed inputs, versioned and tested independently. | Upcaster bugs cause replay drift; audit-log-derived projections diverge across clients. |
 
 ## Failure Mode Analysis
 
@@ -123,13 +122,12 @@ Pin-at-session assumes every client updates in the same step as the service, and
 | App outside the service's version range | High (expected) | Low | `DaemonHelloAck` with `version.floor_exceeded` or `version.ceiling_exceeded` | The console draws the machine read-only; the working line names the side that is behind, with a press to its fix |
 | MINOR bump ships a semantic invariant change (author mistake) | Low | High | Reviewer checklist miss; CI compat-test suite; bug report from an older client | Patch-release as MAJOR bump; issue advisory; invalidate the MINOR and re-release as MAJOR |
 | Version stub storage grows unbounded because MAJOR bumps are rare | Low | Med | Storage metrics on `session_events.version_stub_metadata` column | Version stubs keep their bytes and are removed only with their session; expected acceptable overhead at expected MAJOR cadence (1–2 per year) |
-| Upcaster chain bug corrupts replay | Low | High | Replay-vs-canonical diff in CI; per-upcaster unit tests | Upcasters versioned and rollback-able |
 
 ## Reversibility Assessment
 
-- **Reversal cost:** HIGH. The wire format is a one-way door. Once MAJOR version N is in the field (emitted to any production audit log), it exists forever — there is no "un-ship" path. Changing the semver/integer decision or the stub-persistence rule after the first release would need an upcaster for every envelope already written.
-- **Blast radius:** Every envelope ever written on every machine. Every local SQLite audit log. Every upcaster implementation in the daemon.
-- **Migration path:** The upcaster chain IS the migration path. There is no separate rollback mechanism — rolling back means shipping an upcaster that transforms the newer version to the older.
+- **Reversal cost:** HIGH. The wire format is a one-way door. Once MAJOR version N is in the field (emitted to any production audit log), it exists forever — there is no "un-ship" path. Changing the semver/integer decision or the stub-persistence rule after the first release would break every envelope already written.
+- **Blast radius:** Every envelope ever written on every machine. Every local SQLite audit log.
+- **Migration path:** None. An envelope keeps the version it was written with and is never rewritten; a breaking change is a MAJOR bump whose release still reads the previous version's envelopes (item 7), and a service rolled back to the previous version keeps a newer one's events as stubs (item 5).
 - **Point of no return:** First `EventEnvelope` emitted with `version = "1.0"` in a non-test environment. Realistically this happens the first time any production daemon starts and emits `session.created`.
 
 ## Consequences
@@ -138,20 +136,19 @@ Pin-at-session assumes every client updates in the same step as the service, and
 
 - Mixed versions supported without forced-lockstep upgrades; the app and the service update independently.
 - Wire format is evolvable after release without user-visible breakage on additive changes.
-- Audit log immutability preserved — stubs persist verbatim, upcasters run on read.
+- Audit log immutability preserved — stubs persist verbatim and are re-read, never converted.
 - Enforcement is at each end; the event union in `packages/contracts` is the only registry.
 - The handshake reasons (`version.floor_exceeded`, `version.ceiling_exceeded`) turn a version mismatch into a read-only console that names the side behind, rather than a crash.
 
 ### Negative (accepted trade-offs)
 
 - Authors bear semantic-equivalence discipline burden. Reviewer checklist catches most; it will not catch 100%.
-- Upcaster chain grows with every MAJOR bump and must be actively maintained.
-- Stub storage is unbounded until re-interpretation; bounded by MAJOR-bump cadence (expected 1–2 per year).
+- A MAJOR bump's release carries the previous version's reader.
+- Stub storage grows with each stub until its session is deleted; how many stubs arrive follows the MAJOR-bump cadence (expected 1–2 per year).
 
 ### Unknowns
 
 - Empirical cadence of MAJOR bumps after release; drives storage growth of stubs.
-- Actual upcaster-chain replay cost at scale; measured once Plan-012 and the first MINOR bump ship.
 - Whether the reviewer checklist catches semantic breaks reliably enough in practice.
 
 ## Decision Validation
@@ -168,7 +165,6 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 - No removed event types (use deprecation path; retire event-type strings permanently per Protobuf reserved-tag precedent).
 - No removed enum values (as above).
 - New event types have a payload schema registered in Spec-005.
-- Upcaster-chain entry added if the new minor introduces typed behaviors that older clients must be able to stub.
 
 ### Success Criteria
 
@@ -176,15 +172,14 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 | --- | --- | --- | --- |
 | MINOR bump (e.g., `1.0` → `1.1`) preserves all existing replay output | 100% of replay test suite passes across all historical MINOR versions within the same MAJOR | CI replay-diff suite | First MINOR bump after release |
 | An app outside the service's version range gets `DaemonHelloAck` with the matching reason and a read-only console, never a crash | 100% of out-of-range handshakes in the contract-test matrix | CI contract tests | The handshake's landing (Plan-005) |
-| Version stub re-interpretation replay output equals native replay | Byte-identical diff = 0 across reserved event-type test fixtures | CI upcaster-chain tests | First MAJOR bump |
+| A version stub re-read by a receiver that knows its type equals the native read | Byte-identical diff = 0 across reserved event-type test fixtures | CI version-stub tests | First MINOR bump |
 | Unknown-type events persist as version stubs, never dropped | 100% of version stubs keep their original canonical bytes byte-identical | CI version-stub persistence tests | First MINOR bump |
 
 ### Tripwires (Revisit Triggers)
 
-1. **MAJOR bump required within 12 months of V1 launch.** — Reassess whether per-session wire-version pinning (Option B) is simpler in practice than ongoing upcaster-chain maintenance. Quantitative input: cost of upcaster maintenance vs. cost of a forced app-and-service upgrade.
+1. **MAJOR bump required within 12 months of V1 launch.** — Reassess whether per-session wire-version pinning (Option B) is simpler in practice than carrying the previous version's reader across a MAJOR bump. Quantitative input: cost of that reader vs. cost of a forced app-and-service upgrade.
 2. **Stub storage exceeds 5% of a session event log's size, or a provider driver ships an event type that triggers receiver stubbing across more than 10% of sessions.** — Reassess the stub-retention rule (item 11) and the MAJOR-bump cadence.
-3. **Upcaster-chain bug causes data-integrity issue in production.** — The next release fixes the offending chain entry. Reassess whether the upcaster-chain-on-read pattern is empirically safe enough versus a frozen-wire alternative.
-4. **Apps repeatedly land outside their service's version range** (the person updates one side and not the other). — Reassess whether the range should reach further back than the previous service version.
+3. **Apps repeatedly land outside their service's version range** (the person updates one side and not the other). — Reassess whether the range should reach further back than the previous service version.
 
 ## References
 
@@ -197,7 +192,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 | Protobuf — Proto Best Practices | Language guide | Unknown-field preservation discipline; reserved-tag rule; "changing a field number is equivalent to deletion and re-addition" | <https://protobuf.dev/best-practices/dos-donts/> (accessed 2026-04-18) |
 | Protobuf — Language Guide (Editions) | Language guide | Editions-based evolution; forward-compat discipline for wire-format changes | <https://protobuf.dev/programming-guides/editions/> (accessed 2026-04-18) |
 | CloudEvents v1.0.2 Specification | Specification | `specversion` attribute; silent-ignore discipline for unknown content (weaker precedent; spec has never bumped from 1.0, so no field-tested MAJOR-bump precedent) | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md> (accessed 2026-04-18) |
-| How to (not) do the events versioning? | Industry commentary (event sourcing) | Upcaster-chain on read; never rewrite log; events immutable | <https://event-driven.io/en/how_to_do_event_versioning/> (accessed 2026-04-18) |
+| How to (not) do the events versioning? | Industry commentary (event sourcing) | Never rewrite the log; events immutable | <https://event-driven.io/en/how_to_do_event_versioning/> (accessed 2026-04-18) |
 
 ### Related ADRs
 
@@ -208,7 +203,7 @@ Every proposed MINOR bump MUST be reviewed against this checklist before landing
 ### Related Specs
 
 - [Spec-005: Session Event Taxonomy and Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md) — `EventEnvelope.version` field declaration; §EventEnvelope Version Semantics subsection documents the semantics this ADR establishes.
-- [Spec-013: Persistence, Recovery, and Replay](../specs/013-persistence-recovery-and-replay.md) — replay path for upcaster chain; audit-log hydration semantics.
+- [Spec-013: Persistence, Recovery, and Replay](../specs/013-persistence-recovery-and-replay.md) — replay path; audit-log hydration semantics.
 
 ### Related Architecture Docs
 

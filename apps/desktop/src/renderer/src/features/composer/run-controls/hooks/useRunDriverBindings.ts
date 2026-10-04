@@ -14,7 +14,7 @@ import { type SessionStoreState } from "@renderer/store/session/session-state.js
 
 /**
  * One session's run-to-driver bindings, as its store currently has them. Folded once per
- * change of either reading, since the join walks the timeline.
+ * change of either reading, since the join walks the transcript.
  *
  * @consumedBy the composer's run controls
  */
@@ -22,11 +22,11 @@ export function useRunDriverBindings(
   sessionStore: SessionStore,
 ): ReadonlyMap<string, ProviderName> {
   const runs = useSessionPartition(sessionStore, "run");
-  const timeline = useSessionStore(sessionStore, selectSessionTimeline);
-  return useMemo(() => foldRunDriverBindings(runs, timeline), [runs, timeline]);
+  const transcript = useSessionStore(sessionStore, selectSessionTranscript);
+  return useMemo(() => foldRunDriverBindings(runs, transcript), [runs, transcript]);
 }
 
-/** The session timeline, a module-level function so every render passes the same selector. */
-function selectSessionTimeline(state: SessionStoreState): readonly ProjectedSessionEvent[] {
-  return state.timeline;
+/** The session transcript, a module-level function so every render passes the same selector. */
+function selectSessionTranscript(state: SessionStoreState): readonly ProjectedSessionEvent[] {
+  return state.transcript;
 }

@@ -11,10 +11,10 @@ import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcrip
 /**
  * Subscribe to one session's log and project it with every run group's member rows unfolded, so
  * Find counts the rows a closed run group's fold would hide. Subscribes to
- * `timeline` only, which the store replaces just when it admits an event.
+ * `transcript` only, which the store replaces just when it admits an event.
  */
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {
-  const timeline = useSessionStore(sessionStore, readTimeline);
+  const transcript = useSessionStore(sessionStore, readTranscript);
   // One retention table per session, seeded during render so the first pass over a session already
   // uses that session's table and a navigation never carries the previous session's rows over.
   const bridge = usePlatformBridge();
@@ -24,12 +24,15 @@ export function useTranscriptProjection(sessionStore: SessionStore): TranscriptW
     () => new TranscriptRowRetention(),
   );
   const heldRetention = retention.value;
-  return useMemo(() => deriveTranscriptWindow(timeline, heldRetention), [timeline, heldRetention]);
+  return useMemo(
+    () => deriveTranscriptWindow(transcript, heldRetention),
+    [transcript, heldRetention],
+  );
 }
 
 /** The log this window holds. A named function, so the selector identity is stable. */
-function readTimeline(state: {
-  readonly timeline: readonly ProjectedSessionEvent[];
+function readTranscript(state: {
+  readonly transcript: readonly ProjectedSessionEvent[];
 }): readonly ProjectedSessionEvent[] {
-  return state.timeline;
+  return state.transcript;
 }

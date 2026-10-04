@@ -26,9 +26,9 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
         refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
       );
     }
-    const { timelineCursors } = unwrapDaemonReply(
+    const { transcriptCursors } = unwrapDaemonReply(
       await callDaemon(bridge, "session.read", { sessionId: wireSessionId }),
     );
-    return { cursor: BASE_STATE_CURSOR, entities: [], timelineCursors };
+    return { cursor: BASE_STATE_CURSOR, entities: [], transcriptCursors };
   };
 }

@@ -69,7 +69,7 @@ describe("ArtifactIdSchema — the attachment element brand", () => {
 });
 
 // An omitted `idempotency_class` defaults to `manual_reconcile_only`, so a tool that declares
-// nothing is never treated as safe to replay.
+// nothing is never shown as safe to repeat.
 
 describe("ProviderToolMetadataSchema: ingress→normalized idempotency default", () => {
   it("defaults an omitted idempotency_class to 'manual_reconcile_only' at parse time", () => {

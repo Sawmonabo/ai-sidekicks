@@ -1,5 +1,4 @@
-// The agent-list fixtures the Agents pane suites, the accessibility tier and the screenshot mounts
-// share.
+// The agent-list fixtures the Agents pane suites and the accessibility tier share.
 
 import type {
   AgentDefinitionId,
@@ -43,13 +42,3 @@ export function resolvedConfiguration(
     ...overrides,
   };
 }
-
-/** An agent bound to the default Claude driver. */
-export const AGENT_ON_CLAUDE: AgentListEntry = agentEntry({ agentId: "agent-a" as AgentId });
-
-/** An agent named Runner bound to the Codex driver. */
-export const AGENT_ON_CODEX: AgentListEntry = agentEntry({
-  agentId: "agent-b" as AgentId,
-  name: "Runner",
-  binding: { driverName: "codex", modelId: "gpt-5.6", providerAccountId: null, effort: null },
-});

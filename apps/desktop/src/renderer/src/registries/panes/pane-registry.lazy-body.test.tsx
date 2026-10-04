@@ -15,7 +15,6 @@ import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js"
 import { countingLoader, syntheticPaneContextAt } from "./pane-registry.lazy-body.test-support.js";
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
-import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 
 /** A pane body of the shape features ship: its own chrome around its content. */
 function chromedBody(
@@ -41,16 +40,15 @@ describe("the pane layout's board — a loader-form registration", () => {
     const context = syntheticPaneContextAt("diff");
     const { container } = render(<>{registry.descriptorFor("diff")?.render(context)}</>);
 
-    // Before: the chrome is painted, the body is not, and the pane names the body it awaits.
-    expect(listPendingBodyNames(container)).toStrictEqual(["diff"]);
+    // Before: the chrome is painted and the body is not.
     expect(container.textContent).not.toContain("the diff body");
     expect(container.querySelectorAll(".meridian-pane")).toHaveLength(1);
 
     await settle();
 
-    // After: the body is there and the marker is gone.
+    // After: the body is there, and its chrome replaced the pending one rather than nesting in it.
     expect(container.textContent).toContain("the diff body");
-    expect(listPendingBodyNames(container)).toStrictEqual([]);
+    expect(container.querySelectorAll(".meridian-pane")).toHaveLength(1);
   });
 
   it("keeps one component identity across renders, so a mounted body is not rebuilt", () => {

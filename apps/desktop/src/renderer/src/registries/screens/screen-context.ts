@@ -1,6 +1,4 @@
-// What a screen is handed. It sits below `screen-registry.ts` because the registry reaches
-// `PendingScreenBody.tsx`, which names this context; declaring it in the registry would make a
-// cycle through type imports, which the layering check counts (as with `panes/pane-context.ts`).
+// What a screen is handed.
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

@@ -203,7 +203,7 @@ export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[num
 /**
  * One tool's override, by facet; at least one facet is present. An absent facet inherits, and a
  * client shows it as absent, never as a default it picked (the daemon's fallback for an absent
- * `idempotencyClass` is the manual-reconcile floor that crash recovery depends on).
+ * `idempotencyClass` is `manual_reconcile_only`).
  */
 export interface McpToolOverride {
   toolName: string;

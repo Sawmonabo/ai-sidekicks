@@ -13,14 +13,13 @@ import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-st
 /** A registered method the registry binds, so a scripted reply is checkable. */
 const REGISTERED_CALL = "presence.read";
 
-/** The reply `presence.read` registers: devices, each with the four members. */
+/** The reply `presence.read` registers: devices, each with the three members. */
 const ON_CONTRACT_REPLY = {
   devices: [
     {
       deviceId: "019b79ee-0280-7f00-8110-a11ce0000001",
       deviceType: "desktop",
       appVisible: true,
-      state: "online",
     },
   ],
 };
@@ -38,7 +37,7 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
     // One member off, which is what a scenario author actually gets wrong.
     const fixture = createFixture(
       scenarioAnswering(REGISTERED_CALL, {
-        devices: [{ ...ON_CONTRACT_REPLY.devices[0], state: "loitering" }],
+        devices: [{ ...ON_CONTRACT_REPLY.devices[0], appVisible: "loitering" }],
       }),
     );
 

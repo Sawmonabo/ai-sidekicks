@@ -25,6 +25,8 @@ Approval logic spread through application code has no single rule set to read or
 
 Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and changed and shipped only by an app update, like any other code. The service evaluates them in-process with the resident `@cedar-policy/cedar-wasm` authorizer: the policy set and schema are parsed once at start and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale against a changed approval rule, project trust or posture. A decision cache buys nothing at in-process latency for this local authorizer.
 
+The rules decide only the app's own tools: workflows, messaging other sessions and the browser. A provider's own ask gets either one of the few designed answers, written as plain code — the refusal of `claude agents`, `claude daemon` and `claude --bg`, the allow of an agent's own memory-folder `.md` file, and the answer to a Codex ask Codex has no command of its own for — or the person's approval card; no Cedar rule decides it, because each permission level is one of the provider's own modes underneath.
+
 ## Alternatives Considered
 
 ### Option A: Cedar with rules written in Cedar (Chosen)
@@ -89,7 +91,7 @@ The daemon depends on `@cedar-policy/cedar-wasm` on the Cedar **v4.13** line (12
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Approval categories expressible purely in Cedar (no app-side fallback) | Every category of the canonical `ApprovalCategory` enum | Policy spec review | When the approval policy set lands |
+| Decisions about the app's own tools expressible purely in Cedar (no app-side fallback) | Every action of the app's own tools | Policy spec review | When the approval policy set lands |
 | Cedar end-to-end policy decision latency per request — WASM build, **including JS↔WASM marshaling** (empirical target; no published WASM benchmark exists) | < 1 ms at p95 | End-to-end benchmark, then approval service metrics | When the composed approval gate is benchmarked, before it ships |
 
 ## References

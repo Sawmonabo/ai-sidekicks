@@ -10,8 +10,8 @@
 //
 // The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
 // to make up as to transcribe: a scenario answering `workflow.runList` renders a view that looks
-// served and ships a reference image of it. The registry is the daemon call set the app
-// binds, so nothing here is a second list.
+// served, and every tier that mounts it passes against a call the daemon does not have. The
+// registry is the daemon call set the app binds, so nothing here is a second list.
 
 import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
 import { daemonMethodBindingFor } from "@renderer/services/daemon/daemon-reply-registry.js";

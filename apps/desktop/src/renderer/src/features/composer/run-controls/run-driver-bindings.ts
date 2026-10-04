@@ -19,9 +19,9 @@ import {
  */
 export function foldRunDriverBindings(
   runs: Readonly<Record<string, StoredEntity>>,
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, ProviderName> {
-  const driverNameByAgentId = readAgentDriverNames(timeline);
+  const driverNameByAgentId = readAgentDriverNames(transcript);
   const driverNameByRunId = new Map<string, ProviderName>();
   for (const run of Object.values(runs)) {
     const agentId = readRunAgentId(run);

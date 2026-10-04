@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
 import {
   SubagentAnchorIndex,
   deriveSubagentAnchors,

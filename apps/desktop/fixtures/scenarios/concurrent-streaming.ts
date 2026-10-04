@@ -535,7 +535,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           updatedAt: "2026-01-01T14:20:02.450Z",
           draft: "",
         },
-        timelineCursors: { latest: "concurrent-streaming-cursor-45" },
+        transcriptCursors: { latest: "concurrent-streaming-cursor-45" },
       },
     },
     ...SETTINGS_PAGE_REPLIES,

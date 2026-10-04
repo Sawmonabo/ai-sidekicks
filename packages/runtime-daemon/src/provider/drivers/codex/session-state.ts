@@ -382,7 +382,7 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
    * Receives the `subagent.started` / `subagent.completed` pair per provider-attributed child
-   * thread; the child's only timeline presence.
+   * thread; the child's only transcript presence.
    */
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)

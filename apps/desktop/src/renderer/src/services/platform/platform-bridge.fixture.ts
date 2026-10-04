@@ -2,7 +2,7 @@
 // `services/daemon/daemon.fixture.ts`; this assembles it with the host's other answers.
 //
 // Native calls refuse rather than pretend, so a view cannot ship a code path nobody ran against
-// the real dialog. The `app` meta is fixed so a screenshot does not shift with the machine. The
+// the real dialog. The `app` meta is fixed so a rendered view does not shift with the machine. The
 // keyboard map is held in memory: the first read is empty and a write is read back, which is the
 // Keyboard page's whole contract with main.
 
@@ -22,7 +22,7 @@ import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "@renderer/services/daemon/daemon.fixture.js";
 import type { Scenario } from "@fixtures/scenario.js";
 
-/** Fixed `app` meta, so a screenshot does not move with the machine. */
+/** Fixed `app` meta, so a rendered view does not move with the machine. */
 export const FIXTURE_APP_META: PlatformBridge["app"] = {
   version: "0.0.0-fixture",
   platform: "darwin",

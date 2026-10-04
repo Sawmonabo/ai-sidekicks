@@ -78,7 +78,7 @@ Approval lifecycle:
 
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
-- [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
+- [Transcript And Reasoning](../specs/011-transcript-and-reasoning.md)
 - [Artifacts Files And Attachments](../specs/012-artifacts-files-and-attachments.md)
 
 ## Related ADRs

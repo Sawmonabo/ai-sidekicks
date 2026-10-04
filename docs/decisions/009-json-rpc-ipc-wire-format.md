@@ -23,7 +23,7 @@ The architecture program needs a stable IPC contract before CLI, desktop, and da
 
 ## Decision
 
-Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix domain socket (named pipe on Windows) for local daemon IPC. A device other than the machine calls the same JSON-RPC methods, sealed inside its own Noise channel through the person's relay ([Spec-027](../specs/027-remote-control.md)): every method the local transport serves is served there, and event subscriptions, the session timeline and run output included, ride the same channel, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment. The relay's WSS connection carries only the sealed channel frames Spec-027 defines and never a payload the relay can read. The control plane's own API is tRPC v11 per [ADR-013](./013-trpc-control-plane-api.md).
+Use JSON-RPC 2.0 with LSP-style `Content-Length` header framing over a Unix domain socket (named pipe on Windows) for local daemon IPC. A device other than the machine calls the same JSON-RPC methods, sealed inside its own Noise channel through the person's relay ([Spec-027](../specs/027-remote-control.md)): every method the local transport serves is served there, and event subscriptions, the session transcript and run output included, ride the same channel, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment. The relay's WSS connection carries only the sealed channel frames Spec-027 defines and never a payload the relay can read. The control plane's own API is tRPC v11 per [ADR-013](./013-trpc-control-plane-api.md).
 
 ## Alternatives Considered
 

@@ -586,16 +586,6 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The capture module itself, and nothing else.
-    files: ["tests/screenshot/settled-capture.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        ...withoutSelectors(TIER_SYNTAX_BANS, SCREENSHOT_MATCHER_REACH),
-      ],
-    },
-  },
-  {
     // The spawn module. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
     files: ["tests/helpers/electron-child.ts"],

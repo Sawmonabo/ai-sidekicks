@@ -1,5 +1,5 @@
-// Per-tool metadata for the Codex driver, and its only source of a tool's `idempotency_class`, so
-// crash recovery can dispatch on a class without asking the provider.
+// Per-tool metadata for the Codex driver, and its only source of a tool's `idempotency_class`:
+// whether a call may safely be repeated, shown per tool on Settings › MCP servers.
 //
 // - Tool names are `ThreadItem.type` discriminants: `codex app-server` (codex-cli 0.150.1)
 //   publishes no list of model-facing tool names, and that type is all the daemon observes.
@@ -32,7 +32,7 @@ export const CODEX_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
   "web_search",
 ]);
 
-/** `ThreadItem.type` arms for an invocation whose crash-recovery disposition matters. */
+/** `ThreadItem.type` arms for the tools the driver declares a class for. */
 const CODEX_TOOL_NAMES = [
   "commandExecution",
   "fileChange",
@@ -54,7 +54,7 @@ interface CodexToolDeclaration {
 
 const CODEX_TOOL_DECLARATIONS: Record<CodexToolName, CodexToolDeclaration> = {
   // Unannotated -> floor: an arbitrary shell command with an undeclared effect; the protocol
-  // exposes no dedup handle for a re-run.
+  // exposes no dedup handle for a repeated call.
   commandExecution: {
     description: "Executes a shell command in the thread's working directory.",
   },
@@ -62,15 +62,15 @@ const CODEX_TOOL_DECLARATIONS: Record<CodexToolName, CodexToolDeclaration> = {
   fileChange: {
     description: "Applies file creations, edits, and deletions to the working tree.",
   },
-  // Unannotated -> floor: a replay duplicates another agent's run and its downstream effect.
+  // Unannotated -> floor: a repeat duplicates another agent's run and its downstream effect.
   collabAgentToolCall: {
     description: "Spawns, messages, resumes, waits on, or closes a peer agent thread.",
   },
-  // Unannotated -> floor: a billable remote generation whose replay yields a different artifact.
+  // Unannotated -> floor: a billable remote generation whose repeat yields a different artifact.
   imageGeneration: {
     description: "Generates an image through the provider's remote model.",
   },
-  // Rationale: a read-only query against an external index; a replay changes nothing.
+  // Rationale: a read-only query against an external index; a repeat changes nothing.
   webSearch: {
     idempotency_class: "idempotent",
     description: "Runs a read-only web search and returns results to the model.",
@@ -80,7 +80,7 @@ const CODEX_TOOL_DECLARATIONS: Record<CodexToolName, CodexToolDeclaration> = {
     idempotency_class: "idempotent",
     description: "Reads an image file at a path into the model's context.",
   },
-  // Rationale: a wall-clock delay with no effect; a replay costs time and nothing else.
+  // Rationale: a wall-clock delay with no effect; a repeat costs time and nothing else.
   sleep: {
     idempotency_class: "idempotent",
     description: "Pauses the turn for a fixed duration.",

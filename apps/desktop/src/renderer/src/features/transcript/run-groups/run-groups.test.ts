@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { groupRowsByRun } from "./run-groups.js";
 import { findRunGroup, mixedWindow } from "./run-groups.test-support.js";
-import { runRow } from "../timeline-rows.test-support.js";
+import { runRow } from "../transcript-event-rows.test-support.js";
 
 describe("run groups — rows join a run group by runId and by nothing else", () => {
   it("groups each run's rows and leaves an unattributed row out of every run group", () => {

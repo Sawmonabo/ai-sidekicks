@@ -765,6 +765,8 @@ export class RustSidecarPtyHost implements PtyHost {
 /**
  * Creates the production `RustSidecarPtyHost`. An explicit `binaryPath` skips the default
  * resolution (CI paths, hand-built binaries, integration tests).
+ *
+ * @consumedBy the terminal selector's Windows default, once the sidecar package is a dependency
  */
 export function createRustSidecarPtyHost(opts?: {
   readonly binaryPath?: string;

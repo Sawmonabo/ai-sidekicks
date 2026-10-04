@@ -1,6 +1,6 @@
 // Records an MCP task's receiver-generated `taskId` on its `command_receipts` row so recovery can
-// poll it. A handle that cannot be stored exactly as issued leaves the column NULL (the receipt
-// stays `manual_reconcile_only`), and no failure here ever fails a turn.
+// poll it. A handle that cannot be stored exactly as issued leaves the column NULL (the call
+// stays halted after a restart, never run again), and no failure here ever fails a turn.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -81,7 +81,7 @@ describe("McpTaskHandleRecorder", () => {
   describe("the active state", () => {
     it("leaves NULL when the acceptance never arrived — the crash case", () => {
       // A crash before the acceptance is stored leaves no `CreateTaskResult` to parse, so nothing
-      // reaches the recorder and the receipt stays on the `manual_reconcile_only` halt.
+      // reaches the recorder and the call stays halted, never run again.
       observeMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },

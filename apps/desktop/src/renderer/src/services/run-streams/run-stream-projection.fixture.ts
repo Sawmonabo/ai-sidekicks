@@ -4,7 +4,7 @@
 // The two `run.*` streams deliver registered projections (`RunStateChangeEvent`,
 // `RunRolledBackEvent`, `QueueItemSummary`), not the session envelope: they have a top-level
 // `newState`, not `payload.newState`, and no `kind` or `sequence`. A fixture that handed over the
-// envelope would make every screenshot and end-to-end result about a frame no daemon produces.
+// envelope would make every end-to-end result about a frame no daemon produces.
 // Codex's safety hold is a live frame with no session row, so no beat projects to it.
 //
 // Every member is sourced from the beat, not invented. `occurredAt` becomes the state-change

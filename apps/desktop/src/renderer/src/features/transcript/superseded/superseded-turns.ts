@@ -4,7 +4,7 @@
 // Marks are single-field and present exactly when superseded, a row at the cutoff survives,
 // and marks are epoch-scoped because re-execution reuses ordinals.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /** One group of rows a single rollback rewound. */
 export interface SupersededTurns {
@@ -22,10 +22,10 @@ export interface SupersededTurns {
  * idempotent, so a row that arrived pre-marked is admitted through the same set.
  */
 export class SupersededIndex {
-  readonly #rows: readonly TimelineRow[];
+  readonly #rows: readonly TranscriptEventRow[];
   #supersededRowIds: ReadonlySet<string> | undefined;
 
-  public constructor(rows: readonly TimelineRow[]) {
+  public constructor(rows: readonly TranscriptEventRow[]) {
     this.#rows = rows;
   }
 
@@ -43,7 +43,9 @@ export class SupersededIndex {
  * A pre-marked row carries its own cutoff and a later boundary supersedes rows around it;
  * both feed one per-row cutoff and the lowest wins, matching `SupersededMarker`.
  */
-export function deriveSupersededTurns(rows: readonly TimelineRow[]): readonly SupersededTurns[] {
+export function deriveSupersededTurns(
+  rows: readonly TranscriptEventRow[],
+): readonly SupersededTurns[] {
   const cutoffsByEpoch = new Map<string, number[]>();
   const rankableRows: RankableRow[] = [];
 
@@ -98,7 +100,7 @@ interface RankableRow {
  * The two arms a superseded marker is allowed on. `general` carries no run attribution, so it
  * cannot be ranked or marked.
  */
-function rankableOf(row: TimelineRow): RankableRow | undefined {
+function rankableOf(row: TranscriptEventRow): RankableRow | undefined {
   if (row.kind === "run" || row.kind === "rollback_boundary") {
     return {
       id: row.id,

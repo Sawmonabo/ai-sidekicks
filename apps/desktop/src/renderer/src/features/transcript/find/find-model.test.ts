@@ -1,14 +1,14 @@
 // The find matcher and its boundary: the cap is asserted beside the uncapped total, so a
 // capped count cannot understate how broad the query is.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import { findInTranscript, stepFindMatch } from "./find-model.js";
-import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
 import { FIND_MATCH_CAP } from "./find-model.js";
 
-function searchWindow(): readonly TimelineRow[] {
+function searchWindow(): readonly TranscriptEventRow[] {
   return [
     runRow({
       id: "r1",
@@ -60,7 +60,7 @@ describe("find — what a query matches", () => {
 });
 
 describe("find — the cap bounds the walk and never the count", () => {
-  function oversizedWindow(): readonly TimelineRow[] {
+  function oversizedWindow(): readonly TranscriptEventRow[] {
     return Array.from({ length: FIND_MATCH_CAP + 5 }, (_unused, index) =>
       runRow({
         id: `row-${String(index)}`,
@@ -134,7 +134,7 @@ describe("find — stepping the walk", () => {
 
 describe("find — the first step, before anything is selected", () => {
   /** A window whose every row matches `hit`, so the match list is exactly `count` long. */
-  function windowOfMatches(count: number): readonly TimelineRow[] {
+  function windowOfMatches(count: number): readonly TranscriptEventRow[] {
     return Array.from({ length: count }, (_unused, index) =>
       runRow({
         id: `hit-${String(index + 1)}`,

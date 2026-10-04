@@ -72,8 +72,8 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   });
 
   it("copies the meta the bridge reports rather than the host's own", async () => {
-    // The command must read `app` off the bridge: the fixture pins that meta for stable
-    // screenshots, and a command reading `navigator` would pass every assertion above.
+    // The command must read `app` off the bridge: the fixture pins that meta, and a command
+    // reading `navigator` would pass every assertion above.
     let copied: string | undefined;
     const bridge = fixtureBridge();
     const instrumented: PlatformBridge = {

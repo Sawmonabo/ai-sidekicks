@@ -30,7 +30,7 @@ export function subscribeToSessionEventKinds(
       return;
     }
     lastSeenCursor = state.cursor;
-    const admitted = state.timeline.filter((event) => event.sequence > previousCursor);
+    const admitted = state.transcript.filter((event) => event.sequence > previousCursor);
     if (admitted.some((event) => watched.has(event.kind))) {
       onChangeSignal();
     }

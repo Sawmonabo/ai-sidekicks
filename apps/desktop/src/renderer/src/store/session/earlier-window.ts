@@ -18,12 +18,16 @@ import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
-import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from "./session-state.js";
+import {
+  capTranscript,
+  type SessionStoreState,
+  type TranscriptRetainedEnd,
+} from "./session-state.js";
 
 /** What one backward page added to a log, and what it could not. */
 export interface EarlierWindowMerge {
   /** The log with the page's admitted rows in front of it, oldest first. */
-  readonly timeline: readonly ProjectedSessionEvent[];
+  readonly transcript: readonly ProjectedSessionEvent[];
   /** Rows admitted at the head. */
   readonly admitted: number;
   /**
@@ -42,7 +46,7 @@ export interface EarlierWindowDependencies {
   readonly hueAllocator: AgentHueAllocator;
   /** The register of what is still waiting on a person. Recovered rows advance it too. */
   readonly waitingOnPersonRegister: WaitingOnPersonRegister;
-  readonly timelineCap: number | undefined;
+  readonly transcriptCap: number | undefined;
 }
 
 /**
@@ -51,10 +55,10 @@ export interface EarlierWindowDependencies {
  * consumer keyed on the log's identity does not re-project.
  */
 export function mergeEarlierWindow(
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
   earlier: readonly ProjectedSessionEvent[],
 ): EarlierWindowMerge {
-  const headSequence = timeline[0]?.sequence;
+  const headSequence = transcript[0]?.sequence;
   const admittedSequences = new Set<number>();
   const prefix: ProjectedSessionEvent[] = [];
   let refusedNotEarlier = 0;
@@ -74,7 +78,7 @@ export function mergeEarlierWindow(
   }
 
   return {
-    timeline: prefix.length === 0 ? timeline : [...prefix, ...timeline],
+    transcript: prefix.length === 0 ? transcript : [...prefix, ...transcript],
     admitted: prefix.length,
     refusedNotEarlier,
     duplicates,
@@ -86,7 +90,7 @@ export function mergeEarlierWindow(
  * reaches the cap, and the reader has moved to the head, so the cap cuts the end they left;
  * cutting the other way would discard the page as it landed.
  */
-const EARLIER_PAGE_RETAINED_END: TimelineRetainedEnd = "oldest";
+const EARLIER_PAGE_RETAINED_END: TranscriptRetainedEnd = "oldest";
 
 /** What one backward page did, and the state that records it. */
 export interface EarlierWindowFold {
@@ -115,7 +119,7 @@ export function foldEarlierWindowPage(
         event.sessionId === dependencies.sessionId && isReconcilableSequence(event.sequence),
     ),
   );
-  const merge = mergeEarlierWindow(current.timeline, admissible);
+  const merge = mergeEarlierWindow(current.transcript, admissible);
   if (merge.admitted === 0) {
     return { merge, nextState: undefined };
   }
@@ -129,7 +133,11 @@ export function foldEarlierWindowPage(
     merge,
     nextState: {
       ...current,
-      timeline: capTimeline(merge.timeline, dependencies.timelineCap, EARLIER_PAGE_RETAINED_END),
+      transcript: capTranscript(
+        merge.transcript,
+        dependencies.transcriptCap,
+        EARLIER_PAGE_RETAINED_END,
+      ),
       revision: current.revision + 1,
     },
   };

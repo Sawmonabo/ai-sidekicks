@@ -358,7 +358,7 @@ describe("deriveWindowTelemetry", () => {
 
   it("exceeded flips at the ceiling", () => {
     const telemetry = deriveWindowTelemetry({
-      windowSource: "estimated",
+      windowSource: "provider_reported",
       windowUsedTokens: 200_000,
       windowMaxTokens: 200_000,
       exceededWhenCountsAbsent: false,

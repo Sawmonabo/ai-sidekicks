@@ -42,7 +42,7 @@ export function useReasoningRead(runId: RunId | undefined): ReasoningRead {
     setReading({ status: "reading" });
     void callDaemon(
       bridge,
-      "timeline.reasoningSurfaceRead",
+      "transcript.reasoningSurfaceRead",
       { runId },
       { signal: round.signal },
     ).then((reply) => {

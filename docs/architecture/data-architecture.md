@@ -81,9 +81,9 @@ Key properties the rest of the architecture depends on:
 
 - **Wire version** is an envelope-level `EventEnvelope.version` field using semver string `"MAJOR.MINOR"`. Producer writes its own outgoing version at emit time.
 - **The app and the service agree a version range at the handshake.** Each app accepts its own service version and the previous one; outside that range the console is read-only and names the side that is behind. A session carries no version floor of its own.
-- **Audit log is never rewritten.** Receivers encountering unknown event types persist the original bytes as **version stubs**, each retaining all its fields verbatim. Upgrade-time re-interpretation happens via an upcaster chain at read/dispatch time, never by rewriting committed rows.
+- **Audit log is never rewritten.** Receivers encountering unknown event types persist the original bytes as **version stubs**, each retaining all its fields verbatim. A receiver that upgrades re-reads a stub's kept bytes with its own schema; nothing converts one version's shape to another's, and committed rows are never rewritten. Stubs also keep a newer service's events after the service is rolled back.
 - **MINOR bumps are additive-only.** New optional fields, new event types, new enum values. Any semantic or structural break requires a MAJOR bump.
-- **Version stubs are excluded from compaction** until re-interpreted at least once, so post-upgrade replay is lossless.
+- **Version stubs are never compacted.** A stub keeps its bytes until its session is deleted, so post-upgrade replay is lossless.
 
 See [ADR-017 §Decision](../decisions/017-cross-version-compatibility.md#decision) for the full semantics and [ADR-017 §Reviewer Checklist for MINOR Bumps](../decisions/017-cross-version-compatibility.md#reviewer-checklist-for-minor-bumps) for the author discipline that governs each additive bump.
 

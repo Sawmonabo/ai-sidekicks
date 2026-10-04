@@ -1,6 +1,6 @@
 // The availability arms, the tail, and the one control — each rendered as itself.
 
-import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -71,7 +71,7 @@ describe("the expand control", () => {
       onExpand,
       reading: {
         status: "refused",
-        refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
+        refusal: { code: "transcript.run_not_found", detail: "No such run.", origin: "daemon" },
       },
     });
     const control = container.querySelector<HTMLButtonElement>(
@@ -88,10 +88,10 @@ describe("the states around the read", () => {
     const container = renderThinkingRow({
       reading: {
         status: "refused",
-        refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
+        refusal: { code: "transcript.run_not_found", detail: "No such run.", origin: "daemon" },
       },
     });
     expect(container.textContent).toContain("No such run.");
-    expect(container.textContent).not.toContain("timeline.run_not_found");
+    expect(container.textContent).not.toContain("transcript.run_not_found");
   });
 });

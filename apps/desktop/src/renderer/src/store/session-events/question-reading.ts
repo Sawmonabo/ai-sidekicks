@@ -10,7 +10,7 @@
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 /** One question record, as much of it as the row's payload carries. */
@@ -44,7 +44,7 @@ export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "u
  *
  * @consumedBy the question card, once the composer reads it off the session's question rows
  */
-export function readQuestion(row: TimelineRow): QuestionReading | undefined {
+export function readQuestion(row: TranscriptEventRow): QuestionReading | undefined {
   if (row.type !== "question.asked") {
     return undefined;
   }

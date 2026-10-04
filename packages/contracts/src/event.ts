@@ -44,10 +44,7 @@ import type {
 } from "./event-variant-types.js";
 import { GitSettledPayloadSchema } from "./gitflow/local.js";
 import { uuidTextFormSchema } from "./internal/branded.js";
-import {
-  McpServerOauthCompletedPayloadSchema,
-  McpServerStatusChangedPayloadSchema,
-} from "./mcp-governance.js";
+import { McpServerOauthCompletedPayloadSchema } from "./mcp-governance.js";
 import {
   PlanAcceptedPayloadSchema,
   PlanHandedOffPayloadSchema,
@@ -234,7 +231,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   // orchestration_admission
   "orchestration.rejected": "orchestration_admission",
   // mcp_governance
-  "mcp.server_status_changed": "mcp_governance",
   "mcp.server_oauth_completed": "mcp_governance",
   // workflow_lifecycle
   "workflow.created": "workflow_lifecycle",
@@ -379,11 +375,6 @@ const questionAskedVariantSchema = buildSessionEventVariantSchema(
   "question.asked",
   "interactive_request",
   QuestionAskedPayloadSchema,
-);
-const mcpServerStatusChangedVariantSchema = buildSessionEventVariantSchema(
-  "mcp.server_status_changed",
-  "mcp_governance",
-  McpServerStatusChangedPayloadSchema,
 );
 const mcpServerOauthCompletedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_oauth_completed",
@@ -731,7 +722,6 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   planAcceptedVariantSchema,
   planHandedOffVariantSchema,
   questionAskedVariantSchema,
-  mcpServerStatusChangedVariantSchema,
   mcpServerOauthCompletedVariantSchema,
   cloudTaskUpdatedVariantSchema,
   sessionRestoreFinishedVariantSchema,

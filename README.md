@@ -196,12 +196,12 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-014: V1 Feature Sc
 | 5 | Approval gates | 7 categories of human-in-the-loop safety |
 | 6 | Repo attach | Bind sessions to git repositories |
 | 7 | Worktree execution | Isolated branches per agent run |
-| 8 | Session timeline | Event-sourced session history, replayable |
+| 8 | Session transcript | Event-sourced session history, replayable |
 | 9 | Local daemon + CLI | First client over the typed SDK |
 | 10 | Event audit log | Event-sourced persistence backbone |
 | 11 | Artifacts | Diffs, files, and attachments; a session's artifacts stay on the machine that runs it, and every linked device reads them through Remote Control |
 | 12 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
-| 13 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session timeline, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
+| 13 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session transcript, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
 | 14 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-025](docs/decisions/025-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-024](docs/decisions/024-visual-node-graph-workflow-authoring.md) |
 | 15 | MCP server configuration and governance | Server-config CRUD, status/health probing, server OAuth per [Spec-024](docs/specs/024-mcp-server-configuration-and-governance.md) + [Plan-022](docs/plans/022-mcp-server-configuration-and-governance.md) |
 | 16 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |

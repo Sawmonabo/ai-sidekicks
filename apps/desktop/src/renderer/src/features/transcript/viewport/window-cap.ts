@@ -17,7 +17,7 @@ export interface WindowRow {
   readonly key: string;
   /** The run group or row this hangs from; `undefined` for a top-level row. */
   readonly parentKey: string | undefined;
-  /** The `timeline.read` cursor this row was read at — the unit a pin cuts by. */
+  /** The `transcript.read` cursor this row was read at — the unit a pin cuts by. */
   readonly rootCursor: string;
 }
 

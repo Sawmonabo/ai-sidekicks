@@ -65,7 +65,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
 
   it("asks for the base-state read in the same act as taking the subscription", async () => {
     // Nothing else called `requestRefresh` on an open, so even a registry with a working read never
-    // performed one. The control is the count: zero without the request, with an empty timeline.
+    // performed one. The control is the count: zero without the request, with an empty transcript.
     const { bridge, scenarioEngine: engine } = createFixtureBridge({
       scenario: CONCURRENT_STREAMING_SCENARIO,
     });
@@ -93,7 +93,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
 
     engine.advance(PAST_EVERY_BEAT_MS);
     engine.advance(APPLY_COALESCE_MS + 1);
-    expect(registry.peek(SESSION_ID)?.snapshot().timeline).toHaveLength(
+    expect(registry.peek(SESSION_ID)?.snapshot().transcript).toHaveLength(
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
 

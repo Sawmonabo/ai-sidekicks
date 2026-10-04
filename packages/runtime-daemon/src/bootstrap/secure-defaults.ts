@@ -1,15 +1,11 @@
 // SecureDefaults: the validated bootstrap configuration, loaded before any listener binds.
-// `effectiveSettings()` throws until `load()` has succeeded. Only `localIpcPath` and
-// `bannerFormat` exist; any other key is refused with `unknown_setting`. Socket-path probing
-// belongs to the listener.
+// `effectiveSettings()` throws until `load()` has succeeded. Only `localIpcPath` exists; any
+// other key is refused with `unknown_setting`. Socket-path probing belongs to the listener.
 
-/** The bootstrap settings: the OS-local socket or pipe path and the banner format. */
+/** The bootstrap settings: the OS-local socket or pipe path. */
 export interface SecureDefaultsConfig {
   /** Path of the IPC socket or named pipe; only checked to be non-empty here. */
   readonly localIpcPath: string;
-
-  /** First-run banner format: `text` is one screen on stdout, `json` is a single JSON line. */
-  readonly bannerFormat: "text" | "json";
 }
 
 /**
@@ -18,13 +14,10 @@ export interface SecureDefaultsConfig {
  */
 export interface SecureDefaultsEffectiveSettings {
   readonly localIpcPath: string;
-  readonly bannerFormat: "text" | "json";
 }
 
 // A closed allowlist: a denylist would silently accept any future key.
-const KNOWN_KEYS: ReadonlySet<string> = new Set<string>(["localIpcPath", "bannerFormat"]);
-
-const VALID_BANNER_FORMATS: ReadonlySet<string> = new Set<string>(["text", "json"]);
+const KNOWN_KEYS: ReadonlySet<string> = new Set<string>(["localIpcPath"]);
 
 /**
  * Thrown by `SecureDefaults.load` on invalid configuration. `code` is stable and distinct per
@@ -116,13 +109,6 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
       { setting: "localIpcPath" },
     );
   }
-  if (!hasOwn(config, "bannerFormat")) {
-    throw new SecureDefaultsValidationError(
-      "missing_required_setting",
-      `SecureDefaults.load: required setting "bannerFormat" is missing`,
-      { setting: "bannerFormat" },
-    );
-  }
 
   const { localIpcPath } = config;
   if (typeof localIpcPath !== "string" || localIpcPath.length === 0) {
@@ -133,19 +119,7 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     );
   }
 
-  const { bannerFormat } = config;
-  if (typeof bannerFormat !== "string" || !VALID_BANNER_FORMATS.has(bannerFormat)) {
-    throw new SecureDefaultsValidationError(
-      "invalid_banner_format",
-      `SecureDefaults.load: bannerFormat must be one of ${listKeys(VALID_BANNER_FORMATS)} (got ${describeValue(bannerFormat)})`,
-      { setting: "bannerFormat", value: bannerFormat },
-    );
-  }
-
-  return {
-    localIpcPath,
-    bannerFormat: bannerFormat as "text" | "json",
-  };
+  return { localIpcPath };
 }
 
 function hasOwn(obj: SecureDefaultsConfig, key: string): boolean {

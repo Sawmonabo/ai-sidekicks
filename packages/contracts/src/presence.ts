@@ -16,76 +16,33 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { wireFreeFormString } from "./session.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
-import { isoDateTimeSchema } from "./internal/wire-scalars.js";
-
-/** A device's liveness as the machine last saw it. */
-export type PresenceState = "online" | "idle" | "reconnecting" | "offline";
-/** Parses a {@link PresenceState}. */
-export const PresenceStateSchema: z.ZodType<PresenceState, PresenceState> = z.enum([
-  "online",
-  "idle",
-  "reconnecting",
-  "offline",
-]);
 
 /** The longest device category, such as "desktop" or "mobile", in characters. */
 export const DEVICE_TYPE_MAX_LEN = 64;
 
 /**
  * A device's report to a machine, sent when `appVisible` changes and otherwise every 15 seconds
- * on each machine connection the device holds. Every key is required; `focusedSessionId` is
- * `null`, never absent, when no session is in focus.
+ * on each machine connection the device holds. It is also each device `presence.read` lists:
+ * the machine answers with the last report it holds per device.
  */
 export interface PresenceHeartbeat {
   deviceId: string;
-  activityState: PresenceState;
-  metadata: {
-    deviceType: string;
-    focusedSessionId: SessionId | null;
-    lastActivityAt: string;
-    /**
-     * An app window is in front on this device. A window behind a locked or
-     * sleeping screen is not in front.
-     */
-    appVisible: boolean;
-  };
+  deviceType: string;
+  /**
+   * An app window is in front on this device. A window behind a locked or
+   * sleeping screen is not in front.
+   */
+  appVisible: boolean;
 }
 
-/** Parses a {@link PresenceHeartbeat}; both objects are strict, so an unknown key is refused. */
+/** Parses a {@link PresenceHeartbeat}; the object is strict, so an unknown key is refused. */
 export const PresenceHeartbeatSchema: z.ZodType<PresenceHeartbeat, PresenceHeartbeat> = z
   .object({
     deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceHeartbeat.deviceId"),
-    activityState: PresenceStateSchema,
-    metadata: z
-      .object({
-        deviceType: wireFreeFormString(
-          DEVICE_TYPE_MAX_LEN,
-          "PresenceHeartbeat.metadata.deviceType",
-        ),
-        focusedSessionId: SessionIdSchema.nullable(),
-        lastActivityAt: isoDateTimeSchema,
-        appVisible: z.boolean(),
-      })
-      .strict(),
-  })
-  .strict();
-
-/** One device connected to this machine, as the machine last heard from it. */
-export interface PresenceDevice {
-  deviceId: string;
-  deviceType: string;
-  appVisible: boolean;
-  state: PresenceState;
-}
-
-const PresenceDeviceSchema: z.ZodType<PresenceDevice, PresenceDevice> = z
-  .object({
-    deviceId: wireFreeFormString(DEVICE_ID_MAX_LEN, "PresenceDevice.deviceId"),
-    deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceDevice.deviceType"),
+    deviceType: wireFreeFormString(DEVICE_TYPE_MAX_LEN, "PresenceHeartbeat.deviceType"),
     appVisible: z.boolean(),
-    state: PresenceStateSchema,
   })
   .strict();
 
@@ -94,13 +51,13 @@ const PresenceDeviceSchema: z.ZodType<PresenceDevice, PresenceDevice> = z
  * `presence.subscribe` pushes when a device comes, goes or changes.
  */
 export interface MachinePresence {
-  devices: PresenceDevice[];
+  devices: PresenceHeartbeat[];
 }
 
 /** Parses a {@link MachinePresence}. */
 export const MachinePresenceSchema: z.ZodType<MachinePresence, MachinePresence> = z
   .object({
-    devices: z.array(PresenceDeviceSchema),
+    devices: z.array(PresenceHeartbeatSchema),
   })
   .strict();
 

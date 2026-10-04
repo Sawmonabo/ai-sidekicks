@@ -77,8 +77,8 @@ export class ScreenRegistry {
       return;
     }
     // The fallback is the route's own empty absence frame.
-    const loadedBody = new LoaderBackedBody(registration.body, (context: ScreenContext) =>
-      createElement(PendingScreenBody, { context }),
+    const loadedBody = new LoaderBackedBody(registration.body, () =>
+      createElement(PendingScreenBody),
     );
     // The keyed registry throws on a refused claim before the loader table is written.
     this.#descriptorsByName.register(registration.name, {

@@ -17,7 +17,7 @@ describe("mergeEarlierWindow — a page grows a log at the head and nowhere else
     // Without the guard, row 10 lands twice.
     const merge = mergeEarlierWindow(eventsAt([10, 11]), eventsAt([9, 10, 11]));
 
-    expect(merge.timeline.map((event) => event.sequence)).toStrictEqual([9, 10, 11]);
+    expect(merge.transcript.map((event) => event.sequence)).toStrictEqual([9, 10, 11]);
     expect(merge.admitted).toBe(1);
     expect(merge.refusedNotEarlier).toBe(2);
   });

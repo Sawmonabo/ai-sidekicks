@@ -18,7 +18,7 @@ import {
   isReconcilableSequence,
   orderBatchBySequence,
 } from "./sequence-reconciler.js";
-import { capTimeline, type TimelineRetainedEnd } from "./session-state.js";
+import { capTranscript, type TranscriptRetainedEnd } from "./session-state.js";
 import type { SessionStoreState } from "./session-state.js";
 import type { ApplyOutcome } from "./apply-outcome.js";
 
@@ -31,8 +31,8 @@ export interface AppliedBatchDependencies {
   readonly hueAllocator: AgentHueAllocator;
   /** The register of what is still waiting on a person. Advanced by every admitted row. */
   readonly waitingOnPersonRegister: WaitingOnPersonRegister;
-  readonly timelineCap: number | undefined;
-  readonly retainedEnd: TimelineRetainedEnd;
+  readonly transcriptCap: number | undefined;
+  readonly retainedEnd: TranscriptRetainedEnd;
 }
 
 /** What one batch did, and the state that records it. */
@@ -107,10 +107,10 @@ export function foldAppliedBatch(
     if (event.actorId !== undefined) {
       dependencies.hueAllocator.admit(event.actorId);
     }
-    // The register advances on the admitted row, not the timeline it joins: what is outstanding
+    // The register advances on the admitted row, not the transcript it joins: what is outstanding
     // outlives the window, and the cap or the next read can drop this row.
     dependencies.waitingOnPersonRegister.admit([event]);
-    appended ??= [...current.timeline];
+    appended ??= [...current.transcript];
     appended.push(event);
     admitted += 1;
   }
@@ -143,10 +143,10 @@ export function foldAppliedBatch(
     nextState: {
       ...current,
       partitions,
-      timeline:
+      transcript:
         appended === undefined
-          ? current.timeline
-          : capTimeline(appended, dependencies.timelineCap, dependencies.retainedEnd),
+          ? current.transcript
+          : capTranscript(appended, dependencies.transcriptCap, dependencies.retainedEnd),
       cursor: dependencies.reconciler.cursor,
       // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its
       // sequences are not recorded here; the drain re-derives them as an ordinary range.

@@ -223,7 +223,7 @@ describe("LocalIpcGateway", () => {
   let gateway: LocalIpcGateway;
 
   beforeAll(async () => {
-    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
+    bootstrap({ localIpcPath: socketPath });
     const registry = new MethodRegistryImpl();
     const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
     for (const method of ["x.y", "daemon.hello"]) {

@@ -1,9 +1,8 @@
 // The context-window meter: how full the conversation is. Labeled "conversation", not "budget" or
 // "usage", which would read as money. The bar is the last reading the daemon sent, never a
 // prediction, and never changes color or adds a sentence with fullness. A payload missing a member
-// yields no reading, rendered as the "not checked" empty state. A default or estimated window is
-// said in a note beside the bar, since a provider-reported window is a measurement and those are
-// a guess.
+// yields no reading, rendered as the "not checked" empty state. A model-default window is said in
+// a note beside the bar, since a provider-reported window is a measurement and a default is not.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { ContextWindowReading } from "./context-window-reading.js";

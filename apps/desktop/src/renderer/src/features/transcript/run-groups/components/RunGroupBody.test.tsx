@@ -9,12 +9,12 @@ import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-group-body.js";
 import { RunGroupBody } from "./RunGroupBody.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
-import { runRow } from "../../timeline-rows.test-support.js";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import { runRow } from "../../transcript-event-rows.test-support.js";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 const RUN_ID = "run-a";
 
-function longRun(extraRows: number): readonly TimelineRow[] {
+function longRun(extraRows: number): readonly TranscriptEventRow[] {
   return Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + extraRows }, (_unused, index) =>
     runRow({
       id: `r${String(index + 1)}`,
@@ -28,7 +28,7 @@ function longRun(extraRows: number): readonly TimelineRow[] {
 }
 
 function renderBody(
-  rows: readonly TimelineRow[],
+  rows: readonly TranscriptEventRow[],
   narrowedRowIds?: readonly string[],
 ): HTMLElement | null {
   const sealed = findRunGroup(groupRowsByRun(rows), RUN_ID);

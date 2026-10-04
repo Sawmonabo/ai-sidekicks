@@ -21,14 +21,11 @@ import {
   mountWorkflowRunPane,
   mountWorkflowRunPhaseGraph,
   mountWorkflowsDestination,
-} from "../helpers/feature-mounts/workflows.js";
+} from "./feature-mounts/workflows.js";
 // The schema form mount resolves both chunks a form needs and returns once the verdict has
 // landed. The form kit's sheet arrives with its chunk, so mounting it also puts that sheet on
 // the page.
-import {
-  isSchemaFormSettled,
-  mountSettledSchemaForm,
-} from "../helpers/feature-mounts/schema-form.js";
+import { isSchemaFormSettled, mountSettledSchemaForm } from "./feature-mounts/schema-form.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";

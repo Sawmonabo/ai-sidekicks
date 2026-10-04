@@ -71,12 +71,12 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | --- | --- | --- | --- | --- |
 | Queue persistence is unavailable | Low | High | Queue creation fails and runtime health degrades | Block new queued work explicitly and expose repair state |
 | Concurrent clients race on the same queue | Med | Med | Duplicate or conflicting intervention outcomes appear | Use daemon-owned receipts and serialized queue mutation |
-| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from what the person expects | Make intervention results canonical events |
+| Intervention outcome is hidden from UI | Med | Med | Transcript and run state diverge from what the person expects | Make intervention results canonical events |
 
 ## Reversibility Assessment
 
 - **Reversal cost:** High. It changes runtime truth, persistence, replay, and UI semantics.
-- **Blast radius:** Queue UI, run engine, recovery, approvals, and timeline.
+- **Blast radius:** Queue UI, run engine, recovery, approvals, and transcript.
 - **Migration path:** Would require moving queue truth to a different authority and reconciling outstanding queue items and interventions.
 - **Point of no return:** After queue items and interventions are persisted as part of canonical runtime state.
 

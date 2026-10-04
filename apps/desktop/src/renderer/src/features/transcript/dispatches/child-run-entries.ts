@@ -3,9 +3,9 @@
 // `fromActor`, `toActor` and `reason` are read off the payload and rendered verbatim or as an
 // absence, never inferred.
 
-import type { ChildRunSummary } from "@ai-sidekicks/contracts/timeline/child-run-summary";
+import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 // The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
@@ -62,13 +62,13 @@ export interface HandoffEntry {
  * frame. The derivation is a pure fold that a test can drive with no DOM.
  */
 export class ChildRunIndex {
-  readonly #rows: readonly TimelineRow[];
+  readonly #rows: readonly TranscriptEventRow[];
   #childRunEntries: readonly ChildRunEntry[] | undefined;
   #handoffEntries: readonly HandoffEntry[] | undefined;
   #childRunEntriesByRowId: ReadonlyMap<string, ChildRunEntry> | undefined;
   #handoffEntriesByRowId: ReadonlyMap<string, HandoffEntry> | undefined;
 
-  public constructor(rows: readonly TimelineRow[]) {
+  public constructor(rows: readonly TranscriptEventRow[]) {
     this.#rows = rows;
   }
 
@@ -102,11 +102,13 @@ export class ChildRunIndex {
 }
 
 /**
- * Every row carrying a child-run summary, in log order. The member is on `TimelineRowBase`, so
- * this reads it without narrowing on `kind`: dropping a child run on a `general` row would hide
+ * Every row carrying a child-run summary, in log order. The member is on `TranscriptEventRowBase`,
+ * so this reads it without narrowing on `kind`: dropping a child run on a `general` row would hide
  * background work.
  */
-export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
+export function deriveChildRunEntries(
+  rows: readonly TranscriptEventRow[],
+): readonly ChildRunEntry[] {
   const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();
   const entries: ChildRunEntryUnderConstruction[] = [];
   for (const row of rows) {
@@ -138,7 +140,7 @@ export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly Ch
  * Every handoff in the window, in log order. A row qualifies on its `type` alone: one carrying
  * handoff members under another type is not a handoff, since the projection decides the set.
  */
-export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly HandoffEntry[] {
+export function deriveHandoffEntries(rows: readonly TranscriptEventRow[]): readonly HandoffEntry[] {
   const anchors = new SubagentAnchorIndex(rows);
   const entries: HandoffEntry[] = [];
   for (const row of rows) {
@@ -182,6 +184,6 @@ interface ChildRunEntryUnderConstruction {
  * payload member. Neither falls back to the row's own `runId`, which is the parent: that would
  * thread a handoff to the run group it already sits in.
  */
-function childRunIdOf(row: TimelineRow): string | undefined {
+function childRunIdOf(row: TranscriptEventRow): string | undefined {
   return row.childRunSummary?.runId ?? readWireString(projectedPayload(row)["childRunId"]);
 }

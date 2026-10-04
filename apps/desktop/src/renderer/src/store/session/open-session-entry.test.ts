@@ -57,7 +57,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     return {
       cursor,
       entities: [],
-      timelineCursors: {
+      transcriptCursors: {
         latest: "9_1723291500000000000",
         ...(acknowledged === undefined ? {} : { acknowledged }),
       },

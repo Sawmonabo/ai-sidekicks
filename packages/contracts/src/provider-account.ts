@@ -630,7 +630,7 @@ export const ProviderAccountListResponseSchema: z.ZodType<ProviderAccountListRes
 
 // `providerAccount.subscribe` is a live tail of registry changes on this node. It sends a
 // wire-only notification, never an `EventEnvelope`: a node-local registry act has no session,
-// and a session event would put node administration in a session's timeline. A client opens
+// and a session event would put node administration in a session's transcript. A client opens
 // the subscription before calling `providerAccount.login`, so a completion that races the call
 // still arrives. Every notification is a full state update, so seeing one twice is harmless.
 

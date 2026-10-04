@@ -46,10 +46,10 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-sidecar.md), all PTY access flows through a `PtyHost` interface declared in `packages/contracts/` with two implementations under one platform selector:
 
-- **`RustSidecarPtyHost`** — primary on Windows. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
-- **`NodePtyHost`** — primary on macOS and Linux (in-process, zero per-spawn process overhead). Also ships as the Windows fallback for cases where the sidecar binary is missing, fails to start, or is explicitly disabled for debugging.
+- **`RustSidecarPtyHost`** — the Windows backend, and the only one there. Spawns a child-process Rust sidecar built on `portable-pty` (wezterm) and communicates via LSP-style Content-Length framing over stdio (JSON control channel + length-prefixed binary data channel). The sidecar's lifecycle is tied to the daemon's session lifecycle; supervisor auto-restarts on crash and surfaces backpressure to the caller.
+- **`NodePtyHost`** — the macOS and Linux backend (in-process, zero per-spawn process overhead). The sidecar ships for Windows alone, and Windows has no `node-pty` fallback.
 
-The platform selector enforces the defaults above; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-021.
+The platform selector picks the one backend for the platform; consumers of `PtyHost` never see the backend choice. Implementation detail for the sidecar (crate structure, IPC protocol, distribution, signing, test matrix) lives in Plan-021.
 
 ## Data Flow
 

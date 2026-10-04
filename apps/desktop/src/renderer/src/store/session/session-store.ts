@@ -6,7 +6,7 @@
 // The degraded flag is sticky: a gap, a drop or a projection failure sets it, and only a
 // completed re-pull clears it, since a later event proves nothing about the one that never
 // arrived. `prependEarlierEvents` is the only way the log grows at its head, and what is
-// outstanding outlives the capped timeline in the waiting-on-person register.
+// outstanding outlives the capped transcript in the waiting-on-person register.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -39,7 +39,7 @@ import {
   admitsBaseStateAt,
   establishedState,
   uninitializedState,
-  type TimelineRetainedEnd,
+  type TranscriptRetainedEnd,
 } from "./session-state.js";
 import type { SessionBaseState, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
@@ -56,8 +56,8 @@ export interface SessionStoreOptions {
   readonly sessionId: string;
   /** Event-kind to projector. A kind with no projector contributes no entity. */
   readonly projectors?: EntityProjectorTable;
-  /** Timeline rows retained. Unbounded when omitted; the transcript sets its own cap. */
-  readonly timelineCap?: number;
+  /** Transcript rows retained. Unbounded when omitted; the transcript sets its own cap. */
+  readonly transcriptCap?: number;
 }
 
 const SITE = "store/session/session-store.ts";
@@ -76,7 +76,7 @@ export class SessionStore {
    */
   public readonly failedDependentReads: FailedDependentReads = new FailedDependentReads();
   readonly #sessionId: string;
-  readonly #timelineCap: number | undefined;
+  readonly #transcriptCap: number | undefined;
   readonly #store: StoreApi<SessionStoreState>;
   readonly #hueAllocator = new AgentHueAllocator();
   readonly #reconciler = new SequenceReconciler();
@@ -109,7 +109,7 @@ export class SessionStore {
 
   public constructor(options: SessionStoreOptions) {
     this.#sessionId = options.sessionId;
-    this.#timelineCap = options.timelineCap;
+    this.#transcriptCap = options.transcriptCap;
     this.#projectionRunner = new EntityProjectionRunner(options.projectors ?? {});
     this.#store = createStore<SessionStoreState>(() =>
       uninitializedState({ sessionId: options.sessionId, revision: 0 }),
@@ -184,11 +184,11 @@ export class SessionStore {
       cursor: baseState.cursor,
       windowHeadCursor: baseState.readFromCursor,
     });
-    const timeline = orderBatchBySequence(baseState.timeline ?? []);
-    this.#waitingOnPersonRegister.admit(timeline);
+    const transcript = orderBatchBySequence(baseState.transcript ?? []);
+    this.#waitingOnPersonRegister.admit(transcript);
     this.#reconciler.rebaseTo(
       baseState.cursor,
-      timeline.map((event) => event.sequence),
+      transcript.map((event) => event.sequence),
     );
 
     // A re-pull clears the sticky flag here; every other path merges the cause upward.
@@ -196,8 +196,8 @@ export class SessionStore {
       establishedState({
         sessionId: this.#sessionId,
         baseState,
-        orderedTimeline: timeline,
-        timelineCap: this.#timelineCap,
+        orderedTranscript: transcript,
+        transcriptCap: this.#transcriptCap,
         revision: current.revision + 1,
       }),
     );
@@ -268,18 +268,18 @@ export class SessionStore {
         preInitializationBuffer: this.#preInitializationBuffer,
         hueAllocator: this.#hueAllocator,
         waitingOnPersonRegister: this.#waitingOnPersonRegister,
-        timelineCap: this.#timelineCap,
+        transcriptCap: this.#transcriptCap,
         retainedEnd: this.#retainedEnd,
       });
       if (nextState !== undefined) {
         this.#store.setState(nextState);
       }
-      // Both readings go under this session's key so the pair lines up. The size is the timeline
+      // Both readings go under this session's key so the pair lines up. The size is the transcript
       // (what the cap bounds) of the state just set; a batch that admitted nothing leaves the
       // gauge at its last reading.
       recordApplyLatency(this.#sessionId, readPerformanceMeterTime() - startedAt);
       if (nextState !== undefined) {
-        recordStoreSize(this.#sessionId, nextState.timeline.length);
+        recordStoreSize(this.#sessionId, nextState.transcript.length);
       }
       return outcome;
     } finally {
@@ -312,7 +312,7 @@ export class SessionStore {
       sessionId: this.#sessionId,
       hueAllocator: this.#hueAllocator,
       waitingOnPersonRegister: this.#waitingOnPersonRegister,
-      timelineCap: this.#timelineCap,
+      transcriptCap: this.#transcriptCap,
     });
     if (nextState === undefined) {
       return merge;
@@ -326,7 +326,7 @@ export class SessionStore {
    * Which end of an over-cap log survives. A backward page moves the reader to the head, so the
    * cap cuts the end they left; cutting the other way would discard the page as it landed.
    */
-  get #retainedEnd(): TimelineRetainedEnd {
+  get #retainedEnd(): TranscriptRetainedEnd {
     return this.#earlierEventCount > 0 ? "oldest" : "newest";
   }
 }

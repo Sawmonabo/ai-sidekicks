@@ -78,7 +78,7 @@ describe("the run partition under every shipped scenario", () => {
       );
       // A projector throw, a gap or a divergence would each degrade the store.
       expect(state.degradedCause).toBeUndefined();
-      expect(state.timeline.length).toBe(scenario.beats.length);
+      expect(state.transcript.length).toBe(scenario.beats.length);
     },
   );
 });

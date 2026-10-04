@@ -20,7 +20,6 @@ export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>
   destructive_git: "Change git history",
   plan_approval: "Approve a plan",
   gate: "Pass a gate",
-  human_step_contribution: "Contribute to a step",
 };
 
 /** What a state is called on screen. */
