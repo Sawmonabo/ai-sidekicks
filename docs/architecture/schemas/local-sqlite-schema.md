@@ -352,8 +352,8 @@ CREATE TABLE driver_capabilities (
 );
 
 -- Owner: Plan-003
--- Per-tool metadata, cached so a cold start reads each tool's declared idempotency_class
--- without round-tripping the driver (Spec-004 §Recovery Consequences). Normalized per-tool rows
+-- Per-tool metadata, cached so Settings › MCP servers shows each tool's declared idempotency_class
+-- without round-tripping the driver; recovery never branches on it (Spec-004 §Required Behavior). Normalized per-tool rows
 -- mirror the per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,

@@ -2100,9 +2100,10 @@ type DriverResumeResult =
 // reconcile. `reauth-required` = the provider session or credential expired (detected mid-run
 // via the provider's typed auth-failure signals or at resume/probe time); remediation is
 // re-authenticating the provider CLI on the runtime node, after which recovery may retry
-// (Spec-004 §Fallback Behavior). A structurally invalid history is neither: the driver throws a permanent
-// structural refusal carrying `freshSessionRequired: true`, never retried, and the session continues in a
-// fresh provider session started from the hand-over brief (Spec-004 §Required Behavior).
+// (Spec-004 §Fallback Behavior). A resume that cannot load fails the run with its recovery failure
+// detail; one whose provider record holds more than the daemon's, beyond reads, halts the run in
+// `waiting_for_input` with `recovery-needed` for the person's choice (Spec-013 §Fallback Behavior).
+// No transcript is replayed into a fresh provider session (Spec-004 §Required Behavior).
 type RecoveryCondition = "recovery-needed" | "reauth-required";
 
 // Typed provider usage-limit signal (Plan-003 T3.39). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
@@ -7906,8 +7907,8 @@ interface WorkflowCreatedPayload {
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
 }
-// One execution of one node, named by the step's own key: the run, the node, the attempt and the
-// execution index, the members `WorkflowStep` keys a step by. The `workflow.phase_*` and
+// One execution of one node, its `StepRunId`: the run, the node, the attempt and the execution
+// index, the members `WorkflowStep` keys a step by. The `workflow.phase_*` and
 // `workflow.step_*` events both carry it, so an event and the step row it belongs to are
 // addressable by one identity.
 interface WorkflowStepEventPayload {
