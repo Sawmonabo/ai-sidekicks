@@ -26,7 +26,6 @@ const CHILD_FROM_DEFINITION = {
   newState: "queued",
   parentRunId: PARENT_RUN_ID,
   reachedBy: "bridge_run",
-  internalHelper: false,
   effectiveRunConfig: { tokenLimit: 200_000 },
   resolvedAgent: {
     agentId: AGENT_ID,

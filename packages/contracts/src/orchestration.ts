@@ -52,19 +52,16 @@ export type OrchestrationRunCreateRequest =
       sessionId: SessionId;
       targetAgentId: AgentId;
       parentRunId?: RunId | undefined;
-      internalHelper?: boolean | undefined;
     }
   | {
       sessionId: SessionId;
       targetDefinitionId: AgentDefinitionId;
       parentRunId?: RunId | undefined;
-      internalHelper?: boolean | undefined;
     };
 
 const runCreateCommonFields = {
   sessionId: SessionIdSchema,
   parentRunId: RunIdSchema.optional(),
-  internalHelper: z.boolean().optional(),
 };
 
 /** Parses an {@link OrchestrationRunCreateRequest}; it names exactly one target. */
@@ -76,15 +73,11 @@ export const OrchestrationRunCreateRequestSchema: z.ZodType<
   z.object({ ...runCreateCommonFields, targetDefinitionId: AgentDefinitionIdSchema }).strict(),
 ]);
 
-/**
- * The admitted run. `internalHelper` echoes the durable flag that marks a run no
- * person started, which the tree de-emphasizes and never hides.
- */
+/** The admitted run. */
 export interface OrchestrationRunCreateResponse {
   runId: RunId;
   state: RunState;
   parentRunId?: RunId | undefined;
-  internalHelper: boolean;
 }
 /** Parses an {@link OrchestrationRunCreateResponse}. */
 export const OrchestrationRunCreateResponseSchema: z.ZodType<OrchestrationRunCreateResponse> = z
@@ -92,7 +85,6 @@ export const OrchestrationRunCreateResponseSchema: z.ZodType<OrchestrationRunCre
     runId: RunIdSchema,
     state: RunStateSchema,
     parentRunId: RunIdSchema.optional(),
-    internalHelper: z.boolean(),
   })
   .strict();
 
@@ -138,8 +130,7 @@ export const ChildRunHeadSchema: z.ZodType<ChildRunHead> = z
 /**
  * One child in the tree: a run of its own under an agent (`run`), linked to exactly
  * one parent run, or a provider's own helper inside its parent's run
- * (`providerChild`), addressed by its handle. `internalHelper` is carried from the
- * run's durable flag and never dropped on the way to the screen.
+ * (`providerChild`), addressed by its handle.
  */
 export type ChildRunLink =
   | {
@@ -147,7 +138,6 @@ export type ChildRunLink =
       childRunId: RunId;
       parentRunId: RunId;
       agentId: AgentId;
-      internalHelper: boolean;
       state: RunState;
       head: ChildRunHead;
     }
@@ -167,7 +157,6 @@ export const ChildRunLinkSchema: z.ZodType<ChildRunLink> = z.discriminatedUnion(
       childRunId: RunIdSchema,
       parentRunId: RunIdSchema,
       agentId: AgentIdSchema,
-      internalHelper: z.boolean(),
       state: RunStateSchema,
       head: ChildRunHeadSchema,
     })

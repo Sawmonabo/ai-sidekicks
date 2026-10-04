@@ -51,7 +51,6 @@ export const SERVED_SUMMARY: ArtifactManifest = {
   artifactType: "diff",
   digest: "sha256:2b4c",
   size: 4096,
-  annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
   state: "published",
   metadata: { mediaType: "text/x-patch", turnOrdinal: 12 },
   createdAt: "2026-09-02T07:00:00.000Z",

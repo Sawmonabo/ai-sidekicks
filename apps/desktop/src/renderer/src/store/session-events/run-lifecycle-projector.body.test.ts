@@ -94,7 +94,7 @@ describe("the registered payload members the body carries", () => {
         runId: "run-1",
         newState: "queued",
         executionPosture: ["not", "an", "object"],
-        internalHelper: "true",
+        intendedClose: "true",
         resolvedAgent: { agentId: 7 },
       }),
     );

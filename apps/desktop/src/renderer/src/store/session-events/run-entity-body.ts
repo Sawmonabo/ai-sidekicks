@@ -86,7 +86,6 @@ const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
   // Keyed by the contract's own payload, so a member it gains or loses fails to compile.
   "run.queued": Object.freeze({
     parentRunId: "string",
-    internalHelper: "boolean",
     admittedModelFamily: "string",
     reachedBy: "string",
     effectiveRunConfig: "object",

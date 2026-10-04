@@ -490,7 +490,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     parentRunId: RUN_ARCHITECT,
-    internalHelper: true,
   }),
   lane.transition(RUN_ARCHITECT_HELPER, {
     atMs: 2_450,

@@ -5,8 +5,8 @@
 // The state and type vocabularies are the contract's own unions, so a member the wire drops
 // fails the row type, the filter and the copy tables in the same compile.
 //
-// Models no payload preview and never nulls a derivative's `subject`: payloads are explicit-fetch
-// downloads, and nothing in the product executes one.
+// Models no payload preview: payloads are explicit-fetch downloads, and nothing in the product
+// executes one.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 import type {
@@ -26,7 +26,7 @@ export type ArtifactType = ManifestType;
 /**
  * The manifest envelope a row renders from.
  *
- * `digest` and `size` are always present. The three optional members are absent for three
+ * `digest` and `size` are always present. The two optional members are absent for two
  * different reasons, and each renders as its own fact rather than a shared "unknown".
  */
 export interface ArtifactManifestRow {
@@ -39,9 +39,6 @@ export interface ArtifactManifestRow {
   readonly artifactType: ArtifactType;
   readonly digest: string;
   readonly size: number;
-  readonly annotations: Readonly<Record<string, string>>;
-  /** The source this artifact was derived from, when it is a derivative. */
-  readonly subject?: string | undefined;
   readonly state: ArtifactState;
   readonly metadata: Readonly<Record<string, string>>;
   readonly createdAt: string;
@@ -113,8 +110,8 @@ export function artifactTypeCounts(
 /**
  * Read one served manifest as a row.
  *
- * The free-form `annotations` and `metadata` maps go through `renderableStringMap`: a value
- * may be any JSON value, and an object-valued entry would otherwise throw in the row.
+ * The free-form `metadata` map goes through `renderableStringMap`: a value may be any JSON
+ * value, and an object-valued entry would otherwise throw in the row.
  */
 export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactManifestRow {
   return {
@@ -125,8 +122,6 @@ export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactMan
     artifactType: manifest.artifactType,
     digest: manifest.digest,
     size: manifest.size,
-    annotations: renderableStringMap(manifest.annotations),
-    subject: manifest.subject,
     state: manifest.state,
     metadata: renderableStringMap(manifest.metadata),
     createdAt: manifest.createdAt,

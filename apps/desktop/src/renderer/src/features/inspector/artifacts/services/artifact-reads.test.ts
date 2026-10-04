@@ -19,8 +19,6 @@ describe("artifact list reads — a served list", () => {
         artifactType: "diff",
         digest: "sha256:2b4c",
         size: 4096,
-        annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
-        subject: undefined,
         state: "published",
         // Freeform provenance is `unknown` on the wire and drawn as a string.
         metadata: { mediaType: "text/x-patch", turnOrdinal: "12" },

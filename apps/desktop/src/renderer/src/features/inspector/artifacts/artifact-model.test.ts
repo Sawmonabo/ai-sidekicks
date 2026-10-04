@@ -1,19 +1,14 @@
-// What a manifest row reads a daemon's free-form maps as: no value takes the pane down.
+// What a manifest row reads a daemon's free-form metadata as: no value takes the pane down.
 
 import { describe, expect, it } from "vitest";
 
 import { artifactManifest } from "./artifact-model.test-support.js";
 import { artifactManifestRowFrom, type ArtifactManifestRow } from "./artifact-model.js";
 
-describe("artifact manifest row — free-form maps a daemon can send and JSON cannot hold", () => {
+describe("artifact manifest row — free-form metadata a daemon can send and JSON cannot hold", () => {
   /** One row read from a manifest whose metadata is whatever the case is about. */
   function rowWithMetadata(metadata: unknown): ArtifactManifestRow {
     return artifactManifestRowFrom(artifactManifest({ metadata }));
-  }
-
-  /** The same, on the sibling map. */
-  function rowWithAnnotations(annotations: unknown): ArtifactManifestRow {
-    return artifactManifestRowFrom(artifactManifest({ annotations }));
   }
 
   it("renders a value JSON refuses to serialize rather than taking the pane down", () => {
@@ -80,24 +75,6 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
     // Without this the guard above could be widened to skip every metadata read.
     expect(rowWithMetadata({ producer: "claude-driver" }).metadata).toStrictEqual({
       producer: "claude-driver",
-    });
-  });
-
-  it("reads `annotations` by the same rule as its sibling map", () => {
-    // Nothing parses this map at the port boundary, so an absent map or an object value must
-    // be read, not trusted.
-    expect(rowWithAnnotations(undefined).annotations).toStrictEqual({});
-    expect(rowWithAnnotations(null).annotations).toStrictEqual({});
-    expect(rowWithAnnotations({ title: { nested: true } }).annotations).toStrictEqual({
-      title: '{"nested":true}',
-    });
-    expect(rowWithAnnotations({ retries: 3 }).annotations).toStrictEqual({ retries: "3" });
-  });
-
-  it("negative control: an annotation that IS a string is still verbatim", () => {
-    // Without this every value could be stringified, and a plain annotation would render quoted.
-    expect(rowWithAnnotations({ title: "Rebind the repos list" }).annotations).toStrictEqual({
-      title: "Rebind the repos list",
     });
   });
 });

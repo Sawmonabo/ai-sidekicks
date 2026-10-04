@@ -351,11 +351,7 @@ CREATE TABLE interventions (
   payload                 TEXT NOT NULL DEFAULT '{}', -- JSON
   expected_run_version    INTEGER NOT NULL,           -- the fail-closed comparand
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
-  -- 'user' for a request admitted over the wire, carrying its device_id;
-  -- 'system' for the in-process orchestration entry, with none. No DEFAULT: a default would fail open, so
-  -- every insert names its path.
-  origin                  TEXT NOT NULL
-                          CHECK(origin IN ('user', 'system')),
+  -- The admitting connection's device; NULL when the daemon itself wrote the row.
   device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
   -- Why a request was rejected. A rejected outcome carries no result, so an
@@ -363,7 +359,6 @@ CREATE TABLE interventions (
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
-  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   -- An identical retry replays the recorded outcome; a reused key with a
   -- different payload is refused (intervention.idempotency_conflict).
   UNIQUE (target_run_id, client_idempotency_key)

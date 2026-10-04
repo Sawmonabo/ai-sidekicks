@@ -34,9 +34,9 @@ export const ArtifactStateSchema: z.ZodType<ArtifactState, ArtifactState> = z.en
 ]);
 
 /**
- * One artifact as the daemon records it: an OCI-style envelope whose `id` names the manifest and
- * `digest` the content, so two manifests can share one payload. A file's declared name rides in the
- * OCI `annotations` map; the media type rides in the daemon's own `metadata`.
+ * One artifact as the daemon records it: `id` names the manifest and `digest` the content, so two
+ * manifests can share one payload. `metadata` is the artifact's freeform provenance and holds its
+ * file name and media type.
  */
 export interface ArtifactManifest {
   id: ArtifactId;
@@ -50,9 +50,6 @@ export interface ArtifactManifest {
   digest: string;
   /** The payload's length in bytes, measured by the daemon rather than declared by the caller. */
   size: number;
-  annotations: Record<string, string>;
-  /** Present only on a derived manifest (a redacted or summarized form), naming its source. */
-  subject?: ArtifactId | undefined;
   state: ArtifactState;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -67,8 +64,6 @@ export const ArtifactManifestSchema: z.ZodType<ArtifactManifest> = z
     artifactType: ArtifactTypeSchema,
     digest: z.string(),
     size: countSchema,
-    annotations: z.record(z.string(), z.string()),
-    subject: ArtifactIdSchema.optional(),
     state: ArtifactStateSchema,
     metadata: z.record(z.string(), z.unknown()),
     createdAt: isoDateTimeSchema,

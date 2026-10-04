@@ -71,16 +71,6 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             </dd>
           </div>
           <div className="meridian-artifact-row__pair">
-            <dt>Derived from</dt>
-            <dd>
-              {row.subject === undefined ? (
-                <Nothing kind="empty" placement="inline" title="Not a derivative." />
-              ) : (
-                <WireFigure value={row.subject} />
-              )}
-            </dd>
-          </div>
-          <div className="meridian-artifact-row__pair">
             <dt>Run</dt>
             <dd>
               {row.runId === undefined ? (
@@ -90,7 +80,6 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
               )}
             </dd>
           </div>
-          {renderStringMap("Annotations", row.annotations)}
           {renderStringMap("Metadata", row.metadata)}
         </dl>
       </details>
