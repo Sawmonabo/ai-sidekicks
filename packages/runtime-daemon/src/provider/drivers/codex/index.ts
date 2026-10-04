@@ -30,7 +30,6 @@ import type {
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
-import { CodexDriverConfigError } from "./session-errors.js";
 import { CodexLifecycleManager } from "./lifecycle.js";
 import {
   resolveCodexTransportSelection,
@@ -70,9 +69,7 @@ export {
 export { CodexLifecycleManager } from "./lifecycle.js";
 export {
   CODEX_APP_SERVER_READY_SENTINEL,
-  composeCodexTransportArgv,
   type CodexTransportSelection,
-  type CodexWebsocketBearerCredential,
 } from "./transport-selection.js";
 export {
   CODEX_MAX_LINE_LENGTH,
@@ -101,9 +98,8 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
   /** Read live at every intervention dispatch. */
   readonly readCapabilities: CodexCapabilitySnapshotReader;
   /**
-   * The driver-registry transport config. Absent means `stdio`; a present config selects
-   * `unix-socket` or `websocket`. Resolved once at construction, so every connection this driver
-   * opens gets the same selection.
+   * The driver-registry transport config, `stdio` or `unix-socket`; absent means `stdio`. Resolved
+   * once at construction, so every connection this driver opens gets the same selection.
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
   /** The live `model/list` read backing `listModels()`. */
@@ -137,20 +133,6 @@ export class CodexDriver implements Pick<
     this.#modelCatalogExchange = options.modelCatalogExchange;
     // Selection first: a misconfigured transport fails construction, not the first session.
     this.#transportSelection = resolveCodexTransportSelection(options.transportConfig);
-    if (this.#transportSelection.transport === "websocket") {
-      if (options.resolveBearerCredential === undefined) {
-        throw new CodexDriverConfigError(
-          "A websocket transport is configured but no bearer-credential resolver was injected; refusing to register a driver that would start an unauthenticated listener.",
-          "DriverTransportConfig.bearerTokenRef",
-        );
-      }
-      if (options.websocketConnector === undefined) {
-        throw new CodexDriverConfigError(
-          "A websocket transport is configured but no transport connector was injected; refusing to register a driver that would silently reach a different process.",
-          "DriverTransportConfig.endpoint",
-        );
-      }
-    }
     this.#lifecycle = new CodexLifecycleManager({
       ...options,
       transportSelection: this.#transportSelection,

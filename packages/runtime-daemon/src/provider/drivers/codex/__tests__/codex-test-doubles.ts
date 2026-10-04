@@ -332,7 +332,7 @@ export class FakeCodexAppServer implements PtyHost {
   }
 }
 
-export function makeCapabilities(steer: boolean): DriverCapabilities {
+function makeCapabilities(steer: boolean): DriverCapabilities {
   const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
     DriverCapabilityFlag,
     boolean
@@ -344,7 +344,7 @@ export function makeCapabilities(steer: boolean): DriverCapabilities {
 /** The test session's model. */
 export const TEST_MODEL = "gpt-5.5";
 /** A live `model/list` read that answers an empty catalog, for tests that never list models. */
-export const STUB_MODEL_CATALOG_READ: CodexModelCatalogExchange = () =>
+const STUB_MODEL_CATALOG_READ: CodexModelCatalogExchange = () =>
   Promise.resolve({ data: [], nextCursor: null });
 export const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
 export const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
@@ -379,7 +379,7 @@ export const RESUME_SPAWN_CONFIG: CodexSessionConfig = {
  * refuses `undefined` as a wiring fault. Its `envNameMatch` is the host's because the shared
  * builder refuses a policy that declares a different one.
  */
-export const resolveNoDeniedCredentialNames: CodexCredentialEnvPolicyResolver = () =>
+const resolveNoDeniedCredentialNames: CodexCredentialEnvPolicyResolver = () =>
   Promise.resolve({
     denyEnvVars: [],
     envNameMatch: hostEnvNameMatchForPlatform(process.platform),
