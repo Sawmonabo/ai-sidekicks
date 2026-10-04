@@ -87,7 +87,6 @@ const APPROVAL_REQUEST_SCRIPT: readonly ScriptEntry[] = [
       executionPosture: {
         mode: "ask",
         credentialPolicyRef: "policy://workspace",
-        networkAccess: "full",
         writableRoots: ["/Users/dev/code/ai-sidekicks"],
       },
     },

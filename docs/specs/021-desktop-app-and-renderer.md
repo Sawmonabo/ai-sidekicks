@@ -719,7 +719,7 @@ Each V1 Signature Feature view must compose daemon and control-plane state via t
   | `/fork` | `/branch` | Fork | a name for the new session |
   | `/copy` |  | Copy on the latest reply | `2` copies the second-latest |
   | `/sidekicks` | `/agents`, `/subagents` | the agents pane |  |
-  | `/skills` |  |  |  |
+  | `/skills` |  | opens this list in place above the draft on its skills section: every skill with its origin mark — the provider's own, ours and a plugin's; picking one inserts its call form ([Spec-029 §The call form](029-skills.md#the-call-form)) |  |
   | `/mcp` |  | the tool-servers control | `on <server>` or `off <server>` presses that row's switch, `enable` and `disable` caught as the same two verbs |
   | `/rewind` | `/checkpoint`, `/undo` | the rewind menu |  |
   | `/worktree` | `/cd` | the worktree switcher | a worktree's name; `/cd <path>` inside one of the project's worktrees presses that worktree, the repository root presses root |

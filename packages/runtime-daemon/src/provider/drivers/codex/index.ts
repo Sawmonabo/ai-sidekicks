@@ -76,11 +76,7 @@ export {
   type CodexServerRequestDecision,
   type CodexSessionServerRequestResponder,
 } from "./server-requests.js";
-export {
-  describeCodexPostureDivergence,
-  parseCodexSessionConfig,
-  type CodexSessionConfig,
-} from "./session-config.js";
+export { parseCodexSessionConfig, type CodexSessionConfig } from "./session-config.js";
 export { type CodexCredentialEnvPolicyResolver } from "./session-state.js";
 export {
   type CodexPtySessionListeners,

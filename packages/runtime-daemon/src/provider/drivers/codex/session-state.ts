@@ -90,6 +90,12 @@ export interface CodexSessionRecord {
   readonly turnBoundaries: string[];
   /** The posture re-sent as each turn's `sandboxPolicy` when its `StartRunParams` declare none. */
   readonly executionPosture: ExecutionPosture | undefined;
+  /**
+   * The person's own workspace network setting, from a thread reply whose realized sandbox is the
+   * workspace one; echoed on each workspace turn's `sandboxPolicy`. Replaced in place by
+   * `forkConversation`, as `threadId` is.
+   */
+  providerNetworkAccess: boolean | undefined;
   /** The subagent policy, re-sent on `thread/fork` so the new thread keeps its caps. */
   readonly subagentPolicy: SubagentPolicy | undefined;
   /**

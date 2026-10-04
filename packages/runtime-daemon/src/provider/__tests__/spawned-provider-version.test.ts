@@ -438,7 +438,6 @@ describe("the binding carriers come from one reading", () => {
     spawnConfig: {
       executionPosture: {
         mode: "yolo",
-        networkAccess: "none",
         writableRoots: [],
         credentialPolicyRef: "policy://default",
       },

@@ -241,6 +241,8 @@ export class CodexLifecycleManager {
   async startRun(params: StartRunParams): Promise<void> {
     const runConfig = parseCodexRunConfig(params.agentConfig);
     const record = this.#requireSession(runConfig.sessionId);
+    // Before the opening frame exists, so a refused run leaves nothing to drop.
+    this.#spawnPosture.assertRunSandboxModeMatchesSession(record, params);
     const openingFrame = this.#textNeutralization.composeRunOpeningFrame(params, runConfig);
     let turnId: string;
     // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
@@ -344,8 +346,8 @@ export class CodexLifecycleManager {
       // for it and later turns, so a config-selected `auto_review` would otherwise win.
       // `turn/steer` creates no turn and needs none.
       approvalsReviewer: "user",
-      // The run's posture wins and the session's spawn posture is the floor, so a turn never goes
-      // out with no policy; both send the roots the thread-level selector cannot carry.
+      // The run's posture wins within the session's sandbox mode and the session's is the floor, so
+      // a turn never goes out with no policy; both send the roots the thread-level mode cannot.
       ...this.#spawnPosture.composeTurnPostureParams(record, params),
       ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
       ...(runConfig.clientUserMessageId === undefined

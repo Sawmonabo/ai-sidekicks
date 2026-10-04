@@ -61,7 +61,6 @@ function makeStore(now: () => string = makeAdvancingClock()): RuntimeBindingStor
 // A fully-populated spawn-bound record: every member of the closed key set, shaped as real
 // contract values.
 const EXECUTION_POSTURE: ExecutionPosture = {
-  networkAccess: "none",
   writableRoots: ["/workspace/repo"],
   mode: "sandboxed",
   credentialPolicyRef: "policy://default",

@@ -262,7 +262,8 @@
         "node-pty",
         // The rest are libraries installed ahead of the code that imports them, each with what
         // will import it.
-        // The sandbox a workflow code step runs in on Claude Code.
+        // The sandbox a workflow code step, and a person's own tool server at Sandboxed, runs in on
+        // Claude Code.
         "@anthropic-ai/sandbox-runtime",
         // The approval policy engine that judges each action against the built-in rules.
         "@cedar-policy/cedar-wasm",

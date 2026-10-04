@@ -406,16 +406,14 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
 });
 
 describe("Codex rewind and re-realization", () => {
-  const WORKSPACE_POSTURE_WITH_NETWORK: ExecutionPosture = {
+  const WORKSPACE_POSTURE: ExecutionPosture = {
     mode: "ask",
     credentialPolicyRef: "policy://default",
-    networkAccess: "full",
     writableRoots: ["/work/session"],
   };
   const FORKED = {
     result: {
       thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
-      sandbox: { networkAccess: true },
     },
   };
   const APPLIED = { status: "applied", sessionPosition: 1, bindingId: "binding-abc" };
@@ -506,7 +504,7 @@ describe("Codex rewind and re-realization", () => {
       // Omitted, the thread runs under whatever the provider persisted, not what was declared.
       const harness = createHarness();
       await resumedWithTurns(harness, {
-        executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+        executionPosture: WORKSPACE_POSTURE,
         subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
       });
       if (method === "thread/fork") {
@@ -521,12 +519,151 @@ describe("Codex rewind and re-realization", () => {
       const params = paramsOf(harness, method);
       expect(params["sandbox"]).toBe("workspace-write");
       expect(params["config"]).toStrictEqual({
-        "sandbox_workspace_write.network_access": true,
         "agents.max_concurrent_threads_per_session": 3,
         "agents.max_depth": 1,
       });
     },
   );
+
+  /** A thread reply whose realized sandbox is the workspace one, reporting `networkAccess`. */
+  function workspaceThreadReply(
+    id: string,
+    turnCount: number,
+    networkAccess: boolean,
+  ): ReturnType<typeof threadStartResult> {
+    return {
+      result: {
+        thread: {
+          id,
+          sessionId: "session-tree-1",
+          turns: Array.from({ length: turnCount }, (_unused, index) => ({ id: `turn-${index}` })),
+        },
+        sandbox: { type: "workspaceWrite", writableRoots: [], networkAccess },
+      },
+    };
+  }
+
+  it.each(
+    (["thread/start", "thread/resume", "thread/fork"] as const).flatMap((method) =>
+      [true, false].map((networkAccess) => ({ method, networkAccess })),
+    ),
+  )(
+    "echoes the network access the $method reply reports ($networkAccess) on the next turn",
+    async ({ method, networkAccess }) => {
+      // The person's own Codex config decides the network; omitting the member would turn it off.
+      // The fork's thread reports the opposite of the one it left, so the turn must carry its own.
+      const harness = createHarness();
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      if (method === "thread/start") {
+        harness.server.on("thread/start", () => workspaceThreadReply(THREAD_ID, 0, networkAccess));
+        await harness.driver.createSession({
+          ...CREATE_PARAMS,
+          executionPosture: WORKSPACE_POSTURE,
+        });
+      } else {
+        const resumedNetworkAccess = method === "thread/fork" ? !networkAccess : networkAccess;
+        harness.server.on("thread/resume", () =>
+          workspaceThreadReply(THREAD_ID, 2, resumedNetworkAccess),
+        );
+        await harness.driver.resumeSession({
+          model: TEST_MODEL,
+          sessionId: SESSION_ID,
+          resumeHandle: THREAD_ID,
+          executionPosture: WORKSPACE_POSTURE,
+        });
+      }
+      if (method === "thread/fork") {
+        harness.server.on("thread/fork", () =>
+          workspaceThreadReply("thread-forked", 1, networkAccess),
+        );
+        await expect(
+          harness.driver.forkConversation({
+            sessionId: SESSION_ID,
+            bindingId: "binding-abc",
+            position: 1,
+          }),
+        ).resolves.toStrictEqual(APPLIED);
+      }
+
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+
+      expect(paramsOf(harness, "turn/start")["sandboxPolicy"]).toMatchObject({
+        type: "workspaceWrite",
+        networkAccess,
+      });
+    },
+  );
+
+  it.each([
+    { label: "a Read Only session", mode: "readonly" },
+    { label: "a workspace session Codex realized as Read Only", mode: "ask" },
+  ] as const)(
+    "takes no network access from a Read Only thread reply, on $label",
+    async ({ mode }) => {
+      // The person's network setting drives only the workspace sandbox; a Read Only reply's member
+      // is Codex's own and says nothing about it.
+      const harness = createHarness();
+      harness.server.on("thread/start", () => ({
+        result: {
+          thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+          sandbox: { type: "readOnly", networkAccess: true },
+        },
+      }));
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await harness.driver.createSession({
+        ...CREATE_PARAMS,
+        executionPosture: { ...WORKSPACE_POSTURE, mode },
+      });
+
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+
+      expect(paramsOf(harness, "turn/start")["sandboxPolicy"]).not.toHaveProperty("networkAccess");
+    },
+  );
+
+  it.each([
+    { label: "a readonly run on a workspace session", session: WORKSPACE_POSTURE, run: "readonly" },
+    { label: "a yolo run on a workspace session", session: WORKSPACE_POSTURE, run: "yolo" },
+    {
+      label: "a posture-declaring run on a session started with none",
+      session: undefined,
+      run: "ask",
+    },
+  ] as const)("refuses $label before sending a turn", async ({ session, run }) => {
+    // The person's network setting is known only for the thread's own sandbox, and moving a
+    // conversation's level is a thread-level change, not a turn override.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => workspaceThreadReply(THREAD_ID, 0, true));
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      ...(session === undefined ? {} : { executionPosture: session }),
+    });
+
+    await expect(
+      harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+        executionPosture: { ...WORKSPACE_POSTURE, mode: run },
+      }),
+    ).rejects.toBeInstanceOf(CodexTransportError);
+    expect(harness.server.framesForMethod("turn/start")).toStrictEqual([]);
+
+    // The session still takes a run its own sandbox admits: another level in the same mode, or
+    // none declared on a session started with none.
+    await harness.driver.startRun({
+      runId: SECOND_RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+      ...(session === undefined ? {} : { executionPosture: { ...session, mode: "sandboxed" } }),
+    });
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+  });
 
   const disablingPolicies: ReadonlyArray<readonly [string, SubagentPolicy]> = [
     ["a disabled policy", { enabled: false }],

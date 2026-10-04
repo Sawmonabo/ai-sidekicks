@@ -8,12 +8,11 @@ import { composeClaudeSandboxSettings } from "../spawn-settings.js";
 const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "sandboxed",
   credentialPolicyRef: "policy://default",
-  networkAccess: "none",
   writableRoots: ["/workspace"],
 };
 
 describe("composeClaudeSandboxSettings", () => {
-  it("realizes every sandboxed level fail-closed, writes nowhere at readonly, and closes the network", () => {
+  it("realizes every sandboxed level fail-closed and writes nowhere at readonly", () => {
     const readonlyPosture: ExecutionPosture = { ...SANDBOXED_POSTURE, mode: "readonly" };
     for (const posture of [SANDBOXED_POSTURE, readonlyPosture]) {
       const settings = composeClaudeSandboxSettings(posture);
@@ -27,9 +26,5 @@ describe("composeClaudeSandboxSettings", () => {
     expect(
       composeClaudeSandboxSettings(readonlyPosture).sandbox.filesystem.allowWrite,
     ).toStrictEqual([]);
-    // For `none` the restriction is an empty allow-list; omitting it would open the network.
-    expect(composeClaudeSandboxSettings(SANDBOXED_POSTURE).sandbox.network).toStrictEqual({
-      allowedDomains: [],
-    });
   });
 });

@@ -17,7 +17,6 @@ import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js"
  */
 const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "sandboxed",
-  networkAccess: "none",
   writableRoots: ["/workspace"],
   credentialPolicyRef: "policy://workspace",
 };

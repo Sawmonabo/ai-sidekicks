@@ -14,7 +14,9 @@ import {
 const UNSPECIFIED_PROVIDER_FAILURE_DETAIL =
   "Codex app-server reported a failure with no diagnostic message.";
 
-/** Transport or process-level failure: `driver.unavailable` plus leak-safe `fields`. */
+/**
+ * Transport, process-level or session refusal: `driver.unavailable` plus leak-safe `fields`.
+ */
 export class CodexTransportError extends Error {
   readonly code = "driver.unavailable" as const;
   readonly fields: Readonly<Record<string, string>>;

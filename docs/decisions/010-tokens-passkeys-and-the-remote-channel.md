@@ -49,7 +49,7 @@ Remote Control gives every device the whole console on every machine the person 
    - **The relay** sees the device id and machine id at connection, the channel version and the profile, frame sizes and times, and never a method, a name or a byte of a session. It holds at most one live connection per key.
    - **The implementation** is a maintained Noise library whose Diffie-Hellman can be supplied from WebCrypto, chosen and recorded in [Plan-025](../plans/025-remote-control.md) Phase 3.
 
-5. **No other key classes.** There is no session-scoped ephemeral key, no signed key bundle, no first-claim store, no key package and no cap on recipients: a channel's keys belong to a connection. No token is minted for dispatching work to another machine, because a session never runs anywhere but the machine it was started on. The exception is the artifact-encryption key pair: relay content keys stay wrapped to that pair, and its private half is kept as its own credential-store item.
+5. **No other key classes.** There is no session-scoped ephemeral key, no signed key bundle, no first-claim store, no key package and no cap on recipients: a channel's keys belong to a connection. No token is minted for dispatching work to another machine, because a session never runs anywhere but the machine it was started on.
 
 ### Thesis — Why This Option
 
