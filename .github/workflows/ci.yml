@@ -436,6 +436,19 @@ jobs:
           fi
           echo "ok: all packages pass publint --strict + attw"
 
+      # Tests of the plan-execution skill.
+      #
+      # Routed through `tools/run-node-tests.mjs`, not `node --test`: a glob matching nothing makes
+      # `node --test` exit 0 having run no tests, which would turn this required check green while
+      # executing nothing. The wrapper refuses to spawn on zero matches and enforces a floor;
+      # `--min-files` sits at the current file count, so a collapse to one file trips it and a
+      # deliberate consolidation lowers the floor in the same commit.
+      #
+      # The pattern stays a glob: a bare directory argument fails on Node 24.18.0 but exits 0 having
+      # run nothing on Node 26.10.0 (measured).
+      - name: Run plan-execution skill tests (Layer 1 + Layer 2)
+        run: node tools/run-node-tests.mjs --min-files=3 --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+
       # Hook guard tests: `worktree-occupancy.py` and `worktree.sh` driven as subprocesses from
       # node:test. This leg exercises the Linux `/proc` occupancy path only; the darwin `lsof` path
       # is covered by running the guard locally on macOS, since a macOS job cost a full extra runner
