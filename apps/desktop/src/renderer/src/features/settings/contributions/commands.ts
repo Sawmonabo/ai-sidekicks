@@ -37,7 +37,7 @@ export function buildBridgeCommands(
       keywords: ["version", "platform", "architecture", "locale", "diagnostics", "bug report"],
       run: async () => {
         // Read from the bridge, not `navigator`: the main process reports `app`, and the
-        // fixture pins it so screenshots do not move with the machine.
+        // fixture pins it so a rendered view does not move with the machine.
         const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
           bridge.native.copyToClipboard(

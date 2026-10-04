@@ -1,8 +1,8 @@
-// Thread-frame router: decides which inbound provider frames project into the session timeline.
+// Thread-frame router: decides which inbound provider frames project into the session transcript.
 //
 // Both providers multiplex child-thread traffic (subagent, review and compaction threads) over
 // the connection that carries the session's own thread. Projecting every frame would render a
-// child's output in the parent's timeline and double-count or lose the child's spend. Each
+// child's output in the parent's transcript and double-count or lose the child's spend. Each
 // session's lifecycle module owns one router and routes every inbound frame through it before
 // normalizing. Only the session's own thread projects.
 //
@@ -32,7 +32,7 @@
 //   dispatch and approval pipeline, answered on the child's own correlation identity. Suppressing
 //   them would hang the child.
 //
-// Suppression covers only a child's transcript projection. Child lifecycle reaches the timeline
+// Suppression covers only a child's transcript projection. Child lifecycle reaches the transcript
 // through `subagent.started` and `subagent.completed`, never through the child's own frames.
 // The terminal-emission gate consumes the route unchanged.
 
@@ -114,7 +114,7 @@ export interface ChildCompletionResult<
 /**
  * A `subagent.started` or `subagent.completed` emission a driver states when a child registers
  * or completes; the emission pipeline mints the `tool_activity` envelope. These two are the
- * child's only timeline presence, since its own frames are transcript-suppressed.
+ * child's only transcript presence, since its own frames are transcript-suppressed.
  */
 export interface SubagentLifecycleEmission {
   readonly eventType: "subagent.started" | "subagent.completed";
@@ -128,7 +128,7 @@ export interface SubagentLifecycleEmission {
 
 /** The single routing decision for one frame, consumed unchanged by the emission gate. */
 export type ThreadFrameRoute =
-  /** The session's own thread: project into the session timeline. */
+  /** The session's own thread: project into the session transcript. */
   | { readonly decision: "project" }
   /** A known connection- or account-scoped family: route without identity. */
   | { readonly decision: "route-connection-scoped" }
@@ -326,7 +326,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
           kind: "thread_child_transcript_suppressed",
           rawWireType: frame.rawWireType,
           dispositionReason:
-            "registered child thread's transcript projection suppressed; child lifecycle reaches the timeline only as subagent.started / subagent.completed",
+            "registered child thread's transcript projection suppressed; child lifecycle reaches the transcript only as subagent.started / subagent.completed",
           details: { childThreadId: frame.threadId },
         });
       }

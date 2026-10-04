@@ -29,7 +29,7 @@ const LOG_READ = {
     createdAt: "2026-09-29T17:00:00.000Z",
     updatedAt: "2026-09-29T17:00:00.000Z",
   },
-  timelineCursors: { latest: "0" },
+  transcriptCursors: { latest: "0" },
 } as SessionLogRead;
 
 let temporaryFolder: string;

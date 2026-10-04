@@ -27,7 +27,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
  * Blocks group related kinds; order is not load-bearing.
  */
 export type NormalizedEventKind =
-  // Inline timeline.
+  // Inline transcript.
   | "init"
   | "text_delta"
   | "tool_start"
@@ -50,7 +50,7 @@ export type NormalizedEventKind =
   | "notification"
   // Transient retry.
   | "api_retry"
-  // System, no timeline row.
+  // System, no transcript row.
   | "compact_boundary"
   | "rate_limits"
   | "model_rerouted"
@@ -110,7 +110,7 @@ type EventKindDisposition =
 // duplicate key a compile error. Each entry names its kind's primary target; fan-out is the
 // normalizer's concern.
 const EVENT_DISPOSITION_RECORD = {
-  // Inline timeline.
+  // Inline transcript.
   // Run-start marker: the provider's own init report. The daemon's `run.*` state transitions stay
   // daemon-emitted, never mapped from a provider init.
   init: {
@@ -199,7 +199,7 @@ const EVENT_DISPOSITION_RECORD = {
   // Transient retry record; a provider's typed retry-error detail enriches this same kind, so it is
   // never dropped.
   api_retry: { disposition: "adopt", category: "usage_telemetry", eventType: "usage.api_retry" },
-  // System, no timeline row.
+  // System, no transcript row.
   // Provider context-window compaction — distinct from the daemon
   // `event.compacted` retention pass.
   compact_boundary: {
@@ -228,7 +228,7 @@ const EVENT_DISPOSITION_RECORD = {
   content_block_start: {
     disposition: "discard",
     reason:
-      "streaming-structural envelope boundary; the wrapped text_delta kind carries the durable content — no separate timeline or persistence capability",
+      "streaming-structural envelope boundary; the wrapped text_delta kind carries the durable content — no separate transcript or persistence capability",
   },
   content_block_stop: {
     disposition: "discard",

@@ -3,7 +3,7 @@
 // to its projected row. The window is unfurled (every member of every run group) because the fold
 // in `feed/run-group-fold.ts` runs after it, and Find counts a folded group's rows.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
@@ -29,20 +29,20 @@ import { TranscriptRowRetention } from "./row-retention.js";
 export interface TranscriptPipelineStage {
   readonly window: TranscriptWindowModel;
   /** The rows this stage took out of the window it was handed, in log order. */
-  readonly removedRows: readonly TimelineRow[];
+  readonly removedRows: readonly TranscriptEventRow[];
 }
 
 /**
  * The removal a pass-through stage reports. One shared array: a consumer keys a memo on its
  * identity, and a fresh `[]` per pass would re-run that memo on every append.
  */
-export const NO_ROWS_REMOVED: readonly TimelineRow[] = [];
+export const NO_ROWS_REMOVED: readonly TranscriptEventRow[] = [];
 
 /** Everything one render of the transcript needs, derived once per store revision. */
 export interface TranscriptWindowModel {
   /** The virtualizer's identity list; the viewport keys its reconcile on it. */
   readonly viewportRows: readonly ViewportRow[];
-  readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
+  readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
   /** Which rows are collapsed, under the fold that closes every finished run group. */
@@ -65,7 +65,7 @@ export interface TranscriptWindowModel {
   /** The handoff behind each row that is one, on the same dispatch. */
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
   /** The rows in log order, for find and the run group fold. */
-  readonly rows: readonly TimelineRow[];
+  readonly rows: readonly TranscriptEventRow[];
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
   readonly hasActiveTurn: boolean;
 }
@@ -74,10 +74,10 @@ export interface TranscriptWindowModel {
  * Derive the whole window from one log. Exported so a test can drive it with no store and no React.
  */
 export function deriveTranscriptWindow(
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
   retention: TranscriptRowRetention = new TranscriptRowRetention(),
 ): TranscriptWindowModel {
-  const projection = projectTranscriptRows(timeline);
+  const projection = projectTranscriptRows(transcript);
   // Retain before the indexes read a row, so every index, the feed and every memo under it see the
   // object actually published. A fresh retention retains nothing, which suits a one-shot caller.
   retention.beginPass();
@@ -88,7 +88,7 @@ export function deriveTranscriptWindow(
   // below, so a narrowing and the feed share one classification.
   const systemMessages = new SystemMessageClassifier().systemMessages(rows);
   const childRunIndex = new ChildRunIndex(rows);
-  const rowsByKey = new Map<string, TimelineRow>();
+  const rowsByKey = new Map<string, TranscriptEventRow>();
   const viewportRows: ViewportRow[] = [];
   const supersededRowIds = new Set<string>();
   for (const row of rows) {

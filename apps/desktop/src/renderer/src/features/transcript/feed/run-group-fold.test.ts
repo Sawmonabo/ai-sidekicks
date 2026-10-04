@@ -1,7 +1,7 @@
 // The run group fold, driven with no store and no React. A run longer than the cap needs
 // this file: a virtualized feed mounts a range whatever the fold admitted.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
@@ -57,7 +57,7 @@ describe("an opened run group admits the cap's own window and no more", () => {
     // Newest, not oldest: the body clips behind a top-edge fade.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
     const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT)).rows.map(
-      (row: TimelineRow) => row.id,
+      (row: TranscriptEventRow) => row.id,
     );
     const rendered = new Set(renderedMemberKeys(model));
     for (const clippedId of everyMemberId.slice(0, ROWS_PAST_THE_CAP)) {

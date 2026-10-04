@@ -74,7 +74,7 @@ const REPEATED_FOLD_RETENTION_CEILING_BYTES = 2 * 1024 * 1024;
 const MEASUREMENT_SAMPLE_COUNT = 5;
 
 /** One generated session's log, as the events a store would have admitted. */
-function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
+function enduranceTranscript(rowCount: number): readonly ProjectedSessionEvent[] {
   return createTranscriptEnduranceFixture({ rowCount });
 }
 
@@ -85,11 +85,11 @@ function enduranceTimeline(rowCount: number): readonly ProjectedSessionEvent[] {
  * scheduler can slow a sample and nothing can make one faster than the work takes. The result is
  * read so the compiler cannot eliminate the fold as dead code.
  */
-function fastestFoldMilliseconds(timeline: readonly ProjectedSessionEvent[]): number {
+function fastestFoldMilliseconds(transcript: readonly ProjectedSessionEvent[]): number {
   let fastestPass = Number.POSITIVE_INFINITY;
   for (let sampleIndex = 0; sampleIndex < MEASUREMENT_SAMPLE_COUNT; sampleIndex += 1) {
     const startedAt = performance.now();
-    const transcriptWindow = deriveTranscriptWindow(timeline);
+    const transcriptWindow = deriveTranscriptWindow(transcript);
     const elapsedMilliseconds = performance.now() - startedAt;
     if (transcriptWindow.rows.length === 0) {
       throw new Error("the fold produced no rows, so its timing describes nothing");
@@ -103,10 +103,10 @@ describe("endurance — the transcript's fold over a long session", () => {
   it("folds every row of a ten-thousand-row session into one complete window", () => {
     // The control for everything else here: a fold that silently dropped most of the log would
     // be fast, retain almost nothing, and satisfy both claims below.
-    const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
-    expect(timeline).toHaveLength(ENDURANCE_ROW_COUNT);
+    const transcript = enduranceTranscript(ENDURANCE_ROW_COUNT);
+    expect(transcript).toHaveLength(ENDURANCE_ROW_COUNT);
 
-    const transcriptWindow = deriveTranscriptWindow(timeline);
+    const transcriptWindow = deriveTranscriptWindow(transcript);
 
     // Every event the generator scripts is a registered kind the projection places, so every one
     // becomes a row; a window that dropped an event category would otherwise still read complete.
@@ -134,9 +134,9 @@ describe("endurance — the transcript's fold over a long session", () => {
 
   it("does not fold superlinearly as the log grows", () => {
     const shortFoldMilliseconds = fastestFoldMilliseconds(
-      enduranceTimeline(LINEARITY_PROBE_ROW_COUNT),
+      enduranceTranscript(LINEARITY_PROBE_ROW_COUNT),
     );
-    const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTimeline(ENDURANCE_ROW_COUNT));
+    const longFoldMilliseconds = fastestFoldMilliseconds(enduranceTranscript(ENDURANCE_ROW_COUNT));
     const costRatio = longFoldMilliseconds / shortFoldMilliseconds;
 
     // Reported before the assertion so a shrinking margin is visible.
@@ -159,12 +159,12 @@ describe("endurance — the transcript's fold over a long session", () => {
     }
     // One fold before the baseline, dropped, so the first fold's one-time costs (the
     // projection's module state, V8's compiled code) are not reported as retention.
-    const timeline = enduranceTimeline(ENDURANCE_ROW_COUNT);
-    dropFoldOf(timeline);
+    const transcript = enduranceTranscript(ENDURANCE_ROW_COUNT);
+    dropFoldOf(transcript);
     const baseline = await heapSampler.sample();
 
     for (let foldIndex = 0; foldIndex < REPEATED_FOLD_COUNT; foldIndex += 1) {
-      dropFoldOf(timeline);
+      dropFoldOf(transcript);
     }
     const retainedBytes = retainedGrowthBytes(baseline, await heapSampler.sample());
 
@@ -185,8 +185,8 @@ describe("endurance — the transcript's fold over a long session", () => {
  * outer variable would hold the last one alive and measure the test, not the transcript. The
  * length is read so the fold cannot be eliminated as dead.
  */
-function dropFoldOf(timeline: readonly ProjectedSessionEvent[]): void {
-  const rowCount = deriveTranscriptWindow(timeline).rows.length;
+function dropFoldOf(transcript: readonly ProjectedSessionEvent[]): void {
+  const rowCount = deriveTranscriptWindow(transcript).rows.length;
   if (rowCount === 0) {
     throw new Error("the fold produced no rows, so nothing was measured");
   }

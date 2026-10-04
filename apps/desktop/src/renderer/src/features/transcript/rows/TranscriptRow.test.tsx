@@ -16,7 +16,7 @@ import {
 import { registerTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
-import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
+import { sampleRunRow } from "@test/helpers/transcript-event-row-samples.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };

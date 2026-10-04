@@ -1,12 +1,12 @@
 // The mixed window both run group suites fold, so their claims stay about the same run groups.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type RunGroup } from "./run-groups.js";
-import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
 
 /** Two interleaved runs and a session row: run A is live, run B has completed. */
-export function mixedWindow(): readonly TimelineRow[] {
+export function mixedWindow(): readonly TranscriptEventRow[] {
   return [
     runRow({
       id: "a1",

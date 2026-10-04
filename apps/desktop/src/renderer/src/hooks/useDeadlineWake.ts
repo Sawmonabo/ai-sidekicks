@@ -19,7 +19,7 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
  * The instant a component renders against, woken once at each outstanding deadline.
  *
  * The clock is the caller's, so under a fixture it is the scenario's frozen one and a
- * screenshot's countdowns are byte-stable. A replacement clock is a new time base: the
+ * rendered countdown is byte-stable. A replacement clock is a new time base: the
  * instant is re-read from it during the render that first sees it, since the previous
  * clock's reading would put every deadline behind the component. At most one timeout is
  * armed for the whole consumer, and none when nothing is outstanding, which makes

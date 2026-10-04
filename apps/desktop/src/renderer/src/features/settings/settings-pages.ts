@@ -14,7 +14,6 @@ import { createElement } from "react";
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
-import { PendingSettingsPage } from "./components/PendingSettingsPage.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
 import { GeneralPage } from "./pages/general/GeneralPage.js";
 import { KeyboardPage } from "./pages/keyboard/KeyboardPage.js";
@@ -119,12 +118,9 @@ export class SettingsPageRegistry {
       this.#loadedBodiesBySection.delete(registration.section);
       return;
     }
-    // The fallback is the page region's own reservation, supplied here because what a
-    // settings page reserves while it loads is settings-shaped, and the pane above has
-    // already drawn the heading.
-    const loadedBody = new LoaderBackedBody(registration.body, () =>
-      createElement(PendingSettingsPage, { section: registration.section }),
-    );
+    // Nothing draws while the page loads: the pane above has already drawn the frame and
+    // heading, and the page has asked the daemon for nothing, so no empty state fits.
+    const loadedBody = new LoaderBackedBody(registration.body, () => null);
     this.#descriptorsBySection.register(registration.section, {
       ...descriptorBase,
       render: loadedBody.render,

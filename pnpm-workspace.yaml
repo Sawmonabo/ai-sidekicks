@@ -121,13 +121,6 @@ catalogs:
     # the lockstep set rather than carrying its own caret in `apps/desktop`. Its second peer,
     # `playwright`, is `*` and is satisfied by that package's own `@playwright/test` pin.
     "@vitest/browser-playwright": 4.1.11
-    # `@vitest/browser` is a transitive dependency of the provider above, but `apps/desktop` also
-    # declares it directly, because the screenshot tier's `toMatchScreenshot` matcher is typed in
-    # `@vitest/browser/matchers` and a `types` entry must resolve against a package the consumer can
-    # see. Under pnpm's strict layout a transitive dependency is not visible, so without the direct
-    # declaration the tier runs and does not compile. Same exact peer on the runner, so the same
-    # lockstep set.
-    "@vitest/browser": 4.1.11
 
 patchedDependencies:
   signalsmith-stretch@1.3.2: patches/signalsmith-stretch@1.3.2.patch

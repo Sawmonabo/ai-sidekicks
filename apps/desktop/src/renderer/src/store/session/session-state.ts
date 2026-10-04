@@ -19,11 +19,11 @@ export interface SessionStoreState {
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
   /**
-   * Ordered event log for the session, the transcript's source. Append-only at the tail, and
+   * The session's transcript: its ordered event log. Append-only at the tail, and
    * grown at the head only through `prependEarlierEvents`: the stream replays from the position
    * this user was last acknowledged at, so the log below it exists but was never sent here.
    */
-  readonly timeline: readonly ProjectedSessionEvent[];
+  readonly transcript: readonly ProjectedSessionEvent[];
   /** The highest sequence this store has admitted. */
   readonly cursor: number;
   /**
@@ -32,7 +32,7 @@ export interface SessionStoreState {
    *
    * This is the head of the window and the only cursor the console has for it:
    * `SessionReadResponse` names no oldest row it sent. It is held unread, as the opaque string
-   * the daemon issued (`timeline-resume.ts`), because a caller may only hand it back.
+   * the daemon issued (`transcript-resume.ts`), because a caller may only hand it back.
    * `undefined` means nothing precedes this window: a read with no position opened at the
    * start of the log.
    */
@@ -67,14 +67,14 @@ export interface SessionBaseState {
   /** Entities the read response carried. */
   readonly entities: readonly StoredEntity[];
   /** Events the read response carried, ordered by sequence. */
-  readonly timeline?: readonly ProjectedSessionEvent[];
+  readonly transcript?: readonly ProjectedSessionEvent[];
   /**
    * The cursor block the read answered with, carried unread. The resume rule takes these three
    * positions, so dropping them would leave the entry unable to learn whether the rows below
-   * the base state still exist. `unknown` because `timeline-resume.ts` owns the shape and a
+   * the base state still exist. `unknown` because `transcript-resume.ts` owns the shape and a
    * typed member would assert away the absence that module has to detect.
    */
-  readonly timelineCursors?: unknown;
+  readonly transcriptCursors?: unknown;
   /**
    * The position this read was performed from, as the caller submitted it. It is not in the
    * reply; the entry that performs the read supplies it, and the store carries it onto
@@ -106,7 +106,7 @@ export const UNINITIALIZED_CURSOR = -1;
  * session's tail. `"oldest"` is for after a backward page: the reader is at the head, so
  * cutting there would discard the page as it landed.
  */
-export type TimelineRetainedEnd = "newest" | "oldest";
+export type TranscriptRetainedEnd = "newest" | "oldest";
 
 /**
  * The state of a store that has projected nothing: newly constructed, or reset. A construction
@@ -122,7 +122,7 @@ export function uninitializedState(input: {
     sessionId: input.sessionId,
     initialized: false,
     partitions: emptyPartitions(),
-    timeline: [],
+    transcript: [],
     cursor: UNINITIALIZED_CURSOR,
     windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
@@ -133,15 +133,15 @@ export function uninitializedState(input: {
 }
 
 /**
- * The state one read response establishes, from the ordered timeline the caller already
+ * The state one read response establishes, from the ordered transcript the caller already
  * produced (the reconciler rebases onto the same list). `degradedCause` is cleared here and
  * nowhere else: a completed re-pull is what makes a projection whole.
  */
 export function establishedState(input: {
   readonly sessionId: string;
   readonly baseState: SessionBaseState;
-  readonly orderedTimeline: readonly ProjectedSessionEvent[];
-  readonly timelineCap: number | undefined;
+  readonly orderedTranscript: readonly ProjectedSessionEvent[];
+  readonly transcriptCap: number | undefined;
   readonly revision: number;
 }): SessionStoreState {
   let partitions: SessionPartitions = emptyPartitions();
@@ -152,7 +152,7 @@ export function establishedState(input: {
     sessionId: input.sessionId,
     initialized: true,
     partitions,
-    timeline: capTimeline(input.orderedTimeline, input.timelineCap, "newest"),
+    transcript: capTranscript(input.orderedTranscript, input.transcriptCap, "newest"),
     cursor: input.baseState.cursor,
     windowHeadCursor: input.baseState.readFromCursor,
     degradedCause: undefined,
@@ -163,7 +163,7 @@ export function establishedState(input: {
 }
 
 /**
- * The `cap` events of a timeline nearest the retained end, or all of them where there is no cap.
+ * The `cap` events of a transcript nearest the retained end, or all of them where there is no cap.
  *
  * Shared because the cap is a property of the state, and the read, the batch and the backward
  * page all take the same answer. The end has no default: a cap silently cutting the end a
@@ -171,13 +171,15 @@ export function establishedState(input: {
  * because the cap is a retention bound, and rows never sent are reported by the window's
  * own absences.
  */
-export function capTimeline(
-  timeline: readonly ProjectedSessionEvent[],
+export function capTranscript(
+  transcript: readonly ProjectedSessionEvent[],
   cap: number | undefined,
-  retainedEnd: TimelineRetainedEnd,
+  retainedEnd: TranscriptRetainedEnd,
 ): readonly ProjectedSessionEvent[] {
-  if (cap === undefined || timeline.length <= cap) {
-    return timeline;
+  if (cap === undefined || transcript.length <= cap) {
+    return transcript;
   }
-  return retainedEnd === "newest" ? timeline.slice(timeline.length - cap) : timeline.slice(0, cap);
+  return retainedEnd === "newest"
+    ? transcript.slice(transcript.length - cap)
+    : transcript.slice(0, cap);
 }

@@ -11,8 +11,8 @@ import {
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
   mountComposerSessionDefault,
-} from "../helpers/feature-mounts/composer.js";
-import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
+} from "./feature-mounts/composer.js";
+import { type MountedView } from "./feature-mounts/mount-queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";

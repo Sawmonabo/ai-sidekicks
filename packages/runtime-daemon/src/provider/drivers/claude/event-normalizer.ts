@@ -105,8 +105,8 @@ export interface ClaudeNormalizedCategoryEmission {
 }
 
 /**
- * A known frame that carries no timeline capability, so it normalizes to no category. The non-empty
- * `reason` is mandatory, and the `?: never` keys forbid a taxonomy target.
+ * A known frame that carries no transcript capability, so it normalizes to no category. The
+ * non-empty `reason` is mandatory, and the `?: never` keys forbid a taxonomy target.
  */
 interface ClaudeNotEventedFrameDisposition {
   readonly disposition: "not-evented";
@@ -231,7 +231,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/hook_started",
     channel: "stream",
     reason:
-      "hook-lifecycle progress; hook execution is daemon-internal orchestration, not an audit-timeline capability",
+      "hook-lifecycle progress; hook execution is daemon-internal orchestration, not a capability the transcript or audit log records",
   },
   "system/hook_progress": {
     disposition: "not-evented",
@@ -243,7 +243,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "not-evented",
     frameKind: "system/hook_response",
     channel: "stream",
-    reason: "hook result consumed by the hook dispatcher, not a timeline capability",
+    reason: "hook result consumed by the hook dispatcher, not a transcript capability",
   },
   "system/notification": {
     disposition: "not-evented",
@@ -269,7 +269,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     disposition: "not-evented",
     frameKind: "system/memory_recall",
     channel: "stream",
-    reason: "provider-internal memory-retrieval signal; no audit-timeline capability",
+    reason:
+      "provider-internal memory-retrieval signal; no capability the transcript or audit log records",
   },
   "system/local_command_output": {
     disposition: "not-evented",
@@ -348,7 +349,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/hook_callback",
     channel: "control-request",
     reason:
-      "hook family, disposed `discard`: hook-lifecycle, daemon-internal orchestration, not an audit-timeline capability",
+      "hook family, disposed `discard`: hook-lifecycle, daemon-internal orchestration, not a capability the transcript or audit log records",
   },
   "control_request/mcp_message": {
     disposition: "not-evented",
@@ -399,20 +400,21 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/get_context_usage",
     channel: "control-request",
     reason:
-      "daemon-originated read; the request carries no observation, and the context-window telemetry its answer yields reaches the timeline through the driver's own usage emission",
+      "daemon-originated read; the request carries no observation, and the context-window telemetry its answer yields reaches the transcript through the driver's own usage emission",
   },
   "control_request/get_session_cost": {
     disposition: "not-evented",
     frameKind: "control_request/get_session_cost",
     channel: "control-request",
     reason:
-      "daemon-originated read; cost reaches the timeline through the driver's `usage.cost_update` emission, never through the request that polled for it",
+      "daemon-originated read; cost reaches the transcript through the driver's `usage.cost_update` emission, never through the request that polled for it",
   },
   "control_request/list_models": {
     disposition: "not-evented",
     frameKind: "control_request/list_models",
     channel: "control-request",
-    reason: "daemon-originated capability discovery; a discovery read is not a timeline capability",
+    reason:
+      "daemon-originated capability discovery; a discovery read is not a transcript capability",
   },
   "control_request/get_binary_version": {
     disposition: "not-evented",
@@ -433,7 +435,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/rewind_files",
     channel: "control-request",
     reason:
-      "daemon-originated file-side rewind; the rollback that drove it is evented by the daemon's intervention surface, and a cloud-hosted session refuses this subtype outright, which is a dispatcher classification rather than a timeline row",
+      "daemon-originated file-side rewind; the rollback that drove it is evented by the daemon's intervention surface, and a cloud-hosted session refuses this subtype outright, which is a dispatcher classification rather than a transcript row",
   },
 
   // Control channel, CLI -> daemon, answering a daemon-originated request. The census records the
@@ -450,7 +452,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_response/error",
     channel: "control-response",
     reason:
-      "typed control-channel refusal, correlated by `request_id`; every control request is feature-detected at call time by classifying this arm, which makes it a capability signal for the dispatcher rather than a timeline row",
+      "typed control-channel refusal, correlated by `request_id`; every control request is feature-detected at call time by classifying this arm, which makes it a capability signal for the dispatcher rather than a transcript row",
   },
 } as const satisfies Record<ClaudeWireFrameKind, ClaudeFrameNormalizationTableRow>;
 

@@ -4,7 +4,7 @@
 // never sorts. Whether a group is open lives in `run-group-fold-state.ts`, so the live run group
 // never collapses. This module renders nothing; `RunGroupHeader.tsx` draws the model.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { RunGroupBodyRowWindow, countClippedHeadRows } from "./run-group-body.js";
 import {
@@ -53,7 +53,7 @@ export interface RunGroup {
    * the same ceiling. A subset of what `clippedRowCount` counts: a run long enough to outrun both
    * bounds has older rows than these.
    */
-  readonly clippedHeadRows: readonly TimelineRow[];
+  readonly clippedHeadRows: readonly TranscriptEventRow[];
   /**
    * The row that ended it, or `undefined` while live. Carried as an id so a folded run group
    * renders its header and that row without scanning for its receipt.
@@ -68,11 +68,11 @@ export interface RunGroup {
  * per loaded-window identity and computing nothing until something is read.
  */
 export class RunGroupIndex {
-  readonly #rows: readonly TimelineRow[];
+  readonly #rows: readonly TranscriptEventRow[];
   /** The lazy fold. Undefined until the first read. */
   #runGroups: readonly RunGroup[] | undefined;
 
-  public constructor(rows: readonly TimelineRow[]) {
+  public constructor(rows: readonly TranscriptEventRow[]) {
     this.#rows = rows;
   }
 
@@ -94,16 +94,16 @@ export class RunGroupIndex {
  *
  * Narrowed on `kind`: `runId` is required on three arms and absent from `general`.
  */
-export function readRunGroupKey(row: TimelineRow): string | undefined {
+export function readRunGroupKey(row: TranscriptEventRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
 /**
  * Partition one loaded window into run groups.
  *
- * Exported beside the class so a test or bench can drive the fold without an index.
+ * Exported beside the class so a test can drive the fold without an index.
  */
-export function groupRowsByRun(rows: readonly TimelineRow[]): readonly RunGroup[] {
+export function groupRowsByRun(rows: readonly TranscriptEventRow[]): readonly RunGroup[] {
   const accumulatorsByRunId = new Map<string, RunGroupAccumulator>();
 
   for (const row of rows) {
@@ -148,7 +148,7 @@ function newAccumulator(runId: string): RunGroupAccumulator {
   };
 }
 
-function absorbRow(accumulator: RunGroupAccumulator, row: TimelineRow): void {
+function absorbRow(accumulator: RunGroupAccumulator, row: TranscriptEventRow): void {
   accumulator.rowIds.push(row.id);
   accumulator.bodyRows.admit(row);
   // The account is settled at admission, so the first naming wins.

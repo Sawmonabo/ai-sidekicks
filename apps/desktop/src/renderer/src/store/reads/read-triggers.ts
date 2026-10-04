@@ -1,6 +1,6 @@
 // The four moments a console reading re-reads, wired once for every reading: a view arriving
 // that has never had an answer, the window regaining focus, a stream that went away and came
-// back, and an event in this session's timeline saying the answer changed.
+// back, and an event in this session's transcript saying the answer changed.
 //
 // The vocabulary is `RefreshReason`'s and the coalescing is `RefreshScheduler`'s. This module
 // schedules nothing: a reading hands it the one method that puts a reason into its own
@@ -80,6 +80,6 @@ export function requestReadOnWindowFocus(target: ReadTriggerTarget): () => void 
 
 /**
  * The empty declaration, shared as one frozen set. A reading whose stream already carries
- * every change it folds names this: nothing in the timeline tells it more than its own tail.
+ * every change it folds names this: nothing in the transcript tells it more than its own tail.
  */
 export const NO_TRIGGERING_EVENT_KINDS: ReadonlySet<string> = Object.freeze(new Set<string>());

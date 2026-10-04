@@ -63,7 +63,7 @@ function bridgeHoldingExpansions(): HeldExpansions {
     releaseReplies = resolve;
   });
   const { bridge } = bridgeAnswering(async (call, passThrough) => {
-    if (call.method !== "timeline.childRunExpand") {
+    if (call.method !== "transcript.childRunExpand") {
       return passThrough();
     }
     await untilReleased;
@@ -81,7 +81,7 @@ function bridgeHoldingExpansions(): HeldExpansions {
 describe("child-run expansion — what a press leaves on screen", () => {
   it("holds the entries the daemon served and reports the unread remainder", async () => {
     const { bridge } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "timeline.childRunExpand" ? expansionReply(2, true) : passThrough(),
+      call.method === "transcript.childRunExpand" ? expansionReply(2, true) : passThrough(),
     );
     const expansions = new ChildRunExpansionState();
     const settled = await expansions.expand(bridge, CHILD_RUN_ID);
@@ -92,16 +92,16 @@ describe("child-run expansion — what a press leaves on screen", () => {
 
   it("sends the child run's own id and nothing else", async () => {
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "timeline.childRunExpand" ? expansionReply(0) : passThrough(),
+      call.method === "transcript.childRunExpand" ? expansionReply(0) : passThrough(),
     );
     await new ChildRunExpansionState().expand(bridge, CHILD_RUN_ID);
-    const expandCall = calls.find((call) => call.method === "timeline.childRunExpand");
+    const expandCall = calls.find((call) => call.method === "transcript.childRunExpand");
     expect(expandCall?.params).toEqual({ runId: CHILD_RUN_ID });
   });
 
   it("takes callDaemon's own refusal when the call is rejected, and never raises", async () => {
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method !== "timeline.childRunExpand") {
+      if (call.method !== "transcript.childRunExpand") {
         return passThrough();
       }
       throw new Error("the daemon is not reachable");
@@ -116,7 +116,7 @@ describe("child-run expansion — what a press leaves on screen", () => {
   it("keeps the rows an earlier expansion delivered when a later one fails", async () => {
     let shouldFail = false;
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
-      if (call.method !== "timeline.childRunExpand") {
+      if (call.method !== "transcript.childRunExpand") {
         return passThrough();
       }
       if (shouldFail) {
@@ -134,14 +134,14 @@ describe("child-run expansion — what a press leaves on screen", () => {
 
   it("puts one call on the wire when a person presses twice", async () => {
     const { bridge, calls } = bridgeAnswering(async (call, passThrough) =>
-      call.method === "timeline.childRunExpand" ? expansionReply(1) : passThrough(),
+      call.method === "transcript.childRunExpand" ? expansionReply(1) : passThrough(),
     );
     const expansions = new ChildRunExpansionState();
     const [first, second] = await Promise.all([
       expansions.expand(bridge, CHILD_RUN_ID),
       expansions.expand(bridge, CHILD_RUN_ID),
     ]);
-    expect(calls.filter((call) => call.method === "timeline.childRunExpand")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "transcript.childRunExpand")).toHaveLength(1);
     expect(first.status).toBe("expanded");
     expect(second.status).toBe("expanding");
   });

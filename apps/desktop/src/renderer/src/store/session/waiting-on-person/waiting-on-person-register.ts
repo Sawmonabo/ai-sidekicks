@@ -1,6 +1,6 @@
 // What is still waiting on a person, held outside the window it was learned from.
 //
-// Not a fold over the store's `timeline`: a resumed read starts mid-log and the timeline is
+// Not a fold over the store's `transcript`: a resumed read starts mid-log and the transcript is
 // capped, so an approval's opening row can be gone while the run is still blocked. The register
 // is advanced by every admitted event and recovered backward page, seeded from each read's base
 // state, and cleared by nothing that replaces or prunes the window.

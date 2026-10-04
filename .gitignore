@@ -77,10 +77,7 @@ venv/
 # Playwright MCP
 .playwright-mcp/
 
-# Browser-mode and Playwright run artifacts. The console screenshot captures are local QA aids a
-# developer writes to look at a view, compared against nothing, so no reference image is versioned
-# here.
-apps/desktop/tests/screenshot/__screenshots__/
+# Browser-mode and Playwright run artifacts.
 .vitest-attachments/
 playwright-report/
 test-results/

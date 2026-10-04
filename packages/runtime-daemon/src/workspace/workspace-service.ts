@@ -333,7 +333,7 @@ export class WorkspaceService {
       );
     };
 
-    // The birth event carries `repoMountId`, the only place a timeline reader learns the
+    // The birth event carries `repoMountId`, the only place a transcript reader learns the
     // workspace/mount association.
     await this.#events.emitWorkspacePreparing({
       sessionId: input.sessionId,

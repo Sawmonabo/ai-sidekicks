@@ -1,8 +1,8 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
 // disclosure press writes density to the list's retained row state, because the virtualizer
-// unmounts rows scrolled out of range. A `TimelineRow` carries no body, so machine rows render
-// the empty state `MessageContent` and `ToolOutput` draw for an unread body. A type the kind table
-// does not name draws nothing.
+// unmounts rows scrolled out of range. A `TranscriptEventRow` carries no body, so machine rows
+// render the empty state `MessageContent` and `ToolOutput` draw for an unread body. A type the kind
+// table does not name draws nothing.
 
 import { useCallback, useState } from "react";
 

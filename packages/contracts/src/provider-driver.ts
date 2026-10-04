@@ -113,7 +113,11 @@ export interface DriverCapabilities {
 
 // ---- Tool metadata and idempotency ----
 
-/** How a tool call may be retried or undone: repeated, compensated, or reconciled by hand. */
+/**
+ * A tool's declared idempotency: safe to repeat, undoable, or needing a person to reconcile.
+ * Shown per tool on Settings › MCP servers; a daemon restart runs no call again, whatever its
+ * class.
+ */
 export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
 // Length caps on provider output, applied through `wireFreeFormString`, which refuses an over-max

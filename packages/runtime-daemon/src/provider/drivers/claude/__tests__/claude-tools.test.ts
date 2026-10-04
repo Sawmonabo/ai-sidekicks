@@ -1,6 +1,6 @@
 // Claude tool metadata: only the pure local reads are idempotent, and an absent or unrecognized
-// class floors at `manual_reconcile_only`, because recovery re-executes a tool its class calls
-// safe. MCP server status comes from untrusted output.
+// class floors at `manual_reconcile_only`, so no tool is shown as safe to repeat unless declared.
+// MCP server status comes from untrusted output.
 
 import { describe, expect, it } from "vitest";
 
@@ -47,7 +47,7 @@ describe("Claude tool metadata — the conservative default", () => {
 
 describe("Claude tool catalog", () => {
   it("annotates only the pure local reads as idempotent and floors every other tool", () => {
-    // `idempotent` means a pure read; adding a name here lets recovery re-execute that tool.
+    // `idempotent` means a pure read; adding a name here shows that tool as safe to repeat.
     const pureLocalReads = ["Glob", "Grep", "Read"];
     for (const tool of CLAUDE_TOOL_CATALOG) {
       expect(tool.idempotency_class, tool.name).toBe(

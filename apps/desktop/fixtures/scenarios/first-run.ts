@@ -28,7 +28,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
   label: "First run",
   purpose:
-    "A freshly installed app with one session being provisioned and no history — the state the empty-state design and the screenshot baseline are pinned against.",
+    "A freshly installed app with one session being provisioned and no history — the state the empty-state design is pinned against.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({
@@ -68,7 +68,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
           updatedAt: STARTED_AT_ISO,
           draft: "",
         },
-        timelineCursors: { latest: "first-run-cursor-1" },
+        transcriptCursors: { latest: "first-run-cursor-1" },
       },
     },
   ],

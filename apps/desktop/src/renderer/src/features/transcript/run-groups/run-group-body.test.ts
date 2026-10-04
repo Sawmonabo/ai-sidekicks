@@ -9,7 +9,7 @@ import {
   countClippedHeadRows,
   listClippedHeadRowIds,
 } from "./run-group-body.js";
-import { runRow } from "../timeline-rows.test-support.js";
+import { runRow } from "../transcript-event-rows.test-support.js";
 
 function runGroupRow(sequence: number): ReturnType<typeof runRow> {
   return runRow({

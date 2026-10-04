@@ -61,7 +61,7 @@ The monorepo layout for implementation is:
 
 ## Transport Protocols
 
-- The control plane uses tRPC v11 for request-response and SSE subscriptions: sign-in, token refresh, device linking, the statement chain, a machine's registration and sealed push notices. The relay's WSS connection speaks binary wire frames, each belonging to one Noise channel between one device and one machine; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session timelines and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-013](../decisions/013-trpc-control-plane-api.md)).
+- The control plane uses tRPC v11 for request-response and SSE subscriptions: sign-in, token refresh, device linking, the statement chain, a machine's registration and sealed push notices. The relay's WSS connection speaks binary wire frames, each belonging to one Noise channel between one device and one machine; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session transcripts and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-013](../decisions/013-trpc-control-plane-api.md)).
 - The local daemon uses JSON-RPC 2.0 with LSP-style Content-Length framing over Unix domain socket (named pipe on Windows).
 
 ## Trust Boundaries

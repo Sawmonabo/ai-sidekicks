@@ -20,10 +20,7 @@ import {
   CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   CODEX_DEFAULT_EXECUTABLE_PATH,
-  type CodexBearerCredentialResolver,
   type CodexTransportSelection,
-  type CodexWebsocketBearerCredential,
-  type CodexWebsocketTransportConnector,
   composeCodexTransportArgv,
 } from "./transport-selection.js";
 import {
@@ -38,7 +35,6 @@ import {
 } from "./server-requests.js";
 import type { CodexSessionConfig } from "./session-config.js";
 import {
-  CodexDriverConfigError,
   CodexLineTooLongError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
@@ -87,10 +83,6 @@ export interface CodexConnectionOptions {
   readonly cols?: number | undefined;
   /** How the daemon reaches this process. */
   readonly transportSelection?: CodexTransportSelection | undefined;
-  /** Resolves `bearerTokenRef` at connection time; required on the ws arm. */
-  readonly resolveBearerCredential?: CodexBearerCredentialResolver | undefined;
-  /** Bridges to a ws listener; required on the ws arm (absence fails closed). */
-  readonly websocketConnector?: CodexWebsocketTransportConnector | undefined;
   /** Answers routed server requests; without one, every routed ask is refused. */
   readonly serverRequestResponder?: CodexServerRequestResponder | undefined;
 }
@@ -150,8 +142,6 @@ export class CodexAppServerConnection {
   #ptyClosed = false;
   #exitDescription: string | null = null;
   readonly #transportSelection: CodexTransportSelection;
-  readonly #resolveBearerCredential: CodexBearerCredentialResolver | undefined;
-  readonly #websocketConnector: CodexWebsocketTransportConnector | undefined;
   readonly #serverRequestResponder: CodexServerRequestResponder | undefined;
 
   constructor(options: CodexConnectionOptions) {
@@ -166,8 +156,6 @@ export class CodexAppServerConnection {
     this.#rows = options.rows ?? DEFAULT_PTY_ROWS;
     this.#cols = options.cols ?? DEFAULT_PTY_COLS;
     this.#transportSelection = options.transportSelection ?? { transport: "stdio" };
-    this.#resolveBearerCredential = options.resolveBearerCredential;
-    this.#websocketConnector = options.websocketConnector;
     this.#serverRequestResponder = options.serverRequestResponder;
   }
 
@@ -191,12 +179,6 @@ export class CodexAppServerConnection {
    * handshake. A failure after the spawn tears the process down before rethrowing.
    */
   async open(config: CodexSessionConfig): Promise<void> {
-    // Resolved per connection so a credential rotation is picked up; `null` on arms without one.
-    // The ternary avoids an unconditional `await`, whose microtask tick would reorder the spawn.
-    const bearerCredential =
-      this.#transportSelection.transport === "websocket"
-        ? await this.#resolveWebsocketCredential(this.#transportSelection.bearerTokenRef)
-        : null;
     const spawnRequest: SpawnRequest = {
       kind: "spawn_request",
       command: "/bin/sh",
@@ -204,7 +186,7 @@ export class CodexAppServerConnection {
         "-c",
         CODEX_APP_SERVER_SHELL_PRELUDE,
         CODEX_APP_SERVER_SHELL_ARGV0,
-        ...composeCodexTransportArgv(this.#transportSelection, bearerCredential),
+        ...composeCodexTransportArgv(this.#transportSelection),
       ],
       // The caller's pairs minus what the credential policy denies, plus the binary path the
       // prelude reads (mandated, so the deny strip cannot remove it); `process.env` is never
@@ -247,14 +229,6 @@ export class CodexAppServerConnection {
         },
       });
       await this.#awaitReadySentinel();
-      // Only the ws arm has a bridge to raise; it precedes the handshake so an `initialize` into
-      // an unbridged transport does not time out with a misleading failure.
-      if (this.#transportSelection.transport === "websocket" && bearerCredential !== null) {
-        await this.#requireWebsocketConnector().connect({
-          endpoint: this.#transportSelection.endpoint,
-          credential: bearerCredential,
-        });
-      }
       await this.request(
         "initialize",
         {
@@ -277,32 +251,6 @@ export class CodexAppServerConnection {
       });
       throw cause;
     }
-  }
-
-  // Every failure refuses instead of downgrading to an unauthenticated listener or to stdio.
-  async #resolveWebsocketCredential(
-    bearerTokenRef: string,
-  ): Promise<CodexWebsocketBearerCredential> {
-    const resolve = this.#resolveBearerCredential;
-    if (resolve === undefined) {
-      throw new CodexDriverConfigError(
-        "A websocket transport is configured but no bearer-credential resolver was injected; refusing to start an unauthenticated listener.",
-        "DriverTransportConfig.bearerTokenRef",
-      );
-    }
-    // Not caught: a throwing resolver is a credential that could not be obtained.
-    return await resolve(bearerTokenRef);
-  }
-
-  #requireWebsocketConnector(): CodexWebsocketTransportConnector {
-    const connector = this.#websocketConnector;
-    if (connector === undefined) {
-      throw new CodexDriverConfigError(
-        "A websocket transport is configured but no transport connector was injected; refusing to fall back to a different process.",
-        "DriverTransportConfig.endpoint",
-      );
-    }
-    return connector;
   }
 
   /** Sends a request and resolves with its `result`, or rejects with a typed error. */

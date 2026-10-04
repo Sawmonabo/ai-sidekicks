@@ -70,7 +70,7 @@ Nothing else on the relay is counted.
 ## Default Behavior
 
 - The limit is active by default on every sign-in route.
-- Clients that stay within the limit receive no rate-limiting headers until they approach it. "Approach the threshold" is defined as: `remaining < 25%` of the limit. Headers are always present on 429 responses.
+- An allowed response carries no rate-limit header; the headers come only on a 429.
 
 ## Fallback Behavior
 
@@ -79,7 +79,6 @@ Nothing else on the relay is counted.
 ## Interfaces And Contracts
 
 - `RateLimitCheck(identity, endpoint) -> { allowed: boolean, remaining: number, resetAt: timestamp, limit: number }` must be callable before request processing; `identity` is the caller's source address.
-- All HTTP responses from the sign-in routes must include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers, subject to the §Default Behavior threshold-approach rule.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 

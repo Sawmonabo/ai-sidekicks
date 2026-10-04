@@ -4,7 +4,7 @@
 
 import { useMemo } from "react";
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TranscriptWindowModel } from "../transcript-window.js";
@@ -12,12 +12,12 @@ import { type TranscriptWindowModel } from "../transcript-window.js";
 /** The window the viewport is showing, and what fell outside it. */
 export interface VisibleTranscriptWindow {
   /** The projected rows the viewport holds, in log order. */
-  readonly rows: readonly TimelineRow[];
+  readonly rows: readonly TranscriptEventRow[];
   /**
    * Rows the log has and this window does not — what the cap took. They exist, which says
    * nothing about whether earlier rows can be fetched; that is `earlier-history-reader.ts`.
    */
-  readonly prunedAwayRows: readonly TimelineRow[];
+  readonly prunedAwayRows: readonly TranscriptEventRow[];
 }
 
 /**
@@ -32,8 +32,8 @@ export function useVisibleTranscriptWindow(
 ): VisibleTranscriptWindow {
   return useMemo(() => {
     const visibleKeys = new Set(viewportRows.map((row) => row.key));
-    const rows: TimelineRow[] = [];
-    const prunedAwayRows: TimelineRow[] = [];
+    const rows: TranscriptEventRow[] = [];
+    const prunedAwayRows: TranscriptEventRow[] = [];
     for (const row of transcriptWindow.rows) {
       if (visibleKeys.has(row.id)) {
         rows.push(row);

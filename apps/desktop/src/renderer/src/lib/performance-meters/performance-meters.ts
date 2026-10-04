@@ -17,7 +17,7 @@ export const PERFORMANCE_METER_KINDS = [
   "reveal-drain",
   // Milliseconds one store's apply chokepoint took to fold one batch.
   "apply-latency",
-  // Entries one store's timeline holds. A gauge: the latest reading is the reading.
+  // Entries one store's transcript holds. A gauge: the latest reading is the reading.
   "store-size",
 ] as const;
 

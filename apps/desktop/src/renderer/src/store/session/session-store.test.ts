@@ -39,13 +39,13 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
     const early = store.applyBatch([eventAt(3), eventAt(2)]);
     expect(early.admitted).toBe(0);
     expect(early.buffered).toBe(2);
-    expect(store.snapshot().timeline).toHaveLength(0);
+    expect(store.snapshot().transcript).toHaveLength(0);
 
     store.initialize({ cursor: 1, entities: [] });
 
     // Both buffered events land ordered with no gap: they were only early, never missing.
-    const timeline = store.snapshot().timeline;
-    expect(timeline.map((event) => event.sequence)).toStrictEqual([2, 3]);
+    const transcript = store.snapshot().transcript;
+    expect(transcript.map((event) => event.sequence)).toStrictEqual([2, 3]);
     expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().cursor).toBe(3);
   });
@@ -58,7 +58,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
     expect(outcome.refusedForeignSession).toBe(1);
     expect(outcome.admitted).toBe(0);
-    expect(store.snapshot().timeline).toHaveLength(0);
+    expect(store.snapshot().transcript).toHaveLength(0);
   });
 
   it("records the missing sequences when a gap opens rather than renumbering", () => {
@@ -91,7 +91,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
     expect(outcome.admitted).toBe(1);
     // The re-entrant events are applied after the outer batch settles, and the breach is recorded.
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1, 2]);
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
     const report = windowTripwires.reports()[0];
     expect(report?.detail).toContain("re-entrant applyBatch");
@@ -106,7 +106,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
     expect(second.duplicates).toBe(1);
     expect(second.admitted).toBe(0);
-    expect(store.snapshot().timeline).toHaveLength(1);
+    expect(store.snapshot().transcript).toHaveLength(1);
   });
 });
 
@@ -122,7 +122,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
     expect(outcome.refusedDivergedSequence).toBe(1);
     expect(outcome.admitted).toBe(0);
     expect(store.snapshot().gaps).toStrictEqual([]);
-    expect(store.snapshot().timeline).toHaveLength(0);
+    expect(store.snapshot().transcript).toHaveLength(0);
     // The cursor stays where a read can answer at or ahead of it; a billion would make repairs
     // rewinds.
     expect(store.snapshot().cursor).toBe(0);
@@ -159,7 +159,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
     expect(outcome.refusedDivergedSequence).toBe(1);
     expect(outcome.admitted).toBe(2);
     // Ordered, with the hole named once (a subtracting comparator would sort `[3, NaN, 1]`).
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 3]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1, 3]);
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 2, toSequence: 2 }]);
   });
 });
@@ -184,13 +184,13 @@ describe("the repair read answers at the cursor the store already reached", () =
     store.initialize({
       cursor: 7,
       entities: [],
-      timeline: [eventAt(6), eventAt(7)],
+      transcript: [eventAt(6), eventAt(7)],
     });
 
     // Discarding this base state would leave 6 missing and the banner stuck.
     expect(store.snapshot().degradedCause).toBeUndefined();
     expect(store.snapshot().gaps).toStrictEqual([]);
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([6, 7]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([6, 7]);
   });
 
   it("still refuses a base state BEHIND the cursor, so a racing re-read cannot rewind", () => {
@@ -200,7 +200,7 @@ describe("the repair read answers at the cursor the store already reached", () =
     store.initialize({
       cursor: 6,
       entities: [],
-      timeline: [eventAt(6)],
+      transcript: [eventAt(6)],
     });
 
     // Same state object: the guard returned before any transition, so event 7 is kept.
@@ -211,7 +211,7 @@ describe("the repair read answers at the cursor the store already reached", () =
 
   it("leaves a HEALTHY store untouched by an equal-cursor base state", () => {
     // Guards against admitting every equal-cursor base state, which would rebuild the projection on
-    // each focus refresh and empty the timeline for a base state carrying none.
+    // each focus refresh and empty the transcript for a base state carrying none.
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));
@@ -220,7 +220,7 @@ describe("the repair read answers at the cursor the store already reached", () =
     store.initialize({ cursor: 1, entities: [] });
 
     expect(store.snapshot()).toBe(before);
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([1]);
   });
 
   it("marks a healthy store degraded with the cause it is handed", () => {
@@ -245,9 +245,9 @@ describe("events arrive before initialization and the read never comes", () => {
 
     store.initialize({ cursor: 0, entities: [] });
 
-    const timeline = store.snapshot().timeline;
-    expect(timeline).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
-    expect(timeline[0]?.sequence).toBe(overflowBy + 1);
+    const transcript = store.snapshot().transcript;
+    expect(transcript).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
+    expect(transcript[0]?.sequence).toBe(overflowBy + 1);
     expect(store.pendingPreInitializationCount).toBe(0);
     // The dropped sequences are named: the drain runs the same gap detection as any admission.
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 1, toSequence: 3 }]);
@@ -286,7 +286,9 @@ describe("a registered projector throws on an event", () => {
     expect(outcome.projectionFailures).toBe(1);
     expect(outcome.admitted).toBe(5);
     // The batch survives whole and the loss is named, not absorbed.
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
+      1, 2, 3, 4, 5,
+    ]);
     expect(Object.keys(store.snapshot().partitions.run).sort()).toStrictEqual([
       "run-1",
       "run-2",

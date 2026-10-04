@@ -12,7 +12,7 @@ This document covers run states, transition rules, and the meaning of control ac
 
 - `RunState`: the authoritative lifecycle state of a run.
 - `BlockingState`: a non-terminal run state that requires external input before normal progress can continue.
-- `TerminalState`: a run state from which the run does not continue on its own. Each exit keeps the same run id: a send into an `interrupted` run, which returns it to `running` with everything it knew; and a send into a finished child run's own steer box, which starts it again. `failed` has no exit.
+- `TerminalState`: a run state from which the run does not continue on its own. Each exit keeps the same run id: a send into an `interrupted` run, which returns it to `running` with everything it knew; a send into a finished child run's own steer box, which starts it again; and, on Codex, a send into a `stopped` child. `failed` has no exit, and neither has a `stopped` child on Claude Code.
 - `RunFailureCategory`: a machine-readable classification that explains why a run failed or degraded without creating a new run state.
 - `RecoveryCondition`: a derived signal that explains whether recovery still requires the person to act.
 
@@ -56,6 +56,7 @@ The run state machine defines the lifecycle semantics of execution.
 | `paused` | The run has been intentionally suspended and can later continue with the same run id. |
 | `completed` | The run finished successfully. |
 | `interrupted` | The run ended because of an interrupt: the person's, or one the daemon made itself, which carries its `trigger`. |
+| `stopped` | A child run ended by a stop that reached several agents — `Interrupt everything` or `Stop all running`. Final on Claude Code, where the CLI refuses every later message to that child; on Codex a send starts it again. |
 | `failed` | The run ended because of an unrecovered error. |
 
 Primary allowed transitions:
@@ -81,6 +82,8 @@ Primary allowed transitions:
 - `paused -> interrupted`
 - `interrupted -> running` (a send, or the messages that were waiting going as the next turn)
 - `completed -> running` (a send into a finished child run's own steer box)
+- `running -> stopped` and `interrupted -> stopped` (a child, on `Interrupt everything` or `Stop all running`)
+- `stopped -> running` (a send into a stopped child on Codex; never on Claude Code)
 - `waiting_for_approval -> failed` (provider or transport failure while waiting)
 - `waiting_for_input -> failed` (provider or transport failure while waiting; or the refusal choice answered `edit_prompt` or `cancelled`, the run ending with `failureCategory: 'refused'`)
 - `paused -> failed` (resume handle lost or recovery exhausted)
@@ -105,7 +108,7 @@ An undo that takes the conversation back ([Spec-003 §Required Behavior](../spec
 
 - A run that is `running`, `pausing` or `paused` has its turn ended exactly as an interrupt ends it (`running -> interrupted`, `pausing -> interrupted`, `paused -> interrupted`); the undo is never refused because a turn is running.
 - A run `waiting_for_approval` or `waiting_for_input` is interrupted the same way, and the approval or question it held is canceled with it. A run waiting on Claude Code's retry-or-edit choice on a refused turn has the choice answered `cancelled`, as an interrupt answers it: the run ends `failed` with `failureCategory: 'refused'`, and the cut then removes the turn. A run waiting on Claude Code's switch-or-credits choice is interrupted with the choice never answered, as an interrupt leaves it: the turn ends `interrupted`, on Fable.
-- A run already `completed`, `interrupted` or `failed` keeps its state.
+- A run already `completed`, `interrupted`, `stopped` or `failed` keeps its state.
 
 The next send — the edited message of an edit and resend included, which goes at once — starts from the cut conversation through the ordinary transitions. A cut advances `runVersion` and opens a new execution epoch (§Invariants), so a run-lifecycle event sourced from the execution before the cut and delivered after it never transitions the machine: it is absorbed at ingestion ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)'s epoch gate), and the at-most-one-terminal rule counts only events the machine accepts. An undo of the files alone cuts nothing and appends no `run.rolled_back`. The authoritative log never truncates or rewrites: turns after the point stay queryable history, marked superseded by projection only when the conversation went back ([ADR-016](../decisions/016-shared-event-sourcing-scope.md)). Where the session works changes nothing here: the checkpoints an undo reads are held with the session outside the checkout ([Spec-013 §Required Behavior](../specs/013-persistence-recovery-and-replay.md#required-behavior)).
 
@@ -144,6 +147,9 @@ The following table lists every allowed run state transition. It includes primar
 | `paused` | `failed` | Resume failure | Resume handle lost or recovery exhausted |
 | `interrupted` | `running` | Send into the interrupted run | A user message — or the messages that were waiting going as the next turn — returns the run to `running` with everything it knew; nothing is rewound and no turn is marked superseded ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
 | `completed` | `running` | Send into a finished run | A send into a finished child run's own steer box starts it again on the same run id, its pause and interrupt coming back with it ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)) |
+| `running` | `stopped` | A stop that reaches several agents | A child reached by `Interrupt everything` or `Stop all running`: `stop_task` on Claude Code, `turn/interrupt` on Codex |
+| `interrupted` | `stopped` | A stop that reaches several agents | The same stop reaching a child already interrupted |
+| `stopped` | `running` | Send into a stopped child | Codex only: the child keeps its box and a send starts it again on the same run id; on Claude Code `stopped` is final |
 | `queued` | `failed` | Startup reconciliation | Recovery fails |
 | `starting` | `failed` | Startup reconciliation | Recovery fails with no prior user-initiated stop |
 | `starting` | `interrupted` | Startup reconciliation | Pending user-initiated stop recorded before crash |
@@ -192,7 +198,7 @@ Child runs are **independent intervention targets**: a parent state change never
 
 | Parent State | Child-Run Effect |
 | --- | --- |
-| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly if the user wants the subtree stopped. |
+| `interrupted` | No automatic effect. Children keep their current state; each child is interrupted explicitly, or the subtree stopped by `Interrupt everything` or `Stop all running`, which takes each child it reaches to `stopped`. |
 | `failed` | No automatic effect. Children keep running; the parent's death does not invalidate work the children were spawned to do. |
 | `paused` | No automatic effect. Pausing a parent pauses only the parent; children are paused individually if needed. |
 | `completed` | Child runs continue to completion. They were spawned for a reason and are allowed to finish. |

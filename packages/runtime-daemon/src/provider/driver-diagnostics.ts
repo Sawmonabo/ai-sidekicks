@@ -97,7 +97,7 @@ export type DriverDiagnosticKind =
   | "interactive_request_option_set_dropped"
   // A receiver-generated task handle could not be stored on its receipt row (over a column bound,
   // ill-formed Unicode, absent row, or a different handle; `dispositionReason` names which). The
-  // receipt stays on the `manual_reconcile_only` halt, and the handle is never logged.
+  // call stays halted after a restart, never run again, and the handle is never logged.
   | "mcp_task_handle_write_refused"
   // The database refused a storable handle: a local fault, kept apart from the remote-caused
   // refusal. `dispositionReason` carries the SQLite result code; the message interpolates SQL.

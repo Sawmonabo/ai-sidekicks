@@ -1,7 +1,6 @@
 // In-process `node-pty` implementation of the `PtyHost` contract.
 //
-// - The selector picks it by default on every platform (see `pty-host-selector.ts`); on Windows
-//   the Rust sidecar is the alternative.
+// - The selector picks it on every platform (see `pty-host-selector.ts`).
 // - `node-pty.kill(signal)` on Windows signals one PID and does not walk console-control or
 //   process-tree semantics (microsoft/node-pty#167, #437), so the Windows kill translation
 //   lives here:

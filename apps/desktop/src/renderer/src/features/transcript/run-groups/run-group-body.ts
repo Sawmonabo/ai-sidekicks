@@ -4,7 +4,7 @@
 // body unbounded), and the re-pin is the engine's `overflow-anchor`: the transcript's scroll
 // offsets are written in one module, so this body has no second writer.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Rows a single run group renders before its body clips.
@@ -74,7 +74,7 @@ export function resolveRunGroupBodyHeight(
 const EMPTY_HEAD: readonly string[] = Object.freeze([]);
 
 /** The same nothing for the row window below, which answers in rows rather than ids. */
-const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
+const EMPTY_HEAD_ROWS: readonly TranscriptEventRow[] = Object.freeze([]);
 
 /**
  * The rows a run group's body can still reach, collected as the fold absorbs them.
@@ -86,12 +86,12 @@ const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
  */
 export class RunGroupBodyRowWindow {
   /** The newest rows, in ring order. Never longer than the retained cap. */
-  readonly #retained: TimelineRow[] = [];
+  readonly #retained: TranscriptEventRow[] = [];
   /** Where the oldest retained row sits. Zero until the ring has filled once. */
   #oldestIndex = 0;
 
   /** Admit one row of the run group, in log order. Constant cost, whatever the run. */
-  public admit(row: TimelineRow): void {
+  public admit(row: TranscriptEventRow): void {
     if (this.#retained.length < RUN_GROUP_BODY_RETAINED_ROW_CAP) {
       this.#retained.push(row);
       return;
@@ -106,13 +106,13 @@ export class RunGroupBodyRowWindow {
    * Cut once, when the run group is sealed, not on every admit. A run group under the cap
    * answers a shared empty value so a memo over an empty head does not re-run.
    */
-  public get headRows(): readonly TimelineRow[] {
+  public get headRows(): readonly TranscriptEventRow[] {
     const retainedCount = this.#retained.length;
     const headCount = Math.max(0, retainedCount - RUN_GROUP_VISIBLE_ROW_CAP);
     if (headCount === 0) {
       return EMPTY_HEAD_ROWS;
     }
-    const head: TimelineRow[] = [];
+    const head: TranscriptEventRow[] = [];
     for (let offset = 0; offset < headCount; offset += 1) {
       const row = this.#retained[(this.#oldestIndex + offset) % retainedCount];
       if (row === undefined) {

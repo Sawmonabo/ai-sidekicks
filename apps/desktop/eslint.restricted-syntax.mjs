@@ -345,38 +345,29 @@ export const WEAKENED_WINDOW_SETTING = [
 ];
 
 /**
- * A text snapshot in a package whose Vitest runs resolve `UPDATE_SNAPSHOT=all`.
+ * A text snapshot.
  *
- * `vitest/screenshot-pins.ts` sets that variable so the screenshot tier writes its capture aids
- * instead of gating on them, and it is process-wide because Vitest offers no per-project snapshot
- * mode. Under it a text snapshot rewrites itself and passes, the one shape of green that means
- * nothing. No such matcher exists in this package today; this keeps it that way. Assert the value
- * instead.
+ * A text snapshot records whatever the code produced on its first run and passes, so it proves
+ * nothing a person decided. No such matcher exists in this package today; this keeps it that way.
+ * Assert the value instead.
  *
  * Scope is every directory this package's `lint` script reads: `src/**`, `tests/**`, `fixtures/**`,
  * `scripts/**`, `build/**` and `vitest/**`. Most of `main-unit`'s `include` entries live outside
- * the renderer and `tests/**` unions, so a narrower ban would leave the process-wide mode unguarded
- * in the projects that run under it. Because flat config replaces a rule's options at the last
- * matching block, the selector is added to each block by name rather than declared once in a widest
- * one.
+ * the renderer and `tests/**` unions, so a narrower ban would leave them unguarded. Because flat
+ * config replaces a rule's options at the last matching block, the selector is added to each block
+ * by name rather than declared once in a widest one.
  */
 export const TEXT_SNAPSHOT_MATCHER_REACH = {
   selector:
     "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], " +
     "MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
   message:
-    "Mechanical gate 9 in `apps/desktop/AGENTS.md`: this package's Vitest runs resolve " +
-    "`UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on " +
-    "them, and under that mode a text snapshot rewrites itself instead of failing. Assert the " +
-    "value.",
+    "Mechanical gate 9 in `apps/desktop/AGENTS.md`: a text snapshot records whatever the code " +
+    "produced on its first run and passes. Assert the value.",
 };
 
 /**
- * Writing a capture anywhere but through the settled capture.
- *
- * A capture taken straight after a mount photographs the reserved region a loader-backed body has
- * not filled yet, a picture of a pane that had not finished loading. `captureSettled` refuses a
- * tree still carrying the pending marker, so every written capture goes through it. A never-saved
+ * A screenshot matcher. The package keeps no screenshot captures. A never-saved
  * `page.screenshot({ save: false })` read is a measurement, not a capture, and is outside this
  * rule, which names the matcher.
  */
@@ -387,10 +378,9 @@ export const SCREENSHOT_MATCHER_REACH = {
     ':matches(MemberExpression[property.name="toMatchScreenshot"], ' +
     'MemberExpression[computed=true][property.value="toMatchScreenshot"])',
   message:
-    "Mechanical gate 6 in `apps/desktop/AGENTS.md`: a screenshot is taken through " +
-    "`tests/screenshot/settled-capture.ts` and no other way. A capture taken straight after a " +
-    "mount photographs the region a loader-backed body has not filled yet — stable, green, and a " +
-    "picture of a pane that had not finished loading.",
+    "Mechanical gate 6 in `apps/desktop/AGENTS.md`: no screenshot matcher; the package keeps no " +
+    "screenshot captures. A never-saved `page.screenshot({ save: false })` read is outside the " +
+    "rule.",
 };
 
 /**

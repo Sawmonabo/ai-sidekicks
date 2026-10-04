@@ -1,26 +1,23 @@
 /**
- * Chooses how the Codex app server is reached (a child process on stdio, a Unix socket, or a
- * websocket) and composes the command line each choice needs.
+ * Chooses how the Codex app server is reached (a child process on stdio or a Unix socket) and
+ * composes the command line each choice needs.
  */
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import { CodexDriverConfigError } from "./session-errors.js";
 
 /**
- * Line the prelude emits once the tty is configured; nothing is written before it, because early
- * writes are echoed.
- */
-/**
  * How the daemon reaches the Codex app server; a daemon driver-registry setting, not an RPC payload
- * or a `ProviderDriver` member (`app-server --listen unix://|ws://`, config-gated, off by default).
- * `bearerTokenRef` references the ws bearer credential in daemon config, never the secret value,
- * and is required on the websocket arm so an unauthenticated ws listener is unrepresentable.
+ * or a `ProviderDriver` member (`app-server --listen unix://`, config-gated, off by default).
  */
 export type DriverTransportConfig =
   | { transport: "stdio" }
-  | { transport: "unix-socket"; endpoint: string }
-  | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
+  | { transport: "unix-socket"; endpoint: string };
 
+/**
+ * Line the prelude emits once the tty is configured; nothing is written before it, because early
+ * writes are echoed.
+ */
 export const CODEX_APP_SERVER_READY_SENTINEL: string = "__codex_app_server_ready__";
 
 /**
@@ -51,61 +48,11 @@ export const CODEX_DEFAULT_EXECUTABLE_PATH: string = "codex";
  */
 export type CodexTransportSelection =
   | { readonly transport: "stdio" }
-  | { readonly transport: "unix-socket"; readonly socketPath: string }
-  | {
-      readonly transport: "websocket";
-      readonly endpoint: string;
-      readonly bearerTokenRef: string;
-    };
-
-/**
- * A resolved websocket bearer credential in one of the modes the provider accepts. Every arm
- * carries paths or digests, never token bytes, so a token never appears in argv.
- */
-export type CodexWebsocketBearerCredential =
-  | {
-      readonly mode: "capability-token";
-      /** Absolute path, per `--ws-token-file <PATH>`. */
-      readonly tokenFilePath: string;
-    }
-  | {
-      readonly mode: "capability-token-digest";
-      /** Hex SHA-256, per `--ws-token-sha256 <HEX>`. */
-      readonly tokenSha256: string;
-    }
-  | {
-      readonly mode: "signed-bearer-token";
-      /** Absolute path, per `--ws-shared-secret-file <PATH>`. */
-      readonly sharedSecretFilePath: string;
-      readonly issuer: string;
-      readonly audience: string;
-    };
-
-/**
- * Resolves a `bearerTokenRef` to the credential the listener starts with. Called at connection
- * time and never cached, so a rotated credential is picked up by the next connection.
- */
-export type CodexBearerCredentialResolver = (
-  bearerTokenRef: string,
-) => Promise<CodexWebsocketBearerCredential>;
-
-/**
- * Bridges the JSONL JSON-RPC connection to a websocket listener (the unix arm needs none: the
- * provider ships `proxy --sock`). A websocket driver built without one refuses at construction,
- * never falling back to stdio, which would reach a different process.
- */
-export interface CodexWebsocketTransportConnector {
-  /** Called after the credential resolves; the endpoint is verbatim from config. */
-  connect(request: {
-    readonly endpoint: string;
-    readonly credential: CodexWebsocketBearerCredential;
-  }): Promise<void>;
-}
+  | { readonly transport: "unix-socket"; readonly socketPath: string };
 
 /**
  * Resolves the transport from registry config; absent config is `stdio`. A unix endpoint may be
- * `unix://` or a bare path; a websocket endpoint stays verbatim (the provider parses host and
- * port). Throws `CodexDriverConfigError` for an empty endpoint or `bearerTokenRef`.
+ * `unix://` or a bare path. Throws `CodexDriverConfigError` for an empty endpoint.
  */
 export function resolveCodexTransportSelection(
   config: DriverTransportConfig | undefined,
@@ -113,85 +60,30 @@ export function resolveCodexTransportSelection(
   if (config === undefined || config.transport === "stdio") {
     return { transport: "stdio" };
   }
-  if (config.transport === "unix-socket") {
-    const socketPath = config.endpoint.startsWith(CODEX_UNIX_ENDPOINT_SCHEME)
-      ? config.endpoint.slice(CODEX_UNIX_ENDPOINT_SCHEME.length)
-      : config.endpoint;
-    if (socketPath.length === 0) {
-      throw new CodexDriverConfigError(
-        "DriverTransportConfig.endpoint named no unix socket path.",
-        "DriverTransportConfig.endpoint",
-      );
-    }
-    return { transport: "unix-socket", socketPath };
-  }
-  if (config.endpoint.length === 0) {
+  const socketPath = config.endpoint.startsWith(CODEX_UNIX_ENDPOINT_SCHEME)
+    ? config.endpoint.slice(CODEX_UNIX_ENDPOINT_SCHEME.length)
+    : config.endpoint;
+  if (socketPath.length === 0) {
     throw new CodexDriverConfigError(
-      "DriverTransportConfig.endpoint named no websocket endpoint.",
+      "DriverTransportConfig.endpoint named no unix socket path.",
       "DriverTransportConfig.endpoint",
     );
   }
-  // The type only requires the string; an empty one names no credential, which would be an
-  // unauthenticated listener.
-  if (config.bearerTokenRef.length === 0) {
-    throw new CodexDriverConfigError(
-      "DriverTransportConfig.bearerTokenRef named no credential; an unauthenticated websocket listener is refused.",
-      "DriverTransportConfig.bearerTokenRef",
-    );
-  }
-  return {
-    transport: "websocket",
-    endpoint: config.endpoint,
-    bearerTokenRef: config.bearerTokenRef,
-  };
+  return { transport: "unix-socket", socketPath };
 }
 
 const CODEX_UNIX_ENDPOINT_SCHEME = "unix://";
 
 /**
  * The provider argv for one transport selection, as positional words appended after the prelude's
- * `$0`. Throws `CodexDriverConfigError` for a websocket selection with no resolved credential.
+ * `$0`.
  */
-export function composeCodexTransportArgv(
-  selection: CodexTransportSelection,
-  credential: CodexWebsocketBearerCredential | null,
-): readonly string[] {
+export function composeCodexTransportArgv(selection: CodexTransportSelection): readonly string[] {
   switch (selection.transport) {
     case "stdio":
       // Left implicit: the default endpoint is the provider's own; no flag spelling is relied on.
       return ["app-server"];
     case "unix-socket":
       return ["app-server", "proxy", "--sock", selection.socketPath];
-    case "websocket": {
-      if (credential === null) {
-        throw new CodexDriverConfigError(
-          "A websocket transport was selected with no resolved bearer credential; refusing to start an unauthenticated listener.",
-          "DriverTransportConfig.bearerTokenRef",
-        );
-      }
-      // Flags at `codex-cli 0.150.1`: `--listen <URL>` (`stdio://` default, `unix://`,
-      // `ws://IP:PORT`, `off`) and `--ws-auth capability-token|signed-bearer-token`.
-      const argv = ["app-server", "--listen", selection.endpoint];
-      switch (credential.mode) {
-        case "capability-token":
-          argv.push("--ws-auth", "capability-token", "--ws-token-file", credential.tokenFilePath);
-          return argv;
-        case "capability-token-digest":
-          argv.push("--ws-auth", "capability-token", "--ws-token-sha256", credential.tokenSha256);
-          return argv;
-        case "signed-bearer-token":
-          argv.push(
-            "--ws-auth",
-            "signed-bearer-token",
-            "--ws-shared-secret-file",
-            credential.sharedSecretFilePath,
-            "--ws-issuer",
-            credential.issuer,
-            "--ws-audience",
-            credential.audience,
-          );
-          return argv;
-      }
-    }
   }
 }

@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountTerminalPane } from "../helpers/feature-mounts/terminal.js";
+import { mountTerminalPane } from "./feature-mounts/terminal.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";

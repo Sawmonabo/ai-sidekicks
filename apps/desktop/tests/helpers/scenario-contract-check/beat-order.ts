@@ -22,7 +22,7 @@ const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
  * fallen due, so an entry whose `atMs` is earlier than the one before it is delivered in a
  * different order than written. Nondecreasing, not strictly increasing, since beats sharing a tick
  * are ordinary and their array order is the order a subscriber receives them. The defect costs a
- * late delivery, but the screenshot and endurance tiers pin frames at an exact tick.
+ * late delivery, but the endurance tier pins frames at an exact tick.
  *
  * The position: `session.subscribe` represents the whole log and the fixture's base state starts at
  * cursor zero, so the store's reconciler reads a jump as a gap and a step backwards as a

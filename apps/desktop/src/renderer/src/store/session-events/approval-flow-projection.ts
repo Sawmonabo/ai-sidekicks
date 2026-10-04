@@ -6,7 +6,7 @@
 // Each event is parsed with the strict payload schema of its type; the stream decoder only
 // applies the tolerant envelope. A payload the schema refuses folds nothing, since a half-read
 // ask would draw a card for an action nobody can see. A beat naming another session, and a rule
-// revocation that names no ask, also fold nothing; the timeline still records that they arrived.
+// revocation that names no ask, also fold nothing; the transcript still records that they arrived.
 //
 // State is marked, never deleted: a resolution or cancellation sets the entity's state and
 // leaves the row.

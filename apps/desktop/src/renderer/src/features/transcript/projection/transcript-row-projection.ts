@@ -1,4 +1,4 @@
-// The log-derived row projection: this window's event log read as `TimelineRow`s. The app
+// The log-derived row projection: this window's event log read as `TranscriptEventRow`s. The app
 // receives raw events, not the daemon's read projection, so rows carry what the log supports
 // (id, sequence, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
 // restated, since no registered payload carries one. The id is the daemon's opaque one, carried not
@@ -7,10 +7,10 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
 import {
-  TIMELINE_ROLLBACK_BOUNDARY_TYPE,
-  TIMELINE_RUN_LIFECYCLE_CATEGORY,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts/timeline/row";
+  TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
+  TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
+  type TranscriptEventRow,
+} from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
@@ -25,7 +25,7 @@ import { deriveChildRunSummaries } from "./child-run-summaries.js";
  * the screen's list of rows is closed.
  */
 export interface TranscriptRowProjection {
-  readonly rows: readonly TimelineRow[];
+  readonly rows: readonly TranscriptEventRow[];
 }
 
 /**
@@ -38,7 +38,7 @@ const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_
 const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
 
 /**
- * Reads this window's event log as timeline rows.
+ * Reads this window's event log as transcript rows.
  *
  * A pure fold in log order, so the same log gives the same rows and the caller can memoize on
  * the log's identity. An event kind with no registered category is dropped,
@@ -57,7 +57,7 @@ export function projectTranscriptRows(
   // A pass of its own: a child run's summary states where the child got to, which is not
   // known at the row the summary is stamped on.
   const childRunSummaryByEventId = deriveChildRunSummaries(events);
-  const rows: TimelineRow[] = [];
+  const rows: TranscriptEventRow[] = [];
 
   for (const event of events) {
     const category = CATEGORY_BY_WIRE_TYPE.get(event.kind);
@@ -81,7 +81,7 @@ export function projectTranscriptRows(
       progressionByRunId.set(runId, progression);
     }
 
-    if (event.kind === TIMELINE_ROLLBACK_BOUNDARY_TYPE) {
+    if (event.kind === TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE) {
       const boundary = projectRollbackBoundary(event, progression);
       if (boundary === undefined) {
         continue;
@@ -125,7 +125,7 @@ interface RunProgression {
  * The boundary arm alone, extracted from the contract's union so this file makes no second
  * claim about what a boundary row carries.
  */
-type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
+type RollbackBoundaryRow = Extract<TranscriptEventRow, { readonly kind: "rollback_boundary" }>;
 
 /** The members every arm spreads, all of them wire-verbatim but `summary`. */
 function commonRowFields(
@@ -170,10 +170,10 @@ function projectRollbackBoundary(
     return undefined;
   }
   return {
-    ...commonRowFields(event, TIMELINE_RUN_LIFECYCLE_CATEGORY),
+    ...commonRowFields(event, TRANSCRIPT_RUN_LIFECYCLE_CATEGORY),
     kind: "rollback_boundary",
-    category: TIMELINE_RUN_LIFECYCLE_CATEGORY,
-    type: TIMELINE_ROLLBACK_BOUNDARY_TYPE,
+    category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
+    type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
     runId: boundary.runId as RunId,
     // Wire-verbatim, and the one the arm's own refinement compares against.
     position: boundary.targetPosition,

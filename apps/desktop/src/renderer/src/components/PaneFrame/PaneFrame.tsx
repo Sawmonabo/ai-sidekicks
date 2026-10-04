@@ -71,7 +71,7 @@ export interface PaneFrameProps {
    * calls `preventDefault` or `stopPropagation` for the caller.
    */
   readonly onKeyDownCapture?: (event: React.KeyboardEvent<HTMLElement>) => void;
-  readonly children: React.ReactNode;
+  readonly children?: React.ReactNode;
 }
 
 /**

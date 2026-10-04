@@ -1,5 +1,4 @@
-// The `mcp.*` method table, the two governance event payloads and the refusal codes. An event
-// payload names a binding by its provider, scope and server name, never its folder.
+// The `mcp.*` method table, the sign-in event payload, the status notice and the refusal codes. A payload names a binding by its provider, scope and server name, never its folder.
 import { z } from "zod";
 
 import {
@@ -54,11 +53,11 @@ import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import type { McpServerStatus } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 
-// Governance event payloads
+// Governance payloads
 
 /**
- * A binding's identity inside a kept event: its provider, scope and server name. The folder a
- * project or local binding lives in is a path on this machine and never enters an event.
+ * A binding's identity inside an event or a notice: its provider, scope and server name. The
+ * folder a project or local binding lives in is a path on this machine and never enters either.
  */
 export interface McpServerBindingAuditRef {
   provider: ProviderName;
@@ -80,29 +79,37 @@ const auditAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
 const initiatingSessionShape = { initiatingSessionId: SessionIdSchema.optional() };
 
 /**
- * `mcp.server_status_changed`. A `session_feed` observation names the live leg it
- * came from; a `node_probe` observation has no leg and carries no `bindingId`.
+ * `mcp.server_status_changed`, the live notice of a status change on `mcp.subscribe`, written to
+ * no log. A `session_feed` observation names the session and the live leg it came from; a
+ * `node_probe` observation has neither.
  */
-export type McpServerStatusChangedPayload = McpServerBindingAuditRef & {
+export type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
+  type: "mcp.server_status_changed";
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string | undefined;
   origin: "session_feed" | "node_probe";
+  sessionId?: SessionId | undefined;
   bindingId?: string | undefined;
 };
-/** Parses an {@link McpServerStatusChangedPayload}. */
-export const McpServerStatusChangedPayloadSchema: z.ZodType<McpServerStatusChangedPayload> =
+/** Parses an {@link McpServerStatusChangedNotice}. */
+export const McpServerStatusChangedNoticeSchema: z.ZodType<McpServerStatusChangedNotice> =
   auditAddressed({
+    type: z.literal("mcp.server_status_changed"),
     previousStatus: McpServerStatusSchema,
     status: McpServerStatusSchema,
     failureReason: z.string().optional(),
     origin: z.enum(["session_feed", "node_probe"]),
+    sessionId: SessionIdSchema.optional(),
     bindingId: z.string().min(1).optional(),
   }).refine(
-    (payload) => (payload.origin === "session_feed") === (payload.bindingId !== undefined),
+    (notice) =>
+      notice.origin === "session_feed"
+        ? notice.sessionId !== undefined && notice.bindingId !== undefined
+        : notice.sessionId === undefined && notice.bindingId === undefined,
     {
-      message: "bindingId is carried exactly when the observation came from a session's leg.",
-      path: ["bindingId"],
+      message: "sessionId and bindingId are carried exactly when a session's leg saw the change.",
+      path: ["origin"],
     },
   );
 

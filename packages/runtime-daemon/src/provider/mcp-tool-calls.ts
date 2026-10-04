@@ -62,7 +62,7 @@ export function extractMcpTaskId(acceptanceResult: unknown): string | undefined 
 
 /**
  * Hands the sink an observation only when the acceptance carries a handle; otherwise nothing is
- * stored and recovery keeps the floor's halt.
+ * stored and after a restart the call stays halted, never run again.
  */
 export function observeMcpTaskAcceptance(
   sink: McpTaskHandleSink,

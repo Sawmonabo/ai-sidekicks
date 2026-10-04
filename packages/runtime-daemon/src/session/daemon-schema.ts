@@ -174,8 +174,8 @@ CREATE TABLE driver_capabilities (
   PRIMARY KEY (driver_name, capability_flag)
 ) STRICT;
 
--- Per-tool idempotency class, so crash recovery picks its dispatch without
--- asking the driver.
+-- Per-tool idempotency class as the driver declared it, so the capability
+-- result is rebuilt without asking the driver.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
   tool_name          TEXT NOT NULL,
@@ -351,11 +351,7 @@ CREATE TABLE interventions (
   payload                 TEXT NOT NULL DEFAULT '{}', -- JSON
   expected_run_version    INTEGER NOT NULL,           -- the fail-closed comparand
   client_idempotency_key  TEXT NOT NULL,              -- requester-generated UUID
-  -- 'user' for a request admitted over the wire, carrying its device_id;
-  -- 'system' for the in-process orchestration entry, with none. No DEFAULT: a default would fail open, so
-  -- every insert names its path.
-  origin                  TEXT NOT NULL
-                          CHECK(origin IN ('user', 'system')),
+  -- The admitting connection's device; NULL when the daemon itself wrote the row.
   device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
   -- Why a request was rejected. A rejected outcome carries no result, so an
@@ -363,7 +359,6 @@ CREATE TABLE interventions (
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
-  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   -- An identical retry replays the recorded outcome; a reused key with a
   -- different payload is refused (intervention.idempotency_conflict).
   UNIQUE (target_run_id, client_idempotency_key)
@@ -380,10 +375,10 @@ CREATE TABLE command_receipts (
   status        TEXT NOT NULL
                 CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
   created_at    TEXT NOT NULL,
-  -- The receiver-generated MCP Tasks taskId from its acceptance. NULL until the
-  -- acceptance is stored, so a crash before it leaves the call on the
-  -- manual-reconcile halt. Untrusted peer output: the write seam checks the same
-  -- 256 bound and names the violation.
+  -- The receiver-generated MCP Tasks taskId from its acceptance, the one handle a
+  -- call is resumed by after a restart. NULL until the acceptance is stored, so a
+  -- crash before it leaves the call halted, never run again. Untrusted peer
+  -- output: the write seam checks the same 256 bound and names the violation.
   mcp_task_id   TEXT
     CHECK(mcp_task_id IS NULL OR (length(mcp_task_id) > 0
       AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0))

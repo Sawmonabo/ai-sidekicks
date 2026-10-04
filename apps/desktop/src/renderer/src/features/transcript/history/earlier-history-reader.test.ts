@@ -6,12 +6,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  TimelineReadResponseSchema,
-  type TimelineReadRequest,
-  type TimelineReadResponse,
-} from "@ai-sidekicks/contracts/timeline/operations";
+  TranscriptReadResponseSchema,
+  type TranscriptReadRequest,
+  type TranscriptReadResponse,
+} from "@ai-sidekicks/contracts/transcript/operations";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
@@ -26,7 +26,7 @@ const WINDOW_HEAD_CURSOR = "cursor-at-40";
 /** Where a later completed read re-opens it — the head a refresh moves the store to. */
 const LATER_WINDOW_HEAD_CURSOR = "cursor-at-60";
 
-function rowAt(sequence: number): TimelineRow {
+function rowAt(sequence: number): TranscriptEventRow {
   return {
     kind: "general",
     id: `event-${String(sequence)}`,
@@ -45,23 +45,23 @@ function rowAt(sequence: number): TimelineRow {
  * one: the reader must hand back the cursor the last page ended at, and a fixed reply would
  * answer the same page forever and pass either way.
  */
-const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TimelineReadResponse>> = {
-  [WINDOW_HEAD_CURSOR]: TimelineReadResponseSchema.parse({
+const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TranscriptReadResponse>> = {
+  [WINDOW_HEAD_CURSOR]: TranscriptReadResponseSchema.parse({
     entries: [rowAt(35), rowAt(36), rowAt(37)],
     hasMore: true,
     nextCursor: "cursor-at-35",
   }),
-  "cursor-at-35": TimelineReadResponseSchema.parse({
+  "cursor-at-35": TranscriptReadResponseSchema.parse({
     entries: [rowAt(30), rowAt(31)],
     hasMore: false,
   }),
-  [LATER_WINDOW_HEAD_CURSOR]: TimelineReadResponseSchema.parse({
+  [LATER_WINDOW_HEAD_CURSOR]: TranscriptReadResponseSchema.parse({
     entries: [rowAt(55), rowAt(56)],
     hasMore: false,
   }),
 };
 
-function replyFor(request: TimelineReadRequest): DaemonReply<TimelineReadResponse> {
+function replyFor(request: TranscriptReadRequest): DaemonReply<TranscriptReadResponse> {
   const page =
     request.beforeCursor === undefined ? undefined : PAGES_BY_BEFORE_CURSOR[request.beforeCursor];
   return page === undefined
@@ -111,14 +111,14 @@ function openStore(options: { readonly readFromCursor?: string } = {}): SessionS
   store.initialize({
     cursor: 41,
     entities: [],
-    timeline: [40, 41].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
+    transcript: [40, 41].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
     ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
   });
   return store;
 }
 
 function sequencesOf(store: SessionStore): readonly number[] {
-  return store.snapshot().timeline.map((event) => event.sequence);
+  return store.snapshot().transcript.map((event) => event.sequence);
 }
 
 describe("EarlierHistoryReader — three windows, two presses, and then nothing left", () => {
@@ -202,7 +202,7 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
     store.initialize({
       cursor: 45,
       entities: [],
-      timeline: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
+      transcript: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
       readFromCursor: WINDOW_HEAD_CURSOR,
     });
 
@@ -215,7 +215,7 @@ function refreshWindowHigherUp(store: SessionStore): void {
   store.initialize({
     cursor: 61,
     entities: [],
-    timeline: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
+    transcript: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
     readFromCursor: LATER_WINDOW_HEAD_CURSOR,
   });
 }

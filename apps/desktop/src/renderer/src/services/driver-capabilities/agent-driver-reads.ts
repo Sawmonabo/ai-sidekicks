@@ -32,10 +32,10 @@ const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
  * another session is ignored.
  */
 export function readAgentDriverNames(
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
 ): ReadonlyMap<string, ProviderName> {
   const driverNameByAgentId = new Map<string, ProviderName>();
-  for (const entry of timeline) {
+  for (const entry of transcript) {
     const agent = agentBroughtInBy(entry);
     if (agent !== undefined) {
       driverNameByAgentId.set(agent.agentId, agent.binding.driverName);

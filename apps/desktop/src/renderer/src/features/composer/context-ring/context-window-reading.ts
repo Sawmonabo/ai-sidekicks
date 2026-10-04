@@ -3,6 +3,10 @@
 // unknown record becomes a figure; a payload missing a member yields no reading, never a
 // partial one. Pure fold over stored rows: no bridge, clock or store.
 
+import {
+  CONTEXT_WINDOW_SOURCES,
+  type ContextWindowSource,
+} from "@ai-sidekicks/contracts/context-window";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
@@ -11,12 +15,6 @@ export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
 
 /** Event type of a compaction row, the only evidence that a compaction happened. */
 export const CONTEXT_COMPACTED_EVENT_KIND = "usage.context_compacted";
-
-/** Provenance of the counts in a context-window row: the closed set the wire names. */
-export const CONTEXT_WINDOW_SOURCES = ["provider_reported", "model_default", "estimated"] as const;
-
-/** One provenance in `CONTEXT_WINDOW_SOURCES`. */
-export type ContextWindowSource = (typeof CONTEXT_WINDOW_SOURCES)[number];
 
 /** How full one run's conversation is, as the daemon last reported it. */
 export interface ContextWindowReading {
@@ -42,7 +40,7 @@ export interface ContextWindowReading {
  * `runId` belongs to no run.
  */
 export function newestContextWindowReading(
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
   targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
   const addressedRunId = readWireString(targetRunId);
@@ -50,7 +48,7 @@ export function newestContextWindowReading(
     return undefined;
   }
   let newest: ContextWindowReading | undefined;
-  for (const event of timeline) {
+  for (const event of transcript) {
     if (event.kind !== CONTEXT_WINDOW_EVENT_KIND) {
       continue;
     }
@@ -62,7 +60,7 @@ export function newestContextWindowReading(
       newest = reading;
     }
   }
-  const boundary = newestCompactionBoundary(timeline, addressedRunId);
+  const boundary = newestCompactionBoundary(transcript, addressedRunId);
   if (boundary === undefined || (newest !== undefined && newest.sequence > boundary.sequence)) {
     return newest;
   }
@@ -85,8 +83,8 @@ function readingAfterCompaction(
     usagePercent: percentOf(boundary.postCompactionTokens, superseded.windowMaxTokens),
     windowUsedTokens: boundary.postCompactionTokens,
     windowMaxTokens: superseded.windowMaxTokens,
-    // The provenance travels with the window: dropping it would render an estimated window as if
-    // the provider had reported it.
+    // The provenance travels with the window: dropping it would render a model-default window as
+    // if the provider had reported it.
     windowSource: superseded.windowSource,
     // A compaction ends the state the flag reported.
     exceeded: undefined,
@@ -100,14 +98,14 @@ interface CompactionBoundary {
 }
 
 function newestCompactionBoundary(
-  timeline: readonly ProjectedSessionEvent[],
+  transcript: readonly ProjectedSessionEvent[],
   addressedRunId: string | undefined,
 ): CompactionBoundary | undefined {
   if (addressedRunId === undefined) {
     return undefined;
   }
   let newest: CompactionBoundary | undefined;
-  for (const event of timeline) {
+  for (const event of transcript) {
     if (event.kind !== CONTEXT_COMPACTED_EVENT_KIND) {
       continue;
     }

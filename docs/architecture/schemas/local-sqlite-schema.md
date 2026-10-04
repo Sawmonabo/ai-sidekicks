@@ -177,21 +177,22 @@ Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000
 
 ## Session Console State (Plan-001)
 
-The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares three things durable here — the composer draft, its staged attachments, and the review notes left on a file's lines — so that a half-written message, its files and an unsent review reach the person's other devices; their columns are defined with the verbs that write them: `session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The block below holds the column the spawn path reads, the session's own step bound.
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; their columns are defined with the verbs that write them: `session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor.
 
 It is **configuration, not session history**: it is not events-canonical, is not replayed, and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
 ```sql
 -- Owner: Plan-001
 CREATE TABLE session_console_state (
-  session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session, written on the first press that needs it
+  session_id          TEXT NOT NULL PRIMARY KEY,  -- one row per session: written at `session.create` for a Claude Code session (its advisor), and for any other session on the first press that needs it
   max_steps_per_turn  INTEGER
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
+  advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the machine settings file's `advisorModel` and changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
   updated_at          TEXT NOT NULL
 );
 ```
 
-The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight.
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
 
 ---
 
@@ -226,7 +227,7 @@ CREATE TABLE queue_items (
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
 
--- Owner: Plan-002 (rejection_reason; the Spec-003/Spec-010 admission path adds origin) | Extended by: Spec-004 (client_idempotency_key intervention dedupe)
+-- Owner: Plan-002 (rejection_reason) | Extended by: Spec-004 (client_idempotency_key intervention dedupe)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -236,15 +237,12 @@ CREATE TABLE interventions (
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (user client or daemon system-origination); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
-  origin                 TEXT NOT NULL               -- daemon-resolved admission-path discriminator (D-002-4): 'user' for a request admitted over the wire, 'system' for the in-process orchestration entrypoint (CP-002-10's budget interventions). NO DEFAULT by design — a default would fail OPEN for the system path, so every insert site declares.
-                         CHECK(origin IN ('user', 'system')),
-  device_id              TEXT,                       -- the device a 'user' intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL on 'system' (Queue And Intervention Model)
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
+  device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  CHECK((origin = 'user') = (device_id IS NOT NULL)),
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
@@ -259,15 +257,12 @@ CREATE TABLE command_receipts (
   status            TEXT NOT NULL
                     CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
   -- Two-phase commit columns
-  idempotency_class TEXT NOT NULL
-                    CHECK(idempotency_class IN ('idempotent', 'compensable', 'manual_reconcile_only')),
-  dedupe_key        TEXT,                         -- propagated to remote side for 'compensable' tools
   started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
   completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
   -- Plan-003's column: receiver-generated
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
-  -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
-  -- manual_reconcile_only halt. Spec-013 recovery reads this handle and polls tasks/get + tasks/result
+  -- NULL until the receiver accepts — a crash before that leaves NULL and the call's run halts with
+  -- `recovery-needed`. Spec-013 recovery reads this handle and polls tasks/get + tasks/result
   -- instead of halting. Written by Plan-003 T5.1 through the T3.13 receipt-write seam. Bounded like every persisted
   -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
   -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
@@ -297,7 +292,8 @@ CREATE TABLE command_receipts (
 );
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
--- Recovery sweep index: find in-flight receipts needing idempotency-class-based handling
+-- Recovery sweep index: the startup sweep's in-flight receipts, each resumed by its task handle
+-- or halted
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
 ```
@@ -323,11 +319,11 @@ CREATE TABLE runtime_bindings (
                       CHECK (length(contract_version) > 0 AND length(contract_version) <= 64 AND instr(contract_version, char(0)) = 0),
   cli_version_raw     TEXT NOT NULL             -- the provider-printed CLI version verbatim (`rawVersion`), captured at every binding write (Spec-004 §Required Behavior `cliVersion` report)
                       CHECK (length(cli_version_raw) > 0 AND length(cli_version_raw) <= 128 AND instr(cli_version_raw, char(0)) = 0),
-  cli_version_semver  TEXT                      -- the parsed form (`parsedVersion`); NULL where the printed version does not parse, which never refuses the binding: the minimum-version check runs only on a parsed version
+  cli_version_semver  TEXT                      -- the parsed form (`parsedVersion`); NULL where the printed version does not parse. Recorded and shown, never compared: no build is refused or called too old, parsed or not
                       CHECK (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0)),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-003 T3.41 / T3.19 / T3.24); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-003 T3.40 / T3.18 / T3.23); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -356,10 +352,9 @@ CREATE TABLE driver_capabilities (
 );
 
 -- Owner: Plan-003
--- Per-tool metadata for the daemon's two-phase command-receipt protocol at
--- crash-recovery dispatch time (idempotency_class lookup without round-tripping
--- the driver per Spec-004 §Recovery Consequences). Normalized per-tool rows mirror the
--- per-flag-row shape of driver_capabilities.
+-- Per-tool metadata, cached so Settings › MCP servers shows each tool's declared idempotency_class
+-- without round-tripping the driver; recovery never branches on it (Spec-004 §Required Behavior). Normalized per-tool rows
+-- mirror the per-flag-row shape of driver_capabilities.
 CREATE TABLE driver_tools (
   driver_name        TEXT NOT NULL,
   tool_name          TEXT NOT NULL,
@@ -566,29 +561,25 @@ CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(work
 
 ```sql
 -- Owner: Plan-011
--- + subject, size_bytes, annotations realize the OCI manifest envelope (D-011-1, D-011-2).
+-- + size_bytes realizes the OCI manifest envelope (D-011-1).
 CREATE TABLE artifact_manifests (
   id                 TEXT PRIMARY KEY,
   session_id         TEXT NOT NULL,
   run_id             TEXT,
   created_by         TEXT,                       -- the device the publishing request came from; NULL for a daemon-produced artifact
-  artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-011-4)
+  artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-011-3)
                      CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
-  subject            TEXT REFERENCES artifact_manifests(id),  -- OCI `subject`: NULL for originals; a derivative (redacted/summarized shareable form) points to its source manifest, never an in-place UPDATE of the original (I-011-2, Spec-012 §State And Data Implications)
   state              TEXT NOT NULL DEFAULT 'pending'
                      CHECK(state IN ('pending', 'published', 'superseded')),
   content_hash       TEXT NOT NULL,              -- SHA-256 content address (OCI `digest`); intrinsic to a content-addressed manifest (I-011-1), set at insert by the writing producer (AttachmentIngest or ArtifactPublish) from its own payload — D-011-1
   size_bytes         INTEGER NOT NULL,           -- OCI manifest-descriptor `size` (payload byte length); set at insert by the writing producer from its own payload, never a payload-less row — D-011-1
-  annotations        TEXT NOT NULL DEFAULT '{}', -- OCI `annotations`: JSON-encoded string→string map (first-class OCI manifest property, not freeform `metadata`) — D-011-1, D-011-2
-  metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: freeform daemon-side provenance/media-type/etc. — distinct from the OCI `annotations` map (own column above)
-  created_at         TEXT NOT NULL,
-  CHECK(subject IS NULL OR subject <> id)        -- I-011-2: a derivative points to a *distinct* source manifest, never itself (no self-referential subject; same guard pattern as run_links parent<>child)
+  metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-side provenance, the file name and the media type (Spec-012)
+  created_at         TEXT NOT NULL
 );
 
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
-CREATE INDEX idx_artifact_manifests_subject ON artifact_manifests(subject) WHERE subject IS NOT NULL;
 
 -- Owner: Plan-011
 CREATE TABLE artifact_payload_refs (
@@ -607,13 +598,13 @@ CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifes
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 ```
 
-> **The OCI manifest envelope.** `artifact_manifests.subject` (OCI `subject`, self-referential FK — derivative-not-mutation per I-011-2, guarded by a table-level `CHECK(subject IS NULL OR subject <> id)` so no manifest is its own subject — a derivative must point to a _distinct_ source, the same self-reference guard pattern as `run_links` parent≠child), `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`), and `artifact_manifests.annotations` (OCI `annotations`, a first-class string→string map per the [OCI image-manifest spec](https://github.com/opencontainers/image-spec/blob/main/manifest.md)) realize the OCI envelope per D-011-1. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). **D-011-2 (OCI `annotations` reciprocity):** `annotations` is its own column rather than riding inside `metadata` JSON, so the at-rest shape is 1:1 with the wire — `ArtifactReadResponse.annotations` is a field distinct from `metadata` in [api-payload-contracts.md](../contracts/api-payload-contracts.md) — and consistent with `subject`/`size_bytes` getting dedicated columns; `metadata` stays purely freeform.
+> **The OCI manifest envelope.** `artifact_manifests.size_bytes` (OCI manifest-descriptor `size`) realizes the OCI envelope per D-011-1. An artifact is never changed in place. **`content_hash`/`size_bytes` are `NOT NULL`:** a content-addressed manifest's `digest` is intrinsic to its identity (I-011-1), and each producer (Plan-011 Task 2 AttachmentIngest, Task 3 ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref — the two are independent producers, each writing its own manifest (so the `artifactId` AttachmentIngest returns resolves from the ingest-written manifest, not a later publish), so neither is ever NULL and no payload-less manifest is ever read — this is 1:1 with the **required** `digest`/`size` fields on the `ArtifactManifest` wire shape ([api-payload-contracts.md](../contracts/api-payload-contracts.md)). The file name lives in `metadata`, which the wire carries as `ArtifactManifest.metadata`.
 
 ---
 
 ## Approval Tables (Plan-009)
 
-The 7 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `plan_approval`, `gate`, `human_step_contribution`. A question and an MCP elicitation are not approvals: each is one `question.asked` record, answered outside the approval pipeline.
+The 6 canonical approval categories: `tool_execution`, `file_write`, `network_access`, `destructive_git`, `plan_approval`, `gate`. A question and an MCP elicitation are not approvals: each is one `question.asked` record, answered outside the approval pipeline.
 
 ```sql
 -- Owner: Plan-009 (D-009-2)
@@ -626,8 +617,7 @@ CREATE TABLE approval_requests (
   category              TEXT NOT NULL
                         CHECK(category IN (
                           'tool_execution', 'file_write', 'network_access', 'destructive_git',
-                          'plan_approval', 'gate',
-                          'human_step_contribution'                               -- SA-12 addition; mirrors Spec-010 canonical enum
+                          'plan_approval', 'gate'                                 -- mirrors Spec-010 canonical enum
                         )),
   scope                 TEXT NOT NULL,        -- requested scope descriptor
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 §Interfaces And Contracts, 'must include')
@@ -687,11 +677,11 @@ A run's `executionPosture.credentialPolicyRef` is a plain reference naming the c
 
 ## Workflow Tables (Plan-014)
 
-Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I7), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-25)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-25)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
+Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I7), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
-**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-34)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-34)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-42)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-42)), whose buckets are log files in the daemon's data folder, never tables of this schema (Plan-014 CP-014-9).
+**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-33)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-33)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-41)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)), whose buckets are log files in the daemon's data folder, never tables of this schema (Plan-014 CP-014-9).
 
 ```sql
 -- ========================================================================
@@ -722,7 +712,7 @@ CREATE TABLE workflow_definitions (
   -- matching mcp_server_bindings.scope_ref below. Do not "fix" it by dropping the
   -- CHECK.
   scope_ref            TEXT NOT NULL DEFAULT '',
-  -- Copy-on-write provenance (Spec-015 §Definition scope in the builder (SA-35)):
+  -- Copy-on-write provenance (Spec-015 §Definition scope in the builder (SA-34)):
   -- the content hash of the 'shared' definition this row was branched from when an
   -- author edited a shared definition, NULL for a definition authored from scratch.
   -- Provenance only — it is not part of the hashed body, so a branched definition
@@ -734,6 +724,11 @@ CREATE TABLE workflow_definitions (
                        CHECK(schema_version GLOB '[0-9]*'),
   definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); full author-supplied definition
   layout_json          TEXT,                           -- JSON: the document's own layout section — a position per node, an optional viewport, the sticky notes. OUTSIDE the content_hash preimage, so editing it mints no version; NULL = written with no layout, which opens laid out deterministically left to right
+  -- The workflow's tags: matched ignoring case, nested with '/', no spaces. Set from the builder
+  -- header or by an agent through the workflow authoring call; OUTSIDE the content_hash preimage, so
+  -- a change mints no version. The Workflows tab's row and its tag filter read them.
+  tags                 TEXT NOT NULL DEFAULT '[]'
+                       CHECK(json_valid(tags) AND json_type(tags) = 'array'),
   -- The workflow's own permission level, set from the builder's level pill and starting at 'yolo':
   -- every run of the workflow uses it wherever the run lives, and a live run takes a change from its
   -- next step. OUTSIDE the content_hash preimage, so a change mints no version.
@@ -769,13 +764,14 @@ CREATE TABLE workflow_versions (
   parent_version_id    TEXT REFERENCES workflow_versions(id), -- NULL at version_number=1
   parent_content_hash  TEXT,                           -- BLAKE3 of parent definition body; NULL at version 1
   content_hash         TEXT NOT NULL,                  -- BLAKE3 of THIS version's body
-  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition document — name, the trigger node, the nodes and the edges (Spec-015 §Graph model — nodes, ports, and edges (SA-31)) — the BLAKE3 preimage of content_hash, so a version read serves the whole document parsed from this body and read -> export reproduces the canonical bytes verbatim (storing the nodes alone would leave a later version's name and trigger unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
+  definition_body      TEXT NOT NULL,                  -- JSON (canonicalized per RFC 8785); THIS version's full definition document — name, the trigger node, the nodes and the edges (Spec-015 §Graph model — nodes, ports, and edges (SA-30)) — the BLAKE3 preimage of content_hash, so a version read serves the whole document parsed from this body and read -> export reproduces the canonical bytes verbatim (storing the nodes alone would leave a later version's name and trigger unreconstructable against content_hash; not a duplicate of workflow_definitions.definition_body above — that row carries the definition's current author-supplied body, each version row snapshots its own immutable bytes)
   layout_json          TEXT,                           -- JSON: this version's layout section, snapshotted beside its immutable body and outside content_hash's preimage, so an export of any version reproduces the file form it was written as
   author_note          TEXT,                           -- opt-in changelog message
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
+  saved_by_agent_id    TEXT,                           -- the agent that saved this version through the authoring call; NULL where the person saved it in the builder, so the Versions panel names the user or that agent
   UNIQUE(definition_id, version_number),
-  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-015 §Definition scope in the builder (SA-35))
+  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-015 §Definition scope in the builder (SA-34))
 );
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
@@ -806,7 +802,7 @@ CREATE TABLE workflow_runs (
   finished_at               TEXT,
   -- Result
   failure_reason            TEXT,                       -- null unless status in ('failed','canceled','crashed')
-  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-015 §Workflow Timeline Integration
+  failure_detail            TEXT,                       -- JSON; includes cancellation_reason per Spec-015 §Workflow Transcript Integration
   -- Chains: a run that starts runs. Every row names its chain's first run; the first run's own row
   -- counts the runs the chain has started and records the person's answer to the chain's question,
   -- which is itself a row in workflow_gate_resolutions, so a chain needs no table of its own.
@@ -848,8 +844,7 @@ CREATE TABLE workflow_gate_resolutions (
   approval_category          TEXT                       -- mirrors Plan-009 approval_requests.category when applicable
                              CHECK(approval_category IS NULL OR approval_category IN (
                                'tool_execution','file_write','network_access','destructive_git',
-                               'plan_approval','gate',
-                               'human_step_contribution'                                       -- SA-12 addition
+                               'plan_approval','gate'
                              )),
   approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id), -- the Plan-009 approval request this gate answered
   -- Resolution
@@ -875,7 +870,7 @@ CREATE INDEX idx_gate_resolutions_approval ON workflow_gate_resolutions(approval
 -- 5. human_phase_form_state — daemon-held draft of a form step
 -- ========================================================================
 -- Owner: Plan-014
--- Carries a form step's drafts (Spec-015 §Human form drafts (SA-27)), keyed by run and node.
+-- Carries a form step's drafts (Spec-015 §Human form drafts (SA-26)), keyed by run and node.
 -- Written through `workflow.humanFormDraftSave`; each autosave bumps the row's own
 -- draft version. A client never keeps a form draft in window storage.
 CREATE TABLE human_phase_form_state (
@@ -1053,8 +1048,6 @@ CREATE TABLE run_links (
   session_id        TEXT NOT NULL,                      -- session provenance (I-013-3): replay + relay rebuild scope by session
   reached_by        TEXT NOT NULL
                     CHECK(reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),   -- how the child was reached (D-013-12)
-  internal_helper   INTEGER NOT NULL DEFAULT 0
-                    CHECK(internal_helper IN (0, 1)),   -- durable home of the internal-helper flag (I-013-9)
   created_at        TEXT NOT NULL,
   PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot run.queued linkage D-013-3)
   CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
@@ -1170,7 +1163,9 @@ CREATE TABLE agent_tree_nodes (
   parent_reference  TEXT,                           -- the provider's own parent link, verbatim: the Claude Code parent tool-call id or
                                                     -- the Codex parent thread id; NULL where the provider named none
   state             TEXT NOT NULL
-                    CHECK(state IN ('running', 'completed')),
+                    CHECK(state IN ('running', 'completed', 'failed', 'interrupted', 'stopped')),
+                    -- read from the agent's own update (the Claude Code task update, the Codex
+                    -- child turn's frame), never from the lead's result
   started_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (run_id, driver_name, subagent_id)   -- one row per agent: a second start for the same agent is refused
@@ -1244,7 +1239,7 @@ CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id
 
 ## MCP Governance Tables (Plan-022)
 
-Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; status transitions and settled sign-ins are the `mcp.*` event types in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path (receipts are retry-window dedup evidence, deliberately not audit rows).
+Node-scoped governance state for [Spec-024](../../specs/024-mcp-server-configuration-and-governance.md) (V1 feature #15): the binding store (each binding's enabled overlay and native-tool baseline), the per-tool override store, the governance-mutation idempotency receipt store, and the record of which OAuth client each server admitted. Provider config files remain the config source of truth — the daemon persists only governance state and derives the unified inventory on read, so no table here mirrors provider config ([Spec-024 § State And Data Implications](../../specs/024-mcp-server-configuration-and-governance.md#state-and-data-implications)). All the tables here are daemon-local with no session FK; settled sign-ins are the `mcp.*` event type in the `mcp_governance` category, appended through the Plan-004 `EventLogService` path, and a status change is a live notice on `mcp.subscribe` written to no log (receipts are retry-window dedup evidence, deliberately not audit rows).
 
 ```sql
 -- Owner: Plan-022
@@ -1252,17 +1247,17 @@ CREATE TABLE mcp_server_bindings (
   provider           TEXT NOT NULL
                      CHECK(provider IN ('claude', 'codex')),  -- the McpProvider contract union (driver id namespace); an unchecked value would hand inventory code an impossible row its exhaustive McpProvider handling cannot represent
   scope              TEXT NOT NULL
-                     CHECK(scope IN ('user', 'project', 'local')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at every scope on both providers; a Codex 'local' binding is the daemon's emulation and has a row like any other
-  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local); '' for user scope
+                     CHECK(scope IN ('user', 'project', 'local', 'plugin')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on both providers; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
+  scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local) / the plugin's name (plugin); '' for user scope
   server_name        TEXT NOT NULL,
   enabled_override   INTEGER
-                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings only in V1 — Claude user scope has no enabled field; Codex uses its native `enabled` config field); NULL = no overlay
+                     CHECK(enabled_override IS NULL OR enabled_override IN (0, 1)),  -- the daemon's per-server enabled overlay (Claude bindings and every plugin binding — Claude user scope has no enabled field, and a plugin's declaration is the plugin's; Codex's own bindings use its native `enabled` config field); NULL = no overlay
   native_tool_baseline_json TEXT,        -- pre-governance snapshot of the binding's native override-projection fields (enabled_tools / disabled_tools / tools.<t>.approval_mode), captured at the first facet materialization, held while any facet is materialized, dropped once facet-free; Codex-materialized bindings only (Claude facets are daemon-enforced — no native writes, no baseline). mcp.clearToolOverride restores from it (Spec-024 §Tool-Level Overrides) — without it, restore-on-clear would invent values
   first_observed_at  TEXT NOT NULL,
   updated_at         TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, server_name),
   -- binding-ref structural validity, mirroring the schema-level discriminated union (defense in depth):
-  -- user scope has no scope_ref ('' sentinel); project/local REQUIRE one, on both providers
+  -- user scope has no scope_ref ('' sentinel); project/local/plugin REQUIRE one, on both providers
   CHECK((scope = 'user') = (scope_ref = ''))
 );
 ```
@@ -1273,7 +1268,7 @@ CREATE TABLE mcp_tool_overrides (
   provider          TEXT NOT NULL
                     CHECK(provider IN ('claude', 'codex')),  -- the closed McpProvider union, mirroring mcp_server_bindings
   scope             TEXT NOT NULL
-                    CHECK(scope IN ('user', 'project', 'local')),  -- binding identity axes mirror mcp_server_bindings
+                    CHECK(scope IN ('user', 'project', 'local', 'plugin')),  -- binding identity axes mirror mcp_server_bindings
   scope_ref         TEXT NOT NULL DEFAULT '',
   server_name       TEXT NOT NULL,
   tool_name         TEXT NOT NULL,
@@ -1475,7 +1470,7 @@ Node-local registry of saved agent configurations, for [Spec-026](../../specs/02
 
 `id` is daemon-minted, opaque, and immutable, and is stable across a rename — `name` is a mutable human label and is never an identity key (I-024-1). A run started under a definition holds a **snapshot** of it: no foreign key binds a running agent to this table, and no read path serving one consults it, so editing or deleting a definition can never widen the authority of an agent already running (I-024-2).
 
-`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, modelId, providerAccountId, effort }, "overrides": [ … ] }` — because one saved agent runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
+`bindings` is the definition's provider axes, and it is one JSON column rather than four loose ones. It holds a default binding and any number of overrides — `{ "default": { driverName, unsupportedProviderName, modelId, providerAccountId, effort }, "overrides": [ … ] }` (`driverName` null, with `unsupportedProviderName` holding the name as the file gave it, only when the file names a provider this app does not run) — because one saved agent runs on either provider without being copied into a second definition, and four loose columns could hold only one provider's setup. The default is one of the bindings rather than a fallback beside them, and an override is a whole binding in its own right: an override's driver is unique within the definition and never repeats the default's, so which binding answers for a driver is never ambiguous. JSON rather than a child table because the list is bounded, always read with its row, and never queried across definitions — the same convention `tool_allowlist` on this table already follows.
 
 A `providerAccountId` inside a binding deliberately carries **no foreign key** to `provider_accounts` (D-024-1), which a JSON column could not express anyway and which the corpus would refuse if it could. `ON DELETE CASCADE` would discard configuration the person wrote when an account is removed; `ON DELETE SET NULL` would silently convert a pinned account into "the provider's default account", which is exactly the substitution the fail-closed resolution rule forbids; `ON DELETE RESTRICT` would make account removal fail because an unrelated definition names it. The reference is therefore unenforced at the schema layer and checked when a run resolves the binding, which is the only point at which the answer matters.
 
@@ -1539,6 +1534,38 @@ CREATE UNIQUE INDEX idx_agent_definitions_name_folded
 ```
 
 **Why a stored fold key rather than `COLLATE NOCASE`.** SQLite's built-in `NOCASE` collation folds only the 26 ASCII letters — [SQLite datatype documentation](https://sqlite.org/datatype3.html#collating_sequences) — so an index built on it collides `Reviewer` with `reviewer` but admits a pair differing only in a non-ASCII case mapping. A full-Unicode check in the definition store beside an ASCII index would not hold, because the layer performing the real fold is the layer that cannot be atomic: two concurrent creates of `Ärger` and `ärger` would each pass the service precheck, and the ASCII index would then accept both. Persisting the fold (`name_folded`, written by the store on every insert and update) moves the full-Unicode comparison into the unique index itself, so uniqueness is decided once, by the database, under the same folding the service uses. The store still performs the fold — it owns the Unicode algorithm — but it is not the correctness boundary, only the producer of the key. `name` continues to hold the person's original casing for display.
+
+## Skill Record Table (Plan-026)
+
+The console's own record for each skill folder. A skill is its folder, and every field the screen shows besides two lives in that folder: the record holds where the skill is available and its icon, and nothing else of the skill's own. Beside those it keeps the id the folder's address uses (`skillId`, `#/skills/<id>`), kept through a rename made in the app so two folders sharing a name never share an address, and the folder's path, which on an orphaned record is the last path the folder was known at. A folder renamed or deleted outside the app leaves its record orphaned, drawn in the `Folder gone` group with its icon and availability until it is reattached to a folder or discarded; nothing is rewritten or dropped silently. It is the skill half of the record mechanism `agent_definitions` is the agent half of, read through the same file watch.
+
+It is **configuration, not session history**: not events-canonical, not replayed, not rebuilt from the event log.
+
+```sql
+-- Owner: Plan-026
+CREATE TABLE skill_records (
+  id                TEXT NOT NULL PRIMARY KEY,  -- daemon-minted skillId, the folder's address; stable across a rename made in the app
+  origin            TEXT NOT NULL  -- which place the folder lives in
+                    CHECK(origin IN ('ours', 'claude', 'codex', 'plugin')),
+  plugin_name       TEXT NOT NULL DEFAULT '',  -- the installing plugin's name on a plugin's skill, which is read-only; '' on every other origin
+  scope             TEXT NOT NULL DEFAULT 'global'  -- global, or one project's own
+                    CHECK(scope IN ('global', 'project')),
+  scope_ref         TEXT NOT NULL DEFAULT '',  -- the project record's id at 'project'; '' at 'global'
+  folder_path       TEXT NOT NULL,  -- the skill's folder; on an orphaned record, the last path the folder was known at
+  availability      TEXT NOT NULL  -- JSON object, one boolean per provider the app runs ({ "claude": true, "codex": false }); a skill may be off everywhere. Seeded from the origin's default when the record is made
+                    CHECK(json_valid(availability) AND json_type(availability) = 'object'),
+  icon              TEXT,  -- NULL = the generic skill glyph; a glyph key from the console's own icon set
+  orphaned          INTEGER NOT NULL DEFAULT 0  -- 1 while the folder is renamed or deleted outside the app and the record is neither reattached nor discarded
+                    CHECK(orphaned IN (0, 1)),
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  CHECK((origin = 'plugin') = (plugin_name <> '')),
+  CHECK((scope = 'global') = (scope_ref = ''))
+);
+
+-- One live record per folder; an orphaned record keeps its last path without holding the folder.
+CREATE UNIQUE INDEX idx_skill_records_folder ON skill_records(folder_path) WHERE orphaned = 0;
+```
 
 ## Attention Delivery State (Plan-016)
 
@@ -1612,4 +1639,4 @@ CREATE TABLE shared_ports (
 
 ## Session Search Index
 
-The search across every session and a session's own find are answered from one FTS5 virtual table over session titles, message text, group names and tags, SQLite's own full-text index, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4. It reaches every session the list holds, archived ones included, with no cap, and is kept in step with the rows it indexes by the daemon's write path. Only settled messages are indexed, never streamed chunks; a prefix index serves search as the person types; and the index is merged into one tree (FTS5's `optimize`) when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in the index's BM25 order; where it also names a relation or a tag, the BM25 rank and the relation rank from `session_related` are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank), and results come grouped by project, then group, then session, each branch ordered by its best score. A common word ranked across 1,000,000 messages measured 8.2 ms at p95 on SQLite 3.50.4, inside the 50 ms budget §Session Directory (Plan-001) sets. Its DDL lands with the search reads, `session.search` across sessions and `timeline.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).
+The search across every session and a session's own find are answered from one FTS5 virtual table over session titles, message text, tool calls, group names and tags, SQLite's own full-text index, which the daemon's `better-sqlite3` 13.0.3 build carries against SQLite 3.53.4. It reaches every session the list holds, archived ones included, with no cap, and is kept in step with the rows it indexes by the daemon's write path. Only settled messages are indexed, never streamed chunks; a prefix index serves search as the person types; and the index is merged into one tree (FTS5's `optimize`) when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in the index's BM25 order; where it also names a relation or a tag, the BM25 rank and the relation rank from `session_related` are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank), and results come grouped by project, then group, then session, each branch ordered by its best score. A common word ranked across 1,000,000 messages measured 8.2 ms at p95 on SQLite 3.50.4, inside the 50 ms budget §Session Directory (Plan-001) sets. Its DDL lands with the search reads, `session.search` across sessions and `transcript.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).

@@ -309,7 +309,7 @@ async function loopInReturnedHelper() {
 
 - `ADR-015` — Electron desktop app (V1 desktop architecture; this ADR is a derived contract addition).
 - `ADR-021` — V1 toolchain selection (the Node 24.21 floor, with the `better-sqlite3` 13.x Node-API-10 prebuild; V8 14.6.202.34-electron.0 is the Electron 41.6.1 engine this ADR's probe measured, and the lifecycle guard passes on the Electron 44.5.1 pin).
-- `ADR-022` — V1 CI/CD and release automation (the CI surface that ensures the dead-code-elimination guarantee continues to hold: `release bundle excludes test-machinery markers`).
+- `ADR-022` — V1 CI/CD and release automation (the CI surface that runs the lifecycle guard on every pull request that touches the desktop app).
 
 ### Platform scope note
 

@@ -3,7 +3,7 @@
 // parent is a child run, said by the daemon; the summary is stamped on that one row per
 // child, the only row naming both, so it takes a fresh object each pass.
 
-import type { ChildRunSummary } from "@ai-sidekicks/contracts/timeline/child-run-summary";
+import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import type { RunState } from "@ai-sidekicks/contracts/run-state";
 import {

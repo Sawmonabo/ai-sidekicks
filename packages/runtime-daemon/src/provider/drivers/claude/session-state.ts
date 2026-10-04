@@ -149,7 +149,9 @@ export interface ClaudeSessionLifecycleDependencies {
     runId: RunId,
     failure: TextNeutralizationRunFailure,
   ) => void;
-  /** Receives each child's `subagent.started`/`subagent.completed` pair, its only timeline mark. */
+  /**
+   * Receives each child's `subagent.started`/`subagent.completed` pair, its only transcript mark.
+   */
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;

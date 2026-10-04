@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountPreviewPane } from "../helpers/feature-mounts/preview.js";
+import { mountPreviewPane } from "./feature-mounts/preview.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";

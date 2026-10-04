@@ -10,8 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountMountList } from "../helpers/feature-mounts/repos.js";
-import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
+import { mountDiffPane, mountMountList } from "./feature-mounts/repos.js";
+import { type MountedView } from "./feature-mounts/mount-queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";

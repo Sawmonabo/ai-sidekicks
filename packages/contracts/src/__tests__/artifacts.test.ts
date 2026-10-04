@@ -16,7 +16,6 @@ const MANIFEST = {
   artifactType: "file",
   digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   size: 11,
-  annotations: { "org.opencontainers.image.title": "notes.txt" },
   state: "published",
   metadata: { mediaType: "text/plain" },
   createdAt: "2026-01-01T14:20:00.000Z",

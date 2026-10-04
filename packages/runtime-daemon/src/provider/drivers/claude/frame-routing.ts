@@ -194,8 +194,8 @@ export class ClaudeFrameRouting {
         if (registration.registered) {
           if (band.accountant.hasThread(registration.childThreadId)) {
             // A repeat announcement for a known child: re-establishing would zero its register and
-            // double-count its spend, and a second `subagent.started` would duplicate its timeline
-            // entry. Recorded, not returned on.
+            // double-count its spend, and a second `subagent.started` would duplicate its
+            // transcript entry. Recorded, not returned on.
             this.#diagnostics.emit({
               provider: "claude",
               kind: "thread_duplicate_child_announcement",

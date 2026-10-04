@@ -25,7 +25,7 @@ Ship Spec-019's count on the person's own relay — the Workers relay in their o
 - `RateLimiterFactory` — selects the implementation from the deployment's configuration (T21.2-5).
 - One admission stage (D-018-1): `checkAdmission` runs `RateLimiter.check()`, whose sliding-window counter is the only stage; a trip is a 429 with the window's `Retry-After`, and a counter error fails that one request like any backend error. tRPC procedures and raw routes call only `checkAdmission`. The relay's channel carries no rate limit: it forwards each device's frames as fast as the machine drains them, and backpressure on the channel bounds both directions.
 - tRPC v11 middleware `rateLimitProcedure({ endpoint })` wired per the §Endpoint Wiring Ownership table (D-018-3).
-- Retry-After and standard rate-limit headers on every 429 ([Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); on allowed responses headers attach only when `remaining < 25%` of the limit ([Spec-019 §Default Behavior](../specs/019-rate-limiting-policy.md#default-behavior)).
+- Retry-After and standard rate-limit headers on every 429 ([Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); an allowed response carries no rate-limit header.
 
 ## Non-Goals
 
@@ -153,12 +153,12 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
     if (!admission.admitted) {
       throw tooManyRequests(rateLimitResponseFrom(admission.check)); // 429 + canonical envelope + headers
     }
-    return next({ ctx: { ...ctx, rateLimitHeaders: headersFrom(admission) } });
+    return next(); // an allowed response carries no rate-limit header
   });
 ```
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'auth.endpoint' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`).
-- Header policy: every rate-limit header on every 429; on allowed responses, headers attach only when `remaining < 25%` of the limit ([Spec-019 §Default Behavior](../specs/019-rate-limiting-policy.md#default-behavior)).
+- Header policy: every rate-limit header on every 429, and none on an allowed response.
 
 ### Standard headers on 429 responses
 
@@ -191,7 +191,7 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
 
 | Endpoint group (canonical key) | Procedure owner | Wiring owner + mechanism |
 | --- | --- | --- |
-| `auth.endpoint` | the sign-in and token-refresh procedures ([Plan-015](./015-identity-and-user-state.md)) and the device-linking procedures ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T21.3-3 |
+| `auth.endpoint` | the sign-in and token-refresh procedures, the four WebAuthn ceremony routes (`WebAuthnRegistrationOptionsIssue`, `WebAuthnRegistrationVerify`, `WebAuthnAuthenticationOptionsIssue`, `WebAuthnAuthenticationVerify`) and the device-code page's `Create an account` arm ([Plan-015](./015-identity-and-user-state.md)), and the device-linking procedures ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T21.3-3 |
 
 ## Design Decisions
 
@@ -277,14 +277,14 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Overflow Response (429 + Retry-After on refusal), Spec-019 §Fallback Behavior
   - **Verifies invariant:** I-018-1
   - **Consumes:** `RateLimiter` via factory ← T21.2-5.
-- **T21.3-2 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 25%-threshold header attachment, 429 with the canonical envelope. Unit tests: a request with no resolvable address → 400; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; 429 → every header).
-  - **Spec coverage:** Spec-019 §Default Behavior (threshold-approach headers, remaining < 25%), Spec-019 §Overflow Response (429; Retry-After; standard headers)
+- **T21.3-2 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 429 with the canonical envelope. Unit tests: a request with no resolvable address → 400; an allowed request carries no rate-limit header, and a 429 carries every header.
+  - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After; standard headers)
   - **Verifies invariant:** I-018-1, I-018-4
   - **Consumes:** `checkAdmission` ← T21.3-1; the CP-018-1 mount surface ← the control-plane host (§Preconditions).
-- **T21.3-3 — Wire the sign-in routes + the daemon's import boundary.** Apply `rateLimitProcedure({ endpoint: 'auth.endpoint' })` per the §Endpoint Wiring Ownership table to the sign-in, token-refresh and device-linking procedures, inside the CP-018-1 mount seam (export-only host edit), and call `checkAdmission` from any of them served as a raw route. Add a `no-restricted-imports` entry to `eslint.config.mjs`, scoped to `packages/runtime-daemon/**`, whose patterns refuse any import of the control plane's `middleware` and `rate-limit` modules, so `rateLimitProcedure` cannot reach the daemon; type-only `packages/contracts` imports stay allowed. `pnpm lint` enforces it.
+- **T21.3-3 — Wire the sign-in routes + the daemon's import boundary.** Apply `rateLimitProcedure({ endpoint: 'auth.endpoint' })` per the §Endpoint Wiring Ownership table to the sign-in, token-refresh and device-linking procedures, the four WebAuthn ceremony routes and the device-code page's `Create an account` arm, inside the CP-018-1 mount seam (export-only host edit), and call `checkAdmission` from any of them served as a raw route. Add a `no-restricted-imports` entry to `eslint.config.mjs`, scoped to `packages/runtime-daemon/**`, whose patterns refuse any import of the control plane's `middleware` and `rate-limit` modules, so `rateLimitProcedure` cannot reach the daemon; type-only `packages/contracts` imports stay allowed. `pnpm lint` enforces it.
   - **Spec coverage:** Spec-019 §Acceptance Criteria (`auth.endpoint`; daemon exclusion), Spec-019 §Scope (daemon scope exclusion)
   - **Verifies invariant:** I-018-1 (daemon-exclusion companion)
-  - **Consumes:** `rateLimitProcedure` ← T21.3-2; the sign-in, token-refresh and device-linking procedures (Plan-015, Plan-025 Phase 5).
+  - **Consumes:** `rateLimitProcedure` ← T21.3-2; the sign-in, token-refresh and device-linking procedures (Plan-015, Plan-025 Phase 5); the WebAuthn ceremony routes (Plan-015 Phase 6) and the `Create an account` arm (Plan-015 T5.4).
 
 ### Phase 4 — Verification
 
@@ -343,7 +343,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 - Every enforced transport admits through one stage (I-018-1): tRPC procedures and raw routes through `checkAdmission`.
 - `rateLimitProcedure` is wired on the sign-in, token-refresh and device-linking procedures, and on nothing else.
 - A counter error fails only the request it occurred on.
-- 429s include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` computed as `max(0, ceil((resetAt - now) / 1000))`; allowed responses attach headers only when `remaining < 25%` of the limit.
+- 429s include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` computed as `max(0, ceil((resetAt - now) / 1000))`; allowed responses carry no rate-limit header.
 - api-payload-contracts.md parity verified against the typed exports (`RateLimitResponse`, timing pair required; `RateLimitCheckRequest`; `RateLimitCheckResponse`; `ErrorNamespace` + `ratelimit`; T21.1-2 lands only drift fixes), and every code the implementation emits resolves to a registered error-contracts.md row (T21.1-3).
 - Local daemon IPC path is NOT rate-limited — enforced by the daemon's `no-restricted-imports` lint rule, not by review.
 

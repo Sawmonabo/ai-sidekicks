@@ -4,15 +4,15 @@
 // into the session store through `prependEarlierEvents`.
 
 import type {
-  TimelineReadRequest,
-  TimelineReadResponse,
-} from "@ai-sidekicks/contracts/timeline/operations";
+  TranscriptReadRequest,
+  TranscriptReadResponse,
+} from "@ai-sidekicks/contracts/transcript/operations";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { readEarlierTimelinePage } from "@renderer/services/daemon/timeline-page.js";
+import { readEarlierTranscriptPage } from "@renderer/services/daemon/transcript-page.js";
 import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -21,7 +21,7 @@ import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
 /**
  * Rows one backward read of a session's log asks the daemon for.
  *
- * Well under the contract's `TIMELINE_READ_LIMIT_MAX` (256 rows): that is the most a producer
+ * Well under the contract's `TRANSCRIPT_READ_LIMIT_MAX` (256 rows): that is the most a producer
  * may answer with, this is what one press should land in a viewport retaining
  * `TRANSCRIPT_WINDOW_ROW_CAP`. The wire ceiling would fill most of a press with rows the
  * reader scrolls past, and three presses would exceed the retention with the prune suppressed.
@@ -52,9 +52,9 @@ export interface EarlierHistoryState {
  * holds no `catch`.
  */
 export type EarlierPageRead = (
-  request: TimelineReadRequest,
+  request: TranscriptReadRequest,
   options: { readonly signal: AbortSignal },
-) => Promise<DaemonReply<TimelineReadResponse>>;
+) => Promise<DaemonReply<TranscriptReadResponse>>;
 
 /**
  * One session's backward walk.
@@ -166,7 +166,7 @@ export class EarlierHistoryReader {
         });
         return;
       }
-      const page = readEarlierTimelinePage(reply.value);
+      const page = readEarlierTranscriptPage(reply.value);
       // The rows go to the store and the position stays here. Both install only while this page's
       // window is still the store's, or the walk would keep asking from a cursor naming the
       // old head.

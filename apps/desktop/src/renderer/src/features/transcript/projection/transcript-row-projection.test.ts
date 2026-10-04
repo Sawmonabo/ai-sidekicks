@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // The row-id namespace comes from the transcript scenario that declares it: a stem
 // restated here would be a second namespace the day the scenario's own moved.
 import { EVENT_ID_STEM } from "@fixtures/scenarios/transcript-states.js";
-import { isContractTimelineRow } from "./timeline-row-contract.test-support.js";
+import { isContractTranscriptEventRow } from "./transcript-event-row-contract.test-support.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { deriveSupersededTurns } from "../superseded/superseded-turns.js";
 import { projectTranscriptRows } from "./transcript-row-projection.js";
@@ -60,7 +60,7 @@ describe("the log-derived row projection", () => {
     for (const row of projection.rows) {
       // The real contract validator, not a local shape check: a row it refuses is unusable
       // downstream.
-      expect(isContractTimelineRow(row)).toBe(true);
+      expect(isContractTranscriptEventRow(row)).toBe(true);
     }
   });
 
@@ -136,8 +136,8 @@ describe("the log-derived row projection", () => {
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
     // The id is carried, not composed: the hydrated-event read is keyed `{sessionId, eventId}`
-    // and a row jump finds a row by `TimelineRow.id`, so a `session:sequence` key would resolve
-    // for no caller.
+    // and a row jump finds a row by `TranscriptEventRow.id`, so a `session:sequence` key would
+    // resolve for no caller.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
     const projection = projectTranscriptRows(events);
 

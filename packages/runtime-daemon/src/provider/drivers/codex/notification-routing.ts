@@ -150,7 +150,7 @@ export class CodexNotificationRouting {
           const accountant = this.#usageAccountantFor(sessionId);
           if (accountant.hasThread(registration.childThreadId)) {
             // Re-establishing would zero the register and re-meter reported spend, and a second
-            // `subagent.started` would duplicate a timeline entry.
+            // `subagent.started` would duplicate a transcript entry.
             this.#options.diagnostics.emit({
               provider: CODEX_DRIVER_NAME,
               kind: "thread_duplicate_child_announcement",

@@ -27,18 +27,6 @@ import {
 } from "./codex-test-doubles.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
-import type { DriverTransportConfig } from "../transport-selection.js";
-
-describe("DriverTransportConfig — the websocket arm is authenticated", () => {
-  it("forbids an unauthenticated websocket DriverTransportConfig", () => {
-    // @ts-expect-error the websocket arm requires a bearerTokenRef
-    const unauthenticated: DriverTransportConfig = {
-      transport: "websocket",
-      endpoint: "ws://127.0.0.1:7000",
-    };
-    void unauthenticated;
-  });
-});
 
 // --------------------------------------------------------------------------
 // Transport behavior

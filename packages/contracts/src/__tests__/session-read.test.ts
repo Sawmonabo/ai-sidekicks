@@ -15,7 +15,7 @@ const buildValidResponse = () => ({
     updatedAt: "2026-08-10T12:05:00.000Z",
     draft: "Half a thought about the retry loop",
   },
-  timelineCursors: {
+  transcriptCursors: {
     latest: "42_1723291500000000000",
   },
 });

@@ -1,5 +1,5 @@
 // A user's message body: the row's own summary. `user.message` has no payload variant, so the
-// summary is all a `TimelineRow` carries; it is never captioned as if it were the message.
+// summary is all a `TranscriptEventRow` carries; it is never captioned as if it were the message.
 
 import type { HydratedRowProps } from "../hydrated-row-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";

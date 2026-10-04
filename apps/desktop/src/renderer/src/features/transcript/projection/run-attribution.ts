@@ -1,7 +1,7 @@
 // Which run a wire payload names. Its subject is the contracts package's registered payload
 // shapes, not the projection: it reads an open record and answers with a run id or nothing.
 
-import { TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts/timeline/row";
+import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Reads the run a payload belongs to, or `undefined` where it belongs to none.
@@ -18,7 +18,7 @@ import { TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts/t
 export function attributedRunIdOf(
   payload: Readonly<Record<string, unknown>> | undefined,
 ): string | undefined {
-  for (const member of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
+  for (const member of TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
     const candidate = payload?.[member];
     if (typeof candidate === "string" && candidate.length > 0) {
       return candidate;

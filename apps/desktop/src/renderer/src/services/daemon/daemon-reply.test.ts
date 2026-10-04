@@ -19,21 +19,20 @@ import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js"
 /** A device id the response schema accepts. */
 const DEVICE_ID = "device-workstation";
 
-/** A device state the response schema accepts. */
-const ONLINE = "online";
+/** An `appVisible` the response schema accepts. */
+const IN_FRONT = true;
 
 /** A value the response schema rejects, shaped like content a refusal detail must never carry. */
 const OFF_CONTRACT = "the person said something private";
 
 /** One served presence reply, in the shape the registered schema admits. */
-function servedPresenceReply(state: string): unknown {
+function servedPresenceReply(appVisible: unknown): unknown {
   return {
     devices: [
       {
         deviceId: DEVICE_ID,
         deviceType: "desktop",
-        appVisible: true,
-        state,
+        appVisible,
       },
     ],
   };
@@ -61,7 +60,7 @@ async function diagnosticsDuring(act: () => Promise<unknown>): Promise<string> {
 
 describe("callDaemon — a served reply is a parsed reply", () => {
   it("serves the registered shape the daemon answered with", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
+    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
 
     const reply = await callDaemon(bridge, "presence.read", {});
 
@@ -104,8 +103,8 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
     });
     const refusal = refusalOf(reply ?? { status: "served", value: undefined });
 
-    expect(diagnostics).toContain("devices.0.state");
-    expect(refusal.detail).not.toContain("devices.0.state");
+    expect(diagnostics).toContain("devices.0.appVisible");
+    expect(refusal.detail).not.toContain("devices.0.appVisible");
     expect(diagnostics).not.toContain(OFF_CONTRACT);
     expect(refusal.detail).not.toContain(OFF_CONTRACT);
   });
@@ -113,7 +112,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
 
 describe("callDaemon — a request the contract does not admit is never sent", () => {
   it("refuses before the call, and the daemon sees nothing", async () => {
-    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
+    const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(IN_FRONT));
 
     // The branded id is a compile-time marker over a string, so a caller can hand this seam a
     // value the wire would refuse; the parse stops it becoming a failing round trip.

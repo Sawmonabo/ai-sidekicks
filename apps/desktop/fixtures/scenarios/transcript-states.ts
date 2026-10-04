@@ -444,7 +444,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
     // need no scripted entries (a run this reply does not name gets the fixture's refusal),
     // while the entries are what no beat in this session produces.
     {
-      call: "timeline.reasoningSurfaceRead",
+      call: "transcript.reasoningSurfaceRead",
       result: {
         availability: "available",
         hasMore: false,
@@ -476,7 +476,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         // An acknowledged position beside `latest` makes the resume cycle reachable: the store
         // submits the acknowledged position on its next read. It sits behind `latest`, as a
         // real one does.
-        timelineCursors: { latest: "transcript-cursor-33", acknowledged: "transcript-cursor-30" },
+        transcriptCursors: { latest: "transcript-cursor-33", acknowledged: "transcript-cursor-30" },
       },
     },
   ],

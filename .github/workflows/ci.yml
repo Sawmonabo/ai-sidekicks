@@ -9,8 +9,8 @@
 # a filter let through is found within a day.
 #
 # A pull request into `develop` runs only the fast jobs, so its checks finish within about ten
-# minutes. The slow jobs (mutation testing, the desktop end-to-end, endurance and benchmark tiers,
-# and the native prebuild matrix) run on the nightly schedule, on pull requests into `main`, and on
+# minutes. The slow jobs (mutation testing, the desktop end-to-end and endurance tiers, and the
+# native prebuild matrix) run on the nightly schedule, on pull requests into `main`, and on
 # a manual run; `changes` sets `slow-jobs` for those events.
 #
 # The full-repo `eslint .` and `prettier --check .` steps close the `git commit --no-verify` bypass.
@@ -365,31 +365,6 @@ jobs:
       - name: Build
         run: pnpm turbo run build ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # Production safety: the smoke and GC-reachability probes in `apps/desktop/src/main/index.ts`
-      # are gated by the compile-time constant `__SMOKE_BUILD__` (a Vite `define` in
-      # `apps/desktop/electron.vite.config.ts`). A release build substitutes `false`, and Rollup
-      # then strips the probe markers below from `apps/desktop/out/main/index.js`. This step greps
-      # the bundle for them; a match means dead-code elimination regressed (a Vite or Rollup change,
-      # or a runtime-only gate replacing the compile-time one). The renderer is untrusted, so a
-      # reachable `executeJavaScript` or `queryObjects` weakens the security posture.
-      - name: Assert release bundle excludes test-machinery markers (apps/desktop)
-        run: |
-          bundle=apps/desktop/out/main/index.js
-          [ -f "$bundle" ] || { echo "::error::$bundle not found — release build skipped or output path drifted"; exit 1; }
-          fail=0
-          for marker in "SIDEKICKS_SMOKE_PROBE" "executeJavaScript" "about:blank" "SIDEKICKS_GC_PROBE" "queryObjects" "runGcProbe"; do
-            count=$(grep -c -- "$marker" "$bundle" || true)
-            if [ "$count" -ne 0 ]; then
-              echo "::error::release bundle contains test-machinery marker '$marker' ($count occurrences in $bundle) — dead-code-elimination regressed"
-              fail=1
-            fi
-          done
-          if [ $fail -ne 0 ]; then
-            echo "::error::compile-time-static gate __SMOKE_BUILD__ should substitute to 'false' in release builds; check apps/desktop/electron.vite.config.ts define block"
-            exit 1
-          fi
-          echo "ok: release bundle excludes test-machinery markers"
-
       - name: Typecheck
         run: pnpm turbo run typecheck ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
@@ -652,14 +627,7 @@ jobs:
 
       # `--continue` so a leg naming two tasks reports both results; without it the first failure
       # hides the second. `--concurrency=1` only on legs the matrix marks `serial`.
-      #
-      # `SIDEKICKS_BENCH_LEDGER_PATH` redirects the bench tier's absolutes to the runner's temp
-      # directory: `apps/desktop/tests/bench/ledger.json` is a curated record a person reads, and no
-      # CI run should rewrite it. The runner's own numbers are in this step's log. Other legs ignore
-      # the variable.
       - name: Run tier
-        env:
-          SIDEKICKS_BENCH_LEDGER_PATH: ${{ runner.temp }}/bench-ledger.json
         run: pnpm turbo run ${{ matrix.tier }} --filter=@ai-sidekicks/desktop --continue ${{ matrix.serial && '--concurrency=1' || '' }} ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
   # The desktop tiers that run only where `slow-jobs` is set.
@@ -678,7 +646,6 @@ jobs:
         include:
           - tier: "test:e2e test:endurance"
             serial: true
-          - tier: "test:bench"
     steps: *desktop-tier-steps
 
   # Dead code across every workspace. It reads source only, so the job installs

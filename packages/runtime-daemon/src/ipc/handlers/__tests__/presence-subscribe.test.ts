@@ -26,7 +26,6 @@ function buildMachinePresence(): MachinePresence {
         deviceId: "660e8400-e29b-41d4-a716-446655440001",
         deviceType: "mobile",
         appVisible: false,
-        state: "online",
       },
     ],
   };

@@ -1,8 +1,8 @@
 // A scenario: the script the fixture bridge plays, held as data.
 //
 // An ordered script of events with the millisecond each is due, plus canned replies for
-// request/response calls. Being data, it can be asserted against (the screenshot tier pins
-// a frame by advancing to an exact tick) and cannot reach the network or the clock.
+// request/response calls. Being data, it can be asserted against (a tier pins a frame by
+// advancing to an exact tick) and cannot reach the network or the clock.
 //
 // `services/daemon/engine.fixture.ts` plays a scenario, and
 // `services/daemon/scenario-reply.fixture.ts` owns how one reply settles.

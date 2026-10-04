@@ -298,7 +298,7 @@ export default {
     // Test files are not subjects of the layering rules: a renderer test reaches across folders to
     // drive the module it covers, and reaches both process trees to assert the boundary between
     // them.
-    exclude: { path: "\\.(test|bench)\\.(ts|tsx)$" },
+    exclude: { path: "\\.test\\.(ts|tsx)$" },
     tsPreCompilationDeps: true,
     // A workspace package resolves to its path under `node_modules/` rather than to the
     // real path its pnpm link points at, so the contracts edge from `src/shared/` reads the

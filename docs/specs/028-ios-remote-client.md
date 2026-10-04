@@ -16,25 +16,25 @@ An iPhone app that links as a device and drives a session on any of the person's
 
 ## Prerequisite
 
-[Plan-025](../plans/025-remote-control.md) complete through Phase 6, and three of Phase 7's pieces before it: the web client, the one-column fold on every screen and the Android app, whose bridge members and shell the iPhone app shares. The phone is a device like any other, so it needs the channel, the method proxy, the account's statement chain, push and attestation to already exist. Nothing in this spec re-specifies them. One thing only the outside world can supply gates part of it: the person's Apple Developer Program membership, for the signing certificate, the registered-device profile and the APNs key.
+[Plan-025](../plans/025-remote-control.md) complete through Phase 6, and three of Phase 7's pieces before it: the web client, the one-column fold on every screen and the Android app, whose bridge members and shell the iPhone app shares. The phone is a device like any other, so it needs the channel, the method proxy, the account's statement chain and push to already exist. Nothing in this spec re-specifies them. One thing only the outside world can supply gates part of it: the person's Apple Developer Program membership, for the signing certificate, the registered-device profile and the APNs key.
 
 ## Parity
 
 From the phone, the user can:
 
-- read the live timeline and session history
+- read the live transcript and session history
 - send a message
 - steer a run in flight
 - stop a run
 - answer an approval, a question or a plan, where the first answer from any device settles it and a card answered elsewhere closes with `Answered on <device>`
-- attach, configure, and drive agents
+- configure and drive agents
 - view the diff
 - open and use the terminal
 - reach every screen: the sessions list, Sidekicks, Skills, Workflows and Settings, its Devices page included
 
 ## Shape
 
-The iPhone app is the console's one front end in a Capacitor shell, never a second app written in SwiftUI. A native client would be a second set of rows, a second transcript and a second vocabulary, and it would draw Preview, Review, the terminal and the Workflows canvas a second time and fall behind the desktop at each change. The shell runs the same bundle the web client runs, through the phone implementation of the front end's `PlatformBridge` ([Spec-027 §The phone and web clients](027-remote-control.md#the-phone-and-web-clients)), so the iPhone gets every screen the day the web client does.
+The iPhone app is the console's one front end in a Capacitor shell, never a second app written in SwiftUI. A native client would be a second set of rows, a second transcript and a second vocabulary, and it would draw Preview, Review, the terminal and the Workflows canvas a second time and fall behind the desktop at each change. The shell runs the console bundle each linked machine serves to it, through the phone implementation of the front end's `PlatformBridge` ([Spec-027 §The phone and web clients](027-remote-control.md#the-phone-and-web-clients)), so the iPhone gets every screen the day that machine's service ships it.
 
 It is native only where the phone must do something a page cannot. Each piece is a member of the phone bridge; a desktop-only member is absent.
 

@@ -6,7 +6,7 @@
 // store. One owner also closes the repair loop: the drain reads each `ApplyOutcome` and asks this
 // session's scheduler for a re-pull when a hole opened, so a quiet session still repairs itself.
 //
-// The resume rule lands here too. `timeline-resume.ts` decides; this entry submits the position
+// The resume rule lands here too. `transcript-resume.ts` decides; this entry submits the position
 // as the third argument of `SessionBaseStateReader` on the read that already happens, since a
 // separate resume read would be a second writer of the base state racing the scheduler.
 //
@@ -30,9 +30,9 @@ import { type ApplyOutcome } from "./apply-outcome.js";
 import { SessionStore, type SessionBaseState } from "./session-store.js";
 import {
   isUnresolvableCursorRejection,
-  resolveTimelineResume,
-  type TimelineResumeDecision,
-} from "./timeline-resume.js";
+  resolveTranscriptResume,
+  type TranscriptResumeDecision,
+} from "./transcript-resume.js";
 
 /** What the diagnostic capture records when the daemon refuses the submitted position. */
 const UNRESOLVABLE_RESUME_DETAIL =
@@ -69,8 +69,8 @@ export interface OpenSessionEntryOptions {
   readonly clock?: Clock;
   /** Event-kind projectors handed to each store opened. */
   readonly projectors?: EntityProjectorTable;
-  /** Timeline rows each store retains. */
-  readonly timelineCap?: number;
+  /** Transcript rows each store retains. */
+  readonly transcriptCap?: number;
   /** Apply-queue coalescing window. `0` means one drain per paint. */
   readonly applyCoalesceMs?: number;
   readonly refreshDebounceMs?: number;
@@ -102,7 +102,7 @@ export class OpenSessionEntry {
     this.store = new SessionStore({
       sessionId,
       ...(options.projectors === undefined ? {} : { projectors: options.projectors }),
-      ...(options.timelineCap === undefined ? {} : { timelineCap: options.timelineCap }),
+      ...(options.transcriptCap === undefined ? {} : { transcriptCap: options.transcriptCap }),
     });
     this.applyQueue = new ApplyQueue({
       clock,
@@ -207,7 +207,7 @@ export class OpenSessionEntry {
         return;
       }
       // What the recovering read acknowledged is carried forward as the next position.
-      this.#rememberNextResumePosition(resolveTimelineResume(baseState.timelineCursors));
+      this.#rememberNextResumePosition(resolveTranscriptResume(baseState.transcriptCursors));
       // The recovering read submitted nothing, so its window opens at the log's beginning.
       this.store.initialize(baseState);
       return;
@@ -215,7 +215,7 @@ export class OpenSessionEntry {
     if (baseState === undefined) {
       return;
     }
-    this.#rememberNextResumePosition(resolveTimelineResume(baseState.timelineCursors));
+    this.#rememberNextResumePosition(resolveTranscriptResume(baseState.transcriptCursors));
     // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
     // The submitted position travels with the base state because only this object knows it: the
     // stream replays from it, so it is where this window begins, and the reply names no oldest
@@ -229,7 +229,7 @@ export class OpenSessionEntry {
    * Carry a completed read's acknowledged position forward to the next read, except the one the
    * daemon just refused, which would be submitted and refused again on every refresh.
    */
-  #rememberNextResumePosition(decision: TimelineResumeDecision): void {
+  #rememberNextResumePosition(decision: TranscriptResumeDecision): void {
     if (decision.outcome !== "resume") {
       this.#resumeFromCursor = undefined;
       return;

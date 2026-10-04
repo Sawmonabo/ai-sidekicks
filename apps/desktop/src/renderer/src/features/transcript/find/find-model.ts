@@ -3,7 +3,7 @@
 // whole session. It searches a row's `summary` and wire `type`, never the payload: an open
 // record whose large values would produce hits the person cannot see.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Matches the find field ranks and offers next/previous over.
@@ -54,7 +54,7 @@ export function emptyFindResult(searchedRowCount: number): FindResult {
  * Case-insensitive literal substring, not the palette's subsequence matcher, which would match
  * nearly every row on a short query. An empty or whitespace-only query matches nothing.
  */
-export function findInTranscript(rows: readonly TimelineRow[], query: string): FindResult {
+export function findInTranscript(rows: readonly TranscriptEventRow[], query: string): FindResult {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) {
     return emptyFindResult(rows.length);
@@ -83,7 +83,7 @@ export function findInTranscript(rows: readonly TimelineRow[], query: string): F
 }
 
 /** Which field a row matched on, summary first because that is what a person reads. */
-function matchFieldOf(row: TimelineRow, needle: string): FindMatch["matchedIn"] | undefined {
+function matchFieldOf(row: TranscriptEventRow, needle: string): FindMatch["matchedIn"] | undefined {
   if (row.summary.toLowerCase().includes(needle)) {
     return "summary";
   }

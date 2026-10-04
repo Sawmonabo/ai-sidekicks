@@ -3,18 +3,18 @@
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { ContextWindowReading, ContextWindowSource } from "./context-window-reading.js";
+import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
+import type { ContextWindowReading } from "./context-window-reading.js";
 
 /**
  * What each provenance grade means for a person reading the bar. Total over the closed set, so a
  * new grade fails to compile. `provider_reported` has no note: it is the expected grade, and a note
- * on every reading would hide the two that matter.
+ * on every reading would hide the one that matters.
  */
 const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefined>> = {
   provider_reported: undefined,
   model_default:
     "The window size is the model's default rather than a figure the provider reported.",
-  estimated: "The counts are estimated rather than reported, so treat the bar as approximate.",
 };
 
 /** The meter with a reading behind it, split out so the absent arm is a straight-line return. */

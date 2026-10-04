@@ -32,7 +32,7 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
           updatedAt: STARTED_AT_ISO,
           draft: "",
         },
-        timelineCursors: { latest: "empty-session-cursor-0" },
+        transcriptCursors: { latest: "empty-session-cursor-0" },
       },
     },
   ],

@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
@@ -79,7 +79,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
 
 /** The head rows this body holds, and how many of the head it could not keep. */
 interface RunGroupBodyContents {
-  readonly rows: readonly TimelineRow[];
+  readonly rows: readonly TranscriptEventRow[];
   readonly unheldRowCount: number;
 }
 
@@ -95,6 +95,6 @@ function runGroupBodyContents(runGroup: RunGroup): RunGroupBodyContents {
   const headRowIds = listClippedHeadRowIds(runGroup.rowIds);
   const rows = headRowIds
     .map((rowId) => headRowsById.get(rowId))
-    .filter((row): row is TimelineRow => row !== undefined);
+    .filter((row): row is TranscriptEventRow => row !== undefined);
   return { rows, unheldRowCount: headRowIds.length - rows.length };
 }

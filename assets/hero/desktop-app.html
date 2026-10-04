@@ -466,15 +466,15 @@
         margin-left: 6px;
       }
 
-      /* Timeline + Panel */
+      /* Transcript + Panel */
       .content-area {
         flex: 1;
         display: flex;
         overflow: hidden;
       }
 
-      /* Timeline */
-      .timeline {
+      /* Transcript */
+      .transcript {
         flex: 1;
         overflow-y: auto;
         padding: 16px 20px;
@@ -483,7 +483,7 @@
         gap: 2px;
       }
 
-      .timeline-entry {
+      .transcript-entry {
         display: flex;
         gap: 12px;
         padding: 10px 14px;
@@ -491,7 +491,7 @@
         position: relative;
       }
 
-      .timeline-entry:hover {
+      .transcript-entry:hover {
         background: var(--bg-2);
       }
 
@@ -595,7 +595,7 @@
         color: var(--accent-cyan);
       }
 
-      /* Code block in timeline */
+      /* Code block in transcript */
       .code-block {
         background: var(--bg-0);
         border: 1px solid var(--border);
@@ -1108,22 +1108,22 @@
         background: var(--border);
       }
 
-      /* Separator line in timeline */
-      .timeline-separator {
+      /* Separator line in transcript */
+      .transcript-separator {
         display: flex;
         align-items: center;
         gap: 12px;
         padding: 8px 14px;
         margin: 4px 0;
       }
-      .timeline-separator::before,
-      .timeline-separator::after {
+      .transcript-separator::before,
+      .transcript-separator::after {
         content: "";
         flex: 1;
         height: 1px;
         background: var(--border);
       }
-      .timeline-separator span {
+      .transcript-separator span {
         font-size: 11px;
         color: var(--text-muted);
         white-space: nowrap;
@@ -1243,14 +1243,14 @@
         </div>
 
         <div class="content-area">
-          <!-- Timeline -->
-          <div class="timeline">
-            <div class="timeline-separator">
+          <!-- Transcript -->
+          <div class="transcript">
+            <div class="transcript-separator">
               <span>Session started &middot; Today 2:30 PM</span>
             </div>
 
             <!-- Human message -->
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar human">SB</div>
               <div class="entry-content">
                 <div class="entry-header">
@@ -1266,7 +1266,7 @@
             </div>
 
             <!-- Agent thinking -->
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar agent-claude">C</div>
               <div class="entry-content">
                 <div class="entry-header">
@@ -1298,7 +1298,7 @@
             </div>
 
             <!-- Codex agent working in parallel -->
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar agent-codex">Cx</div>
               <div class="entry-content">
                 <div class="entry-header">
@@ -1322,7 +1322,7 @@
             </div>
 
             <!-- Diff produced -->
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar agent-claude">C</div>
               <div class="entry-content">
                 <div class="entry-header">
@@ -1375,7 +1375,7 @@
             </div>
 
             <!-- Approval request -->
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar system">!</div>
               <div class="entry-content">
                 <div class="entry-header">
@@ -1400,11 +1400,11 @@
             </div>
 
             <!-- The same user, steering from a second linked device -->
-            <div class="timeline-separator">
+            <div class="transcript-separator">
               <span>iPhone linked to this session &middot; 2:35 PM</span>
             </div>
 
-            <div class="timeline-entry">
+            <div class="transcript-entry">
               <div class="entry-avatar human">SB</div>
               <div class="entry-content">
                 <div class="entry-header">

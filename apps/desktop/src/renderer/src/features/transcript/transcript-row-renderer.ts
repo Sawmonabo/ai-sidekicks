@@ -6,7 +6,7 @@
 // `AgentHueAllocator` over the session log, `isSuperseded` ranks against rollback boundaries
 // around the row, and `density` is the list's collapse state.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
@@ -23,7 +23,7 @@ export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 /** What the transcript list hands each row. */
 export interface TranscriptRowProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
-  readonly row: TimelineRow;
+  readonly row: TranscriptEventRow;
   /**
    * The author's place on the twelve-step wheel, or `undefined` for a row with no attributable
    * agent. The whole assignment, not a color string: past twelve agents the wheel wraps and two

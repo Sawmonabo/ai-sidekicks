@@ -1,41 +1,29 @@
 // What a spawned Codex child is allowed to hold: denied credentials are stripped on every spawn
-// path, the provider account a session bills to is never silently swapped, and the websocket
-// transport never listens unauthenticated or presents a retired secret. A sandbox setting the
-// provider did not apply is reported, never assumed.
+// path, and the provider account a session bills to is never silently swapped. A sandbox setting
+// the provider did not apply is reported, never assumed.
 
 import { describe, expect, it } from "vitest";
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
 import {
-  CodexDriver,
   CodexDriverConfigError,
-  composeCodexTransportArgv,
   describeCodexPostureDivergence,
   parseCodexSessionConfig,
-  type CodexTransportSelection,
-  type CodexWebsocketBearerCredential,
 } from "../index.js";
 import {
   EXECUTABLE_PATH,
-  FakeCodexAppServer,
   type Harness,
   RESUME_SPAWN_CONFIG,
   SESSION_CONFIG,
   SESSION_CWD,
   SESSION_ID,
-  STUB_MODEL_CATALOG_READ,
   TEST_MODEL,
   THREAD_ID,
   createHarness,
-  makeCapabilities,
-  resolveNoDeniedCredentialNames,
   threadStartResult,
 } from "./codex-test-doubles.js";
 import { RESUME_PARAMS } from "./lifecycle.test-support.js";
-import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
-import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 
 describe("Codex credential-policy strip at the spawn seam", () => {
   const DENIED_ENV_VAR = "ANTHROPIC_API_KEY";
@@ -455,92 +443,5 @@ describe("Codex sandbox posture realization", () => {
         { networkAccess: true },
       ),
     ).toStrictEqual({ requestedNetworkAccess: false, realizedNetworkAccess: true });
-  });
-});
-
-describe("Codex websocket transport", () => {
-  const selection: CodexTransportSelection = {
-    transport: "websocket",
-    endpoint: "ws://127.0.0.1:8451",
-    bearerTokenRef: "keyring://codex/ws",
-  };
-
-  it("resolves the bearer ref at connection time, once per connection, never at construction", async () => {
-    // Resolved once and cached, a rotated credential would go unnoticed and later connections
-    // would present a retired secret.
-    const resolvedRefs: string[] = [];
-    const server = new FakeCodexAppServer();
-    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
-    server.on("thread/start", () => threadStartResult());
-    const driver = new CodexDriver({
-      ptyHost: server,
-      modelCatalogExchange: STUB_MODEL_CATALOG_READ,
-      diagnostics: makeSilentDriverDiagnostics(),
-      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
-      reportDiagnostic: () => undefined,
-      onTextNeutralizationFailure: () => undefined,
-      scheduleTimeout: makeManualScheduler().schedule,
-      executablePath: EXECUTABLE_PATH,
-      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
-      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
-      newBindingId: () => "binding-abc",
-      readCapabilities: () => makeCapabilities(true),
-      transportConfig: selection,
-      resolveBearerCredential: async (bearerTokenRef): Promise<CodexWebsocketBearerCredential> => {
-        resolvedRefs.push(bearerTokenRef);
-        return await Promise.resolve({
-          mode: "capability-token",
-          tokenFilePath: "/run/codex/ws.token",
-        });
-      },
-      websocketConnector: { connect: async (): Promise<void> => await Promise.resolve() },
-    });
-    expect(resolvedRefs).toStrictEqual([]);
-
-    await driver.createSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-    });
-    await driver.createSession({
-      model: TEST_MODEL,
-      sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
-      config: SESSION_CONFIG,
-    });
-
-    expect(resolvedRefs).toStrictEqual([selection.bearerTokenRef, selection.bearerTokenRef]);
-  });
-
-  it("starts the listener with bearer auth on every credential mode, and refuses one without", () => {
-    // A listener started without auth is reachable by anything that can open a socket to it.
-    expect(
-      composeCodexTransportArgv(selection, {
-        mode: "capability-token",
-        tokenFilePath: "/run/codex/ws.token",
-      }),
-    ).toStrictEqual([
-      "app-server",
-      "--listen",
-      "ws://127.0.0.1:8451",
-      "--ws-auth",
-      "capability-token",
-      "--ws-token-file",
-      "/run/codex/ws.token",
-    ]);
-    expect(
-      composeCodexTransportArgv(selection, {
-        mode: "capability-token-digest",
-        tokenSha256: "a".repeat(64),
-      }),
-    ).toStrictEqual([
-      "app-server",
-      "--listen",
-      "ws://127.0.0.1:8451",
-      "--ws-auth",
-      "capability-token",
-      "--ws-token-sha256",
-      "a".repeat(64),
-    ]);
-    expect(() => composeCodexTransportArgv(selection, null)).toThrow(CodexDriverConfigError);
   });
 });

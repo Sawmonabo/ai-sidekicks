@@ -7,7 +7,7 @@ import type { TransportReconnectObservable } from "@renderer/lib/transport-recon
  * The three triggers that are properties of the window rather than of a session.
  *
  * A machine-scoped reading (the provider accounts, declared driver capabilities, this
- * machine's health) holds no session, so no session's timeline bears on it.
+ * machine's health) holds no session, so no session's transcript bears on it.
  *
  * The transport signal is required: the session store's repair edge was the console's only
  * reconnect producer, so a session-less reading would stay on screen through a wire outage with

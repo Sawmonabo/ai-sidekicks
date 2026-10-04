@@ -25,7 +25,7 @@ import { registerFeatureContributions } from "./registrations.js";
  *
  * The route is armed before any bridge resolves and the provider rebinds this clock to the
  * window's, so under a fixture a tripwire record carries the scenario's frozen time. Wall time
- * is not restored on unmount: a breach during teardown belongs to that window's timeline.
+ * is not restored on unmount: a breach during teardown belongs to that window's transcript.
  */
 const tripwireRouteClock = new ForwardingClock(new RealClock());
 

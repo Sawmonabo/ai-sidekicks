@@ -1,7 +1,7 @@
 // Reads the release artifact's fuse wire out of the packaged binary, through `@electron/fuses`'
 // own `getCurrentFuseWire`, because only the binary proves a flip landed: a packaging config that
-// names the nine states proves only that someone wrote them down, and the flip, digest and sign
-// order is a pipeline where one step can silently no-op on one platform.
+// names the nine states proves only that someone wrote them down, and a packaging step can
+// silently no-op on one platform.
 //
 // The end-to-end tier cannot answer this: it drives the smoke build, which leaves
 // `EnableNodeCliInspectArguments` on so a harness can attach.
@@ -185,9 +185,8 @@ describe("the release artifact carries the declared fuse wire", () => {
       const wire = await getCurrentFuseWire(discovery.binaryPath);
       expect(
         findFusePostureViolations(wire, REQUIRED_RELEASE_FUSE_POSTURE),
-        `${discovery.rootKind} at ${discovery.binaryPath}: the packaging pipeline flips ` +
-          "the wire before the digest and the signature, so a violation here is a " +
-          "release that ships without the hardening baseline it declares",
+        `${discovery.rootKind} at ${discovery.binaryPath}: a violation here is a release ` +
+          "that ships without the hardening baseline it declares",
       ).toStrictEqual([]);
     },
   );

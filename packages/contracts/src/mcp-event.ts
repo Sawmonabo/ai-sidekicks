@@ -1,6 +1,6 @@
 // The MCP governance stream: the session events of the `mcp_governance`
-// category, the live notice of an edit to a binding, and the `mcp.subscribe`
-// method that carries both. A leaf below `event.ts`, because the MCP contract
+// category, the live notices of an edit to a binding and of a status change,
+// and the `mcp.subscribe` method that carries them. A leaf below `event.ts`, because the MCP contract
 // files are imported by `event.ts` and cannot import it back.
 import { z } from "zod";
 
@@ -14,6 +14,10 @@ import {
   type McpServerConfigChangedNotice,
   type McpSubscribeRequest,
 } from "./mcp.js";
+import {
+  McpServerStatusChangedNoticeSchema,
+  type McpServerStatusChangedNotice,
+} from "./mcp-governance.js";
 import { defineMethodDescriptors, type SubscriptionMethodDescriptor } from "./method-descriptor.js";
 
 /** A session event of the `mcp_governance` category. */
@@ -32,15 +36,19 @@ export const McpGovernanceEventSchema: z.ZodType<McpGovernanceEvent> =
     });
   }) as z.ZodType<McpGovernanceEvent>;
 
-/** One `mcp.subscribe` frame: a governance event, or the live notice of an edit. */
-export type McpSubscribeEmission = McpGovernanceEvent | McpServerConfigChangedNotice;
+/** One `mcp.subscribe` frame: a governance event, or the live notice of an edit or a status change. */
+export type McpSubscribeEmission =
+  | McpGovernanceEvent
+  | McpServerConfigChangedNotice
+  | McpServerStatusChangedNotice;
 /** Parses an {@link McpSubscribeEmission}. */
 export const McpSubscribeEmissionSchema: z.ZodType<McpSubscribeEmission> = z.union([
   McpServerConfigChangedNoticeSchema,
+  McpServerStatusChangedNoticeSchema,
   McpGovernanceEventSchema,
 ]);
 
-/** `mcp.subscribe`: the governance events and edit notices, opened before the list is read. */
+/** `mcp.subscribe`: the governance events and live notices, opened before the list is read. */
 export interface McpEventMethodDescriptors {
   readonly "mcp.subscribe": SubscriptionMethodDescriptor<
     "mcp.subscribe",

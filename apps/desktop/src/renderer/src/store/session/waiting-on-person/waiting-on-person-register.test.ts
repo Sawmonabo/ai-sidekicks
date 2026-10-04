@@ -110,8 +110,8 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 
 describe("SessionStore — the register outlives the window", () => {
   it("still counts an approval whose opening row the cap has dropped", () => {
-    // The cap drops the row that opened this approval from the timeline, yet it is still open.
-    const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
+    // The cap drops the row that opened this approval from the transcript, yet it is still open.
+    const store = new SessionStore({ sessionId: SESSION_ID, transcriptCap: 2 });
     store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
@@ -119,7 +119,7 @@ describe("SessionStore — the register outlives the window", () => {
       rowOf(3, "tool.result", { runId: "run-a" }, "agent-scout"),
     ]);
 
-    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([2, 3]);
+    expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([2, 3]);
     expect(openCountOf(store.waitingOnPersonRecords)).toBe(1);
   });
 });

@@ -21,20 +21,20 @@ This model explains how agents exist between runs, how agents in one session rea
 
 - An agent is not a provider thread id.
 - A run is not the same thing as an agent.
-- An agent reaching another agent of the same session is not a direct run-to-run message: it goes through persisted run links, the session timeline, artifact references or approvals.
+- An agent reaching another agent of the same session is not a direct run-to-run message: it goes through persisted run links, the session transcript, artifact references or approvals.
 
 ## Invariants
 
 - Every run belongs to exactly one session and exactly one agent.
 - An agent can perform many runs over time.
-- Every run publishes into its session's one timeline.
+- Every run publishes into its session's one transcript.
 - Parent-child or peer relationships between runs must be explicit when orchestration is involved.
 
 ## Relationships To Adjacent Concepts
 
 - `Agent` executes on a `RuntimeNode`.
 - `Run` uses `RepoMount`, `Workspace`, and `Worktree` context when the task is code-bearing.
-- `User` and `Agent` both contribute messages or events into the `Session` timeline.
+- `User` and `Agent` both contribute messages or events into the `Session` transcript.
 - `QueueItem` can produce a future `Run`.
 - `Artifact` and `Approval` are outputs or gate records associated with a `Run`.
 

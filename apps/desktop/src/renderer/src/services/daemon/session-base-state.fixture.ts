@@ -1,7 +1,7 @@
 // The base state the fixture's session read establishes: what one session already contains when a
 // store opens on it.
 //
-// It is cursor zero, no entities and the scripted timeline cursors. Zero rather than a position
+// It is cursor zero, no entities and the scripted transcript cursors. Zero rather than a position
 // derived from the beats, because a base state ahead of the stream would make the store discard
 // every beat below it; the subscription is replay-then-tail, so nothing is missed. A re-read
 // therefore lands behind an initialized store's cursor and is a silent no-op (`admitsBaseStateAt`),
@@ -25,6 +25,6 @@ export function fixtureSessionBaseState(scenario: Scenario, sessionId: string): 
     entities: [],
     // Carried unread from the scenario's reply, as a daemon does; the store narrows it. A scenario
     // that scripts no cursor block reaches the refusal arm, as an older daemon would.
-    timelineCursors: scriptedSessionReadMember(scenario, "timelineCursors"),
+    transcriptCursors: scriptedSessionReadMember(scenario, "transcriptCursors"),
   };
 }

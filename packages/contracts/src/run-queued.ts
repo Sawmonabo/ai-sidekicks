@@ -48,7 +48,6 @@ export type RunQueuedPayload = {
   agentId?: AgentId | undefined;
   parentRunId?: RunId | undefined;
   reachedBy?: ChildRunProvenance | undefined;
-  internalHelper?: boolean | undefined;
   effectiveRunConfig?: EffectiveRunConfig | undefined;
   resolvedAgent?: AgentListEntry | undefined;
   admittedModelFamily?: string | undefined;
@@ -64,7 +63,6 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     agentId: AgentIdSchema.optional(),
     parentRunId: RunIdSchema.optional(),
     reachedBy: ChildRunProvenanceSchema.optional(),
-    internalHelper: z.boolean().optional(),
     effectiveRunConfig: EffectiveRunConfigSchema.optional(),
     resolvedAgent: AgentListEntrySchema.optional(),
     admittedModelFamily: wireFreeFormString(

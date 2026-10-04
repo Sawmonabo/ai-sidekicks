@@ -3,7 +3,7 @@
 // does, this changes when a person toggles a disclosure, and folding inside would
 // re-project every row on each toggle.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 import { readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/run-group-body.js";
@@ -48,9 +48,9 @@ export function foldRunGroupHeaders(
   // under their run while this one files them under no parent, so a shared table would thrash.
   retention.beginPass();
   const viewportRows: ViewportRow[] = [];
-  const rows: TimelineRow[] = [];
-  const removedRows: TimelineRow[] = [];
-  const rowsByKey = new Map<string, TimelineRow>();
+  const rows: TranscriptEventRow[] = [];
+  const removedRows: TranscriptEventRow[] = [];
+  const rowsByKey = new Map<string, TranscriptEventRow>();
   const headeredRunIds = new Set<string>();
   // Once per opened run group, not per row: re-slicing a long run per row is quadratic.
   const cappedRowIdsByRunId = new Map<string, ReadonlySet<string>>();

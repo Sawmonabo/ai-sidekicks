@@ -17,7 +17,7 @@ An agentic coding runtime is only operable if the user and their agents can unde
 - provide a canonical event history for replay and audit
 - expose live runtime status and traces for the local daemon and the control plane
 - support the person's own diagnosis of provider failures and session desyncs on the machine, through the daemon's diagnostic logs and `sidekicks daemon status`
-- power user-facing timeline and attention surfaces from authoritative data
+- power user-facing transcript and attention surfaces from authoritative data
 
 ## Component Boundaries
 
@@ -57,7 +57,7 @@ An agentic coding runtime is only operable if the user and their agents can unde
 ## Related Specs
 
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
-- [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
+- [Transcript And Reasoning](../specs/011-transcript-and-reasoning.md)
 - [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
 - [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 

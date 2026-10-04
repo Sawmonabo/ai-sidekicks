@@ -62,14 +62,10 @@ interface RunTransitionInput {
   readonly agentId?: string;
   readonly actorId?: string;
   /**
-   * The run that created this one, and whether this is that run's own helper.
-   *
-   * These ride the birth beat (`run.queued`) only; the builder throws on any other
-   * transition rather than emit a beat the daemon does not send.
+   * The run that created this one. It rides the birth beat (`run.queued`) only; the builder
+   * throws on any other transition rather than emit a beat the daemon does not send.
    */
   readonly parentRunId?: string;
-  /** Whether the child is the parent's own helper rather than a user's run. */
-  readonly internalHelper?: boolean;
   /** The agent this run's creation starts from its saved definition, as the agent list names it. */
   readonly resolvedAgent?: AgentListEntry;
 }
@@ -280,7 +276,6 @@ export function createRunEntryBuilders(sessionId: string): RunEntryBuilders {
 function creationRowMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {
   return {
     ...(input.parentRunId === undefined ? {} : { parentRunId: input.parentRunId }),
-    ...(input.internalHelper === undefined ? {} : { internalHelper: input.internalHelper }),
     ...(input.resolvedAgent === undefined ? {} : { resolvedAgent: input.resolvedAgent }),
   };
 }

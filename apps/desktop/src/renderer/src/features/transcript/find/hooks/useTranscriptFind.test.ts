@@ -2,7 +2,7 @@
 // act. Matching is `find-model.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";
@@ -19,13 +19,13 @@ import {
 } from "../../window/visible-window.test-support.js";
 
 describe("the walk when the result moves under it", () => {
-  function windowOver(rows: readonly TimelineRow[]): VisibleTranscriptWindow {
+  function windowOver(rows: readonly TranscriptEventRow[]): VisibleTranscriptWindow {
     return { rows, prunedAwayRows: [] };
   }
 
   function findOver(
-    rows: readonly TimelineRow[],
-  ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TimelineRow[] }> {
+    rows: readonly TranscriptEventRow[],
+  ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TranscriptEventRow[] }> {
     return renderHook(
       ({ rows: currentRows }) =>
         useTranscriptFind({

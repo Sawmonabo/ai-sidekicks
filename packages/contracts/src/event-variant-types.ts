@@ -48,10 +48,7 @@ import type {
 } from "./event-envelope.js";
 import type { SessionEventType } from "./event-registry.js";
 import type { GitSettledPayload } from "./gitflow/local.js";
-import type {
-  McpServerOauthCompletedPayload,
-  McpServerStatusChangedPayload,
-} from "./mcp-governance.js";
+import type { McpServerOauthCompletedPayload } from "./mcp-governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "./plan.js";
 import type { RunId } from "./provider-driver.js";
 import type { PtyControlChangedPayload } from "./pty.js";
@@ -177,12 +174,6 @@ export type QuestionAskedEvent = SessionEventVariant<
   "question.asked",
   "interactive_request",
   QuestionAskedPayload
->;
-/** Emitted when an MCP server's connection status changes. */
-export type McpServerStatusChangedEvent = SessionEventVariant<
-  "mcp.server_status_changed",
-  "mcp_governance",
-  McpServerStatusChangedPayload
 >;
 /** Emitted when an MCP server sign-in ends, in success or failure. */
 export type McpServerOauthCompletedEvent = SessionEventVariant<
@@ -541,7 +532,6 @@ export type SessionEvent =
   | PlanAcceptedEvent
   | PlanHandedOffEvent
   | QuestionAskedEvent
-  | McpServerStatusChangedEvent
   | McpServerOauthCompletedEvent
   | CloudTaskUpdatedEvent
   | SessionRestoreFinishedEvent

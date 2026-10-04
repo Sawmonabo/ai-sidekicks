@@ -219,20 +219,6 @@
       "outputs": [],
       "cache": false
     },
-    "test:screenshot": {
-      "dependsOn": ["^build"],
-      "inputs": [
-        "src/renderer/src/**",
-        "tests/screenshot/**",
-        "tests/helpers/**",
-        "vitest.config.*",
-        "$TURBO_ROOT$/vitest.shared.ts",
-        "vitest/**",
-        "tsconfig.paths.json"
-      ],
-      "outputs": [],
-      "cache": false
-    },
     "test:accessibility": {
       "dependsOn": ["^build"],
       "inputs": [
@@ -308,30 +294,6 @@
       "outputs": [],
       "cache": false
     },
-    "test:bench": {
-      // Not on the `test` aggregate, because each run appends its absolutes to
-      // `tests/bench/ledger.json`, a curated record a person reads that no test run should rewrite
-      // as a side effect. It does gate: CI runs it in its own step with the ledger pointed at the
-      // runner's temp directory, and both arms assert a ratio with a wide margin rather than a
-      // millisecond count, so a noisy runner cannot fail it and the store's own `mergeUpsert`
-      // losing its partitioning can.
-      //
-      // `passThroughEnv` makes that redirection reach the runner: Turborepo 2's default `strict`
-      // env mode filters out every variable no task declares, so without it CI would append to the
-      // checked-in ledger. Not `env`: the value is a per-machine path that says nothing about what
-      // the task computes, and this task is uncached anyway.
-      "inputs": [
-        "src/renderer/src/**",
-        "tests/bench/**",
-        "vitest.config.*",
-        "$TURBO_ROOT$/vitest.shared.ts",
-        "vitest/**",
-        "tsconfig.paths.json"
-      ],
-      "passThroughEnv": ["SIDEKICKS_BENCH_LEDGER_PATH"],
-      "outputs": [],
-      "cache": false
-    },
     // --- Scripts invoked by name (`scripts/**`) --------------------------------
     //
     // The budget gate `package.json` declares as a script gets a task with `inputs`, like every tier
@@ -367,10 +329,6 @@
       // legitimately contains what they refuse. The chain runs the source-only tiers first, then
       // the browser-mode pair (which builds nothing), then release, smoke and fixtures, each with
       // its own consumers.
-      //
-      // Two projects are absent on purpose: `screenshot`, which compares nothing and writes local
-      // capture aids a person looks at, and `bench`, which appends to a curated ledger (see its
-      // task).
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge it needs, and an
       // aggregate-level edge would run a build outside the sequence above rather than inside it.

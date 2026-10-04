@@ -5,8 +5,8 @@
 //   * The 256 bound repeats the column's CHECK so a violation is refused with a diagnostic naming
 //     the server, tool and length, not an opaque SQLITE_CONSTRAINT.
 //   * An over-bound handle is refused, never truncated (a truncated one names another task).
-//     A refusal leaves the column NULL, which recovery handles by staying on
-//     `manual_reconcile_only`.
+//     A refusal leaves the column NULL, so after a restart the call stays halted, never run
+//     again.
 //   * The UPDATE only fires on `mcp_task_id IS NULL` (first wins). Zero rows changed is resolved
 //     by one SELECT: no receipt, the same handle (idempotent success), or another (refused).
 

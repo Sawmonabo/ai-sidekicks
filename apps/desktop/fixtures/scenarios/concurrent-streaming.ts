@@ -490,7 +490,6 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     parentRunId: RUN_ARCHITECT,
-    internalHelper: true,
   }),
   lane.transition(RUN_ARCHITECT_HELPER, {
     atMs: 2_450,
@@ -535,7 +534,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           updatedAt: "2026-01-01T14:20:02.450Z",
           draft: "",
         },
-        timelineCursors: { latest: "concurrent-streaming-cursor-45" },
+        transcriptCursors: { latest: "concurrent-streaming-cursor-45" },
       },
     },
     ...SETTINGS_PAGE_REPLIES,

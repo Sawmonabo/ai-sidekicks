@@ -3,7 +3,7 @@
 // compaction inside the child never moves the card. Identity is read, never inferred: guessing
 // it from the actor would merge concurrent subagents of one provider onto a single anchor.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
@@ -29,11 +29,11 @@ export interface SubagentAnchor {
  * The subagent anchors over one loaded window, derived once and asked per row per frame.
  */
 export class SubagentAnchorIndex {
-  readonly #rows: readonly TimelineRow[];
+  readonly #rows: readonly TranscriptEventRow[];
   #anchors: ReadonlyMap<string, SubagentAnchor> | undefined;
   #anchorsByRowId: ReadonlyMap<string, SubagentAnchor> | undefined;
 
-  public constructor(rows: readonly TimelineRow[]) {
+  public constructor(rows: readonly TranscriptEventRow[]) {
     this.#rows = rows;
   }
 
@@ -78,7 +78,7 @@ export function subagentIdentityKey(identity: SubagentIdentity): string {
  * identity is first seen, and later rows of that identity join `rowIds` and move nothing.
  */
 export function deriveSubagentAnchors(
-  rows: readonly TimelineRow[],
+  rows: readonly TranscriptEventRow[],
 ): ReadonlyMap<string, SubagentAnchor> {
   const anchorsByKey = new Map<string, { anchor: SubagentAnchor; rowIds: string[] }>();
   for (const row of rows) {
@@ -106,7 +106,7 @@ export function deriveSubagentAnchors(
  * no provider cannot be keyed as the contract keys one, and a fabricated provider would merge two
  * providers' subagents sharing an id. `runId` comes off the row, and a `general` row has none.
  */
-export function subagentIdentityOf(row: TimelineRow): SubagentIdentity | undefined {
+export function subagentIdentityOf(row: TranscriptEventRow): SubagentIdentity | undefined {
   if (row.kind === "general") {
     return undefined;
   }

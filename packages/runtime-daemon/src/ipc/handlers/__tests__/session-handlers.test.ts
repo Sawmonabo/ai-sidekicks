@@ -114,7 +114,7 @@ function buildSessionCreatedEvent(): SessionEvent {
  * The session log's side of a `session.read` answer: every snapshot member but the draft, which
  * the handler adds from the draft store.
  *
- * `timelineCursors.acknowledged` is omitted on purpose: an absent optional key catches a default
+ * `transcriptCursors.acknowledged` is omitted on purpose: an absent optional key catches a default
  * of `undefined` that would fail `.strict()` parsing.
  */
 function buildSessionLogRead(): SessionLogRead {
@@ -125,8 +125,8 @@ function buildSessionLogRead(): SessionLogRead {
       createdAt: "2026-01-22T19:14:35.000Z",
       updatedAt: "2026-01-22T19:14:35.000Z",
     },
-    timelineCursors: {
-      latest: "evt-0042" as SessionLogRead["timelineCursors"]["latest"],
+    transcriptCursors: {
+      latest: "evt-0042" as SessionLogRead["transcriptCursors"]["latest"],
     },
   };
 }

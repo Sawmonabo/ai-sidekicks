@@ -14,7 +14,7 @@ import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
-import { sampleRunRow } from "@test/helpers/timeline-row-samples.js";
+import { sampleRunRow } from "@test/helpers/transcript-event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
 
 function renderMessageCard(
@@ -58,7 +58,7 @@ function renderMessageCard(
 
 describe("which body a message renders", () => {
   it("renders a user's row through the row's own summary", () => {
-    // A user's words reach no `TimelineRow`; the summary is all the wire carries.
+    // A user's words reach no `TranscriptEventRow`; the summary is all the wire carries.
     const container = renderMessageCard({
       type: "user.message",
       summary: "please run the tests",

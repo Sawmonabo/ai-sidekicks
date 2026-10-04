@@ -235,7 +235,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
       cursor: 1,
       entities: [],
       // A stale frame inside the backfill is history the live read already reflects.
-      timeline: [staleFrame(SESSION_ID, 1)],
+      transcript: [staleFrame(SESSION_ID, 1)],
     });
     sessionStore.applyBatch([
       {

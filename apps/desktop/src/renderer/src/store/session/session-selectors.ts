@@ -1,14 +1,22 @@
-// The narrow reads a view may make of a session store's state: a whole partition or one entity,
-// never a composed whole-pane object, so `useSyncExternalStore` bails on `Object.is` for every
+// The narrow reads a view may make of a session store's state: the transcript, a whole partition
+// or one entity, never a composed whole-pane object, so `useSyncExternalStore` bails on `Object.is` for every
 // kind the last transition did not touch.
 //
 // No selector names a wire shape. `entities/entities.ts` keeps the store free of wire knowledge,
 // and a validating body read needs the canonical shape, which only the daemon service owns. A
 // store hook that wants one takes it as an injected reader.
 
-import type { StoredEntity } from "./entities/entities.js";
+import type { ProjectedSessionEvent, StoredEntity } from "./entities/entities.js";
 import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { SessionStoreState } from "./session-state.js";
+
+/**
+ * The session's transcript: the stored array itself, so the store's `Object.is` check is a pointer
+ * check; a mapped array would re-render the reader on every event.
+ */
+export function selectTranscript(state: SessionStoreState): readonly ProjectedSessionEvent[] {
+  return state.transcript;
+}
 
 /** Every entity of one kind. A narrow pick, never a whole-pane object. */
 export function selectPartition(

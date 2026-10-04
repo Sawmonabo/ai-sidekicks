@@ -3,7 +3,7 @@
 // tuple with its predicate derived from it, so the two cannot drift; a type added to the
 // registered event types is an edit here and nowhere else.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
@@ -81,7 +81,7 @@ export function isRunStateEventType(wireType: string): boolean {
  * Narrowed on `kind` first, since the `rollback_boundary` arm carries a typed payload rather
  * than an open record.
  */
-export function payingAccountIdOf(row: TimelineRow): string | undefined {
+export function payingAccountIdOf(row: TranscriptEventRow): string | undefined {
   return row.kind === "run"
     ? readWireString(row.payload[RUN_GROUP_PAYING_ACCOUNT_MEMBER])
     : undefined;

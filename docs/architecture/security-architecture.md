@@ -25,7 +25,7 @@ The product combines one account, several of that account's devices, one or more
 | Component | Responsibility |
 | --- | --- |
 | `Identity And Session Authorization` | Authenticates the user and authorizes access to sessions they own. A machine signs in to the hosted account with the Device Authorization Grant (RFC 8628) through `sidekicks sign-in`. Passkeys (WebAuthn) are used only in a browser and the phone apps: on the device-code page, to approve a machine's sign-in and to make a new account's first passkey, and in the web client and the phone apps, to sign in and to link a device with no other device at hand; the desktop app carries no WebAuthn. Tokens: PASETO v4 — access tokens (`v4.public`, 15 min, never stored) presented with a DPoP proof; a refresh token bound to the machine's DPoP key, kept as its own item in the machine's credential store, spent and replaced at each trade, lasting until sign-out or revocation. |
-| `Approval Policy Engine` | Evaluates and records approval requests and resolutions. Uses Cedar (CNCF sandbox) with principal-action-resource-context model: the built-in rules are `.cedar` files in the service's own source, compiled into the service with it and changed only by an app update, like any other code, and evaluated in-process by the resident `@cedar-policy/cedar-wasm` authorizer ([ADR-012](../decisions/012-cedar-approval-policy-engine.md)). |
+| `Approval Policy Engine` | Evaluates and records approval requests and resolutions. A provider's ask gets its designed answer from plain code in the service: it refuses `claude agents`, `claude daemon` and `--bg` and keeps Claude Code's own switch that turns them off pinned, allows an agent's own memory `.md` file, and answers for Codex where Codex has no command of its own. The app's own tools use Cedar (CNCF sandbox) with principal-action-resource-context model: their built-in rules are `.cedar` files in the service's own source, compiled into the service with it and changed only by an app update, like any other code, and evaluated in-process by the resident `@cedar-policy/cedar-wasm` authorizer ([ADR-012](../decisions/012-cedar-approval-policy-engine.md)). |
 | `Device And Machine Trust` | The account's append-only statement chain (`device.linked`, `device.renamed`, `device.revoked`, `passkey.added`, `passkey.removed`, `runtimenode.added`, `runtimenode.renamed`, `runtimenode.removed`), which every machine verifies itself to decide which device and machine keys it trusts, and each machine's registration (id, owning user, public key, name, platform, version). |
 | `Transport Security Layer` | Protects local IPC, client-daemon, and relay/control-plane traffic. Local daemon: socket reachability plus a required 256-bit session token (mode 0600, rotated per restart) presented by the desktop app's main process or the CLI — see §Local Daemon Authentication for the model. Control plane: HTTPS/TLS. Relay: one end-to-end channel per device and machine on the Noise Protocol Framework's `Noise_KK_25519_ChaChaPoly_SHA256`, with a fresh handshake on every connection and every 10 minutes, the relay seeing ids, the profile, sizes and times and nothing else (see §Relay Authentication And Encryption and [ADR-010](../decisions/010-tokens-passkeys-and-the-remote-channel.md)). |
 | `Audit Layer` | Records grants, denials, escalations, and revocations. |
@@ -201,7 +201,7 @@ A session has exactly one owner and no other people, so the matrix is not a grid
 | Rename or remove one of the account's machines, and read the account's machines | Owner, from any linked device |
 | **Runs and messaging** |  |
 | Send messages / create runs, queue work items, set/clear the session goal | Owner |
-| Start workflow runs (adjudicated per start as the named Cedar operation action — never an approval category; an agent's start is a tool call under its chat's level, so a chat that asks first asks before it starts one; every start path carries a daemon-resolved principal, the one user, never a client-supplied field, and a start whose principal does not resolve is refused — [ADR-025](../decisions/025-chat-invoked-workflow-start.md)) | Owner |
+| Start workflow runs (an agent's start and each run a trigger fires are adjudicated per start under the named Cedar operation action `Action::"workflow::start"` — never an approval category; the person's own starts — the desktop app, the `/workflow` verbs, the CLI and any linked device — pass no policy check; an agent's start is a tool call under its chat's level, so a chat that asks first asks before it starts one; every adjudicated start carries a daemon-resolved principal, the one user, never a client-supplied field, and one whose principal does not resolve is refused — [ADR-025](../decisions/025-chat-invoked-workflow-start.md)) | Owner |
 | Steer/interrupt, the faster-model retry, undo (`session.restore`), pause/resume runs, and compact a bound run's provider context (authorized by session write access, never by run authorship — "own" never scopes this row, so a run started from one device is steerable from any other. User-triggered context compaction shares this row's adjudication rather than minting a Cedar action of its own, per [Spec-004 §User-triggered context compaction](../specs/004-provider-driver-contract-and-capabilities.md#user-triggered-context-compaction) — a compaction target is always a binding this daemon holds) | Owner |
 | Take a shell's control lease (one device holds a given shell at a time; there is no release — a lease ends when another device takes it, when a forced take moves it, or when the holding connection ends, and a revoked device's channel is closed, which ends its leases, per [Spec-002 §Required Behavior](../specs/002-machine-registration.md#required-behavior)) | Owner, one holding device per shell |
 | **Approvals** |  |
@@ -210,7 +210,7 @@ A session has exactly one owner and no other people, so the matrix is not a grid
 | Publish artifacts, attach repositories | Owner |
 | Delete a session's artifacts: only with the session itself — `Delete old data` (`daemon.retentionPurge`) of an archived or closed session, or `Erase all data`; no person or method deletes a single artifact | Owner |
 | **Read access** |  |
-| Read the timeline, artifacts, and device presence | Owner |
+| Read the transcript, artifacts, and device presence | Owner |
 
 **Actions that ask at the asking levels:** at the session's permission levels that ask, these ask before they run unless an approval rule answers them; at Sandboxed and at YOLO nothing asks, as the person chose ([Spec-010 §Default Behavior](../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)):
 
@@ -220,13 +220,13 @@ A session has exactly one owner and no other people, so the matrix is not a grid
 
 **Unconditional actions (no approval needed):**
 
-- Reading the timeline, artifacts, and device presence
+- Reading the transcript, artifacts, and device presence
 - Sending device presence heartbeats
 - Registering the machine the service runs on
 
 ### Per-Device Presence Detail Authorization
 
-The **Read the timeline, artifacts, and device presence** row above also governs the Devices page's reads: `device.list`, which returns each machine, device and passkey with its connected state and last-seen time, and a machine's `presence.read` and `presence.subscribe`, which report the devices connected to it and whether an app window is in front on each. They are authorized as the timeline is: the owner, from any of their devices.
+The **Read the transcript, artifacts, and device presence** row above also governs the Devices page's reads: `device.list`, which returns each machine, device and passkey with its connected state and last-seen time, and a machine's `presence.read` and `presence.subscribe`, which report the devices connected to it and whether an app window is in front on each. They are authorized as the transcript is: the owner, from any of their devices.
 
 **Rationale.** Under Remote Control the device list is the product, not an exhaust: a person deciding whether to steer from their phone has to see which of their machines is reachable, and a person revoking a lost device has to find it. There is no second person for it to leak to — every entry belongs to the caller's own account — so no separate gate stands in front of it.
 

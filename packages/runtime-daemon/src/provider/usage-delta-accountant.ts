@@ -27,6 +27,7 @@
 //     unsubtracted with a diagnostic. Cache-read and cache-write stay on the diagnostic channel,
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
+import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
@@ -479,22 +480,19 @@ export function resolveCostUpdateProvenance(options: {
 // Window telemetry.
 // --------------------------------------------------------------------------
 
-/** Where a window figure came from. */
-export type WindowSource = "provider_reported" | "model_default" | "estimated";
-
 /**
  * Normalized window telemetry. The counts travel both or neither, since a lone numerator or
  * denominator is an emitter bug; `windowSource` and `exceeded` are on every emission.
  */
 export type WindowTelemetry =
   | {
-      readonly windowSource: WindowSource;
+      readonly windowSource: ContextWindowSource;
       readonly exceeded: boolean;
       readonly windowUsedTokens: number;
       readonly windowMaxTokens: number;
     }
   | {
-      readonly windowSource: WindowSource;
+      readonly windowSource: ContextWindowSource;
       readonly exceeded: boolean;
       readonly windowUsedTokens?: never;
       readonly windowMaxTokens?: never;
@@ -509,7 +507,7 @@ export type WindowTelemetry =
  * was never measured is not exceeded.
  */
 export function deriveWindowTelemetry(options: {
-  readonly windowSource: WindowSource;
+  readonly windowSource: ContextWindowSource;
   /** The wire's used-tokens reading, or null where the frame carries none. */
   readonly windowUsedTokens: number | null;
   /** The window ceiling, or null where neither wire nor model declares one. */

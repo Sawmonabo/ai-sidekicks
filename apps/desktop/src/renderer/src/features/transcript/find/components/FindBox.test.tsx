@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { FindBox } from "./FindBox.js";
 import { findInTranscript, type FindResult } from "../find-model.js";
-import { runRow } from "../../timeline-rows.test-support.js";
+import { runRow } from "../../transcript-event-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
 const UNCAPPED_TOTAL = 940;

@@ -2,14 +2,14 @@
 // run's rows (re-execution reuses ordinals). Neither throws, so each group is asserted from
 // both sides.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
-import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import { rollbackBoundaryRow, runRow } from "../transcript-event-rows.test-support.js";
 import { SupersededIndex, deriveSupersededTurns } from "./superseded-turns.js";
 
 describe("superseded turns — the rewind floor is EXCEEDS and nothing else", () => {
-  function rewoundWindow(): readonly TimelineRow[] {
+  function rewoundWindow(): readonly TranscriptEventRow[] {
     return [
       runRow({ id: "a1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.running", runId: "run-a", position: 2 }),

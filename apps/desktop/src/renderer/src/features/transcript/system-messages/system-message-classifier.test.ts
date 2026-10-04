@@ -5,7 +5,7 @@
 import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent-provider-binding";
 import { describe, expect, it } from "vitest";
 
-import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import { generalRow, rollbackBoundaryRow, runRow } from "../transcript-event-rows.test-support.js";
 import { SystemMessageClassifier } from "./system-message-classifier.js";
 
 describe("system messages — one row's classification", () => {

@@ -73,7 +73,7 @@ Folder layout, ownership, naming and import rules: [`apps/desktop/AGENTS.md`](..
 ## Related Specs
 
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
-- [Live Timeline Visibility And Reasoning Surfaces](../specs/011-live-timeline-visibility-and-reasoning-surfaces.md)
+- [Transcript And Reasoning](../specs/011-transcript-and-reasoning.md)
 - [Notifications And Attention Model](../specs/017-notifications-and-attention-model.md)
 
 ## Related ADRs

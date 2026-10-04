@@ -29,7 +29,6 @@ const RUN_LINK = {
   childRunId: CHILD_RUN_ID,
   parentRunId: PARENT_RUN_ID,
   agentId: AGENT_ID,
-  internalHelper: false,
   state: "running",
   head: { ...HEAD, viaAgentName: "reviewer" },
 } as const;
@@ -69,7 +68,6 @@ describe("orchestration.runCreate", () => {
       OrchestrationRunCreateRequestSchema.safeParse({
         sessionId: SESSION_ID,
         targetDefinitionId: DEFINITION_ID,
-        internalHelper: true,
       }).success,
     ).toBe(true);
   });

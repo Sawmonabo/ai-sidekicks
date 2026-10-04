@@ -118,10 +118,10 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   })
   .strict();
 
-/** The `session.read` result: the session and its latest and acknowledged timeline cursors. */
+/** The `session.read` result: the session and its latest and acknowledged transcript cursors. */
 export interface SessionReadResponse {
   session: SessionRecord;
-  timelineCursors: {
+  transcriptCursors: {
     latest: EventCursor;
     acknowledged?: EventCursor | undefined;
   };
@@ -130,7 +130,7 @@ export interface SessionReadResponse {
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
   .object({
     session: SessionRecordSchema,
-    timelineCursors: z
+    transcriptCursors: z
       .object({
         latest: EventCursorSchema,
         acknowledged: EventCursorSchema.optional(),

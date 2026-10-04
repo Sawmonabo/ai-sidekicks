@@ -131,7 +131,6 @@ export type SessionEventType =
   // orchestration_admission
   | "orchestration.rejected"
   // mcp_governance
-  | "mcp.server_status_changed"
   | "mcp.server_oauth_completed"
   // workflow_lifecycle
   | "workflow.created"
@@ -237,7 +236,7 @@ export const ORCHESTRATION_ADMISSION_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("orchestration_admission");
 /**
  * The event types of the `mcp_governance` category. `mcp.server_oauth_completed` binds to the
- * daemon-scope sentinel session; `mcp.server_status_changed` binds per event.
+ * daemon-scope sentinel session.
  */
 export const MCP_GOVERNANCE_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("mcp_governance");

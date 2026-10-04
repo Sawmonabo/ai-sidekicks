@@ -1,12 +1,12 @@
 /**
  * Claude driver tool metadata: the declared tool catalog, and the step that gives every entry an
- * `idempotency_class`, which recovery reads from a crash-interrupted call's `driver_tools` row.
+ * `idempotency_class`: whether a call may safely be repeated, shown on Settings › MCP servers.
  *
  * - The default is structural: an unannotated or unrecognized class (untyped ingress such as
  *   MCP-discovered tools) takes `manual_reconcile_only`, and `closeToolIdempotencyClass` is the
  *   only constructor of a `NormalizedProviderToolMetadata` here.
- * - Only pure reads of local state are `idempotent`; a wrongly permissive class silently re-runs
- *   an effect after a crash, while the floor costs a prompt to the person.
+ * - Only pure reads of local state are `idempotent`; a wrongly permissive class tells the person
+ *   a repeat is safe when it is not.
  * - No entry is `compensable` (no built-in tool accepts a `dedupe_key`) or carries a `description`
  *   (that column holds the provider's own).
  */
@@ -25,7 +25,7 @@ import {
 } from "../mcp-server-status-ingest.js";
 import type { McpServerStatusEmission } from "../../provider-driver.js";
 
-/** The class an unannotated tool takes: it halts recovery for the person to reconcile. */
+/** The class an unannotated tool takes: a repeat is for the person to judge. */
 const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
 /** The closed `idempotency_class` vocabulary, for runtime recognition. */
@@ -73,7 +73,7 @@ function closeToolIdempotencyClasses(
 
 /**
  * The tools Claude Code carries itself, in its own names, as a person picks them for an agent's
- * tool allowlist. Separate from the recovery declarations, which name what a transcript reports.
+ * tool allowlist. Separate from the class declarations, which name what a transcript reports.
  */
 export const CLAUDE_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
   "Read",
@@ -93,7 +93,7 @@ export const CLAUDE_BUILT_IN_TOOLS: readonly string[] = Object.freeze([
 const CLAUDE_TOOL_DECLARATIONS: readonly ProviderToolMetadata[] = Object.freeze(
   (
     [
-      // Pure local reads: nothing observable changes, so repeating after a crash is safe.
+      // Pure local reads: nothing observable changes, so a repeated call is safe.
       { name: "Read", idempotency_class: "idempotent" },
       { name: "Glob", idempotency_class: "idempotent" },
       { name: "Grep", idempotency_class: "idempotent" },
