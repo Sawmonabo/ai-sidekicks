@@ -17,7 +17,7 @@ import {
   CodexTransportError,
   normalizeProviderFailureDetail,
 } from "./session-errors.js";
-import { readThread, readThreadTurnIds } from "./thread-view.js";
+import { readThread, readThreadNetworkAccess, readThreadTurnIds } from "./thread-view.js";
 import { classifyResumeRecoveryCondition } from "./auth-status.js";
 import {
   type CodexDiagnosticSink,
@@ -70,6 +70,7 @@ function composeSessionRecord(
     | "threadId"
     | "turnBoundaries"
     | "executionPosture"
+    | "providerNetworkAccess"
     | "subagentPolicy"
     | "spawnConfig"
   >,
@@ -158,7 +159,6 @@ export class CodexSessionEstablishment {
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/start");
-      this.#spawnPosture.assertPostureRealized(params.executionPosture, response);
       this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
       this.#sessions.set(
         params.sessionId,
@@ -168,6 +168,7 @@ export class CodexSessionEstablishment {
           threadId: thread.id,
           turnBoundaries: [],
           executionPosture: params.executionPosture,
+          providerNetworkAccess: readThreadNetworkAccess(response),
           subagentPolicy: params.subagentPolicy,
           spawnConfig: config,
         }),
@@ -208,7 +209,6 @@ export class CodexSessionEstablishment {
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/resume");
-      this.#spawnPosture.assertPostureRealized(params.executionPosture, response);
       // Checked before the position: Codex may answer an unhonorable resume with a different
       // thread, and a zero-turn one has `turns: []`, like a genuine resume.
       if (thread.id !== params.resumeHandle) {
@@ -249,6 +249,7 @@ export class CodexSessionEstablishment {
           // restart.
           turnBoundaries: readThreadTurnIds(thread.turns),
           executionPosture: params.executionPosture,
+          providerNetworkAccess: readThreadNetworkAccess(response),
           subagentPolicy: params.subagentPolicy,
           spawnConfig,
         }),
@@ -331,7 +332,6 @@ export class CodexSessionEstablishment {
       throw classifyRewindForkFailure(cause);
     }
     const forkedThread = readThread(response, "thread/fork");
-    this.#spawnPosture.assertPostureRealized(record.executionPosture, response);
     // Answering with the thread it was handed means no fork happened; adopting it would report
     // `applied` with no surviving pre-rewind thread.
     if (forkedThread.id === preForkThreadId) {
@@ -348,6 +348,7 @@ export class CodexSessionEstablishment {
       return { status: "degraded", fallbackAction: "rewind-deferred-turn-in-progress" };
     }
     record.threadId = forkedThread.id;
+    record.providerNetworkAccess = readThreadNetworkAccess(response);
     // The routing and metering band moves with the record. Based like a resume on the pre-fork
     // thread, the only key the earlier spend exists under. The wire reference does not say whether
     // the counter continues across a fork: if it restarts, the decrease floor gives loud

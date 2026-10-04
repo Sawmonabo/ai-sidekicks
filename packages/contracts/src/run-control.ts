@@ -291,7 +291,6 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
 const executionPostureSchema: z.ZodType<ExecutionPosture> = z
   .object({
     mode: PermissionLevelSchema,
-    networkAccess: z.enum(["none", "full"]),
     writableRoots: z.array(filesystemPathSchema),
     profileName: wireFreeFormString(
       DRIVER_WIRE_HANDLE_MAX_LEN,

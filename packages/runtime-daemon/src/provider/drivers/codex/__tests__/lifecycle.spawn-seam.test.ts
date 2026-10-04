@@ -1,16 +1,11 @@
 // What a spawned Codex child is allowed to hold: denied credentials are stripped on every spawn
-// path, and the provider account a session bills to is never silently swapped. A sandbox setting
-// the provider did not apply is reported, never assumed.
+// path, and the provider account a session bills to is never silently swapped.
 
 import { describe, expect, it } from "vitest";
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
-import {
-  CodexDriverConfigError,
-  describeCodexPostureDivergence,
-  parseCodexSessionConfig,
-} from "../index.js";
+import { CodexDriverConfigError, parseCodexSessionConfig } from "../index.js";
 import {
   EXECUTABLE_PATH,
   type Harness,
@@ -19,7 +14,6 @@ import {
   SESSION_CWD,
   SESSION_ID,
   TEST_MODEL,
-  THREAD_ID,
   createHarness,
   threadStartResult,
 } from "./codex-test-doubles.js";
@@ -32,7 +26,6 @@ describe("Codex credential-policy strip at the spawn seam", () => {
   const SANDBOXED_POSTURE: ExecutionPosture = {
     mode: "sandboxed",
     credentialPolicyRef: "policy://resume",
-    networkAccess: "none",
     writableRoots: [SESSION_CWD],
   };
   const STRIPPED_ENV = [
@@ -396,52 +389,5 @@ describe("Codex provider-account precedence at the spawn seam", () => {
     if (scenario.create !== undefined) {
       expect(await boundAccountId(harness)).toBe(scenario.create.typed ?? null);
     }
-  });
-});
-
-describe("Codex sandbox posture realization", () => {
-  // The provider accepts and ignores an unrecognized config key, so a network setting that silently
-  // stopped applying looks like one that applied. The readback is the only check.
-  it("reports a readback narrower or wider than the requested network access", async () => {
-    const harness = createHarness();
-    harness.server.on("thread/start", () => ({
-      result: {
-        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
-        sandbox: { networkAccess: false },
-      },
-    }));
-
-    await harness.driver.createSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-      executionPosture: {
-        mode: "ask",
-        credentialPolicyRef: "policy://default",
-        networkAccess: "full",
-        writableRoots: [SESSION_CWD],
-      },
-    });
-
-    const diverged = harness.diagnostics.filter(
-      (diagnostic) => diagnostic.kind === "posture-realization-diverged",
-    );
-    expect(diverged).toHaveLength(1);
-    expect(diverged[0]).toMatchObject({
-      requestedNetworkAccess: true,
-      realizedNetworkAccess: false,
-    });
-    // Wider is the sandbox leak: network open where "none" was asked.
-    expect(
-      describeCodexPostureDivergence(
-        {
-          mode: "ask",
-          credentialPolicyRef: "policy://default",
-          networkAccess: "none",
-          writableRoots: [],
-        },
-        { networkAccess: true },
-      ),
-    ).toStrictEqual({ requestedNetworkAccess: false, realizedNetworkAccess: true });
   });
 });

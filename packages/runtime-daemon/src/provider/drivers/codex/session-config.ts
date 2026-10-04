@@ -111,17 +111,6 @@ const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
   yolo: "never",
 });
 
-function codexNetworkAccessEnabled(posture: ExecutionPosture): boolean {
-  return posture.networkAccess === "full";
-}
-
-/**
- * Config key for the thread-scope network axis (`ThreadStartParams.sandbox` has none); at the pin
- * it moves the realized policy on `workspace-write` only. Snake_case is load-bearing: the config
- * layer silently ignores an unrecognized key.
- */
-const CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY = "sandbox_workspace_write.network_access";
-
 /** Thread-level posture: `sandbox` and `approvalPolicy` on `thread/start`. */
 interface CodexThreadPostureParams {
   readonly sandbox: CodexSandboxMode;
@@ -136,62 +125,28 @@ export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThrea
   };
 }
 
-/** Whether the posture's level runs in the workspace sandbox, the only one with a network axis. */
-function runsInCodexWorkspaceSandbox(posture: ExecutionPosture): boolean {
-  return CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode] === "workspace-write";
-}
-
-/** The thread config overrides a posture needs; only a workspace-sandbox level sets any. */
-export function composeCodexThreadPostureConfig(
-  posture: ExecutionPosture,
-): Record<string, unknown> {
-  if (!runsInCodexWorkspaceSandbox(posture)) {
-    return {};
-  }
-  return { [CODEX_WORKSPACE_NETWORK_ACCESS_CONFIG_KEY]: codexNetworkAccessEnabled(posture) };
-}
-
-/**
- * Compares the sandbox policy the provider says it realized with the posture's; returns the
- * divergence or `null`. Never throws and never fails the spawn.
- */
-export function describeCodexPostureDivergence(
-  posture: ExecutionPosture,
-  realizedSandbox: unknown,
-): { readonly requestedNetworkAccess: boolean; readonly realizedNetworkAccess: boolean } | null {
-  // Only the workspace sandbox can express its request at thread scope.
-  if (!runsInCodexWorkspaceSandbox(posture) || !isPlainObject(realizedSandbox)) {
-    return null;
-  }
-  const realizedNetworkAccess = realizedSandbox["networkAccess"];
-  if (typeof realizedNetworkAccess !== "boolean") {
-    return null;
-  }
-  const requestedNetworkAccess = codexNetworkAccessEnabled(posture);
-  // Both directions: an ignored unrecognized key leaves network `false`, so a narrower result
-  // means the request silently stopped applying.
-  if (realizedNetworkAccess !== requestedNetworkAccess) {
-    return { requestedNetworkAccess, realizedNetworkAccess };
-  }
-  return null;
-}
-
 /**
  * Per-turn `sandboxPolicy`, sent every turn because it carries the writable roots the thread-level
  * mode cannot; the two exclude flags are pinned `true` so `writableRoots` is the complete list.
+ * `providerNetworkAccess` is the person's own network setting, read from the thread reply.
  */
-export function composeCodexTurnSandboxPolicy(posture: ExecutionPosture): Record<string, unknown> {
-  const networkAccess = codexNetworkAccessEnabled(posture);
+export function composeCodexTurnSandboxPolicy(
+  posture: ExecutionPosture,
+  providerNetworkAccess: boolean | undefined,
+): Record<string, unknown> {
+  // Echoed, never omitted when known: Codex reads an omitted `networkAccess` as off.
+  const networkAccessMember =
+    providerNetworkAccess === undefined ? {} : { networkAccess: providerNetworkAccess };
   switch (CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode]) {
     case "danger-full-access":
       return { type: "dangerFullAccess" };
     case "read-only":
-      return { type: "readOnly", networkAccess };
+      return { type: "readOnly", ...networkAccessMember };
     case "workspace-write":
       return {
         type: "workspaceWrite",
         writableRoots: posture.writableRoots,
-        networkAccess,
+        ...networkAccessMember,
         excludeTmpdirEnvVar: true,
         excludeSlashTmp: true,
       };

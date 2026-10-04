@@ -66,7 +66,6 @@ export interface ClaudeSandboxSettings {
     readonly failIfUnavailable: boolean;
     readonly allowUnsandboxedCommands: boolean;
     readonly filesystem: { readonly allowWrite: readonly string[] };
-    readonly network?: { readonly allowedDomains: readonly string[] } | undefined;
   };
   readonly credentialPolicyRef: string;
 }
@@ -88,8 +87,6 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
         // Empty, not omitted: an omitted list asks for the provider's default.
         allowWrite: posture.mode === "readonly" ? [] : posture.writableRoots,
       },
-      // `full` omits the restriction, since an empty list means the opposite; `none` is empty.
-      ...(posture.networkAccess === "full" ? {} : { network: { allowedDomains: [] } }),
     },
     credentialPolicyRef: posture.credentialPolicyRef,
   };

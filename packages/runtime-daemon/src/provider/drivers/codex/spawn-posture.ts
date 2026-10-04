@@ -11,9 +11,7 @@ import {
   type CodexSessionConfig,
   composeCodexSubagentConfigOverrides,
   composeCodexThreadPosture,
-  composeCodexThreadPostureConfig,
   composeCodexTurnSandboxPolicy,
-  describeCodexPostureDivergence,
   parseCodexSessionConfig,
   resolveBoundProviderAccountId,
 } from "./session-config.js";
@@ -21,7 +19,6 @@ import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { CodexDriverConfigError } from "./session-errors.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport-diagnostics.js";
 import { CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL } from "./server-requests.js";
-import { isPlainObject } from "../../record-readers.js";
 import type {
   CreateSessionParams,
   ResumeSessionParams,
@@ -144,21 +141,20 @@ export class CodexSpawnPosture {
   }
 
   /**
-   * The thread-establishment legs one posture and one subagent policy realize. Both write the
-   * `config` table, so they merge here; used by `thread/start` and `thread/fork`.
+   * The thread-establishment legs one posture and one subagent policy realize: the posture's
+   * `sandbox` and `approvalPolicy`, and the subagent caps as `config` overrides. Used by
+   * `thread/start`, `thread/resume` and `thread/fork`.
    */
   composeThreadEstablishmentLegs(
     posture: ExecutionPosture | undefined,
     subagentPolicy: SubagentPolicy | undefined,
   ): Record<string, unknown> {
-    const configOverrides: Record<string, unknown> = {
-      ...(posture === undefined ? {} : composeCodexThreadPostureConfig(posture)),
-      ...(subagentPolicy === undefined ? {} : composeCodexSubagentConfigOverrides(subagentPolicy)),
-    };
     this.#reportWithheldSubagentDefinitions(subagentPolicy);
     return {
       ...this.#composeSpawnPostureParams(posture),
-      ...(Object.keys(configOverrides).length === 0 ? {} : { config: configOverrides }),
+      ...(subagentPolicy === undefined
+        ? {}
+        : { config: composeCodexSubagentConfigOverrides(subagentPolicy) }),
     };
   }
 
@@ -176,27 +172,8 @@ export class CodexSpawnPosture {
   }
 
   /**
-   * Compares the realized sandbox against the requested posture and records a divergence; called
-   * on every path that establishes a thread.
-   */
-  assertPostureRealized(posture: ExecutionPosture | undefined, response: unknown): void {
-    if (posture === undefined || !isPlainObject(response)) {
-      return;
-    }
-    const divergence = describeCodexPostureDivergence(posture, response["sandbox"]);
-    if (divergence === null) {
-      return;
-    }
-    reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-      kind: "posture-realization-diverged",
-      requestedNetworkAccess: divergence.requestedNetworkAccess,
-      realizedNetworkAccess: divergence.realizedNetworkAccess,
-    });
-  }
-
-  /**
    * The turn's `sandboxPolicy`, from the run's posture or else the session's, so a turn never goes
-   * out with no policy; empty when neither declares one.
+   * out with no policy; empty when neither declares one. Network access follows the thread's own.
    */
   composeTurnPostureParams(
     record: CodexSessionRecord,
@@ -206,7 +183,9 @@ export class CodexSpawnPosture {
     if (posture === undefined) {
       return {};
     }
-    return { sandboxPolicy: composeCodexTurnSandboxPolicy(posture) };
+    return {
+      sandboxPolicy: composeCodexTurnSandboxPolicy(posture, record.providerNetworkAccess),
+    };
   }
 
   /**

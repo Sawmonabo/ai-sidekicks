@@ -51,7 +51,6 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
   const SPAWN_POSTURE: ExecutionPosture = {
     mode: "sandboxed",
     credentialPolicyRef: "policy://default",
-    networkAccess: "none",
     writableRoots: ["/workspace", "/tmp/scratch"],
     profileName: "default",
   };
@@ -74,12 +73,6 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
       label: "a run whose sandbox level differs",
       spawn: { executionPosture: SPAWN_POSTURE },
       run: { executionPosture: { ...SPAWN_POSTURE, mode: "yolo" } },
-      refusal: "execution_posture_mismatch",
-    },
-    {
-      label: "a run that opens the network",
-      spawn: { executionPosture: SPAWN_POSTURE },
-      run: { executionPosture: { ...SPAWN_POSTURE, networkAccess: "full" } },
       refusal: "execution_posture_mismatch",
     },
     {

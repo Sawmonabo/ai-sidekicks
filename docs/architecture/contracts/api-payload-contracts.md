@@ -2225,13 +2225,12 @@ interface ProviderMode {
 // audit stamp) and by CreateSessionParams/StartRunParams (the spawn/turn carriers).
 // This is what a DRIVER APPLIES, not what a person chooses: a person chooses one of the five
 // permission levels, the posture carries that level verbatim as its `mode` (`PermissionLevel`
-// in §Shared Enums), and each driver resolves it into the network and filesystem composition below
+// in §Shared Enums), and each driver resolves it into the filesystem composition below
 // against its own provider's modes, per Spec-010 §Required Behavior. The level-to-provider-mode
 // realization is each driver's, recorded per driver in Spec-010 §Required Behavior; no table here
 // restates it, and the posture carries no vocabulary of its own beside the level.
 type ExecutionPosture = {
   mode: PermissionLevel; // the session's permission level (§Shared Enums) — the only posture vocabulary in the product (Spec-010 §Required Behavior)
-  networkAccess: "none" | "full";
   writableRoots: string[];
   credentialPolicyRef: string; // a plain reference naming the credential deny list the daemon handed the provider — REQUIRED on every run. The provider's own rule enforces the list (Claude Code's deny rules hold in every permission mode; Codex's filesystem denies hold wherever its sandbox runs, which Full Access does not) (Spec-010 §Required Behavior).
 };

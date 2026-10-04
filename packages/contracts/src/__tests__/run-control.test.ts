@@ -187,12 +187,13 @@ describe("RunStateChangeEvent", () => {
   describe("the executionPosture member", () => {
     const base = { writableRoots: ["/workspace"], credentialPolicyRef: "policy://default" };
 
-    it("admits both network settings at a permission level", () => {
+    it("admits a posture at each permission level, with or without a profile name", () => {
       const postures = [
-        { ...base, networkAccess: "none", mode: "readonly", writableRoots: [] },
-        { ...base, networkAccess: "none", mode: "sandboxed" },
-        { ...base, networkAccess: "full", mode: "ask", profileName: "default" },
-        { ...base, networkAccess: "full", mode: "yolo", writableRoots: [] },
+        { ...base, mode: "readonly", writableRoots: [] },
+        { ...base, mode: "sandboxed" },
+        { ...base, mode: "reviewed" },
+        { ...base, mode: "ask", profileName: "default" },
+        { ...base, mode: "yolo", writableRoots: [] },
       ];
       for (const executionPosture of postures) {
         expect(
@@ -208,13 +209,13 @@ describe("RunStateChangeEvent", () => {
       expect(() =>
         RunStateChangeEventSchema.parse({
           ...minimalRunStateChange,
-          executionPosture: { ...withoutPolicy, networkAccess: "full", mode: "yolo" },
+          executionPosture: { ...withoutPolicy, mode: "yolo" },
         }),
       ).toThrow();
       expect(() =>
         RunStateChangeEventSchema.parse({
           ...minimalRunStateChange,
-          executionPosture: { ...base, networkAccess: "none", mode: "workspace-sandboxed" },
+          executionPosture: { ...base, mode: "workspace-sandboxed" },
         }),
       ).toThrow();
     });

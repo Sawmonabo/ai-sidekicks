@@ -95,15 +95,6 @@ export type CodexTransportDiagnostic =
       expectedTurnCount: number;
       confirmedTurnCount: number;
     }
-  /**
-   * The realized sandbox policy is wider than the posture demanded (unrecognized config keys are
-   * silently ignored). Reported, not fatal.
-   */
-  | {
-      kind: "posture-realization-diverged";
-      requestedNetworkAccess: boolean;
-      realizedNetworkAccess: boolean;
-    }
   /** A subagent definition was withheld from the spawn rather than admitted unenforceable. */
   | { kind: "subagent-definition-withheld"; definitionName: string; reason: string }
   | { kind: "turn-evidence-memory-overflowed"; retainedTurnCount: number }

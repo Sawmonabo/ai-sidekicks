@@ -31,6 +31,17 @@ export function readThread(response: unknown, method: string): ThreadView {
 }
 
 /**
+ * Reads the network access a thread reply's realized `sandbox` carries, which reflects the person's
+ * own Codex config; `undefined` when the policy has no boolean member (Full Access has none).
+ */
+export function readThreadNetworkAccess(response: unknown): boolean | undefined {
+  const record = isPlainObject(response) ? response : {};
+  const sandbox = record["sandbox"];
+  const networkAccess = isPlainObject(sandbox) ? sandbox["networkAccess"] : undefined;
+  return typeof networkAccess === "boolean" ? networkAccess : undefined;
+}
+
+/**
  * Reads the ordered turn ids out of a `Thread.turns` array. Total, not throwing: the list is a
  * bookkeeping seed. Non-string and empty entries are skipped, since a placeholder would shift
  * every later ordinal onto the wrong turn.

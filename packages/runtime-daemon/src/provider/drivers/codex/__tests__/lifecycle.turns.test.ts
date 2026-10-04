@@ -406,16 +406,14 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
 });
 
 describe("Codex rewind and re-realization", () => {
-  const WORKSPACE_POSTURE_WITH_NETWORK: ExecutionPosture = {
+  const WORKSPACE_POSTURE: ExecutionPosture = {
     mode: "ask",
     credentialPolicyRef: "policy://default",
-    networkAccess: "full",
     writableRoots: ["/work/session"],
   };
   const FORKED = {
     result: {
       thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
-      sandbox: { networkAccess: true },
     },
   };
   const APPLIED = { status: "applied", sessionPosition: 1, bindingId: "binding-abc" };
@@ -506,7 +504,7 @@ describe("Codex rewind and re-realization", () => {
       // Omitted, the thread runs under whatever the provider persisted, not what was declared.
       const harness = createHarness();
       await resumedWithTurns(harness, {
-        executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+        executionPosture: WORKSPACE_POSTURE,
         subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
       });
       if (method === "thread/fork") {
@@ -521,9 +519,34 @@ describe("Codex rewind and re-realization", () => {
       const params = paramsOf(harness, method);
       expect(params["sandbox"]).toBe("workspace-write");
       expect(params["config"]).toStrictEqual({
-        "sandbox_workspace_write.network_access": true,
         "agents.max_concurrent_threads_per_session": 3,
         "agents.max_depth": 1,
+      });
+    },
+  );
+
+  it.each([true, false])(
+    "echoes the network access the thread reply reports (%s) on each turn's sandbox policy",
+    async (networkAccess) => {
+      // The person's own Codex config decides the network; omitting the member would turn it off.
+      const harness = createHarness();
+      harness.server.on("thread/start", () => ({
+        result: {
+          thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+          sandbox: { type: "workspaceWrite", writableRoots: [], networkAccess },
+        },
+      }));
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await harness.driver.createSession({ ...CREATE_PARAMS, executionPosture: WORKSPACE_POSTURE });
+
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+
+      expect(paramsOf(harness, "turn/start")["sandboxPolicy"]).toMatchObject({
+        type: "workspaceWrite",
+        networkAccess,
       });
     },
   );

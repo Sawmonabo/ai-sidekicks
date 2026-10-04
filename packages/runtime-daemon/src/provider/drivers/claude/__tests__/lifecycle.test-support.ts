@@ -72,11 +72,10 @@ export function buildHarness(
   };
 }
 
-/** A sandboxed posture with the network closed and one writable root. */
+/** A sandboxed posture with one writable root. */
 export const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "sandboxed",
   credentialPolicyRef: "policy://default",
-  networkAccess: "none",
   writableRoots: ["/workspace"],
 };
 

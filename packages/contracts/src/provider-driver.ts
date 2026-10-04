@@ -324,7 +324,6 @@ export const DriverInterventionResultSchema: z.ZodType<
  */
 export type ExecutionPosture = {
   mode: PermissionLevel;
-  networkAccess: "none" | "full";
   writableRoots: string[];
   profileName?: string | undefined;
   credentialPolicyRef: string;
