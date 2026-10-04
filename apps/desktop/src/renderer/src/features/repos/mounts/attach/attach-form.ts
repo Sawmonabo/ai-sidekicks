@@ -38,7 +38,9 @@ export function resolveAttachForm(form: AttachFormState): AttachFormVerdict {
   if (form.localPath.length > FILE_PATH_MAX_LEN) {
     return {
       status: "incomplete",
-      because: `That path is ${String(form.localPath.length)} characters. The wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
+      because:
+        `That path is ${String(form.localPath.length)} characters. The ` +
+        `wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
     };
   }
   return { status: "sendable", localPath: form.localPath };

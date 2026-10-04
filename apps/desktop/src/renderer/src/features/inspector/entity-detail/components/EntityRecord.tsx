@@ -63,7 +63,10 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
         title={`The ${subject} record is incomplete.`}
         // The cause is the store's own word, unparaphrased. No Retry: nothing reachable from an
         // inspector re-pulls a session.
-        detail={`The projection is incomplete (${props.degradedCause}), so ${props.degradedConsequence}`}
+        detail={
+          `The projection is incomplete (${props.degradedCause}), ` +
+          `so ${props.degradedConsequence}`
+        }
       />
     );
   }

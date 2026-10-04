@@ -2,9 +2,9 @@
 // while closed, the clear after the commit, and the one chord it listens for before any feature
 // has registered a command. The hook takes the props whole so their order lives in one file.
 
+import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { COMMAND_PALETTE_RESULT_CAP } from "@renderer/registries/commands/command-palette-caps.js";
 import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
@@ -19,13 +19,19 @@ import {
   type KeybindingTarget,
 } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
-import { groupResults, type CommandResultGroup } from "../group-results.js";
+import {
+  groupResults,
+  paletteRowsFromGroups,
+  type CommandResultGroup,
+  type PaletteListRow,
+} from "../group-results.js";
 import {
   runLatchedCommand,
   type LatchedPaletteScope,
   type PaletteInvocationRefusal,
   type PaletteRowPressOutcome,
 } from "../palette-latch.js";
+import type { PaletteRowWindow } from "./usePaletteRowWindow.js";
 
 /** What the mount hands the palette overlay: the registry, the live context, and the acts. */
 export interface CommandPaletteProps {
@@ -56,13 +62,18 @@ export interface CommandPaletteState {
   readonly query: string;
   readonly setQuery: (query: string) => void;
   readonly groups: readonly CommandResultGroup[];
+  readonly rows: readonly PaletteListRow[];
+  readonly rowWindowRef: React.RefObject<PaletteRowWindow | null>;
   readonly results: readonly CommandSearchResult[];
   readonly capturedScopeLabel: string | undefined;
   readonly capturedContext: WhenClauseContext;
   readonly invocationRefusal: PaletteInvocationRefusal | undefined;
   readonly inputRef: React.RefObject<HTMLInputElement | null>;
   readonly runResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
-  readonly warmHighlighted: (highlighted: CommandSearchResult | undefined) => void;
+  readonly highlightResult: (
+    highlighted: CommandSearchResult | undefined,
+    details: Combobox.Root.HighlightEventDetails,
+  ) => void;
   readonly resultCountLabel: string;
 }
 
@@ -75,6 +86,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     undefined,
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rowWindowRef = useRef<PaletteRowWindow | null>(null);
 
   // The label and context, latched at the open transition. Adjusted during render, not in an
   // effect, so the first frame of an open palette never shows the last open's scope. Both are
@@ -102,6 +114,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     [open, registry, query, capturedContext, revision],
   );
   const groups = useMemo(() => groupResults(results), [results]);
+  const { rows, rowIndexByItemIndex } = useMemo(() => paletteRowsFromGroups(groups), [groups]);
 
   // Clear the query on close, in an effect: selecting an item makes the combobox fill the input
   // with its label (single selection, input outside a `Combobox.Popup`), and a clear from the click
@@ -133,9 +146,32 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   // Warm the highlighted row, not the hover: the highlight is where intent is legible before the
   // act. The root highlights a `CommandSearchResult` (an element of a group's `items`), not the
   // string `Combobox.Item` carries as its `value`. `preload` is optional; most commands lack it.
-  const warmHighlighted = useCallback((highlighted: CommandSearchResult | undefined): void => {
-    highlighted?.command.preload?.();
-  }, []);
+  const highlightResult = useCallback(
+    (
+      highlighted: CommandSearchResult | undefined,
+      details: Combobox.Root.HighlightEventDetails,
+    ): void => {
+      if (highlighted === undefined) {
+        return;
+      }
+      highlighted.command.preload?.();
+      // A pointer highlight is already on screen. A keyboard or query highlight may sit outside
+      // the window, where no row is drawn for the combobox to scroll to, so the window scrolls.
+      if (details.reason === "pointer") {
+        return;
+      }
+      // The first match scrolls to the top so its category heading shows too.
+      const rowIndex = details.index === 0 ? 0 : rowIndexByItemIndex[details.index];
+      if (rowIndex === undefined) {
+        return;
+      }
+      // After the commit: a query highlight arrives before the window has taken the new rows.
+      queueMicrotask(() => {
+        rowWindowRef.current?.scrollToIndex(rowIndex, { align: "auto" });
+      });
+    },
+    [rowIndexByItemIndex],
+  );
 
   useEffect(() => {
     const target: KeybindingTarget = chordTarget ?? window;
@@ -158,21 +194,21 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   }, [chordTarget, onOpenChange, open]);
 
   const resultCountLabel =
-    results.length === 1
-      ? "1 command"
-      : `${formatCount(results.length)} commands${results.length === COMMAND_PALETTE_RESULT_CAP ? " shown; refine to narrow" : ""}`;
+    results.length === 1 ? "1 command" : `${formatCount(results.length)} commands`;
 
   return {
     query,
     setQuery,
     groups,
+    rows,
+    rowWindowRef,
     results,
     capturedScopeLabel,
     capturedContext,
     invocationRefusal,
     inputRef,
     runResult,
-    warmHighlighted,
+    highlightResult,
     resultCountLabel,
   };
 }

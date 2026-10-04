@@ -102,7 +102,9 @@ export class CodexNotificationRouting {
         sessionId,
         threadId,
         priorEmittedThreadId,
-        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not be rebuilt; base registers start at zero, so the first reading meters already-emitted spend again",
+        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not " +
+          "be rebuilt; base registers start at zero, so the first reading meters " +
+          "already-emitted spend again",
       );
       return undefined;
     }
@@ -113,7 +115,9 @@ export class CodexNotificationRouting {
         sessionId,
         threadId,
         priorEmittedThreadId,
-        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be rebuilt (${normalizeProviderFailureDetail(cause)}); base registers start at zero, so the first reading meters already-emitted spend again`,
+        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be ` +
+          `rebuilt (${normalizeProviderFailureDetail(cause)}); base registers start at zero, ` +
+          `so the first reading meters already-emitted spend again`,
       );
       return undefined;
     }
@@ -156,7 +160,8 @@ export class CodexNotificationRouting {
               kind: "thread_duplicate_child_announcement",
               rawWireType: method,
               dispositionReason:
-                "duplicate child-thread announcement for an already-registered child; usage base retained and no second started emission",
+                "duplicate child-thread announcement for an already-registered child; usage " +
+                "base retained and no second started emission",
               details: { sessionId, childThreadId: registration.childThreadId },
             });
           } else {
@@ -256,7 +261,8 @@ export class CodexNotificationRouting {
         kind: "usage_axis_reading_rejected",
         rawWireType: frame.rawWireType,
         dispositionReason:
-          "the provider's token-usage notification carried no readable cumulative breakdown at the pinned payload shape; nothing was metered for this reading",
+          "the provider's token-usage notification carried no readable cumulative breakdown " +
+          "at the pinned payload shape; nothing was metered for this reading",
         details: { sessionId, threadId: frame.threadId },
       });
       return;

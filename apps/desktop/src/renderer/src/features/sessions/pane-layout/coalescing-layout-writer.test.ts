@@ -111,26 +111,29 @@ describe("CoalescingLayoutWriter — coalescing", () => {
     expect(failures).toHaveLength(1);
   });
 
-  it("keeps writing after a failure, because the next arrangement is still worth saving", async () => {
-    let attempt = 0;
-    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
-      write: async () => {
-        attempt += 1;
-        if (attempt === 1) {
-          throw new Error("the database is gone");
-        }
-      },
-      onFailed: () => undefined,
-    });
+  it(
+    "keeps writing after a failure, because the next arrangement is " + "still worth saving",
+    async () => {
+      let attempt = 0;
+      const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
+        write: async () => {
+          attempt += 1;
+          if (attempt === 1) {
+            throw new Error("the database is gone");
+          }
+        },
+        onFailed: () => undefined,
+      });
 
-    writer.request(SESSION_A, snapshotAt(1));
-    await settle();
-    writer.request(SESSION_A, snapshotAt(2));
-    await settle();
+      writer.request(SESSION_A, snapshotAt(1));
+      await settle();
+      writer.request(SESSION_A, snapshotAt(2));
+      await settle();
 
-    expect(writer.writeCount).toBe(2);
-    expect(writer.isIdle).toBe(true);
-  });
+      expect(writer.writeCount).toBe(2);
+      expect(writer.isIdle).toBe(true);
+    },
+  );
 });
 
 describe("CoalescingLayoutWriter — which session an arrangement is filed under", () => {

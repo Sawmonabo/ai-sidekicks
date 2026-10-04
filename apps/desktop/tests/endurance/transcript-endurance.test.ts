@@ -154,7 +154,8 @@ describe("endurance — the transcript's fold over a long session", () => {
     const heapSampler = new HeapSampler();
     if (!heapSampler.isCollectorAvailable) {
       throw new Error(
-        "this runtime gives no collector, so no heap figure here would describe what the transcript retains",
+        "this runtime gives no collector, so no heap figure " +
+          "here would describe what the transcript retains",
       );
     }
     // One fold before the baseline, dropped, so the first fold's one-time costs (the

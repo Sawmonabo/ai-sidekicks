@@ -140,13 +140,15 @@ export function observeBaseline({ stateDir, prNumber, headSha, nowMs }) {
     parsed = JSON.parse(readFileSync(baselinePath, "utf8"));
   } catch (error) {
     return absent(
-      `baseline at ${baselinePath} is unreadable or corrupt: ${error.message}. Delete it to re-stamp.`,
+      `baseline at ${baselinePath} is unreadable or ` +
+        `corrupt: ${error.message}. Delete it to re-stamp.`,
       true,
     );
   }
   if (parsed?.sha !== headSha) {
     return absent(
-      `baseline at ${baselinePath} records sha ${parsed?.sha ?? "(none)"}, not ${headSha}. Delete it to re-stamp.`,
+      `baseline at ${baselinePath} records sha ` +
+        `${parsed?.sha ?? "(none)"}, not ${headSha}. Delete it to re-stamp.`,
       true,
     );
   }

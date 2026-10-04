@@ -36,7 +36,8 @@ import {
 
 /** What the diagnostic capture records when the daemon refuses the submitted position. */
 const UNRESOLVABLE_RESUME_DETAIL =
-  "the remembered read position could not be resolved, so the log was re-read from the beginning of its window";
+  "the remembered read position could not be resolved, so " +
+  "the log was re-read from the beginning of its window";
 
 /**
  * The read a refresh performs.

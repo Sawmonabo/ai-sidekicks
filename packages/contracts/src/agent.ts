@@ -117,7 +117,9 @@ export interface AgentListEntry {
   name: string;
   /** The binding it runs under now, never the pending one. */
   binding: AgentProviderBinding;
-  /** The speed the provider declared on the live binding; absent when unread or undeclared. */
+  /**
+   * The speed the provider declared on the live binding; absent until the provider declares one.
+   */
   observedOutputSpeed?: ProviderOutputSpeedState | undefined;
   /** Present exactly while a switch waits, so every client learns of it, after a restart too. */
   pendingSwitch?: AgentBindingSwitchPending | undefined;

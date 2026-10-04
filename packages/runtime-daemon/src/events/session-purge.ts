@@ -210,7 +210,8 @@ export class SessionPurge {
         await this.#appendReceipt(operationId, purgeInstant, removedSessions);
       } catch (error) {
         failures.push(
-          `purge receipt append failed after rows of ${String(removedSessions.length)} sessions were deleted: ${describeError(error)}`,
+          `purge receipt append failed after rows of ${String(removedSessions.length)} ` +
+            `sessions were deleted: ${describeError(error)}`,
         );
       }
       const checkpointFailure: string | undefined = this.#truncateWriteAheadLog();

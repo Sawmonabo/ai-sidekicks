@@ -37,13 +37,20 @@ export function ingestRefusalDisposition(code: string): IngestRefusalDisposition
 /** The sentence each disposition puts in front of the control that acts on it. */
 export const INGEST_DISPOSITION_COPY: Readonly<Record<IngestRefusalDisposition, string>> = {
   "retry-in-place":
-    "Retrying sends the same chunk again. A chunk the background service already has is acknowledged without being appended twice, so nothing is uploaded a second time.",
+    "Retrying sends the same chunk again. A chunk the background " +
+    "service already has is acknowledged without being appended " +
+    "twice, so nothing is uploaded a second time.",
   "wait-and-retry":
-    "The background service is at capacity and created no stream state. Waiting and retrying is the whole remedy; the bytes already sent are unaffected.",
+    "The background service is at capacity and created no stream " +
+    "state. Waiting and retrying is the whole remedy; the bytes " +
+    "already sent are unaffected.",
   restart:
-    "This stream is over and cannot be resumed. Retrying begins the upload again from the first byte.",
+    "This stream is over and cannot be resumed. Retrying begins the " +
+    "upload again from the first byte.",
 };
 
 /** What canceling actually does, said exactly rather than as "canceled". */
-export const INGEST_ABANDON_COPY =
-  "Sending stops now. The bytes already spooled are cleaned up shortly by the background service rather than instantly, and no artifact is minted.";
+export const INGEST_ABANDON_COPY: string =
+  "Sending stops now. The bytes already spooled are cleaned up " +
+  "shortly by the background service rather than instantly, and no " +
+  "artifact is minted.";

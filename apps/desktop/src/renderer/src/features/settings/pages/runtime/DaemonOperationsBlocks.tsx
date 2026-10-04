@@ -63,7 +63,8 @@ const CONTROL_COPY: Readonly<
   stop: {
     verb: "Stop",
     confirmation:
-      "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
+      "Stop the background service? Work in flight stops, and nothing " +
+      "new starts until it is running again.",
   },
   restart: {
     verb: "Restart",
@@ -170,7 +171,10 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           kind="computing"
           placement="block"
           title="Asking the runtime"
-          detail="The status the background service reports about itself, which is a different question from what the supervisor observed."
+          detail={
+            "The status the background service reports about itself, which " +
+            "is a different question from what the supervisor observed."
+          }
         />
       );
     case "read":
@@ -216,7 +220,10 @@ function renderControlConfirm(
       <div className="meridian-settings-page__actions">
         <button
           type="button"
-          className="meridian-settings-page__action meridian-settings-page__action--primary meridian-action-button"
+          className={
+            "meridian-settings-page__action " +
+            "meridian-settings-page__action--primary meridian-action-button"
+          }
           disabled={isDispatched}
           title={dispatchedReason}
           onClick={onConfirm}

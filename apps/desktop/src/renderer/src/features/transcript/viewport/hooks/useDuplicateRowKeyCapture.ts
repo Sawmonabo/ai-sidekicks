@@ -30,7 +30,9 @@ export function useDuplicateRowKeyCapture(
       severity: "warning",
       source: "features/transcript",
       kind: "duplicate-row-key",
-      detail: `session ${sessionId}: ${String(duplicateKeyCount)} rows share an identifier with another row in the window`,
+      detail:
+        `session ${sessionId}: ${String(duplicateKeyCount)} rows share ` +
+        "an identifier with another row in the window",
     });
   }, [sessionId, duplicateKeyCount, clock]);
 }

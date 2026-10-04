@@ -63,7 +63,8 @@ export class CodexCompactionDispatch {
       rawWireType: CODEX_THREAD_COMPACT_START_METHOD,
       dispositionReason:
         settlement.terminal === "wait_expired"
-          ? "the declared compaction bound elapsed with no typed compaction frame; a later frame still normalizes into its boundary row"
+          ? "the declared compaction bound elapsed with no typed compaction frame; a later " +
+            "frame still normalizes into its boundary row"
           : "the binding stopped being live before a typed compaction frame arrived",
       details: {
         sessionId,

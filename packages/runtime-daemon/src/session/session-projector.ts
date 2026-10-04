@@ -11,19 +11,22 @@ import type { DaemonSessionRecord, StoredEvent } from "./types.js";
  * sequence means earlier events were lost or the producer broke the contract, and projecting
  * from it would present partial state as complete.
  */
-export function replay(events: ReadonlyArray<StoredEvent>): DaemonSessionRecord | null {
+export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessionRecord | null {
   if (events.length === 0) {
     return null;
   }
   const first: StoredEvent = events[0]!;
   if (first.type !== "session.created") {
     throw new Error(
-      `replay: expected first event type 'session.created', got '${first.type}' (sequence=${String(first.sequence)})`,
+      `rebuildSession: expected first event type 'session.created', ` +
+        `got '${first.type}' (sequence=${String(first.sequence)})`,
     );
   }
   if (first.sequence !== 0) {
     throw new Error(
-      `replay: bootstrap 'session.created' must have sequence=0 (got sequence=${String(first.sequence)}); a non-zero bootstrap sequence indicates lost/corrupted earlier events or a producer-side bootstrap-contract violation`,
+      `rebuildSession: bootstrap 'session.created' must have sequence=0 (got sequence=` +
+        `${String(first.sequence)}); a non-zero bootstrap sequence indicates lost/corrupted ` +
+        `earlier events or a producer-side bootstrap-contract violation`,
     );
   }
   let record: DaemonSessionRecord = bootstrapFromCreated(first);
@@ -45,7 +48,8 @@ export function projectEvent(record: DaemonSessionRecord, event: StoredEvent): D
       // the bootstrap. The storage schema would accept one at a later sequence, so the
       // projector refuses it.
       throw new Error(
-        `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=${String(event.sequence)})`,
+        `projectEvent: 'session.created' may only appear at sequence=0 (got sequence=` +
+          `${String(event.sequence)})`,
       );
     default:
       // Every other event type only advances the sequence.

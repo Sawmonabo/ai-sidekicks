@@ -100,7 +100,9 @@ export class AttachmentIngestStreamDriver {
       reportTripwire(
         "publish-failure",
         INGEST_STREAM_SITE,
-        `the ingest of ${localId} recorded its step and could not publish it (${lossyStringify(escape)}); the record holds the entry and every view subscribed to it is now a step behind`,
+        `the ingest of ${localId} recorded its step and could not ` +
+          `publish it (${lossyStringify(escape)}); the record holds the ` +
+          "entry and every view subscribed to it is now a step behind",
       );
     } finally {
       this.#runningLocalIds.delete(localId);

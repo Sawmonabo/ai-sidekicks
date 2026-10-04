@@ -67,7 +67,7 @@ function createTranscriptPipelineState(
 
 /**
  * True when a segment stands in for a body the fold could not read. Exported because the loss
- * declaration here and the brief projection's prose rendering and identity key must agree on it.
+ * declaration here and the brief projection's prose rendering must agree on it.
  */
 export function segmentContentIsUnavailable(segment: CanonicalTranscriptSegment): boolean {
   return segment.kind !== "reasoning" && segment.contentUnavailable === true;

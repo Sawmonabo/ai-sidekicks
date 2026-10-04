@@ -51,7 +51,8 @@ export function parseUnifiedPatch(patchText: string, comparedStates: ComparedSta
           // well-formed one, so the scan can fall short but never run over. A throw, not a
           // fallback: a header composed from the numbers would look like a declared one.
           throw new Error(
-            `the patch declares fewer \`@@\` headers (${String(declaredHeaders.length)}) than it parsed hunks`,
+            `the patch declares fewer \`@@\` headers (` +
+              `${String(declaredHeaders.length)}) than it parsed hunks`,
           );
         }
         return {

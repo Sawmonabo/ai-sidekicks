@@ -70,7 +70,8 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
           <span>
             {outcome.outputCount === 1
               ? "The background service recorded this answer and one output came of it."
-              : `The background service recorded this answer and ${String(outcome.outputCount)} outputs came of it.`}
+              : "The background service recorded this answer and " +
+                `${String(outcome.outputCount)} outputs came of it.`}
           </span>
         </p>
       );

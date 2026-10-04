@@ -113,7 +113,8 @@ export function KeyboardPage(): ReactNode {
       announce(
         unsaved === undefined
           ? `${row.title} is back to the chord the app ships.`
-          : `${row.title} is back to the chord the app ships for this window only. ${unsaved.detail}`,
+          : `${row.title} is back to the chord the app ships for this window ` +
+              `only. ${unsaved.detail}`,
       );
     },
     [announce],
@@ -209,7 +210,10 @@ export function KeyboardPage(): ReactNode {
             kind="empty"
             placement="inline"
             title="No two chords collide."
-            detail="Every installed chord is the only one live in its scope, so each keystroke has exactly one answer."
+            detail={
+              "Every installed chord is the only one live in its scope, so " +
+              "each keystroke has exactly one answer."
+            }
           />
         ) : (
           <ul className="meridian-settings-page__list">
@@ -217,7 +221,11 @@ export function KeyboardPage(): ReactNode {
               <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
                 <InlineRefusal
                   code={conflict.reason}
-                  detail={`${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} is claimed by both ${titleOf(conflict.commandIds[0])} and ${titleOf(conflict.commandIds[1])}. ${conflict.detail}`}
+                  detail={
+                    `${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} ` +
+                    `is claimed by both ${titleOf(conflict.commandIds[0])} and ` +
+                    `${titleOf(conflict.commandIds[1])}. ${conflict.detail}`
+                  }
                 />
               </li>
             ))}
@@ -229,7 +237,11 @@ export function KeyboardPage(): ReactNode {
               <li key={`${dropped.chord}:${dropped.commandId}`}>
                 <InlineRefusal
                   code={CHORD_NOT_INSTALLED_CODE}
-                  detail={`${titleOf(dropped.commandId)}'s chord ${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} was not installed. ${dropped.reason}`}
+                  detail={
+                    `${titleOf(dropped.commandId)}'s chord ` +
+                    `${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} ` +
+                    `was not installed. ${dropped.reason}`
+                  }
                 />
               </li>
             ))}
@@ -254,7 +266,10 @@ export function KeyboardPage(): ReactNode {
               <li key={declined.commandId}>
                 <InlineRefusal
                   code={declined.refusal.code}
-                  detail={`A chord kept for ${titleOf(declined.commandId)} was not installed this time. ${declined.refusal.detail}`}
+                  detail={
+                    `A chord kept for ${titleOf(declined.commandId)} was not ` +
+                    `installed this time. ${declined.refusal.detail}`
+                  }
                 />
               </li>
             ))}
@@ -298,5 +313,6 @@ function describeBinding(
       : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
   return unsaved === undefined
     ? `${act}, and the change is kept on this machine.`
-    : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
+    : `${act} for as long as this window is open, and will not come ` +
+        `back after a reload. ${unsaved.detail}`;
 }

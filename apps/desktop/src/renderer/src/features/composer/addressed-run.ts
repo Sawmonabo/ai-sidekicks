@@ -27,6 +27,7 @@ export const RUN_STATE_ADMITS_STEER: Readonly<Record<RunState, boolean>> = {
   paused: true,
   completed: false,
   interrupted: false,
+  stopped: false,
   failed: false,
 };
 

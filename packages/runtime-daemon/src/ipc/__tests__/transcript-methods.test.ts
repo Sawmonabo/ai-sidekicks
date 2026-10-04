@@ -161,110 +161,116 @@ describe("transcript replies are scoped to the request", () => {
     ).resolves.toStrictEqual(threeRowPage);
   });
 
-  it("an expansion over the default page ceiling is refused, and at the ceiling resolves", async () => {
-    // `ChildRunExpandRequest` has no limit, so its ceiling is the default constant. The response
-    // schema bounds this member at the same number, so a path-only assertion would pass without
-    // the correlation check; the test asserts the ceiling message only that check emits.
-    const pageOfSize = (size: number): ChildRunExpandResponse => ({
-      ...childRunExpandResponse,
-      entries: Array.from({ length: size }, () => transcriptEventRow),
-    });
-    const registry = new MethodRegistryImpl();
-    registerTranscriptMethod(registry, {
-      method: TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
-      handler: async () => pageOfSize(TRANSCRIPT_READ_LIMIT_MAX + 1),
-    });
+  it(
+    "an expansion over the default page ceiling " + "is refused, and at the ceiling resolves",
+    async () => {
+      // `ChildRunExpandRequest` has no limit, so its ceiling is the default constant. The response
+      // schema bounds this member at the same number, so a path-only assertion would pass without
+      // the correlation check; the test asserts the ceiling message only that check emits.
+      const pageOfSize = (size: number): ChildRunExpandResponse => ({
+        ...childRunExpandResponse,
+        entries: Array.from({ length: size }, () => transcriptEventRow),
+      });
+      const registry = new MethodRegistryImpl();
+      registerTranscriptMethod(registry, {
+        method: TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
+        handler: async () => pageOfSize(TRANSCRIPT_READ_LIMIT_MAX + 1),
+      });
 
-    const caught = await captureRejection(
-      registry.dispatch(TRANSCRIPT_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
-    );
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_result");
-      expect(caught.issues?.[0]).toMatchObject({ path: ["entries"] });
-      expect(
-        caught.issues?.some(
-          (issue) =>
-            typeof (issue as { message?: unknown }).message === "string" &&
-            (issue as { message: string }).message.includes(
-              `against a ceiling of ${String(TRANSCRIPT_READ_LIMIT_MAX)}`,
-            ),
+      const caught = await captureRejection(
+        registry.dispatch(TRANSCRIPT_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
+      );
+      expect(caught).toBeInstanceOf(RegistryDispatchError);
+      if (caught instanceof RegistryDispatchError) {
+        expect(caught.registryCode).toBe("invalid_result");
+        expect(caught.issues?.[0]).toMatchObject({ path: ["entries"] });
+        expect(
+          caught.issues?.some(
+            (issue) =>
+              typeof (issue as { message?: unknown }).message === "string" &&
+              (issue as { message: string }).message.includes(
+                `against a ceiling of ${String(TRANSCRIPT_READ_LIMIT_MAX)}`,
+              ),
+          ),
+        ).toBe(true);
+      }
+
+      // Control: exactly at the ceiling resolves.
+      const atCeilingRegistry = new MethodRegistryImpl();
+      const atCeiling = pageOfSize(TRANSCRIPT_READ_LIMIT_MAX);
+      registerTranscriptMethod(atCeilingRegistry, {
+        method: TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
+        handler: async () => atCeiling,
+      });
+      await expect(
+        atCeilingRegistry.dispatch(
+          TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
+          { runId: RUN_ID },
+          dispatchContext,
         ),
-      ).toBe(true);
-    }
+      ).resolves.toStrictEqual(atCeiling);
+    },
+  );
 
-    // Control: exactly at the ceiling resolves.
-    const atCeilingRegistry = new MethodRegistryImpl();
-    const atCeiling = pageOfSize(TRANSCRIPT_READ_LIMIT_MAX);
-    registerTranscriptMethod(atCeilingRegistry, {
-      method: TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
-      handler: async () => atCeiling,
-    });
-    await expect(
-      atCeilingRegistry.dispatch(
-        TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
-        { runId: RUN_ID },
-        dispatchContext,
-      ),
-    ).resolves.toStrictEqual(atCeiling);
-  });
+  it(
+    "an empty reasoning surface on a FIRST read " + "is refused; on a continuation it resolves",
+    async () => {
+      // An `available` surface with no entries renders as a surface that exists and shows nothing.
+      // That is a defect on a first read but correct for a continuation already at the end, and the
+      // response schema cannot tell them apart without the request.
+      const emptyAvailable: ReasoningSurfaceReadResponse = {
+        availability: "available",
+        reasoningEntries: [],
+        hasMore: false,
+      };
+      const registry = new MethodRegistryImpl();
+      registerTranscriptMethod(registry, {
+        method: TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
+        handler: async () => emptyAvailable,
+      });
 
-  it("an empty reasoning surface on a FIRST read is refused; on a continuation it resolves", async () => {
-    // An `available` surface with no entries renders as a surface that exists and shows nothing.
-    // That is a defect on a first read but correct for a continuation already at the end, and the
-    // response schema cannot tell them apart without the request.
-    const emptyAvailable: ReasoningSurfaceReadResponse = {
-      availability: "available",
-      reasoningEntries: [],
-      hasMore: false,
-    };
-    const registry = new MethodRegistryImpl();
-    registerTranscriptMethod(registry, {
-      method: TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
-      handler: async () => emptyAvailable,
-    });
+      const caught = await captureRejection(
+        registry.dispatch(
+          TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
+          { runId: RUN_ID },
+          dispatchContext,
+        ),
+      );
+      expect(caught).toBeInstanceOf(RegistryDispatchError);
+      if (caught instanceof RegistryDispatchError) {
+        expect(caught.registryCode).toBe("invalid_result");
+        expect(caught.issues?.[0]).toMatchObject({ path: ["reasoningEntries"] });
+      }
 
-    const caught = await captureRejection(
-      registry.dispatch(
-        TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
-        { runId: RUN_ID },
-        dispatchContext,
-      ),
-    );
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_result");
-      expect(caught.issues?.[0]).toMatchObject({ path: ["reasoningEntries"] });
-    }
+      // Control: the same reply is correct when the request carried a cursor.
+      await expect(
+        registry.dispatch(
+          TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
+          { runId: RUN_ID, afterCursor: "seq-42" },
+          dispatchContext,
+        ),
+      ).resolves.toStrictEqual(emptyAvailable);
 
-    // Control: the same reply is correct when the request carried a cursor.
-    await expect(
-      registry.dispatch(
-        TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
-        { runId: RUN_ID, afterCursor: "seq-42" },
-        dispatchContext,
-      ),
-    ).resolves.toStrictEqual(emptyAvailable);
-
-    // Control: a first read with entries resolves.
-    const servedRegistry = new MethodRegistryImpl();
-    const servedSurface: ReasoningSurfaceReadResponse = {
-      availability: "available",
-      reasoningEntries: [
-        { sequence: 1, content: "normalized reasoning", timestamp: "2026-09-01T00:00:00.000Z" },
-      ],
-      hasMore: false,
-    };
-    registerTranscriptMethod(servedRegistry, {
-      method: TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
-      handler: async () => servedSurface,
-    });
-    await expect(
-      servedRegistry.dispatch(
-        TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
-        { runId: RUN_ID },
-        dispatchContext,
-      ),
-    ).resolves.toStrictEqual(servedSurface);
-  });
+      // Control: a first read with entries resolves.
+      const servedRegistry = new MethodRegistryImpl();
+      const servedSurface: ReasoningSurfaceReadResponse = {
+        availability: "available",
+        reasoningEntries: [
+          { sequence: 1, content: "normalized reasoning", timestamp: "2026-09-01T00:00:00.000Z" },
+        ],
+        hasMore: false,
+      };
+      registerTranscriptMethod(servedRegistry, {
+        method: TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
+        handler: async () => servedSurface,
+      });
+      await expect(
+        servedRegistry.dispatch(
+          TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
+          { runId: RUN_ID },
+          dispatchContext,
+        ),
+      ).resolves.toStrictEqual(servedSurface);
+    },
+  );
 });

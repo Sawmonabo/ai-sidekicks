@@ -83,10 +83,12 @@ export function buildColorSchemeCommand(
 }
 
 const CLIPBOARD_REFUSAL_DETAIL =
-  "The build details could not be copied. The clipboard belongs to the main process, and this window could not reach it.";
+  "The build details could not be copied. The clipboard belongs to " +
+  "the main process, and this window could not reach it.";
 
 const UPDATE_REFUSAL_DETAIL =
-  "The update check could not start. The updater runs in the main process, and this window could not reach it.";
+  "The update check could not start. The updater runs in the main " +
+  "process, and this window could not reach it.";
 
 /**
  * Perform one act, and route either kind of failure to the sink.

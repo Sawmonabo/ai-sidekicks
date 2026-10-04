@@ -20,7 +20,8 @@ export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
  * as complete), and the loss is recorded on both diagnostic sinks.
  */
 export const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: string =
-  "The daemon composed an answer larger than this transport will send; refusing rather than delivering a truncated result.";
+  "The daemon composed an answer larger than this transport will send; refusing rather than " +
+  "delivering a truncated result.";
 
 /**
  * Bound on a provider `turnId` before it enters a refusal reason or diagnostic; matches
@@ -162,7 +163,8 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
  * no such entry.
  */
 export const CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL: string =
-  "callback tools reach Codex only through the daemon's per-session MCP url entry, and this daemon offers none, so the registry is withheld";
+  "callback tools reach Codex only through the daemon's per-session MCP url entry, and this " +
+  "daemon offers none, so the registry is withheld";
 
 /** One inbound ask, as the daemon-side responder sees it. */
 export interface CodexInboundServerRequest {
@@ -288,12 +290,24 @@ export function composeRoutedAskRefusalReason(
   turnIdReading: CodexRoutedAskTurnIdReading,
 ): string {
   if (turnIdReading.recordedTurnId === null) {
-    return `The provider's "${method}" request named no turn, and this method's params require one, so the daemon cannot say which run raised it; refusing rather than attributing it to a run that did not.`;
+    return (
+      `The provider's "${method}" request named no turn, and this method's params require one, ` +
+      `so the daemon cannot say which run raised it; refusing rather than attributing it to a ` +
+      `run that did not.`
+    );
   }
   if (turnIdReading.resolvableTurnId === null) {
-    return `The provider's "${method}" request named a turn id past the length this daemon reads, so it cannot be resolved to a run; refusing rather than matching a truncated prefix against a live turn.`;
+    return (
+      `The provider's "${method}" request named a turn id past the length this daemon reads, ` +
+      `so it cannot be resolved to a run; refusing rather than matching a truncated prefix ` +
+      `against a live turn.`
+    );
   }
-  return `The provider's "${method}" request named turn "${turnIdReading.resolvableTurnId}", which this daemon holds no live route for; refusing rather than attributing it to a run that did not raise it.`;
+  return (
+    `The provider's "${method}" request named turn "${turnIdReading.resolvableTurnId}", which ` +
+    `this daemon holds no live route for; refusing rather than attributing it to a run that ` +
+    `did not raise it.`
+  );
 }
 
 /**

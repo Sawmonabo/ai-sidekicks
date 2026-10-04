@@ -166,7 +166,9 @@ export class ComposerSendRouter {
     if (expectedRunVersion === undefined) {
       return refused(
         "run-version-unread",
-        "The console has not read this run's current version, so a steer cannot be guarded against a turn that has already moved on. Reopen the run and try again.",
+        "The console has not read this run's current version, so a steer " +
+          "cannot be guarded against a turn that has already moved on. " +
+          "Reopen the run and try again.",
       );
     }
     const runId = readRunId(target.targetRunId);

@@ -73,7 +73,8 @@ export function registerDriverSubscribeEvents(
       // A missing transport identity is a daemon wiring fault, not a client error: a plain
       // `Error`, mapped to `-32603`.
       throw new Error(
-        "driver.subscribeEvents: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
+        "driver.subscribeEvents: handler requires ctx.transportId (per-connection streaming " +
+          "state requires a transport identity)",
       );
     }
 

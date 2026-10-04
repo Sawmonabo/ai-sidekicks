@@ -152,25 +152,28 @@ describe("ActController — the act", () => {
     expect(act.status === "done" && act.value).toBe("first");
   });
 
-  it("clearing the settlement keeps the key, so a call still in flight is not doubled", async () => {
-    const controller = openActs();
-    const answer = heldAnswer<string>();
-    const secondSend = vi.fn();
-    const first = controller.act(
-      async () => await answer.promise,
-      (value) => ({ status: "done" as const, value }),
-    );
-    controller.clearAct();
-    expect(controller.snapshot.status).toBe("idle");
-    await controller.act(
-      async () => {
-        secondSend();
-        return await Promise.resolve("second");
-      },
-      (value) => ({ status: "done" as const, value }),
-    );
-    expect(secondSend).not.toHaveBeenCalled();
-    answer.serve("first");
-    await first;
-  });
+  it(
+    "clearing the settlement keeps the key, so a call still in " + "flight is not doubled",
+    async () => {
+      const controller = openActs();
+      const answer = heldAnswer<string>();
+      const secondSend = vi.fn();
+      const first = controller.act(
+        async () => await answer.promise,
+        (value) => ({ status: "done" as const, value }),
+      );
+      controller.clearAct();
+      expect(controller.snapshot.status).toBe("idle");
+      await controller.act(
+        async () => {
+          secondSend();
+          return await Promise.resolve("second");
+        },
+        (value) => ({ status: "done" as const, value }),
+      );
+      expect(secondSend).not.toHaveBeenCalled();
+      answer.serve("first");
+      await first;
+    },
+  );
 });

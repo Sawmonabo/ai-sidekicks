@@ -45,39 +45,45 @@ function makeToolCallAsk(
 }
 
 describe("createCallbackToolAskResponder — the callback-tool arm", () => {
-  it("turns one routed ask into an adjudicated invocation and answers with content items", async () => {
-    const harness = buildCallbackToolHostHarness();
-    bindSpawn(harness);
+  it(
+    "turns one routed ask into an adjudicated " + "invocation and answers with content items",
+    async () => {
+      const harness = buildCallbackToolHostHarness();
+      bindSpawn(harness);
 
-    const decision = await buildAskResponder(harness).answer(makeToolCallAsk());
+      const decision = await buildAskResponder(harness).answer(makeToolCallAsk());
 
-    expect(decision).toStrictEqual({
-      decision: "allow",
-      payload: { contentItems: [{ type: "inputText", text: '{"hits":0}' }] },
-    });
-    // `tool` is the registry name and `callId` is copied verbatim for tool pairing.
-    expect(harness.executedInvocations[0]?.toolName).toBe(SEARCH_TOOL.name);
-    expect(harness.executedInvocations[0]?.toolCallId).toBe("call-1");
-  });
+      expect(decision).toStrictEqual({
+        decision: "allow",
+        payload: { contentItems: [{ type: "inputText", text: '{"hits":0}' }] },
+      });
+      // `tool` is the registry name and `callId` is copied verbatim for tool pairing.
+      expect(harness.executedInvocations[0]?.toolName).toBe(SEARCH_TOOL.name);
+      expect(harness.executedInvocations[0]?.toolCallId).toBe("call-1");
+    },
+  );
 
-  it("refuses and RECORDS a non-object `arguments` payload the provider may legally send", async () => {
-    const harness = buildCallbackToolHostHarness();
-    bindSpawn(harness);
+  it(
+    "refuses and RECORDS a non-object `arguments` " + "payload the provider may legally send",
+    async () => {
+      const harness = buildCallbackToolHostHarness();
+      bindSpawn(harness);
 
-    // The provider's schema allows any JSON value for `arguments`, so this shape can arrive.
-    const decision = await buildAskResponder(harness).answer(
-      makeToolCallAsk({
-        params: { tool: SEARCH_TOOL.name, callId: "call-2", arguments: "needle" },
-      }),
-    );
+      // The provider's schema allows any JSON value for `arguments`, so this shape can arrive.
+      const decision = await buildAskResponder(harness).answer(
+        makeToolCallAsk({
+          params: { tool: SEARCH_TOOL.name, callId: "call-2", arguments: "needle" },
+        }),
+      );
 
-    expect(decision.decision).toBe("refuse");
-    const refusals = harness.emittedDiagnostics.filter(
-      (record) => record.kind === "callback_tool_invocation_refused",
-    );
-    expect(refusals[0]?.details["toolCallId"]).toBe("call-2");
-    expect(harness.evaluatedRequests).toHaveLength(0);
-  });
+      expect(decision.decision).toBe("refuse");
+      const refusals = harness.emittedDiagnostics.filter(
+        (record) => record.kind === "callback_tool_invocation_refused",
+      );
+      expect(refusals[0]?.details["toolCallId"]).toBe("call-2");
+      expect(harness.evaluatedRequests).toHaveLength(0);
+    },
+  );
 
   it("relays the host's own refusal reason rather than inventing one", async () => {
     const harness = buildCallbackToolHostHarness({
@@ -181,25 +187,29 @@ describe("composeCallbackToolContentItems — per-arm required members", () => {
   });
 });
 
-describe("createCallbackToolAskResponder — untrusted identifiers are bounded before they are recorded", () => {
-  it("truncates an oversized tool name and marks the truncation explicitly", async () => {
-    const harness = buildCallbackToolHostHarness();
-    bindSpawn(harness);
-    const oversizedToolName = "z".repeat(4096);
+describe(
+  "createCallbackToolAskResponder — untrusted " +
+    "identifiers are bounded before they are recorded",
+  () => {
+    it("truncates an oversized tool name and marks the truncation explicitly", async () => {
+      const harness = buildCallbackToolHostHarness();
+      bindSpawn(harness);
+      const oversizedToolName = "z".repeat(4096);
 
-    const decision = await buildAskResponder(harness).answer(
-      makeToolCallAsk({ params: { tool: oversizedToolName, callId: "call-1", arguments: {} } }),
-    );
+      const decision = await buildAskResponder(harness).answer(
+        makeToolCallAsk({ params: { tool: oversizedToolName, callId: "call-1", arguments: {} } }),
+      );
 
-    expect(decision.decision).toBe("refuse");
-    const refusal = harness.emittedDiagnostics.find(
-      (record) => record.kind === "callback_tool_invocation_refused",
-    );
-    // 128 is `DRIVER_TOOL_NAME_MAX_LEN`, so an unbounded identifier cannot reach the record buffer
-    // or the log sink.
-    expect(refusal?.details["toolName"]).toBe("z".repeat(128));
-    expect(refusal?.details["toolNameTruncated"]).toBe(true);
-    // The original length is kept beside the truncation.
-    expect(refusal?.details["toolNameOriginalLength"]).toBe(4096);
-  });
-});
+      expect(decision.decision).toBe("refuse");
+      const refusal = harness.emittedDiagnostics.find(
+        (record) => record.kind === "callback_tool_invocation_refused",
+      );
+      // 128 is `DRIVER_TOOL_NAME_MAX_LEN`, so an unbounded identifier cannot reach the record
+      // buffer or the log sink.
+      expect(refusal?.details["toolName"]).toBe("z".repeat(128));
+      expect(refusal?.details["toolNameTruncated"]).toBe(true);
+      // The original length is kept beside the truncation.
+      expect(refusal?.details["toolNameOriginalLength"]).toBe(4096);
+    });
+  },
+);

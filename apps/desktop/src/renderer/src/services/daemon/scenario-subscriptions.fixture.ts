@@ -52,7 +52,7 @@ export function subscribeToScenario(
           deliver(frame);
         }
       },
-      { replayDeliveredPrefix: true },
+      { resendDeliveredEvents: true },
     );
   }
   return engine.subscribe((events) => {

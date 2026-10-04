@@ -50,9 +50,13 @@ export const REUSE_VERDICT_COPY: Readonly<Record<ReuseVerdict["kind"], string>> 
   none: "No live checkout of that branch exists on this mount. Preparing creates one.",
   reusable: "A clean, compatible checkout of that branch already exists. Preparing reuses it.",
   dirty:
-    "A compatible checkout of that branch exists and has uncommitted changes in it. Reusing it runs in that tree as it stands; nothing is stashed, committed, or discarded.",
+    "A compatible checkout of that branch exists and has uncommitted " +
+    "changes in it. Reusing it runs in that tree as it stands; " +
+    "nothing is stashed, committed, or discarded.",
   incompatible:
-    "A checkout of that branch exists and cannot be bound. This is not a consent you can give — prepare under a different branch name, or retire that root first.",
+    "A checkout of that branch exists and cannot be bound. This is " +
+    "not a consent you can give — prepare under a different branch " +
+    "name, or retire that root first.",
 };
 
 /** What a prepare form holds. The branch is the only field a writable prepare needs. */
@@ -120,8 +124,9 @@ export function readReuseCheckState(
 }
 
 /** The sentence a form held shut by a reuse check that has not come back puts on screen. */
-export const REUSE_UNANSWERED_COPY =
-  "The reuse check for that branch has not answered yet. Preparing before it does could take a live checkout without asking.";
+export const REUSE_UNANSWERED_COPY: string =
+  "The reuse check for that branch has not answered yet. Preparing " +
+  "before it does could take a live checkout without asking.";
 
 /**
  * Read one prepare form against the reuse standing it is sent under. The branch is required

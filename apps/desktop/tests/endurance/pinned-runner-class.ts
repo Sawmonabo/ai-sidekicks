@@ -42,4 +42,5 @@ export const RUNNER_CLASS_DESCRIPTION: string = isPinnedRunnerClass
   : `not the pinned ${PINNED_RUNNER_CLASS} runner class ` +
     `(GITHUB_ACTIONS=${process.env["GITHUB_ACTIONS"] ?? "unset"}, ` +
     `RUNNER_OS=${process.env["RUNNER_OS"] ?? "unset"}, ` +
-    `RUNNER_ARCH=${process.env["RUNNER_ARCH"] ?? "unset"}), so this reading is reported and gates nothing`;
+    `RUNNER_ARCH=${process.env["RUNNER_ARCH"] ?? "unset"}` +
+    `), so this reading is reported and gates nothing`;

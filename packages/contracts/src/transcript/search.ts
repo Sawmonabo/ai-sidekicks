@@ -115,7 +115,9 @@ export const TranscriptSearchResponseSchema: z.ZodType<TranscriptSearchResponse>
       issueContext.addIssue({
         code: "custom",
         path: ["matchCount"],
-        message: `matchCount counts the whole session, so it is at least the ${String(pageMatchCount)} matches this page carries`,
+        message:
+          `matchCount counts the whole session, so it is at least ` +
+          `the ${String(pageMatchCount)} matches this page carries`,
       });
     }
   });

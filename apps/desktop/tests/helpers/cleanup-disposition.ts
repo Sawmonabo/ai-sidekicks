@@ -18,7 +18,8 @@ function profileRemovalClause(failure: ProfileRemovalFailure | undefined): strin
   return failure === undefined
     ? undefined
     : `the launch profile at ${failure.directory} could not be removed ` +
-        `(${String(failure.failure)}), so it is still on disk and every launch after it adds another`;
+        `(${String(failure.failure)}), so it is still ` +
+        `on disk and every launch after it adds another`;
 }
 
 /** The clauses that apply, in reading order, with the ones that do not dropped. */
@@ -94,20 +95,23 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
   if (outcome.settlement === "closed-after-rejection") {
     return (
       `closing the launched Electron failed` +
-      `${rejectionReason === undefined ? "" : ` (close rejected: ${rejectionReason})`} — though the ` +
+      `${rejectionReason === undefined ? "" : ` (close rejected: ${rejectionReason})`}` +
+      ` — though the ` +
       `process did exit, so nothing was left running`
     );
   }
   const consequence =
     outcome.settlement === "terminated"
       ? "so its process tree was SIGKILLed; later launches are unaffected"
-      : "and could not be terminated either, so it may still be running and holding its profile — " +
+      : "and could not be terminated either, so it may " +
+        "still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
   // A close that rejects at once while the process is still alive is terminated without waiting
   // out the budget, so the wording must not claim the budget expired: a timeout and an outright
   // failure have different causes and fixes.
   return rejectionReason === undefined
-    ? `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
+    ? `the launched Electron did not close within the ` +
+        `${String(outcome.budgetMs)} ms it was given ` +
         `(waited ${String(outcome.waitedMs)} ms) ${consequence}`
     : `closing the launched Electron rejected (${rejectionReason}) after ` +
         `${String(outcome.waitedMs)} ms, rather than reaching the ${String(outcome.budgetMs)} ms ` +
@@ -162,7 +166,8 @@ function closeFailureClause(outcome: CleanupOutcome): string | undefined {
     `the launched Electron did not close cleanly: ${outcome.settlement} for ${target} after ` +
     `${String(outcome.waitedMs)} ms of the ${String(outcome.budgetMs)} ms it was given` +
     (outcome.settlement === "unterminable"
-      ? " — it may still be running and holding its profile, and a later launch in the same job " +
+      ? " — it may still be running and holding its " +
+        "profile, and a later launch in the same job " +
         "losing `requestSingleInstanceLock()` starts here"
       : "")
   );

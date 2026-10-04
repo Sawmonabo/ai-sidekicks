@@ -306,10 +306,17 @@ export function describeRunningProviderSignIn(options: {
   readonly holdingAccountLabel: string | undefined;
 }): string {
   if (options.isTheSameAccount) {
-    return "A sign-in for this account is already running. Finish it at the provider, or cancel it, before starting another.";
+    return (
+      "A sign-in for this account is already running. Finish it at the " +
+      "provider, or cancel it, before starting another."
+    );
   }
   const holder = options.holdingAccountLabel ?? "another account";
-  return `A sign-in for ${holder} is already running. Cancel it before starting this one — this machine runs one brokered sign-in at a time.`;
+  return (
+    `A sign-in for ${holder} is already running. Cancel it before ` +
+    "starting this one — this machine runs one brokered sign-in at a " +
+    "time."
+  );
 }
 
 /**

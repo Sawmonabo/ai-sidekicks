@@ -24,13 +24,18 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
   "file-boundary": {
     label: "Open local files outside this session's repo mounts",
     consequence:
-      "On, a browser pane may open a file: destination anywhere on this machine. Off, it opens one only inside an admitted root of a repo mount attached to the session, and anything else is refused.",
+      "On, a browser pane may open a file: destination anywhere on " +
+      "this machine. Off, it opens one only inside an admitted root of " +
+      "a repo mount attached to the session, and anything else is " +
+      "refused.",
     defaultLabel: "Off by default",
   },
   "page-tools": {
     label: "Serve the page tool set into sessions on this node",
     consequence:
-      "Off withholds the tools from every subsequent spawn. Sessions already running keep the tool set they were spawned with, so turning this off does not reach into a run in progress.",
+      "Off withholds the tools from every subsequent spawn. Sessions " +
+      "already running keep the tool set they were spawned with, so " +
+      "turning this off does not reach into a run in progress.",
     defaultLabel: "On by default",
   },
 };

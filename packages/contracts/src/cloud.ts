@@ -75,7 +75,8 @@ export type CloudUnavailableReason = (typeof CLOUD_UNAVAILABLE_REASON_VALUES)[nu
 /**
  * Every {@link CloudUnavailableReason}.
  *
- * @consumedBy the session menu's `Send to the cloud…` row, which shows why a session cannot use it
+ * @consumedBy the session menu's `Send to the cloud…` row, which shows why a session
+ * cannot use it
  */
 export const CLOUD_UNAVAILABLE_REASONS: readonly CloudUnavailableReason[] =
   CLOUD_UNAVAILABLE_REASON_VALUES;

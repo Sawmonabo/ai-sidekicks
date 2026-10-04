@@ -45,8 +45,10 @@ function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
       return (
         <p className="meridian-artifact-payload__note">
           {payload.reason === "not-utf8"
-            ? "These bytes are not text, so there is nothing to preview. They arrived whole and are unchanged."
-            : "These bytes did not decode under the encoding the reply declared, so there is nothing to preview."}{" "}
+            ? "These bytes are not text, so there is nothing to preview. They " +
+              "arrived whole and are unchanged."
+            : "These bytes did not decode under the encoding the reply " +
+              "declared, so there is nothing to preview."}{" "}
           <WireFigure value={payload.encoding} />
         </p>
       );

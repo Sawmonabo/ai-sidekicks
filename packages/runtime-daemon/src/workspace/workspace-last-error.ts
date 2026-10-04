@@ -13,11 +13,17 @@ export const WORKSPACE_LAST_ERROR_TRUNCATION_MARKER = "...[truncated]";
 const URL_USERINFO_PATTERN = /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g;
 
 // Header-style credentials, including git's `x-access-token` form for GitHub App tokens.
-const HEADER_CREDENTIAL_PATTERN =
-  /((?:authorization|proxy-authorization|private-token|x-auth-token|x-access-token)\s*[:=]\s*)(?:bearer\s+|basic\s+|token\s+)?[^\s,;]+/gi;
+const HEADER_CREDENTIAL_PATTERN = new RegExp(
+  String.raw`((?:authorization|proxy-authorization|private-token|x-auth-token|x-access-token)` +
+    String.raw`\s*[:=]\s*)(?:bearer\s+|basic\s+|token\s+)?[^\s,;]+`,
+  "gi",
+);
 
-const KEY_VALUE_CREDENTIAL_PATTERN =
-  /((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|token)\s*[:=]\s*)(["']?)[^\s"'&,;]+/gi;
+const KEY_VALUE_CREDENTIAL_PATTERN = new RegExp(
+  String.raw`((?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|token)` +
+    String.raw`\s*[:=]\s*)(["']?)[^\s"'&,;]+`,
+  "gi",
+);
 
 const KNOWN_TOKEN_PREFIX_PATTERN =
   /\b(?:gh[pousr]_|github_pat_|glpat-|xox[abprs]-|sk-|AKIA)[A-Za-z0-9_-]{8,}/g;

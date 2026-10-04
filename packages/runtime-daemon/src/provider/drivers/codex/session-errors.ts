@@ -54,26 +54,19 @@ export class CodexRequestTimeoutError extends Error {
 
 /**
  * A provider JSON-RPC error answer; the classifier maps it to a code. `providerMessage` is the
- * wire text; `providerErrorData` is verbatim because refusals carry structured detail.
+ * wire text.
  */
 export class CodexProviderRequestError extends Error {
   readonly providerErrorCode: number;
   readonly method: string;
   readonly providerMessage: string;
-  readonly providerErrorData: unknown;
 
-  constructor(
-    method: string,
-    providerErrorCode: number,
-    providerMessage: string,
-    providerErrorData: unknown = undefined,
-  ) {
+  constructor(method: string, providerErrorCode: number, providerMessage: string) {
     super(`Codex app-server rejected "${method}": ${providerMessage}`);
     this.name = "CodexProviderRequestError";
     this.providerErrorCode = providerErrorCode;
     this.method = method;
     this.providerMessage = providerMessage;
-    this.providerErrorData = providerErrorData;
   }
 }
 
@@ -101,8 +94,8 @@ export interface CodexRewindBoundaryUnsupportedFields {
 
 /**
  * The build accepts `thread/fork` but refuses its boundary member, which the static `rollback`
- * gate cannot see (`lastTurnId` is verified at the wire reference's pin, not at every older build the driver may
- * admit).
+ * gate cannot see (`lastTurnId` is verified at the wire reference's pin, not at every older build
+ * the driver may admit).
  */
 export class CodexRewindBoundaryUnsupportedError extends Error {
   readonly code = "driver.capability_unsupported" as const;
@@ -145,9 +138,15 @@ function describeSlotRefusal(sessionId: string, holderState: CodexSessionSlotSta
     case "live":
       return `A live Codex session is already bound to "${sessionId}"; create would orphan it.`;
     case "establishing":
-      return `A create or resume for Codex session "${sessionId}" is already in flight; create would orphan whichever process loses.`;
+      return (
+        `A create or resume for Codex session "${sessionId}" is already in flight; create ` +
+        `would orphan whichever process loses.`
+      );
     case "closing":
-      return `Codex session "${sessionId}" is still being torn down; create would spawn a replacement beside a process that is still exiting.`;
+      return (
+        `Codex session "${sessionId}" is still being torn down; create would spawn a ` +
+        `replacement beside a process that is still exiting.`
+      );
   }
 }
 

@@ -64,16 +64,20 @@ const WORKTREE_CREATE_FAILURE_MESSAGES: Record<
   string
 > = {
   base_ref_option_like:
-    "worktree creation failed: the supplied base ref begins with '-' and would be read as a git option rather than as a commit-ish",
+    "worktree creation failed: the supplied base ref begins with '-' and would be read as a " +
+    "git option rather than as a commit-ish",
   base_ref_unresolved:
-    "worktree creation failed: no base ref was supplied and the repo mount's HEAD does not resolve to a branch",
+    "worktree creation failed: no base ref was supplied and the repo mount's HEAD does not " +
+    "resolve to a branch",
   branch_name_unavailable:
-    "worktree creation failed: no usable branch name was available under the request's collision policy and the ref-length cap",
+    "worktree creation failed: no usable branch name was available under the request's " +
+    "collision policy and the ref-length cap",
   execution_root_unavailable:
     "worktree creation failed: the daemon execution root could not be prepared",
   git_invocation_failed: "worktree creation failed: the git worktree invocation did not complete",
   branch_name_underivable:
-    "worktree creation failed: no branch name could be derived, since neither a slugifiable summary nor a run id was available",
+    "worktree creation failed: no branch name could be derived, since neither a slugifiable " +
+    "summary nor a run id was available",
 };
 
 /**
@@ -92,9 +96,11 @@ const WORKTREE_REUSE_CONFLICT_MESSAGES: Record<WorktreeReuseConflictReason, stri
   mount_mismatch: "worktree reuse refused: the candidate belongs to a different repo mount",
   not_live: "worktree reuse refused: the candidate is no longer live",
   branch_mismatch:
-    "worktree reuse refused: the candidate holds a different branch than the one requested, and an incompatible candidate never binds",
+    "worktree reuse refused: the candidate holds a different branch than the one requested, " +
+    "and an incompatible candidate never binds",
   dirty_unacknowledged:
-    "worktree reuse refused: the candidate holds uncommitted changes and the caller did not acknowledge a dirty candidate",
+    "worktree reuse refused: the candidate holds uncommitted changes and the caller did not " +
+    "acknowledge a dirty candidate",
   cleanliness_unresolved:
     "worktree reuse refused: the candidate's working-tree cleanliness could not be determined",
 };
@@ -160,7 +166,8 @@ export class WorktreeBranchCollisionError extends DaemonDomainError {
 
   constructor(repoMountId: string, branchName: string) {
     super(
-      `worktree creation refused: branch ${branchName} already has a live checkout on repo mount ${repoMountId}`,
+      `worktree creation refused: branch ${branchName} already has a live checkout on repo ` +
+        `mount ${repoMountId}`,
       {
         code: "worktree.branch_collision" satisfies WorktreeErrorCode,
         detail: { repoMountId, branchName },
@@ -203,7 +210,8 @@ export class WorktreeRetireConflictError extends DaemonDomainError {
 
   constructor(worktreeId: string, holdingWorkspaceId: string) {
     super(
-      `worktree ${worktreeId} cannot be retired: workspace ${holdingWorkspaceId} is holding it for an active run`,
+      `worktree ${worktreeId} cannot be retired: workspace ${holdingWorkspaceId} is holding ` +
+        `it for an active run`,
       {
         code: WORKTREE_RETIRE_CONFLICT_CODE,
         detail: { worktreeId, holdingWorkspaceId },
@@ -254,8 +262,10 @@ export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
   constructor(workspaceId: string, causeCode: string | null) {
     super(
       causeCode === null
-        ? `workspace ${workspaceId} has no resolved execution root: root preparation failed and the run stays parked in setup`
-        : `workspace ${workspaceId} has no resolved execution root: root preparation failed with ${causeCode} and the run stays parked in setup`,
+        ? `workspace ${workspaceId} has no resolved execution root: root preparation failed ` +
+            `and the run stays parked in setup`
+        : `workspace ${workspaceId} has no resolved execution root: root preparation failed ` +
+            `with ${causeCode} and the run stays parked in setup`,
       {
         code: "workspace.execution_root_unresolved" satisfies WorkspaceErrorCode,
         detail: causeCode === null ? { workspaceId } : { workspaceId, causeCode },

@@ -37,6 +37,7 @@ import {
   ProviderAccountNotificationSchema,
   ProviderAccountSchema,
   ProviderAccountSubscribeRequestSchema,
+  ProviderLoginExpiredRemedySchema,
   ProviderNameSchema,
   type BillingMode,
   type CredentialGeneration,
@@ -48,6 +49,7 @@ import {
   type ProviderAccountMemoryImportOutcome,
   type ProviderAccountNotification,
   type ProviderAccountSubscribeRequest,
+  type ProviderLoginExpiredRemedy,
   type ProviderName,
 } from "./provider-account.js";
 import {
@@ -253,7 +255,8 @@ export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountS
           code: "custom",
           path: ["account", "isDefault"],
           message:
-            "`providerAccount.setCurrent` returns the account it made current, so `isDefault` cannot be false on a success reply",
+            "`providerAccount.setCurrent` returns the account it made " +
+            "current, so `isDefault` cannot be false on a success reply",
         });
       }
     });
@@ -270,6 +273,18 @@ export const PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = "provideraccount.not_auth
  * @consumedBy the handler that returns the `provideraccount.not_authenticated` error
  */
 export type ProviderAccountNotAuthenticatedCode = typeof PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE;
+
+/** The refused account's own remedy, so the refusal points at the one way back for it. */
+export type ProviderAccountNotAuthenticatedDetails = { remedy: ProviderLoginExpiredRemedy };
+/**
+ * Parses {@link ProviderAccountNotAuthenticatedDetails}.
+ *
+ * @consumedBy the handler that returns the `provideraccount.not_authenticated` error
+ */
+export const ProviderAccountNotAuthenticatedDetailsSchema: z.ZodType<
+  ProviderAccountNotAuthenticatedDetails,
+  ProviderAccountNotAuthenticatedDetails
+> = z.object({ remedy: ProviderLoginExpiredRemedySchema }).strict();
 
 /** Checks one account's health now. */
 export interface ProviderAccountProbeRequest {

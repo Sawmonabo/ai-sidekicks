@@ -48,9 +48,9 @@ const NUMERIC_INSTANT_NAME_SUFFIX =
  *
  * `String(...)` of a catch binding has no selector here. esquery has no backreference, so a
  * selector cannot bind a catch parameter and compare it to the identifier being stringified, and
- * the spellings outside a `CatchClause` (`"" + error`, `error.toString()`, `.catch((error) => …)`)
- * are out of reach. A selector that catches half a class reads exactly like one that catches the
- * class, so that claim is left to review.
+ * the spellings outside a `CatchClause` (`"" + error`, `error.toString()`,
+ * `.catch((error) => …)`) are out of reach. A selector that catches half a class reads exactly
+ * like one that catches the class, so that claim is left to review.
  */
 export const TIME_READING_SELECTORS = [
   {
@@ -105,7 +105,8 @@ export const TIME_READING_SELECTORS = [
       `[arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
     message:
       "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency " +
-      "— it just does not look like it, because the string is behind a name. Read the stamp with " +
+      "— it just does not look like it, because the " +
+      "string is behind a name. Read the stamp with " +
       "`parseInstant` from `lib/instant.ts`; build a fixture instant from `Date.UTC(...)`, or " +
       "name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
   },
@@ -198,7 +199,8 @@ export const EXPORTED_COLLECTION_SELECTOR = {
     "An exported `Set` or `Map` is a mutable runtime singleton however it is annotated: " +
     "`ReadonlySet` and `ReadonlyMap` hide the mutators from a reader and from nothing else, " +
     "every importer shares the one object, and `Object.freeze` does not close it. Export the " +
-    "derived data instead — a `readonly T[]` of entries — and build the collection inside the " +
+    "derived data instead — a `readonly T[]` of " +
+    "entries — and build the collection inside the " +
     "module, class, or controller that reads it. A collection this module keeps to itself is " +
     "untouched.",
 };
@@ -242,16 +244,17 @@ export const BRIDGE_GLOBAL_READ = {
  * (`*.config.{ts,mjs}`, `.dependency-cruiser.mjs`) live at the package root, outside every scope
  * this rule is composed into.
  *
- * Both spellings are banned: `export { x as default }` (and its `… from "./other.js"` form) parses
- * as an `ExportSpecifier`, not an `ExportDefaultDeclaration`, and publishes the same nameless
- * symbol. `export { default as Thing } from …` is untouched: it imports a default and republishes
- * it under a name, which is the remedy.
+ * Both spellings are banned: `export { x as default }` (and its `… from "./other.js"` form)
+ * parses as an `ExportSpecifier`, not an `ExportDefaultDeclaration`, and publishes the same
+ * nameless symbol. `export { default as Thing } from …` is untouched: it imports a default and
+ * republishes it under a name, which is the remedy.
  */
 export const EXPORT_DEFAULT_DECLARATION = {
   selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
   message:
     "Mechanical gate 3 in `apps/desktop/AGENTS.md`: named exports only. `export default` is for " +
-    "tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, " +
+    "tool configuration at the package root — " +
+    "`*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, " +
     "which their tools load by default export — and nowhere else: a default export has no name " +
     "at the import site, so two importers can call one symbol two things and a rename reaches " +
     "neither.",
@@ -274,7 +277,8 @@ export const MODULE_LEVEL_LET = {
   message:
     "Mechanical gate 4 in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with " +
     "private fields. A module-level `let` is a singleton every importer in the window shares and " +
-    "any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+    "any of them can reassign — put it in a class, " +
+    "a hook, or a controller the caller constructs.",
 };
 
 /**
@@ -429,6 +433,7 @@ export const DIRECTORY_SOURCE_GLOB = {
     '[callee.property.name="glob"] > ArrayExpression > Literal[value=/[*]/])',
   message:
     "A directory `import.meta.glob` under `src/` is a second source of truth for what the tree " +
-    "holds, and it decides its own membership — so it is silently wrong the moment a file moves " +
+    "holds, and it decides its own membership — so " +
+    "it is silently wrong the moment a file moves " +
     "and reports nothing. Name the modules, or let the bundler's own entry graph decide.",
 };

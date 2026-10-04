@@ -33,13 +33,17 @@ describe("the account axis — which accounts it may offer", () => {
     ]);
   });
 
-  it("refuses a driver it cannot match to a provider rather than offering another provider's accounts", () => {
-    // The form's `driverName` is a free string and provider is a closed set; falling through to a
-    // list would pin a run to an account of a provider nobody chose.
-    const reading = accountAxisReadingFor(served([account()]), "gemini");
+  it(
+    "refuses a driver it cannot match to a provider rather than " +
+      "offering another provider's accounts",
+    () => {
+      // The form's `driverName` is a free string and provider is a closed set; falling through to a
+      // list would pin a run to an account of a provider nobody chose.
+      const reading = accountAxisReadingFor(served([account()]), "gemini");
 
-    expect(reading).toEqual({ kind: "unknown-provider", driverName: "gemini" });
-  });
+      expect(reading).toEqual({ kind: "unknown-provider", driverName: "gemini" });
+    },
+  );
 });
 
 describe("the account axis — which account a readiness entry is about", () => {
@@ -105,16 +109,19 @@ describe("the account axis — the account an unpinned run resolves to", () => {
     expect(advisoryChoiceIn(reading, "acct-team")?.accountId).toBe("acct-team");
   });
 
-  it("negative control: a pinned value the registry lacks never falls through to the default", () => {
-    // Otherwise the pinned arm could answer the default, showing one account's readings under
-    // a value naming another.
-    const reading = accountAxisReadingFor(
-      served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
-      "claude",
-    );
+  it(
+    "negative control: a pinned value the registry lacks never falls " + "through to the default",
+    () => {
+      // Otherwise the pinned arm could answer the default, showing one account's readings under
+      // a value naming another.
+      const reading = accountAxisReadingFor(
+        served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
+        "claude",
+      );
 
-    expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
-  });
+      expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
+    },
+  );
 });
 
 describe("the account axis — a value the registry does not carry", () => {
@@ -127,14 +134,18 @@ describe("the account axis — a value the registry does not carry", () => {
     expect(registryCarriesAccount(reading, "acct-gone")).toBe(false);
   });
 
-  it("answers yes wherever nothing could tell, so an unread registry never disowns a caller's value", () => {
-    const unread = accountAxisReadingFor(
-      { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
-      "claude",
-    );
-    const unknownProvider = accountAxisReadingFor(served([account()]), "gemini");
+  it(
+    "answers yes wherever nothing could tell, so an unread registry " +
+      "never disowns a caller's value",
+    () => {
+      const unread = accountAxisReadingFor(
+        { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
+        "claude",
+      );
+      const unknownProvider = accountAxisReadingFor(served([account()]), "gemini");
 
-    expect(registryCarriesAccount(unread, "acct-team")).toBe(true);
-    expect(registryCarriesAccount(unknownProvider, "acct-team")).toBe(true);
-  });
+      expect(registryCarriesAccount(unread, "acct-team")).toBe(true);
+      expect(registryCarriesAccount(unknownProvider, "acct-team")).toBe(true);
+    },
+  );
 });

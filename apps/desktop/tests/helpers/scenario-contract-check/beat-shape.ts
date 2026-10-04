@@ -54,7 +54,8 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   if (!carried.success) {
     return (
       "the canonical envelope rejects this beat, so the app's decode boundary " +
-      `would count it unreadable and drop it: ${carried.error.issues.map(describeSchemaIssue).join("; ")}.`
+      `would count it unreadable and drop it: ` +
+      `${carried.error.issues.map(describeSchemaIssue).join("; ")}.`
     );
   }
   const parsed = SessionEventSchema.safeParse(envelope);

@@ -7,7 +7,10 @@ import type {
 } from "@ai-sidekicks/contracts/agent-definition";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
 
-/** One agent-list row on Claude with every optional member left out; a case adds what it is about. */
+/**
+ * One agent-list row on Claude with every optional member left out; a case adds what it is
+ * about.
+ */
 export function agentEntry(overrides: Partial<AgentListEntry> = {}): AgentListEntry {
   return {
     agentId: "agent-scout" as AgentId,

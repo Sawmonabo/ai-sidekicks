@@ -135,7 +135,8 @@ export class KeybindingTable {
   public install(target: KeybindingTarget): () => void {
     if (this.#detachListener !== undefined) {
       throw new Error(
-        "this KeybindingTable is already installed; dispose the previous installation before installing again",
+        "this KeybindingTable is already installed; dispose " +
+          "the previous installation before installing again",
       );
     }
     const listener = (event: Event): void => {

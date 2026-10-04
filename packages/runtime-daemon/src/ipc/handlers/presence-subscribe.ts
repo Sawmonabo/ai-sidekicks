@@ -56,7 +56,8 @@ export function registerPresenceSubscribe(
   ) => {
     if (ctx.transportId === undefined) {
       throw new Error(
-        "presence.subscribe: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
+        "presence.subscribe: handler requires ctx.transportId (per-connection streaming " +
+          "state requires a transport identity)",
       );
     }
     const sub = deps.streamingPrimitive.createSubscription<MachinePresence>(

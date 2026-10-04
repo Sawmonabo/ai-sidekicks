@@ -87,7 +87,8 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
       if (selected === undefined) {
         refuseLocally(
           "no-selected-page",
-          "There is no selected page to close. The chord was caught here so it could not close this window instead.",
+          "There is no selected page to close. The chord was caught here " +
+            "so it could not close this window instead.",
         );
         return;
       }

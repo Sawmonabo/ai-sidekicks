@@ -132,7 +132,8 @@ function readEntry(
   const named = readWireString(supplied);
   return named === undefined
     ? "This file's entry record states no `startMode`, so there is no way to read how it starts."
-    : `This file's entry record states \`startMode: ${named}\`, which is not a start mode this build runs.`;
+    : `This file's entry record states \`startMode: ${named}\`, which ` +
+        "is not a start mode this build runs.";
 }
 
 /** The phase sequence, or the sentence saying which phase is wrong and how. */
@@ -172,7 +173,10 @@ function readPhaseDefinition(value: unknown, phaseProse: string): WorkflowPhaseD
     WORKFLOW_FAILURE_BEHAVIORS,
   );
   if (type === undefined || gateType === undefined || failureBehavior === undefined) {
-    return `${phaseProse} states a \`type\`, \`gateType\` or \`failureBehavior\` this console does not know.`;
+    return (
+      `${phaseProse} states a \`type\`, \`gateType\` or ` +
+      `\`failureBehavior\` this console does not know.`
+    );
   }
   const toolBindings = readPhaseToolBindings(value, phaseProse);
   if (typeof toolBindings === "string") {

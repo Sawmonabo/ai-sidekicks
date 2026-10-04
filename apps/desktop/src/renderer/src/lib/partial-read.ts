@@ -95,7 +95,9 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
         shape: "counted-sentence",
         figure: formatCount(state.servedCount),
         // "the answer for ${subject}" so the verb agrees with a noun supplied here.
-        copy: `read before the answer for ${subject} was cut short, so what is not shown here may still exist.`,
+        copy:
+          `read before the answer for ${subject} was cut ` +
+          `short, so what is not shown here may still exist.`,
         refusal: undefined,
       };
   }

@@ -53,7 +53,8 @@ function registeredTranscriptRowRenderer(): TranscriptRowRenderer {
   const renderer = findTranscriptRowRenderer();
   if (renderer === undefined) {
     throw new Error(
-      "No transcript row renderer is registered. The transcript pane's body registers it when it loads.",
+      "No transcript row renderer is registered. The transcript pane's " +
+        "body registers it when it loads.",
     );
   }
   return renderer;

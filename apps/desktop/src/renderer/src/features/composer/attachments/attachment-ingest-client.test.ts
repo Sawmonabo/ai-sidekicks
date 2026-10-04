@@ -95,22 +95,25 @@ describe("ingest client — the payload reaches the daemon", () => {
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
-  it("replaces the declaration with the derived values, and never the other way round", async () => {
-    const port = new ScriptedIngestPort();
-    const client = clientOver(port);
-    client.attach(SMALL_SOURCE);
-    await crossMacrotaskBoundary();
+  it(
+    "replaces the declaration with the derived values, and never the " + "other way round",
+    async () => {
+      const port = new ScriptedIngestPort();
+      const client = clientOver(port);
+      client.attach(SMALL_SOURCE);
+      await crossMacrotaskBoundary();
 
-    const [entry] = client.snapshot;
-    expect(entry?.derived).toStrictEqual({
-      artifactId: "artifact-9",
-      fileName: "notes-1.md",
-      mimeType: "text/markdown",
-      sizeBytes: 300,
-    });
-    // The declaration survives as the caller gave it, never overwritten in place.
-    expect(entry?.declared.declaredName).toBe("notes.md");
-  });
+      const [entry] = client.snapshot;
+      expect(entry?.derived).toStrictEqual({
+        artifactId: "artifact-9",
+        fileName: "notes-1.md",
+        mimeType: "text/markdown",
+        sizeBytes: 300,
+      });
+      // The declaration survives as the caller gave it, never overwritten in place.
+      expect(entry?.declared.declaredName).toBe("notes.md");
+    },
+  );
 });
 
 describe("ingest client — the record advances on what the daemon acknowledged", () => {

@@ -39,26 +39,30 @@ function basicRow(
   );
 }
 
-describe("TranscriptRowLayout — attribution fails closed rather than into someone else's hue", () => {
-  it("refuses to wrap or clamp a step that is off the wheel", () => {
-    const offWheelSteps = [HUE_WHEEL_STEPS, HUE_WHEEL_STEPS + 3, -1, 1.5, Number.NaN];
-    const onWheelHues = Array.from({ length: HUE_WHEEL_STEPS }, (_unused, step) =>
-      edgeOf(basicRow({ agentHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
-    );
+describe(
+  "TranscriptRowLayout — attribution fails closed rather than into " + "someone else's hue",
+  () => {
+    it("refuses to wrap or clamp a step that is off the wheel", () => {
+      const offWheelSteps = [HUE_WHEEL_STEPS, HUE_WHEEL_STEPS + 3, -1, 1.5, Number.NaN];
+      const onWheelHues = Array.from({ length: HUE_WHEEL_STEPS }, (_unused, step) =>
+        edgeOf(basicRow({ agentHueStep: step })).style.getPropertyValue("--meridian-row-hue"),
+      );
 
-    for (const step of offWheelSteps) {
-      const row = basicRow({ agentHueStep: step });
-      const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
-      expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(true);
-      expect(hue).toBe("var(--meridian-edge-strong)");
-      // A modulo wrap would land step 12 on step 0's hue and step 15 on step 3's.
-      expect(onWheelHues).not.toContain(hue);
-    }
+      for (const step of offWheelSteps) {
+        const row = basicRow({ agentHueStep: step });
+        const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
+        expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(true);
+        expect(hue).toBe("var(--meridian-edge-strong)");
+        // A modulo wrap would land step 12 on step 0's hue and step 15 on step 3's.
+        expect(onWheelHues).not.toContain(hue);
+      }
 
-    // The on-wheel hues are twelve distinct values, so the assertion above checks a populated set.
-    expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
-  });
-});
+      // The on-wheel hues are twelve distinct values, so the assertion above checks a populated
+      // set.
+      expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
+    });
+  },
+);
 
 describe("TranscriptRowLayout — superseded rows and the revealed footer", () => {
   it("marks a superseded row in its class and in visible text", () => {

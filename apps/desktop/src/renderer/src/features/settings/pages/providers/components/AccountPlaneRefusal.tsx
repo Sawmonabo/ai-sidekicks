@@ -8,6 +8,7 @@
 
 import "./account-plane-handoff.css";
 
+import type { ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
 import type { ReactNode } from "react";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
@@ -20,6 +21,11 @@ import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 /** A refusal line plus, where a console act answers it, a handoff to the settings section. */
 export function AccountPlaneRefusal(props: {
   readonly refusal: Refusal;
+  /**
+   * The remedy the refusal's own data named, read from it at the wire boundary. A refused account
+   * move carries the account's own; a code routed by it offers no handoff without one.
+   */
+  readonly carriedRemedy?: ProviderRemedy | undefined;
   readonly openPage: (section: SettingsPageId) => void;
   /**
    * The section this refusal is rendered on, if any, so the handoff never offers to open the
@@ -27,7 +33,7 @@ export function AccountPlaneRefusal(props: {
    */
   readonly currentSection?: SettingsPageId | undefined;
 }): ReactNode {
-  const handoff = accountPlaneHandoffFor(props.refusal.code);
+  const handoff = accountPlaneHandoffFor(props.refusal.code, props.carriedRemedy);
   const { openPage } = props;
   const isAlreadyThere = handoff !== undefined && handoff.section === props.currentSection;
   return (

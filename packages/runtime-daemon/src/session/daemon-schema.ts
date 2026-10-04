@@ -46,13 +46,14 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
 -- payload, so the index is partial over terminal run_lifecycle rows only.
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once
   ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion'))
-  WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
+  WHERE category = 'run_lifecycle'
+    AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
 
 -- A UNIQUE index treats NULLs as distinct, and "7" and 7 as different keys: a
 -- terminal insert must carry a text runId and an integer runVersion.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -67,7 +68,7 @@ END;
 CREATE TRIGGER trg_run_terminal_key_update
 BEFORE UPDATE OF payload, category, type ON session_events
 WHEN OLD.category = 'run_lifecycle'
-  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -84,9 +85,9 @@ END;
 -- Terminal rows are insert-only: no update may promote a row into the index.
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'run_lifecycle'
-    AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted'))
+    AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped'))
   AND NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
 BEGIN
   SELECT RAISE(ABORT,
     'a row cannot be promoted to terminal run_lifecycle by UPDATE; terminal rows are insert-only');
@@ -355,7 +356,7 @@ CREATE TABLE interventions (
   device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
   -- Why a request was rejected. A rejected outcome carries no result, so an
-  -- idempotent replay rebuilds rejectionReason from here.
+  -- an idempotent rebuild recomputes rejectionReason from here.
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,

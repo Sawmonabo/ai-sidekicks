@@ -112,7 +112,9 @@ export function withSpawnedVersionCarriers(
     declaredExecutablePath !== carriers.resolvedExecutablePath
   ) {
     throw new Error(
-      `RuntimeBindingStore: spawn_config.resolvedExecutablePath disagrees with the spawned-version reading for run ${input.runId} (driver ${input.driverName}) — the recorded version and the recorded executable must come from one reading`,
+      `RuntimeBindingStore: spawn_config.resolvedExecutablePath disagrees with the ` +
+        `spawned-version reading for run ${input.runId} (driver ${input.driverName}) — the ` +
+        `recorded version and the recorded executable must come from one reading`,
     );
   }
   return {
@@ -236,7 +238,9 @@ export function composeResumeSessionParams(
   const resumeHandle = binding.resumeHandle;
   if (resumeHandle === null || resumeHandle.length === 0) {
     throw new RuntimeBindingNotResumableError(
-      `RuntimeBindingStore: binding ${binding.id} (run ${binding.runId}, driver ${binding.driverName}) carries no resume handle — the leg must be relaunched fresh, not resumed`,
+      `RuntimeBindingStore: binding ${binding.id} (run ${binding.runId}, driver ` +
+        `${binding.driverName}) carries no resume handle — the leg must be relaunched fresh, ` +
+        `not resumed`,
       binding.id,
       binding.runId,
     );
@@ -287,18 +291,22 @@ export class RuntimeBindingStore {
 
     this.#insertStmt = db.prepare(
       `INSERT INTO runtime_bindings
-         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
        VALUES
-         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
+         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, ` +
+        `@resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
     );
     this.#selectByIdStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE id = ?`,
     );
     // Uses `idx_runtime_bindings_run`; the order is stable for a run's many bindings.
     this.#selectByRunStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id = ?
         ORDER BY created_at, id`,
@@ -306,13 +314,15 @@ export class RuntimeBindingStore {
     // One statement for any arity: run ids arrive as one JSON-array parameter, since an
     // `IN (?,?,...)` list would need SQL per arity and could reach SQLITE_MAX_VARIABLE_NUMBER.
     this.#selectByRunsStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id IN (SELECT value FROM json_each(?))
         ORDER BY run_id, created_at, id`,
     );
     this.#selectResumableStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE resume_handle IS NOT NULL
         ORDER BY created_at, id`,
@@ -391,7 +401,9 @@ export class RuntimeBindingStore {
     // Only an untyped caller reaches this; writing `'{}'` would leave a posture-less record.
     if (input.spawnConfig === undefined) {
       throw new Error(
-        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ${input.runId} (driver ${input.driverName}) — the '{}' column default is never a write's outcome`,
+        `RuntimeBindingStore.create: spawnConfig is required at every binding write for run ` +
+          `${input.runId} (driver ${input.driverName}) — the '{}' column default is never a ` +
+          `write's outcome`,
       );
     }
     const spawnConfigJson: string = JSON.stringify(input.spawnConfig);
@@ -566,13 +578,15 @@ export class RuntimeBindingStore {
       // Own keys only (see `assertValidCapabilityFlags`), so the table lookup below is total.
       if (!Object.prototype.hasOwnProperty.call(SPAWN_CONFIG_MEMBER_CHECKS, key)) {
         throw new Error(
-          `runtime_bindings.spawn_config carries unknown member "${key}" (binding id ${bindingId}).`,
+          `runtime_bindings.spawn_config carries unknown member "${key}" (binding id ` +
+            `${bindingId}).`,
         );
       }
       const check = SPAWN_CONFIG_MEMBER_CHECKS[key as keyof typeof SPAWN_CONFIG_MEMBER_CHECKS];
       if (!check(record[key])) {
         throw new Error(
-          `runtime_bindings.spawn_config member "${key}" has the wrong shape (binding id ${bindingId}).`,
+          `runtime_bindings.spawn_config member "${key}" has the wrong shape (binding id ` +
+            `${bindingId}).`,
         );
       }
     }

@@ -1,7 +1,8 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
 // The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box reads
-// `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This component names the region and leaves the live text
-// to xterm's own `aria-live` region, since announcing the grid again would read every cell twice.
+// `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This
+// component names the region and leaves the live text to xterm's own `aria-live` region, since
+// announcing the grid again would read every cell twice.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -146,7 +147,10 @@ function renderEmulatorAbsence(
       action={
         <button
           type="button"
-          className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
+          className={
+            "meridian-action-button meridian-action-button--small " +
+            "meridian-action-button--outline"
+          }
           onClick={emulator.retry}
         >
           Retry

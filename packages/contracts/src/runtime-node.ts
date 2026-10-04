@@ -99,7 +99,11 @@ export const RuntimeNodeCertificateChallengeSetRequestSchema: z.ZodType<
       .string()
       .max(DNS_NAME_MAX_LEN)
       .regex(
-        /^_acme-challenge\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u,
+        new RegExp(
+          "^_acme-challenge\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+" +
+            "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "u",
+        ),
         "a challenge record is named _acme-challenge.<domain>",
       ),
     value: z.string().regex(/^[A-Za-z0-9_-]{43}$/u, "a challenge value is 43 base64url characters"),

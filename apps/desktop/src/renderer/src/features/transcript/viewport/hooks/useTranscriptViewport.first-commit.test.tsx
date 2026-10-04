@@ -67,7 +67,8 @@ describe("the transcript viewport's first commit", () => {
     const mountedRowCount = view.container.querySelectorAll(MOUNTED_ROW_SELECTOR).length;
     expect(
       mountedRowCount,
-      "the mount settled with no row on screen, so a session opened on a log this long draws an empty transcript",
+      "the mount settled with no row on screen, so a session opened on " +
+        "a log this long draws an empty transcript",
     ).toBeGreaterThan(0);
     // And it is still a window: a viewport that gave up and mounted the whole log is also wrong.
     expect(mountedRowCount).toBeLessThan(LOG_ROW_COUNT);

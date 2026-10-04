@@ -86,31 +86,34 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
 });
 
 describe("fixture bridge — a machine notice stream carries what a write pushes", () => {
-  it("hands an `mcp.subscribe` subscriber the edit notice a settled `mcp.setEnabled` pushes", async () => {
-    const fixture = createFixture();
-    const notices: unknown[] = [];
-    fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
-      notices.push(notice);
-    });
+  it(
+    "hands an `mcp.subscribe` subscriber the edit " + "notice a settled `mcp.setEnabled` pushes",
+    async () => {
+      const fixture = createFixture();
+      const notices: unknown[] = [];
+      fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
+        notices.push(notice);
+      });
 
-    const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
-      provider: "claude",
-      scope: "user",
-      serverName: "filesystem",
-      enabled: false,
-      clientIdempotencyKey: "019b79ee-0280-7ea1-8110-000000000001",
-    });
-    // The scripted write answers after its latency.
-    fixture.engine.advance(200);
-    await settled;
-
-    expect(notices).toStrictEqual([
-      {
+      const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
         provider: "claude",
         scope: "user",
         serverName: "filesystem",
-        type: "mcp.server_config_changed",
-      },
-    ]);
-  });
+        enabled: false,
+        clientIdempotencyKey: "019b79ee-0280-7ea1-8110-000000000001",
+      });
+      // The scripted write answers after its latency.
+      fixture.engine.advance(200);
+      await settled;
+
+      expect(notices).toStrictEqual([
+        {
+          provider: "claude",
+          scope: "user",
+          serverName: "filesystem",
+          type: "mcp.server_config_changed",
+        },
+      ]);
+    },
+  );
 });

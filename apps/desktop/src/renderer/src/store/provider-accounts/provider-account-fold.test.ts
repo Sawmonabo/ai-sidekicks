@@ -64,7 +64,8 @@ function usedPercentFor(fold: ProviderAccountFold, limitId: string): number {
   const found = readings.find((reading) => reading.limitId === limitId);
   if (found === undefined) {
     throw new Error(
-      `no reading for "${limitId}"; the fold holds ${JSON.stringify(readings.map((reading) => reading.limitId))}`,
+      `no reading for "${limitId}"; the fold holds ` +
+        `${JSON.stringify(readings.map((reading) => reading.limitId))}`,
     );
   }
   return found.usedPercent;

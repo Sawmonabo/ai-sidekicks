@@ -114,7 +114,9 @@ export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
         issueContext.addIssue({
           code: "custom",
           path: ["spans", index + 2],
-          message: `a span's class is an index into the ${String(HIGHLIGHT_SPAN_CLASSES.length)} span classes`,
+          message:
+            `a span's class is an index into the ` +
+            `${String(HIGHLIGHT_SPAN_CLASSES.length)} span classes`,
         });
       }
       if (offset < previousEnd) {
@@ -131,7 +133,9 @@ export const HighlightReadResponseSchema: z.ZodType<HighlightReadResponse> = z
       issueContext.addIssue({
         code: "custom",
         path: ["spans"],
-        message: `spans measure ${String(spanBytes)} bytes, over the ${String(HIGHLIGHT_SPANS_MAX_BYTES)}-byte reply bound`,
+        message:
+          `spans measure ${String(spanBytes)} bytes, over the ` +
+          `${String(HIGHLIGHT_SPANS_MAX_BYTES)}-byte reply bound`,
       });
     }
   });

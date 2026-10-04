@@ -32,7 +32,8 @@ export function parsePaneAddress(
     return refuse(
       PANE_ADDRESS_ORIGIN,
       "pane-kind-unknown",
-      `"${String(candidateKind)}" is not one of the ${String(PANE_KINDS.length)} pane kinds this build renders`,
+      `"${String(candidateKind)}" is not one of the ` +
+        `${String(PANE_KINDS.length)} pane kinds this build renders`,
     );
   }
 
@@ -43,7 +44,8 @@ export function parsePaneAddress(
       return refuse(
         PANE_ADDRESS_ORIGIN,
         "pane-entity-required",
-        `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened with none`,
+        `a "${candidateKind}" pane is a view of one ` +
+          `${scope.entityKinds.join(" or ")} and was opened with none`,
       );
     }
     // No cast: the predicate narrowed the kind to those whose arm has no `entity` member or
@@ -57,7 +59,9 @@ export function parsePaneAddress(
       PANE_ADDRESS_ORIGIN,
       "pane-entity-malformed",
       // Names the length and not the value, so a refusal never carries refused content.
-      `a "${candidateKind}" pane was opened over a value that is not an entity reference — an entity reference is a kind and an identifier-shaped id (no whitespace, no path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
+      `a "${candidateKind}" pane was opened over a value that is not an entity reference ` +
+        `— an entity reference is a kind and an identifier-shaped id (no whitespace, no ` +
+        `path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
     );
   }
 
@@ -65,7 +69,8 @@ export function parsePaneAddress(
     return refuse(
       PANE_ADDRESS_ORIGIN,
       "pane-entity-unexpected",
-      `a "${candidateKind}" pane is session-scoped and takes no entity, and was opened over a "${entity.kind}"`,
+      `a "${candidateKind}" pane is session-scoped and takes ` +
+        `no entity, and was opened over a "${entity.kind}"`,
     );
   }
 
@@ -73,7 +78,8 @@ export function parsePaneAddress(
     return refuse(
       PANE_ADDRESS_ORIGIN,
       "pane-entity-kind-mismatch",
-      `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened over a "${entity.kind}"`,
+      `a "${candidateKind}" pane is a view of one ` +
+        `${scope.entityKinds.join(" or ")} and was opened over a "${entity.kind}"`,
     );
   }
 

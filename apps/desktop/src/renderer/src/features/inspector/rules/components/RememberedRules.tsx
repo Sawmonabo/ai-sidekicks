@@ -48,7 +48,13 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         kind="error"
         placement="block"
         title="Standing permissions could not be read."
-        detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
+        detail={
+          "The background service answered, and all " +
+          `${formatCount(props.unreadableCount)} of the rows it carried ` +
+          "were shaped in a way this build cannot read. Whether any " +
+          "permission is in force is unknown from here — it is not known " +
+          "to be none."
+        }
       />
     ) : (
       <Nothing kind="empty" placement="block" title="No rules yet" />
@@ -68,7 +74,8 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
           <li className="meridian-remembered-rules__row" key={rule.ruleId}>
             <div className="meridian-remembered-rules__line">
               <span>
-                {RULE_SENSE_LABELS[rule.scope.sense]} <WireFigure value={rule.scope.pattern} /> ·{" "}
+                {RULE_SENSE_LABELS[rule.scope.sense]} <WireFigure value={rule.scope.pattern} />
+                {" · "}
                 {RULE_SCOPE_LABELS[rule.scope.kind]}
               </span>
             </div>

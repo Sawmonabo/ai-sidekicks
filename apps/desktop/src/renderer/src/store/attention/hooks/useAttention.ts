@@ -37,7 +37,8 @@ export function useAttention(): WindowAttention {
       refuse(
         SESSION_ATTENTION_ORIGIN,
         "binding-unmounted",
-        "This component reads the window's attention binding, and no composition mounted one above it.",
+        "This component reads the window's attention " +
+          "binding, and no composition mounted one above it.",
       ),
     );
   }

@@ -170,7 +170,7 @@ Measurement is by named Plan-014 test rather than by calendar date: this decisio
 
 - [ADR-014](./014-v1-feature-scope-definition.md) — V1 feature scope; workflow authoring and execution is feature #14
 - [ADR-017](./017-cross-version-compatibility.md) — additive-MINOR evolution; a new node kind, or a new `kindVersion` of one, extends the catalog under these rules
-- [ADR-012](./012-cedar-approval-policy-engine.md) — Cedar authorization; tool-governance facets are evaluated there, never in a definition
+- [ADR-012](./012-cedar-approval-policy-engine.md) — Cedar authorization; tool-governance facets live in Settings › MCP servers ([Spec-024 §Tool-Level Overrides](../specs/024-mcp-server-configuration-and-governance.md#tool-level-overrides)), never in a definition
 - [ADR-009](./009-json-rpc-ipc-wire-format.md) — JSON-RPC IPC; the workflow operations both surfaces call
 - [ADR-004](./004-sqlite-local-state-and-postgres-control-plane.md) — local SQLite; the definition and version tables
 - [ADR-015](./015-electron-desktop-app.md) — the Electron desktop app and its untrusted-renderer stance the canvas inherits

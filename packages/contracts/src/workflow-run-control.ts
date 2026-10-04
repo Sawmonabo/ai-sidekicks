@@ -294,8 +294,8 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
 
 /**
- * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on
- * Resume has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
+ * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
+ * has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
  *
  * @consumedBy the handler that returns the `workflow.run_not_cancelable` error
  */

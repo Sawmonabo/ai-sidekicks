@@ -61,7 +61,8 @@ export function assertRealizedTurnPostureMembers(params: Record<string, unknown>
   for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
     if (member in params) {
       throw new CodexDriverConfigError(
-        `turn/start must not carry ${member}; V1 realizes the sandboxPolicy member of the posture pair.`,
+        `turn/start must not carry ${member}; V1 realizes the sandboxPolicy member of the ` +
+          `posture pair.`,
         `turn/start.${member}`,
       );
     }
@@ -141,7 +142,8 @@ export function findCodexSandboxModeDivergence(
 /**
  * Per-turn `sandboxPolicy`, sent every turn because it carries the writable roots the thread-level
  * mode cannot; the two exclude flags are pinned `true` so `writableRoots` is the complete list.
- * `providerNetworkAccess` is the person's own workspace network setting, read from the thread reply.
+ * `providerNetworkAccess` is the person's own workspace network setting, read from the thread
+ * reply.
  */
 export function composeCodexTurnSandboxPolicy(
   posture: ExecutionPosture,
@@ -216,7 +218,9 @@ export function composeCodexSubagentConfigOverrides(
  * in a file this driver would have to write.
  */
 export const CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON: string =
-  "the provider's per-role config entry carries no inline model, tools, permission-mode, effort, or max-turns axis at the pinned build, so the definition cannot be realized without authoring a config file this driver does not own";
+  "the provider's per-role config entry carries no inline model, tools, permission-mode, " +
+  "effort, or max-turns axis at the pinned build, so the definition cannot be realized " +
+  "without authoring a config file this driver does not own";
 
 /** Fail-closed parse of `CreateSessionParams.config`. */
 export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
@@ -284,7 +288,8 @@ export function resolveBoundProviderAccountId(claims: {
     return requested;
   }
   throw new CodexDriverConfigError(
-    `${requestedField} names provider account ${requested} while ${recordedField} names ${recorded}; a spawn is billed to one account and neither resolver may silently win.`,
+    `${requestedField} names provider account ${requested} while ${recordedField} names ` +
+      `${recorded}; a spawn is billed to one account and neither resolver may silently win.`,
     requestedField,
   );
 }
@@ -293,8 +298,8 @@ const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "c
 
 /**
  * Fail-closed parse of the daemon's resolved credential policy. Absent is legitimate (a declared
- * posture supplies it); a malformed one throws, since defaulting to "deny nothing" would spawn with the
- * variables the policy withholds. `envNameMatch` is required: guessing it could let `path` slip
+ * posture supplies it); a malformed one throws, since defaulting to "deny nothing" would spawn with
+ * the variables the policy withholds. `envNameMatch` is required: guessing it could let `path` slip
  * past a list naming `PATH`.
  */
 function parseCredentialEnvPolicy(
@@ -364,7 +369,8 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   );
   if (declaredFrameOrigin !== undefined && declaredFrameOrigin !== RUN_OPENING_FRAME_ORIGIN) {
     throw new CodexDriverConfigError(
-      `StartRunParams.agentConfig.frameOrigin cannot be declared; a run's opening text is written as "${RUN_OPENING_FRAME_ORIGIN}".`,
+      `StartRunParams.agentConfig.frameOrigin cannot be declared; a run's opening text is ` +
+        `written as "${RUN_OPENING_FRAME_ORIGIN}".`,
       "StartRunParams.agentConfig.frameOrigin",
     );
   }
@@ -372,7 +378,8 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
     if (source[field] !== undefined) {
       throw new CodexDriverConfigError(
-        `StartRunParams.agentConfig.${field} cannot be declared; the daemon derives every posture-affecting turn field.`,
+        `StartRunParams.agentConfig.${field} cannot be declared; the daemon derives every ` +
+          `posture-affecting turn field.`,
         `StartRunParams.agentConfig.${field}`,
       );
     }

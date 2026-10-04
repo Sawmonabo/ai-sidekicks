@@ -19,36 +19,39 @@ afterEach(() => {
 });
 
 describe("McpFixtureMount", () => {
-  it("draws the scenario's scripted inventory and sends an enablement change through it", async () => {
-    registerMcpFixtureBody();
-    const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
-    const { container } = render(
-      <FixtureBridgeProvider fixture={fixture}>
-        <LiveAnnouncerProvider>
-          <McpServersPage />
-        </LiveAnnouncerProvider>
-      </FixtureBridgeProvider>,
-    );
-    await settleScheduledRead(fixture.scenarioEngine.clock);
+  it(
+    "draws the scenario's scripted inventory and sends an enablement " + "change through it",
+    async () => {
+      registerMcpFixtureBody();
+      const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+      const { container } = render(
+        <FixtureBridgeProvider fixture={fixture}>
+          <LiveAnnouncerProvider>
+            <McpServersPage />
+          </LiveAnnouncerProvider>
+        </FixtureBridgeProvider>,
+      );
+      await settleScheduledRead(fixture.scenarioEngine.clock);
 
-    const rowNames = [...container.querySelectorAll(".meridian-mcp__row-identity")].map(
-      (identity) => identity.firstElementChild?.textContent,
-    );
-    expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad"]);
+      const rowNames = [...container.querySelectorAll(".meridian-mcp__row-identity")].map(
+        (identity) => identity.firstElementChild?.textContent,
+      );
+      expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad"]);
 
-    const [enableControl] = [...container.querySelectorAll("button")].filter((button) =>
-      /this binding$/u.test(button.textContent ?? ""),
-    );
-    if (enableControl === undefined) {
-      throw new Error("the scripted inventory rendered no enablement control to press");
-    }
-    fireEvent.click(enableControl);
-    // The scripted enablement change answers after its latency.
-    await settle(() => {
-      fixture.scenarioEngine.advance(200);
-    });
-    expect(container.textContent).toContain("next_run");
-  });
+      const [enableControl] = [...container.querySelectorAll("button")].filter((button) =>
+        /this binding$/u.test(button.textContent ?? ""),
+      );
+      if (enableControl === undefined) {
+        throw new Error("the scripted inventory rendered no enablement control to press");
+      }
+      fireEvent.click(enableControl);
+      // The scripted enablement change answers after its latency.
+      await settle(() => {
+        fixture.scenarioEngine.advance(200);
+      });
+      expect(container.textContent).toContain("next_run");
+    },
+  );
 
   it("keeps a switched-off binding switched off after the inventory is read again", async () => {
     registerMcpFixtureBody();

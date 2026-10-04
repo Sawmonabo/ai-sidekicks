@@ -133,7 +133,8 @@ function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProje
   const arm = runStateStreamArmFor(event.kind);
   if (arm === undefined) {
     return unprojectable(
-      `"${event.kind}" is not a kind the run-state stream carries, so it has no registered arm to project into.`,
+      `"${event.kind}" is not a kind the run-state stream ` +
+        `carries, so it has no registered arm to project into.`,
     );
   }
   return arm === "rollback" ? projectRollback(event) : projectStateChange(event);
@@ -160,7 +161,8 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
   if (statedState !== announcedState) {
     return unprojectableFor(
       event,
-      `announces "${String(announcedState)}" by its kind and ${JSON.stringify(statedState)} in its payload; one beat cannot report two current states`,
+      `announces "${String(announcedState)}" by its kind and ${JSON.stringify(statedState)} ` +
+        `in its payload; one beat cannot report two current states`,
     );
   }
   return projectThroughRegisteredShape(RunStateChangeEventSchema, event, {
@@ -203,7 +205,8 @@ function projectRunQueueStreamBeat(
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
     return unprojectable(
-      `"${event.kind}" is not a queue row the queue stream carries, so it announces no queue state.`,
+      `"${event.kind}" is not a queue row the queue ` +
+        `stream carries, so it announces no queue state.`,
     );
   }
   const payload = event.payload;
@@ -231,7 +234,8 @@ function projectRunQueueStreamBeat(
   if (statedState !== announcedState) {
     return unprojectableFor(
       event,
-      `announces "${announcedState}" by its kind and ${JSON.stringify(statedState)} in its payload; one beat cannot report two queue states`,
+      `announces "${announcedState}" by its kind and ${JSON.stringify(statedState)} ` +
+        `in its payload; one beat cannot report two queue states`,
     );
   }
   // The row, not the beat: `QueueItemSummary` projects `queue_items`, which carries members the
@@ -240,7 +244,8 @@ function projectRunQueueStreamBeat(
   if (queueRow === undefined) {
     return unprojectableFor(
       event,
-      `is about queue item "${queueItemId}", for which no queue row was found — and the row is where \`priority\`, \`content\` and \`createdAt\` live`,
+      `is about queue item "${queueItemId}", for which no queue row was found ` +
+        `— and the row is where \`priority\`, \`content\` and \`createdAt\` live`,
     );
   }
   return projectThroughRegisteredShape(QueueItemSummarySchema, event, {

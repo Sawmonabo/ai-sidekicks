@@ -17,7 +17,6 @@ import {
   hostEnvNameMatchForPlatform,
   type SpawnEnvPair,
 } from "../../spawn-env.js";
-import { type ProviderRequestFailureObservation } from "../../transcript/failure-mapping.js";
 import { type OutboundTextFrame } from "../../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import { type ClaudeSubagentLifecycleSignal } from "./event-normalizer.js";
@@ -63,13 +62,6 @@ export type ClaudeUserTextWriteAttempt =
       readonly delivery: ClaudeUserTextDelivery;
       readonly cause: unknown;
     };
-
-/** `refusalShape` is never supplied: the provider answers a turn, never the write. */
-export function observeClaudeUserTextFailure(
-  delivery: ClaudeUserTextDelivery,
-): ProviderRequestFailureObservation {
-  return { delivery: delivery === "unsent" ? "unsent" : "indeterminate" };
-}
 
 // `cancel` is not a control-request subtype in the pinned registry, so a cancel rides
 // `cancelQueued` on `interrupt`; the transport realizes it per `interrupt_cancel_queued_v1`.
@@ -257,7 +249,9 @@ export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment 
 
 /** A usable credential found by the zero-turn auth probe; the negative outcomes throw. */
 export interface ClaudeAuthProbeReading {
-  /** Non-PII diagnostics only, never credential material or an account email; bounded by the driver. */
+  /**
+   * Non-PII diagnostics only, never credential material or an account email; bounded by the driver.
+   */
   readonly detail?: string | undefined;
 }
 

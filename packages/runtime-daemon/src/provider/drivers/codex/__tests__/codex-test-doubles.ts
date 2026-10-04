@@ -21,7 +21,6 @@ import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
-import { type UserTurnReadbackReader } from "../../../transcript/failure-mapping.js";
 import {
   CodexDriver,
   CodexLifecycleManager,
@@ -523,12 +522,6 @@ export interface ManagerHarnessOptions {
   answerServerRequest?: CodexSessionServerRequestResponder;
   /** Overrides the untyped spawn config, so an account-bearing spawn can be built. */
   config?: Record<string, unknown>;
-  /**
-   * Binds the user-turn readback so the positional reconcile can run. Unbound by default, as in
-   * the production composition, so tests that do not name it exercise the unreadable settlement,
-   * which tears down and replays.
-   */
-  userTurnReadback?: UserTurnReadbackReader;
 }
 
 /**
@@ -599,9 +592,6 @@ export function createManagerHarness(options: ManagerHarnessOptions = {}): Manag
     ...(options.answerServerRequest === undefined
       ? {}
       : { answerServerRequest: options.answerServerRequest }),
-    ...(options.userTurnReadback === undefined
-      ? {}
-      : { userTurnReadback: options.userTurnReadback }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {

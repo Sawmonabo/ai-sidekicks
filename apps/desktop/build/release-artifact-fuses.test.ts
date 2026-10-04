@@ -154,7 +154,8 @@ function findFusePostureViolations(
     if (actualState !== requiredState) {
       violations.push(
         `${FuseV1Options[fuse] ?? String(fuse)}: required ${FuseState[requiredState] ?? "?"}, ` +
-          `artifact carries ${actualState === undefined ? "nothing" : (FuseState[actualState] ?? "?")}`,
+          `artifact carries ` +
+            `${actualState === undefined ? "nothing" : (FuseState[actualState] ?? "?")}`,
       );
     }
   }

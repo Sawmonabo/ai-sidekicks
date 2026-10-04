@@ -27,7 +27,9 @@ import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease
 const MEASURED_PANE_KIND = "terminal";
 
 /** Where the harness opens, with the pane kind and the session it binds to. */
-const HARNESS_ROUTE = `#/pane-harness/${MEASURED_PANE_KIND}/${encodeURIComponent(TERMINAL_LEASE_SCENARIO.sessionId)}`;
+const HARNESS_ROUTE =
+  `#/pane-harness/${MEASURED_PANE_KIND}/` +
+  `${encodeURIComponent(TERMINAL_LEASE_SCENARIO.sessionId)}`;
 
 /** The harness region, found by its accessible name. */
 const HARNESS_REGION_SELECTOR = `[aria-label="${PANE_HARNESS_LABEL}"]`;
@@ -108,11 +110,15 @@ export async function openPaneAndAwaitWebglReadiness(
   expect(
     readings.rendererModes.every((mode) => mode === "webgl"),
     `every instance must be drawing on a WebGL2 context for this row's subject to be whole; ` +
-      `the ${String(readings.mountPointCount)} mounted emulator(s) report [${readings.rendererModes.join(", ")}]. ` +
-      "A `dom` reading means this launch reached the renderer with no WebGL2. The launcher supplies " +
-      "a GPU-less host its own software GL stack (tests/helpers/launch-args.ts), so the question is " +
+      `the ${String(readings.mountPointCount)} mounted ` +
+      `emulator(s) report [${readings.rendererModes.join(", ")}]. ` +
+      "A `dom` reading means this launch reached the " +
+      "renderer with no WebGL2. The launcher supplies " +
+      "a GPU-less host its own software GL stack " +
+      "(tests/helpers/launch-args.ts), so the question is " +
       "whether those switches reached Chromium and were honored — read the GPU process's own " +
-      "`eglInitialize` lines with `--enable-logging=stderr`; it is the graphics stack that failed " +
+      "`eglInitialize` lines with `--enable-logging=stderr`; " +
+      "it is the graphics stack that failed " +
       "here and not the app.",
   ).toBe(true);
   expect(
@@ -162,7 +168,8 @@ export async function openHarnessOnDeliveredSession(appUnderTest: AppUnderTest):
   }
   expect(
     deliveredBeatCount,
-    "the scenario handle is not exposed by this build, so nothing drove content into the session the panes bind to",
+    "the scenario handle is not exposed by this build, so " +
+      "nothing drove content into the session the panes bind to",
   ).not.toBeNull();
   expect(Number(deliveredBeatCount)).toBe(TERMINAL_LEASE_SCENARIO.beats.length);
 
@@ -172,6 +179,7 @@ export async function openHarnessOnDeliveredSession(appUnderTest: AppUnderTest):
   );
   expect(
     Number(appliedEventCount),
-    "no event reached this window's session store, so the panes below would fold a lease off an empty log",
+    "no event reached this window's session store, so " +
+      "the panes below would fold a lease off an empty log",
   ).toBeGreaterThan(0);
 }

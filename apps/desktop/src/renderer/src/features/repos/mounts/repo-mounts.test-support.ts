@@ -25,7 +25,9 @@ import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 
-/** The presses one alert-dialog confirmation takes, read off `document` (the popup is portalled). */
+/**
+ * The presses one alert-dialog confirmation takes, read off `document` (the popup is portaled).
+ */
 export interface ConfirmationPresses {
   /** The card's own trigger, which the sent state disables. */
   readonly trigger: () => HTMLButtonElement | null;

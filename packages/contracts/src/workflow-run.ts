@@ -21,14 +21,8 @@ import {
 } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { UsdMicrosSchema } from "./session-cost.js";
-import {
-  EventCursorSchema,
-  SessionIdSchema,
-  UserIdSchema,
-  type EventCursor,
-  type SessionId,
-  type UserId,
-} from "./session.js";
+import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./session.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import {
   WorkflowItemSchema,
   WorkflowNodeIdSchema,
@@ -119,11 +113,12 @@ export const WorkflowRunModeSchema: z.ZodType<WorkflowRunMode, WorkflowRunMode> 
   z.enum(WORKFLOW_RUN_MODES);
 
 /**
- * Who or what started a run, as its row and its header name it. A chat start carries
- * the message it came from, so the run links back to that message.
+ * Who or what started a run, as its row and its header name it. A person's start records the
+ * device of the connection that made it, never a person; a chat start carries the message it
+ * came from, so the run links back to that message.
  */
 export type WorkflowStartedBy =
-  | { kind: "user"; userId: UserId }
+  | { kind: "user"; deviceId: DeviceId }
   | { kind: "schedule" }
   | { kind: "chat"; sessionId: SessionId; messageAnchorCursor?: EventCursor | undefined }
   | { kind: "agent"; agentId: AgentId }
@@ -132,7 +127,7 @@ export type WorkflowStartedBy =
   | { kind: "parentWorkflow"; parentWorkflowRunId: WorkflowRunId };
 /** Wire schema for {@link WorkflowStartedBy}. */
 export const WorkflowStartedBySchema: z.ZodType<WorkflowStartedBy> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), userId: UserIdSchema }).strict(),
+  z.object({ kind: z.literal("user"), deviceId: DeviceIdSchema }).strict(),
   z.object({ kind: z.literal("schedule") }).strict(),
   z
     .object({

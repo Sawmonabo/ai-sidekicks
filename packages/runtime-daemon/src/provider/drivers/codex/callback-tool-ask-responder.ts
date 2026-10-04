@@ -43,7 +43,9 @@ export function createCallbackToolAskResponder(
           // would misattribute the refusal. The reason still reaches the provider.
           return {
             decision: "refuse",
-            reason: `The daemon has no approval responder registered for "${request.method}"; refusing rather than answering without adjudication.`,
+            reason:
+              `The daemon has no approval responder registered for "${request.method}"; ` +
+              `refusing rather than answering without adjudication.`,
           };
         }
         return await approvalAskResponder.answer(request);
@@ -91,7 +93,11 @@ function readCallbackToolInvocation(
   // A well-formed call raised outside any active turn cannot be attributed; `runId` is required so
   // no invocation is adjudicated against an invented run.
   if (request.runId === null) {
-    return `The provider raised "${request.method}" with no turn active on the session, so the call cannot be attributed to a run; refusing rather than adjudicating it against an invented one.`;
+    return (
+      `The provider raised "${request.method}" with no turn active on the session, so the call ` +
+      `cannot be attributed to a run; refusing rather than adjudicating it against an invented ` +
+      `one.`
+    );
   }
   const params = isPlainObject(request.params) ? request.params : {};
   const parsedInvocation = CallbackToolInvocationSchema.safeParse({
@@ -102,7 +108,10 @@ function readCallbackToolInvocation(
     runId: request.runId,
   });
   if (!parsedInvocation.success) {
-    return `The provider's "${request.method}" params did not parse as a callback-tool invocation; refusing rather than dispatching a malformed call.`;
+    return (
+      `The provider's "${request.method}" params did not parse as a callback-tool invocation; ` +
+      `refusing rather than dispatching a malformed call.`
+    );
   }
   return parsedInvocation.data;
 }

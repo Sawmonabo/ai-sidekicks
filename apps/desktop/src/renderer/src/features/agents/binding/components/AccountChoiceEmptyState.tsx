@@ -21,7 +21,10 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
       <Nothing
         kind="not-checked"
         title="Choose a provider first."
-        detail="An account belongs to one provider, so which accounts may be pinned follows from the provider."
+        detail={
+          "An account belongs to one provider, so which accounts may be " +
+          "pinned follows from the provider."
+        }
       />
     );
   }
@@ -46,7 +49,10 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
       <Nothing
         kind="not-checked"
         title="No provider the account registry knows."
-        detail="Nothing is offered rather than another provider's accounts, which would pin a run to an account nobody chose for it."
+        detail={
+          "Nothing is offered rather than another provider's accounts, " +
+          "which would pin a run to an account nobody chose for it."
+        }
       />
     );
   }

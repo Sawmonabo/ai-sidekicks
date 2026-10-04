@@ -28,32 +28,38 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     });
   });
 
-  it("routes a run-addressed message to the steer intervention, with the read comparand", async () => {
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
-    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
+  it(
+    "routes a run-addressed message to the steer intervention, with " + "the read comparand",
+    async () => {
+      const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+      const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
-    expect(call).toHaveBeenCalledWith("run.intervene", {
-      type: "steer",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 7,
-      clientIdempotencyKey: PINNED_REQUEST_UUID,
-      content: "try the other branch",
-    });
-  });
+      expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
+      expect(call).toHaveBeenCalledWith("run.intervene", {
+        type: "steer",
+        targetRunId: RUN_ID,
+        expectedRunVersion: 7,
+        clientIdempotencyKey: PINNED_REQUEST_UUID,
+        content: "try the other branch",
+      });
+    },
+  );
 
-  it("refuses a steer whose run version has not been read, rather than sending a zero", async () => {
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).send("steer me", {
-      ...RUN_TARGET,
-      expectedRunVersion: undefined,
-    });
+  it(
+    "refuses a steer whose run version has not been read, rather " + "than sending a zero",
+    async () => {
+      const call = vi.fn().mockResolvedValue({});
+      const outcome = await routerWith(call).send("steer me", {
+        ...RUN_TARGET,
+        expectedRunVersion: undefined,
+      });
 
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
-    // Nothing reached the wire, so the refusal is not a send that also complained.
-    expect(call).not.toHaveBeenCalled();
-  });
+      expect(outcome.status).toBe("refused");
+      expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
+      // Nothing reached the wire, so the refusal is not a send that also complained.
+      expect(call).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("ComposerSendRouter — the slash prefix", () => {

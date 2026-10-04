@@ -48,7 +48,8 @@ export class ScrollFrameWrites {
     }
     if (this.#frameScheduler !== undefined) {
       throw new Error(
-        "ScrollFrameWrites: a second frame scheduler was adopted; one controller writes inside one frame",
+        "ScrollFrameWrites: a second frame scheduler was adopted; one " +
+          "controller writes inside one frame",
       );
     }
     this.#frameScheduler = frameScheduler;

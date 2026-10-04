@@ -224,7 +224,7 @@ const probePath: FilesystemPathProbeFn = (path) =>
 
 /** No case here binds; the service still needs a session-existence reader. */
 const KNOWN_SESSIONS: SessionExistenceReader = {
-  replay: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
+  rebuildSession: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
 };
 
 beforeEach(() => {

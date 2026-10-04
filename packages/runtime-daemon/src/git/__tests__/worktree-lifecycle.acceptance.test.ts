@@ -146,7 +146,8 @@ class FixtureRepository {
     const fsmonitorSentinelPath = join(hooksDirectory, "fsmonitor-sentinel");
     writeFileSync(
       fsmonitorSentinelPath,
-      `#!/bin/sh\n: > "${join(this.hookMarkerDirectory, FSMONITOR_SENTINEL_MARKER)}"\necho "/"\nexit 0\n`,
+      `#!/bin/sh\n: > "${join(this.hookMarkerDirectory, FSMONITOR_SENTINEL_MARKER)}"\necho ` +
+        `"/"\nexit 0\n`,
     );
     chmodSync(fsmonitorSentinelPath, 0o755);
     return fsmonitorSentinelPath;
@@ -399,125 +400,140 @@ function createWorktree(branchName: string, baseRef?: string) {
 }
 
 describe("provisioned-worktree mode on real git", () => {
-  it("provisions a real linked worktree on a branch cut from the mount HEAD, never the main checkout", async () => {
-    insertWorkspace("provisioned-worktree");
-    const mainCommit: string = await ctx.repository.git(["rev-parse", DEFAULT_BRANCH]);
-    // An ambient `GIT_OBJECT_DIRECTORY` naming nothing makes every git call exit 128 unless the
-    // runner strips it.
-    const poisonedObjectDirectory: string = join(ctx.fixtureRoot, "absent-object-directory");
-    let prepared: Awaited<ReturnType<typeof prepareWorktree>>;
-    try {
-      vi.stubEnv("GIT_OBJECT_DIRECTORY", poisonedObjectDirectory);
-      prepared = await prepareWorktree("feature/login");
-    } finally {
-      vi.unstubAllEnvs();
-    }
+  it(
+    "provisions a real linked worktree on a branch cut from the mount HEAD, never the main " +
+      "checkout",
+    async () => {
+      insertWorkspace("provisioned-worktree");
+      const mainCommit: string = await ctx.repository.git(["rev-parse", DEFAULT_BRANCH]);
+      // An ambient `GIT_OBJECT_DIRECTORY` naming nothing makes every git call exit 128 unless the
+      // runner strips it.
+      const poisonedObjectDirectory: string = join(ctx.fixtureRoot, "absent-object-directory");
+      let prepared: Awaited<ReturnType<typeof prepareWorktree>>;
+      try {
+        vi.stubEnv("GIT_OBJECT_DIRECTORY", poisonedObjectDirectory);
+        prepared = await prepareWorktree("feature/login");
+      } finally {
+        vi.unstubAllEnvs();
+      }
 
-    expect(prepared.executionMode).toBe("provisioned-worktree");
-    expect(prepared.executionRoot).toBe(
-      join(ctx.executionRootsDirectory, REPO_MOUNT_ID, "worktrees", prepared.worktreeId),
-    );
-    expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID)).toMatchObject({
-      fs_root: prepared.executionRoot,
-      state: "ready",
-    });
-    // Real git is the authority: the branch sits at the mount HEAD, checked out and populated in
-    // the new root, while the main checkout stays on its own branch.
-    expect(await ctx.repository.git(["rev-parse", "feature/login"])).toBe(mainCommit);
-    expect(
-      await ctx.repository.git(["symbolic-ref", "--short", "HEAD"], prepared.executionRoot),
-    ).toBe("feature/login");
-    expect(readFileSync(join(prepared.executionRoot, "README.md"), "utf8")).toBe(
-      "# fixture repository\n",
-    );
-    expect(await ctx.repository.git(["symbolic-ref", "HEAD"])).toBe(`refs/heads/${DEFAULT_BRANCH}`);
-    expect(existsSync(poisonedObjectDirectory)).toBe(false);
-  });
+      expect(prepared.executionMode).toBe("provisioned-worktree");
+      expect(prepared.executionRoot).toBe(
+        join(ctx.executionRootsDirectory, REPO_MOUNT_ID, "worktrees", prepared.worktreeId),
+      );
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID)).toMatchObject({
+        fs_root: prepared.executionRoot,
+        state: "ready",
+      });
+      // Real git is the authority: the branch sits at the mount HEAD, checked out and populated in
+      // the new root, while the main checkout stays on its own branch.
+      expect(await ctx.repository.git(["rev-parse", "feature/login"])).toBe(mainCommit);
+      expect(
+        await ctx.repository.git(["symbolic-ref", "--short", "HEAD"], prepared.executionRoot),
+      ).toBe("feature/login");
+      expect(readFileSync(join(prepared.executionRoot, "README.md"), "utf8")).toBe(
+        "# fixture repository\n",
+      );
+      expect(await ctx.repository.git(["symbolic-ref", "HEAD"])).toBe(
+        `refs/heads/${DEFAULT_BRANCH}`,
+      );
+      expect(existsSync(poisonedObjectDirectory)).toBe(false);
+    },
+  );
 
-  it("runs no repository hook, refuses to retire a busy worktree, and removes it only at cleanup", async () => {
-    await proveSentinelsAreArmed(ctx.repository);
-    insertWorkspace("provisioned-worktree");
-    const prepared = await prepareWorktree("feature/login");
-    writeFileSync(join(prepared.executionRoot, "scratch-notes.txt"), "work in progress\n");
-    const reuse = await ctx.worktrees.validateReuse({
-      worktreeId: prepared.worktreeId,
-      repoMountId: REPO_MOUNT_ID,
-      branchName: "feature/login",
-      acknowledgeDirtyCandidate: true,
-    });
-    expect(reuse.dirty).toBe(true);
-
-    // Retiring a root a running run holds would pull it out from under the run.
-    await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
-    expect(await captureRejection(() => ctx.worktrees.retire(prepared.worktreeId))).toBeInstanceOf(
-      WorktreeRetireConflictError,
-    );
-    ctx.workspaces.releaseBusy(WORKSPACE_ID);
-
-    await ctx.worktrees.retire(prepared.worktreeId);
-    expect(existsSync(prepared.executionRoot)).toBe(true);
-    expect(await ctx.worktrees.cleanupPass()).toMatchObject({
-      cleanedWorktreeIds: [prepared.worktreeId],
-    });
-    expect(existsSync(prepared.executionRoot)).toBe(false);
-    // `worktree prune` really ran: a stale registration would keep holding the branch.
-    expect(await ctx.repository.git(["worktree", "list", "--porcelain"])).not.toContain(
-      prepared.executionRoot,
-    );
-    expect(ctx.repository.firedHooks()).toEqual([]);
-  });
-
-  it("leaves no branch deleted, no root, no live row and the main checkout byte-identical on every refusal", async () => {
-    await ctx.repository.git(["branch", "release"]);
-    await ctx.repository.git(["branch", "feature/taken"]);
-    const live = await createWorktree("feature/live");
-    writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
-    insertWorkspace("provisioned-worktree");
-    const before = await snapshotMainCheckout(ctx.repository);
-
-    // `worktree add -b -D <path> release` would hand `-D` to git as an option and delete `release`.
-    const optionLikeName = await captureRejection(() => createWorktree("-D", "release"));
-    expect(optionLikeName).toBeInstanceOf(WorktreeCreateFailedError);
-    expect(optionLikeName).toMatchObject({ reason: "branch_name_invalid" });
-    // A branch git holds that no row knows of.
-    const takenInGit = await captureRejection(() => createWorktree("feature/taken"));
-    expect(takenInGit).toBeInstanceOf(WorktreeCreateFailedError);
-    expect(takenInGit).toMatchObject({ reason: "git_invocation_failed" });
-    // A dirty candidate needs acknowledgement, and no acknowledgement covers another branch.
-    const dirty = await captureRejection(() =>
-      ctx.worktrees.validateReuse({
-        worktreeId: live.worktreeId,
+  it(
+    "runs no repository hook, refuses to retire a " +
+      "busy worktree, and removes it only at cleanup",
+    async () => {
+      await proveSentinelsAreArmed(ctx.repository);
+      insertWorkspace("provisioned-worktree");
+      const prepared = await prepareWorktree("feature/login");
+      writeFileSync(join(prepared.executionRoot, "scratch-notes.txt"), "work in progress\n");
+      const reuse = await ctx.worktrees.validateReuse({
+        worktreeId: prepared.worktreeId,
         repoMountId: REPO_MOUNT_ID,
-        branchName: "feature/live",
-      }),
-    );
-    expect(dirty).toBeInstanceOf(WorktreeReuseConflictError);
-    expect(dirty).toMatchObject({ reason: "dirty_unacknowledged" });
-    expect(
-      await captureRejection(() =>
+        branchName: "feature/login",
+        acknowledgeDirtyCandidate: true,
+      });
+      expect(reuse.dirty).toBe(true);
+
+      // Retiring a root a running run holds would pull it out from under the run.
+      await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
+      expect(
+        await captureRejection(() => ctx.worktrees.retire(prepared.worktreeId)),
+      ).toBeInstanceOf(WorktreeRetireConflictError);
+      ctx.workspaces.releaseBusy(WORKSPACE_ID);
+
+      await ctx.worktrees.retire(prepared.worktreeId);
+      expect(existsSync(prepared.executionRoot)).toBe(true);
+      expect(await ctx.worktrees.cleanupPass()).toMatchObject({
+        cleanedWorktreeIds: [prepared.worktreeId],
+      });
+      expect(existsSync(prepared.executionRoot)).toBe(false);
+      // `worktree prune` really ran: a stale registration would keep holding the branch.
+      expect(await ctx.repository.git(["worktree", "list", "--porcelain"])).not.toContain(
+        prepared.executionRoot,
+      );
+      expect(ctx.repository.firedHooks()).toEqual([]);
+    },
+  );
+
+  it(
+    "leaves no branch deleted, no root, no live row and the main checkout byte-identical on " +
+      "every refusal",
+    async () => {
+      await ctx.repository.git(["branch", "release"]);
+      await ctx.repository.git(["branch", "feature/taken"]);
+      const live = await createWorktree("feature/live");
+      writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
+      insertWorkspace("provisioned-worktree");
+      const before = await snapshotMainCheckout(ctx.repository);
+
+      // `worktree add -b -D <path> release` would hand `-D` to git as an option and delete
+      // `release`.
+      const optionLikeName = await captureRejection(() => createWorktree("-D", "release"));
+      expect(optionLikeName).toBeInstanceOf(WorktreeCreateFailedError);
+      expect(optionLikeName).toMatchObject({ reason: "branch_name_invalid" });
+      // A branch git holds that no row knows of.
+      const takenInGit = await captureRejection(() => createWorktree("feature/taken"));
+      expect(takenInGit).toBeInstanceOf(WorktreeCreateFailedError);
+      expect(takenInGit).toMatchObject({ reason: "git_invocation_failed" });
+      // A dirty candidate needs acknowledgement, and no acknowledgement covers another branch.
+      const dirty = await captureRejection(() =>
         ctx.worktrees.validateReuse({
           worktreeId: live.worktreeId,
           repoMountId: REPO_MOUNT_ID,
-          branchName: "feature/other",
-          acknowledgeDirtyCandidate: true,
+          branchName: "feature/live",
         }),
-      ),
-    ).toMatchObject({ reason: "branch_mismatch" });
-    // A failed provision blocks the run and parks the workspace; it never falls back to a root.
-    expect(await captureRejection(() => prepare("feature/taken"))).toBeInstanceOf(
-      WorktreeCreateFailedError,
-    );
-    expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
+      );
+      expect(dirty).toBeInstanceOf(WorktreeReuseConflictError);
+      expect(dirty).toMatchObject({ reason: "dirty_unacknowledged" });
+      expect(
+        await captureRejection(() =>
+          ctx.worktrees.validateReuse({
+            worktreeId: live.worktreeId,
+            repoMountId: REPO_MOUNT_ID,
+            branchName: "feature/other",
+            acknowledgeDirtyCandidate: true,
+          }),
+        ),
+      ).toMatchObject({ reason: "branch_mismatch" });
+      // A failed provision blocks the run and parks the workspace; it never falls back to a root.
+      expect(await captureRejection(() => prepare("feature/taken"))).toBeInstanceOf(
+        WorktreeCreateFailedError,
+      );
+      expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
 
-    expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
-    const rows = readWorktreeRows();
-    expect(rows.filter((row) => row.state !== "failed").map((row) => row.fs_root)).toEqual([
-      live.fsRoot,
-    ]);
-    for (const failedRow of rows.filter((row) => row.state === "failed")) {
-      expect(existsSync(failedRow.fs_root)).toBe(false);
-    }
-  });
+      expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
+      const rows = readWorktreeRows();
+      expect(rows.filter((row) => row.state !== "failed").map((row) => row.fs_root)).toEqual([
+        live.fsRoot,
+      ]);
+      for (const failedRow of rows.filter((row) => row.state === "failed")) {
+        expect(existsSync(failedRow.fs_root)).toBe(false);
+      }
+    },
+  );
 
   it("reuses a worktree only when named, rebinding the same root and branch context", async () => {
     insertWorkspace("provisioned-worktree");
@@ -539,23 +555,26 @@ describe("provisioned-worktree mode on real git", () => {
 });
 
 describe("bound-root mode on real git", () => {
-  it("binds the main checkout without moving a byte, and refuses it once HEAD is detached", async () => {
-    insertWorkspace("bound-root");
-    const before = await snapshotMainCheckout(ctx.repository);
+  it(
+    "binds the main checkout without moving a " + "byte, and refuses it once HEAD is detached",
+    async () => {
+      insertWorkspace("bound-root");
+      const before = await snapshotMainCheckout(ctx.repository);
 
-    const prepared = await prepare(DEFAULT_BRANCH);
+      const prepared = await prepare(DEFAULT_BRANCH);
 
-    expect(prepared.executionMode).toBe("bound-root");
-    expect(prepared.executionRoot).toBe(ctx.repository.root);
-    expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
+      expect(prepared.executionMode).toBe("bound-root");
+      expect(prepared.executionRoot).toBe(ctx.repository.root);
+      expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
 
-    // A detached HEAD makes `symbolic-ref --quiet` exit 1; read as a mismatch, the bind refuses
-    // rather than letting a run commit onto no branch.
-    await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-    const detached = await snapshotMainCheckout(ctx.repository);
-    const rejection = await captureRejection(() => prepare(DEFAULT_BRANCH));
-    expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
-    expect(rejection).toMatchObject({ currentBranchName: "(detached HEAD)" });
-    expect(await snapshotMainCheckout(ctx.repository)).toEqual(detached);
-  });
+      // A detached HEAD makes `symbolic-ref --quiet` exit 1; read as a mismatch, the bind refuses
+      // rather than letting a run commit onto no branch.
+      await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
+      const detached = await snapshotMainCheckout(ctx.repository);
+      const rejection = await captureRejection(() => prepare(DEFAULT_BRANCH));
+      expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
+      expect(rejection).toMatchObject({ currentBranchName: "(detached HEAD)" });
+      expect(await snapshotMainCheckout(ctx.repository)).toEqual(detached);
+    },
+  );
 });

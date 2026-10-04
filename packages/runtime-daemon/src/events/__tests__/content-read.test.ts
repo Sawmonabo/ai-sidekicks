@@ -34,16 +34,19 @@ describe("hydrateStoredEvent", () => {
     });
   });
 
-  it("returns a text body with the stored length and truncation marker, not recomputed ones", () => {
-    expect(
-      hydrateStoredEvent({ envelope: STORED_ENVELOPE, contentPayload: "first part" }).content,
-    ).toStrictEqual({
-      status: "available",
-      body: "first part",
-      contentLength: 120_000,
-      contentTruncated: true,
-    });
-  });
+  it(
+    "returns a text body with the stored length " + "and truncation marker, not recomputed ones",
+    () => {
+      expect(
+        hydrateStoredEvent({ envelope: STORED_ENVELOPE, contentPayload: "first part" }).content,
+      ).toStrictEqual({
+        status: "available",
+        body: "first part",
+        contentLength: 120_000,
+        contentTruncated: true,
+      });
+    },
+  );
 
   it("refuses a column that holds something other than text", () => {
     expect(() =>

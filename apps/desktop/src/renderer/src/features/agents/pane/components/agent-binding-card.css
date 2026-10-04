@@ -38,7 +38,6 @@
   margin-inline-start: auto;
 }
 
-.meridian-agent-card__observed-reason,
 .meridian-agent-card__axis-absent {
   color: var(--meridian-text-muted);
 }
@@ -50,7 +49,6 @@
 }
 
 .meridian-agent-card__effective,
-.meridian-agent-card__observed,
 .meridian-agent-card__tool-allowlist {
   margin: 0;
   font-size: var(--meridian-text-sm);

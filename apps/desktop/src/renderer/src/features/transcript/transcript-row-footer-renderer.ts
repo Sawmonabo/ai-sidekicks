@@ -26,7 +26,8 @@ export type TranscriptRowFooterRenderer = (
 
 const transcriptRowFooterRegistry = new SingleEntryRegistry<TranscriptRowFooterRenderer>(
   "transcript row footer",
-  "a user message carries one set of actions after Copy; a second owner would make which one renders depend on import order",
+  "a user message carries one set of actions after Copy; a second " +
+    "owner would make which one renders depend on import order",
 );
 
 /**

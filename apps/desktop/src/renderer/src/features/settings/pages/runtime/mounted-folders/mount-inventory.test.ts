@@ -185,17 +185,20 @@ describe("what refreshes the inventory", () => {
     read.dispose();
   });
 
-  it("re-reads when a workspace lifecycle event changes which mounts this session names", async () => {
-    const sessionStore = initializedStore(SESSION_ID);
-    const { clock, read, listCallCount } = await startedRead(sessionStore);
+  it(
+    "re-reads when a workspace lifecycle event changes which mounts " + "this session names",
+    async () => {
+      const sessionStore = initializedStore(SESSION_ID);
+      const { clock, read, listCallCount } = await startedRead(sessionStore);
 
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.ready", 1));
-    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-    await settle();
+      sessionStore.apply(eventOfKind(sessionStore.sessionId, "workspace.ready", 1));
+      clock.advance(PAST_REFRESH_DEBOUNCE_MS);
+      await settle();
 
-    expect(listCallCount()).toBe(2);
-    read.dispose();
-  });
+      expect(listCallCount()).toBe(2);
+      read.dispose();
+    },
+  );
 
   it("costs one re-read for a burst, never one per event", async () => {
     // Counted, not assumed: three mount-affecting events inside one window are one

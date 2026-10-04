@@ -66,19 +66,22 @@ describe("CodexDriver process ownership", () => {
     expect(harness.server.framesForMethod("initialize")).toHaveLength(1);
   });
 
-  it("tears the process down on close, even when the provider refuses the unsubscribe", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("thread/unsubscribe", () => ({
-      error: { code: -32600, message: "thread not found" },
-    }));
+  it(
+    "tears the process down on close, even " + "when the provider refuses the unsubscribe",
+    async () => {
+      const harness = createHarness();
+      await createdSession(harness);
+      harness.server.on("thread/unsubscribe", () => ({
+        error: { code: -32600, message: "thread not found" },
+      }));
 
-    await expect(harness.driver.closeSession({ sessionId: SESSION_ID })).resolves.toBeUndefined();
-    expect(harness.server.framesForMethod("thread/unsubscribe")[0]?.["params"]).toEqual({
-      threadId: THREAD_ID,
-    });
-    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-  });
+      await expect(harness.driver.closeSession({ sessionId: SESSION_ID })).resolves.toBeUndefined();
+      expect(harness.server.framesForMethod("thread/unsubscribe")[0]?.["params"]).toEqual({
+        threadId: THREAD_ID,
+      });
+      expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+    },
+  );
 
   it("refuses a second createSession for a live session, spawning nothing", async () => {
     const harness = createHarness();
@@ -223,31 +226,34 @@ describe("CodexDriver resumeSession", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("fails a superseded leg's unsettled frame as a supersede, never as a swallowed turn", async () => {
-    // The resume replaces the binding the frame was written on, so no terminal for it can arrive,
-    // and a dropped frame would look like a run whose words landed.
-    const harness = createHarness();
-    await createdSession(harness);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
-    });
+  it(
+    "fails a superseded leg's unsettled frame " + "as a supersede, never as a swallowed turn",
+    async () => {
+      // The resume replaces the binding the frame was written on, so no terminal for it can arrive,
+      // and a dropped frame would look like a run whose words landed.
+      const harness = createHarness();
+      await createdSession(harness);
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+      });
 
-    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession(RESUME_PARAMS);
+      harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+      harness.server.on("thread/resume", () => threadStartResult(2));
+      await harness.driver.resumeSession(RESUME_PARAMS);
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
-    // The swallow code has a parseable form consumers act on; borrowing it would report a swallow
-    // nobody observed.
-    expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
-    expect(detail).toContain("superseded");
-    // The user's own words are never quoted into the detail.
-    expect(detail).not.toContain("rebase");
-  });
+      expect(harness.textNeutralizationFailures).toHaveLength(1);
+      expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+      const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
+      // The swallow code has a parseable form consumers act on; borrowing it would report a swallow
+      // nobody observed.
+      expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+      expect(detail).toContain("superseded");
+      // The user's own words are never quoted into the detail.
+      expect(detail).not.toContain("rebase");
+    },
+  );
 });
 
 describe("CodexLifecycleManager session slot", () => {
@@ -268,23 +274,26 @@ describe("CodexLifecycleManager session slot", () => {
     expect(harness.server.spawnRequests).toHaveLength(1);
   });
 
-  it("serializes a burst of resumes issued in one tick, releasing every superseded process", async () => {
-    const harness = createManagerHarness();
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("thread/resume", () => threadStartResult(1));
+  it(
+    "serializes a burst of resumes issued in " + "one tick, releasing every superseded process",
+    async () => {
+      const harness = createManagerHarness();
+      harness.server.uniqueSpawnSessionIds = true;
+      harness.server.on("thread/resume", () => threadStartResult(1));
 
-    // Three, not two: two waiters released by one settlement could both find the slot free, and
-    // the later install would orphan the earlier process.
-    const results = await Promise.all([
-      harness.manager.resumeSession(RESUME_PARAMS),
-      harness.manager.resumeSession(RESUME_PARAMS),
-      harness.manager.resumeSession(RESUME_PARAMS),
-    ]);
+      // Three, not two: two waiters released by one settlement could both find the slot free, and
+      // the later install would orphan the earlier process.
+      const results = await Promise.all([
+        harness.manager.resumeSession(RESUME_PARAMS),
+        harness.manager.resumeSession(RESUME_PARAMS),
+        harness.manager.resumeSession(RESUME_PARAMS),
+      ]);
 
-    expect(results.map((result) => result.status)).toEqual(["resumed", "resumed", "resumed"]);
-    expect(harness.server.spawnRequests).toHaveLength(3);
-    expect(harness.server.closedSessions).toEqual(["pty-session-1", "pty-session-2"]);
-  });
+      expect(results.map((result) => result.status)).toEqual(["resumed", "resumed", "resumed"]);
+      expect(harness.server.spawnRequests).toHaveLength(3);
+      expect(harness.server.closedSessions).toEqual(["pty-session-1", "pty-session-2"]);
+    },
+  );
 
   it("makes closeSession wait for an in-flight establishment instead of no-opping", async () => {
     const harness = createManagerHarness();
@@ -360,39 +369,42 @@ describe("CodexLifecycleManager session slot", () => {
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
   });
 
-  it("kills the connection when a turn is accepted after a failed resume took the slot", async () => {
-    // A failed resume releases only its own new connection, so the accepted turn would keep
-    // executing tools on a process nobody else is going to stop.
-    const harness = createManagerHarness();
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.on("thread/resume", () => ({
-      error: { code: -32000, message: "no such thread" },
-    }));
-    let resuming: Promise<unknown> | undefined;
-    let releaseSpawns: (() => void) | undefined;
-    harness.server.on("turn/start", () => {
-      releaseSpawns = harness.server.holdSpawns();
-      resuming = harness.manager.resumeSession(RESUME_PARAMS);
-      return { result: { turn: { id: TURN_ID } } };
-    });
-    await harness.manager.createSession(CREATE_PARAMS);
+  it(
+    "kills the connection when a turn is " + "accepted after a failed resume took the slot",
+    async () => {
+      // A failed resume releases only its own new connection, so the accepted turn would keep
+      // executing tools on a process nobody else is going to stop.
+      const harness = createManagerHarness();
+      harness.server.uniqueSpawnSessionIds = true;
+      harness.server.on("thread/resume", () => ({
+        error: { code: -32000, message: "no such thread" },
+      }));
+      let resuming: Promise<unknown> | undefined;
+      let releaseSpawns: (() => void) | undefined;
+      harness.server.on("turn/start", () => {
+        releaseSpawns = harness.server.holdSpawns();
+        resuming = harness.manager.resumeSession(RESUME_PARAMS);
+        return { result: { turn: { id: TURN_ID } } };
+      });
+      await harness.manager.createSession(CREATE_PARAMS);
 
-    const starting = harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
-    // Parks the resume inside its spawn so the answer lands while the transition is in flight.
-    await drainMicrotasks();
-    releaseSpawns?.();
-    const outcome = await captureRejection(starting);
+      const starting = harness.manager.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      // Parks the resume inside its spawn so the answer lands while the transition is in flight.
+      await drainMicrotasks();
+      releaseSpawns?.();
+      const outcome = await captureRejection(starting);
 
-    expect(await resuming).toMatchObject({ status: "failed" });
-    expect(outcome).toBeInstanceOf(CodexTransportError);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-    expect(harness.server.killedSessions).toEqual([
-      { sessionId: "pty-session-1", signal: "SIGKILL" },
-    ]);
-  });
+      expect(await resuming).toMatchObject({ status: "failed" });
+      expect(outcome).toBeInstanceOf(CodexTransportError);
+      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+      expect(harness.server.killedSessions).toEqual([
+        { sessionId: "pty-session-1", signal: "SIGKILL" },
+      ]);
+    },
+  );
 });
 
 describe("CodexDriver approval reviewer pinning", () => {
@@ -424,27 +436,30 @@ describe("CodexDriver approval reviewer pinning", () => {
 });
 
 describe("Codex auth status", () => {
-  it("never asks the provider to refresh or for the token, on the probe or on a failed resume", async () => {
-    // The providers rotate refresh tokens single-use with no grace window, so a refreshing read
-    // would end the login it checks. Both members are sent explicitly: omitted, the provider's
-    // default decides.
-    const probing = createManagerHarness();
-    await probing.manager.probeAuth();
-    const resuming = createHarness();
-    resuming.server.on("thread/resume", () => ({
-      error: { code: -32600, message: "thread not found" },
-    }));
-    await resuming.driver.resumeSession(RESUME_PARAMS);
+  it(
+    "never asks the provider to refresh or for " + "the token, on the probe or on a failed resume",
+    async () => {
+      // The providers rotate refresh tokens single-use with no grace window, so a refreshing read
+      // would end the login it checks. Both members are sent explicitly: omitted, the provider's
+      // default decides.
+      const probing = createManagerHarness();
+      await probing.manager.probeAuth();
+      const resuming = createHarness();
+      resuming.server.on("thread/resume", () => ({
+        error: { code: -32600, message: "thread not found" },
+      }));
+      await resuming.driver.resumeSession(RESUME_PARAMS);
 
-    for (const harness of [probing, resuming]) {
-      expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
-        includeToken: false,
-        refreshToken: false,
-      });
-    }
-    // The probe's child is released like any other.
-    expect(probing.server.closedSessions).toEqual(["pty-session-1"]);
-  });
+      for (const harness of [probing, resuming]) {
+        expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
+          includeToken: false,
+          refreshToken: false,
+        });
+      }
+      // The probe's child is released like any other.
+      expect(probing.server.closedSessions).toEqual(["pty-session-1"]);
+    },
+  );
 
   const probeAnswers: ReadonlyArray<readonly [string, string, JsonRpcAnswer]> = [
     [
@@ -472,19 +487,22 @@ describe("Codex auth status", () => {
     },
   );
 
-  it("reports reauth-required when the provider refusing a resume resolves no auth method", async () => {
-    // An expired credential must not be reported as "reconcile this by hand".
-    const harness = createHarness();
-    harness.server.on("thread/resume", () => ({
-      error: { code: -32600, message: "thread not found" },
-    }));
-    harness.server.on("getAuthStatus", () => ({ result: { authMethod: null } }));
+  it(
+    "reports reauth-required when the provider " + "refusing a resume resolves no auth method",
+    async () => {
+      // An expired credential must not be reported as "reconcile this by hand".
+      const harness = createHarness();
+      harness.server.on("thread/resume", () => ({
+        error: { code: -32600, message: "thread not found" },
+      }));
+      harness.server.on("getAuthStatus", () => ({ result: { authMethod: null } }));
 
-    await expect(harness.driver.resumeSession(RESUME_PARAMS)).resolves.toMatchObject({
-      status: "failed",
-      recoveryCondition: "reauth-required",
-    });
-  });
+      await expect(harness.driver.resumeSession(RESUME_PARAMS)).resolves.toMatchObject({
+        status: "failed",
+        recoveryCondition: "reauth-required",
+      });
+    },
+  );
 });
 
 describe("normalizeProviderFailureDetail", () => {

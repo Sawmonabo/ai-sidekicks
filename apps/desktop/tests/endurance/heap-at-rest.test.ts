@@ -50,7 +50,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app at rest with one session 
       const deliveredBeatCount = await deliverWholeScenario(appUnderTest);
       expect(
         deliveredBeatCount,
-        "the scenario handle is not exposed by this build, so nothing drove content into the session being measured",
+        "the scenario handle is not exposed by this build, so " +
+          "nothing drove content into the session being measured",
       ).not.toBeNull();
       expect(Number(deliveredBeatCount)).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
       await expectConcurrentStreamingSessionCarriesContent(appUnderTest);
@@ -83,7 +84,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app at rest with one session 
 
       expect(
         verdict.withinBudget,
-        `${budget.label}: ${String(atRestHeapBytes)} B against a ${String(budget.limit.canonicalValue)} B ceiling`,
+        `${budget.label}: ${String(atRestHeapBytes)} B against ` +
+          `a ${String(budget.limit.canonicalValue)} B ceiling`,
       ).toBe(true);
     });
   });

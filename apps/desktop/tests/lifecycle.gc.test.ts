@@ -38,8 +38,10 @@ describe("BrowserWindow lifecycle reachability", () => {
             `smoke bundle not built, --js-flags=--expose-gc not forwarded). A genuine ` +
             `BrowserWindow lifecycle regression is also possible — check the ` +
             `Electron version and the BaseWindow::self_ref_ semantics if so.\n` +
-            `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
-            `--- tagged lines that did not parse ---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
+            `Exit code: ${String(result.exitCode)}, signal: ` +
+            `${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
+            `--- tagged lines that did not parse ` +
+            `---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
             `--- stdout ---\n${result.stdout}\n` +
             `--- stderr ---\n${result.stderr}\n`,
         );
@@ -51,11 +53,13 @@ describe("BrowserWindow lifecycle reachability", () => {
       // misconfigured and the count signal below is unreliable.
       expect(
         probe.queryObjectsAvailable,
-        "v8.queryObjects is not a function — test harness setup is broken; results below are unreliable",
+        "v8.queryObjects is not a function — test harness " +
+          "setup is broken; results below are unreliable",
       ).toBe(true);
       expect(
         probe.globalGcAvailable,
-        "globalThis.gc is not a function — `--js-flags=--expose-gc` did not reach Electron; GC pressure cycles are no-ops and counts below are non-deterministic",
+        "globalThis.gc is not a function — `--js-flags=--expose-gc` did not reach " +
+          "Electron; GC pressure cycles are no-ops and counts below are non-deterministic",
       ).toBe(true);
       expect(probe.iterations).toBeGreaterThan(0);
       expect(probe.counts.length).toBe(probe.iterations);
@@ -66,8 +70,10 @@ describe("BrowserWindow lifecycle reachability", () => {
       // instance gone and that match remaining.
       expect(
         probe.max - probe.min,
-        `Probe saw queryObjects(BrowserWindow) drift across the loop (counts: ${JSON.stringify(probe.counts)}). ` +
-          `A reachable window's count must hold across GC pressure — the proximate cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
+        `Probe saw queryObjects(BrowserWindow) drift across ` +
+          `the loop (counts: ${JSON.stringify(probe.counts)}). ` +
+          `A reachable window's count must hold across GC pressure — the proximate ` +
+          `cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
       ).toBe(0);
       expect(
         probe.windowsOpened,
@@ -75,8 +81,10 @@ describe("BrowserWindow lifecycle reachability", () => {
       ).toBeGreaterThanOrEqual(1);
       expect(
         probe.openCount - probe.closedCount,
-        `Closing ${String(probe.windowsOpened)} window(s) moved queryObjects(BrowserWindow) ${String(probe.openCount)} → ${String(probe.closedCount)}. ` +
-          `Each open window holds exactly one reachable instance that the close releases; a smaller delta means the count was carried by something other than the instance.`,
+        `Closing ${String(probe.windowsOpened)} window(s) moved queryObjects(BrowserWindow) ` +
+          `${String(probe.openCount)} → ${String(probe.closedCount)}. ` +
+          `Each open window holds exactly one reachable instance that the close releases; a ` +
+          `smaller delta means the count was carried by something other than the instance.`,
       ).toBeGreaterThanOrEqual(probe.windowsOpened);
 
       // Shape B: `window-all-closed` must not fire during the loop. `self_ref_` strong-roots the
@@ -85,7 +93,8 @@ describe("BrowserWindow lifecycle reachability", () => {
       expect(
         probe.allClosedFired,
         `Probe-scoped listener observed window-all-closed firing during the iteration loop. ` +
-          `This should not be possible while a user-created window is intended to be reachable — the BrowserWindow lifecycle invariant broke.`,
+          `This should not be possible while a user-created window is intended ` +
+          `to be reachable — the BrowserWindow lifecycle invariant broke.`,
       ).toBe(false);
 
       // The probe exits via `app.exit(0)`; anything else means something outside the above broke.

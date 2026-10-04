@@ -364,34 +364,37 @@ describe("LocalIpcGateway", () => {
     }
   });
 
-  it("answers a frame over the size cap, closes only that connection, and keeps listening", async () => {
-    const client = await connect(socketPath);
-    const closed = new Promise<void>((resolve) => {
-      client.socket.once("close", () => {
-        resolve();
+  it(
+    "answers a frame over the size cap, closes " + "only that connection, and keeps listening",
+    async () => {
+      const client = await connect(socketPath);
+      const closed = new Promise<void>((resolve) => {
+        client.socket.once("close", () => {
+          resolve();
+        });
       });
-    });
-    // The declared length alone trips the cap, so the body is never sent.
-    client.socket.write(`Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n`);
-    expect(await client.replies(1)).toEqual([
-      expect.objectContaining({
-        id: null,
-        error: expect.objectContaining({
-          code: JsonRpcErrorCode.InvalidRequest,
-          data: expect.objectContaining({ type: "transport.message_too_large" }),
+      // The declared length alone trips the cap, so the body is never sent.
+      client.socket.write(`Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n`);
+      expect(await client.replies(1)).toEqual([
+        expect.objectContaining({
+          id: null,
+          error: expect.objectContaining({
+            code: JsonRpcErrorCode.InvalidRequest,
+            data: expect.objectContaining({ type: "transport.message_too_large" }),
+          }),
         }),
-      }),
-    ]);
-    await closed;
+      ]);
+      await closed;
 
-    const next = await connect(socketPath);
-    try {
-      next.send(validRequest);
-      expect(await next.replies(1)).toEqual([validReply]);
-    } finally {
-      await next.close();
-    }
-  });
+      const next = await connect(socketPath);
+      try {
+        next.send(validRequest);
+        expect(await next.replies(1)).toEqual([validReply]);
+      } finally {
+        await next.close();
+      }
+    },
+  );
 
   it("replies to a handler failure without its paths or stack frames", async () => {
     const client = await connect(socketPath);

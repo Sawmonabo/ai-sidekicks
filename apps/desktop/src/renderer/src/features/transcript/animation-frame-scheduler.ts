@@ -71,7 +71,8 @@ export class AnimationFrameScheduler {
 
   public constructor(options: AnimationFrameSchedulerOptions) {
     this.#clock = options.clock;
-    this.#schedulerId = `${FRAME_TIME_METER_LABEL}#${String(AnimationFrameScheduler.#nextSchedulerOrdinal)}`;
+    this.#schedulerId =
+      `${FRAME_TIME_METER_LABEL}#` + String(AnimationFrameScheduler.#nextSchedulerOrdinal);
     AnimationFrameScheduler.#nextSchedulerOrdinal += 1;
   }
 
@@ -236,7 +237,9 @@ export class AnimationFrameScheduler {
       this.#diagnosticEmitter.emit({
         phase,
         taskKey,
-        detail: `frame task threw and was quarantined; the phase finished: ${lossyStringify(frameTaskFailure)}`,
+        detail:
+          "frame task threw and was quarantined; the phase " +
+          `finished: ${lossyStringify(frameTaskFailure)}`,
       });
     }
   }

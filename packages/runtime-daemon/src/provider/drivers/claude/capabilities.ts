@@ -112,7 +112,8 @@ export class ClaudeCapabilityReporter {
     // A reading from another driver's build is a daemon wiring fault, not provider misbehavior.
     if (reading.driverName !== CLAUDE_DRIVER_NAME) {
       throw new Error(
-        `ClaudeCapabilityReporter: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+        `ClaudeCapabilityReporter: refusing a spawned-version reading taken from driver '` +
+          `${reading.driverName}'`,
       );
     }
     const cliVersion: DriverCliVersionReport = reading.report;

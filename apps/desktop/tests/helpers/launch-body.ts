@@ -82,10 +82,14 @@ export class BodyAllowance {
       return error;
     }
     return new Error(
-      `${TEST_BODY_PHASE} did not settle within the ${String(this.#allowanceMs)} ms allowance the ` +
-        "harness reserves for it — the tier's own timeout is that allowance plus the launch budget " +
-        "and a settlement residual, so this sentence and the close that follows it both reach you " +
-        "rather than vitest killing the test mid-body and leaving an Electron alive; a tier whose " +
+      `${TEST_BODY_PHASE} did not settle within the ` +
+        `${String(this.#allowanceMs)} ms allowance the ` +
+        "harness reserves for it — the tier's own " +
+        "timeout is that allowance plus the launch budget " +
+        "and a settlement residual, so this sentence " +
+        "and the close that follows it both reach you " +
+        "rather than vitest killing the test mid-body " +
+        "and leaving an Electron alive; a tier whose " +
         "body needs longer states its own allowance (tests/helpers/launch-budgets.ts)",
       { cause: error },
     );

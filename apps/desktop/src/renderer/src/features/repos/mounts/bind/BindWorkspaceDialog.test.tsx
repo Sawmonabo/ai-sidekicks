@@ -71,7 +71,7 @@ interface OpenDialog {
   readonly container: HTMLElement;
 }
 
-/** The picker's rows, off the document because the popup is portalled out of the card. */
+/** The picker's rows, off the document because the popup is portaled out of the card. */
 function modeRadios(): readonly HTMLInputElement[] {
   return [...document.querySelectorAll<HTMLInputElement>(".meridian-bind__modes input")];
 }
@@ -168,18 +168,21 @@ describe("the bind dialog — the mount's own default survives a close", () => {
 });
 
 describe("the bind dialog — a capabilities refresh that withdraws the chosen mode", () => {
-  it("clears the selection and shuts the control rather than sending an excluded mode", async () => {
-    const open = await openDialog(EVERY_MODE);
-    fireEvent.click(radioFor("bound-root"));
-    expect(radioFor("bound-root").checked).toBe(true);
-    expect(bindButton().disabled).toBe(false);
+  it(
+    "clears the selection and shuts the control rather than sending " + "an excluded mode",
+    async () => {
+      const open = await openDialog(EVERY_MODE);
+      fireEvent.click(radioFor("bound-root"));
+      expect(radioFor("bound-root").checked).toBe(true);
+      expect(bindButton().disabled).toBe(false);
 
-    await refreshCapabilitiesTo(open, BOUND_ROOT_WITHDRAWN, "bound-root", 1);
+      await refreshCapabilitiesTo(open, BOUND_ROOT_WITHDRAWN, "bound-root", 1);
 
-    // The row went disabled with the mount's reason beside it while the form-only verdict
-    // stayed sendable, so Bind would have sent exactly that mode.
-    expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
-    expect(bindButton().disabled).toBe(true);
-    expect(blockedSentence()).toContain("no longer one this mount admits");
-  });
+      // The row went disabled with the mount's reason beside it while the form-only verdict
+      // stayed sendable, so Bind would have sent exactly that mode.
+      expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
+      expect(bindButton().disabled).toBe(true);
+      expect(blockedSentence()).toContain("no longer one this mount admits");
+    },
+  );
 });

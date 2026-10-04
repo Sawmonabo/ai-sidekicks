@@ -119,7 +119,11 @@ function renderPanelBody(
         kind="empty"
         placement="block"
         title="No artifacts of the type this filter is set to."
-        detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
+        detail={
+          `This session holds ${formatCount(props.state.rows.length)} of ` +
+          "other types. Every type is on the filter above with its own " +
+          "count."
+        }
         // The type is a wire word, so it renders through `WireFigure`, not prose.
         action={<WireFigure value={typeFilter} />}
       />

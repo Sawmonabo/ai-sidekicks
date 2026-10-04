@@ -163,26 +163,29 @@ function emptyTally(): ChurnTally {
 }
 
 describe("read abandonment under churn — a closed pane pays for nothing", () => {
-  it("projects nothing and leaves nothing armed across hundreds of close-mid-read cycles", async () => {
-    const clock = new ManualClock(0);
-    const tally = emptyTally();
+  it(
+    "projects nothing and leaves nothing armed " + "across hundreds of close-mid-read cycles",
+    async () => {
+      const clock = new ManualClock(0);
+      const tally = emptyTally();
 
-    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-      await runOneCycle(clock, tally, true);
-    }
+      for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
+        await runOneCycle(clock, tally, true);
+      }
 
-    expect(tally.projections).toBe(0);
-    // Every read reached `callDaemon` and was answered by the departure, not a parse. A single
-    // `reply-unreadable` would mean a reply was read after its owner had gone.
-    expect(tally.callAnswers).toHaveLength(CHURN_CYCLES);
-    expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["read-abandoned"]));
-    // No model reached a rendering state, `failed` included: an abandoned read has no failure
-    // to report and no view left to report it to.
-    expect(tally.settlements).toBe(0);
-    // Each cycle checked that no subscription is held; no re-read is armed behind a model nothing
-    // holds either.
-    expect(clock.pendingCount).toBe(0);
-  });
+      expect(tally.projections).toBe(0);
+      // Every read reached `callDaemon` and was answered by the departure, not a parse. A single
+      // `reply-unreadable` would mean a reply was read after its owner had gone.
+      expect(tally.callAnswers).toHaveLength(CHURN_CYCLES);
+      expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["read-abandoned"]));
+      // No model reached a rendering state, `failed` included: an abandoned read has no failure
+      // to report and no view left to report it to.
+      expect(tally.settlements).toBe(0);
+      // Each cycle checked that no subscription is held; no re-read is armed behind a model nothing
+      // holds either.
+      expect(clock.pendingCount).toBe(0);
+    },
+  );
 
   it("control: the same churn loads every time when the close waits for the reply", async () => {
     const clock = new ManualClock(0);

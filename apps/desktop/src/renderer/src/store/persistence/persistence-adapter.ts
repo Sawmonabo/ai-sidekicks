@@ -11,27 +11,36 @@ import type { PersistedValueClass } from "./persisted-value-classes.js";
 /** Which adapter is serving the store. Rendered; never inferred from behavior. */
 export type PersistenceAdapterKind = "indexeddb" | "memory";
 
+/** Why the durable adapter is not in use. `undefined` means it is. */
+export type PersistenceUnavailableReason =
+  | "not-attempted"
+  | "no-indexeddb-global"
+  | "open-refused"
+  | "version-mismatch"
+  | "open-timed-out";
+
 /**
- * Why the durable adapter is not in use, and the sentence each reason renders as.
- *
- * The reason vocabulary is the keys of this table, so a reason cannot exist without a
+ * The sentence each reason renders as. Keyed by every reason, so a reason cannot exist without a
  * sentence for the person. It lives with the seam because the gauge, the health read and the
  * fallback adapter all render it.
  */
-export const PERSISTENCE_UNAVAILABLE_DESCRIPTIONS = {
+export const PERSISTENCE_UNAVAILABLE_DESCRIPTIONS: Readonly<
+  Record<PersistenceUnavailableReason, string>
+> = {
   "not-attempted": "Durable storage was not requested for this window.",
   "no-indexeddb-global":
-    "This window has no database API, which means the renderer scheme was not registered as a standard scheme before the app became ready.",
+    "This window has no database API, which means the renderer scheme was not registered as a " +
+    "standard scheme before the app became ready.",
   "open-refused":
-    "The browser refused to open the database for this window. That is what a non-privileged renderer scheme looks like from here.",
+    "The browser refused to open the database for this window. That is what a non-privileged " +
+    "renderer scheme looks like from here.",
   "version-mismatch":
-    "An existing database on disk is newer than this build expects. Nothing has been deleted; a newer build of the app will read it.",
+    "An existing database on disk is newer than this build expects. Nothing has been deleted; a " +
+    "newer build of the app will read it.",
   "open-timed-out":
-    "Opening the database did not finish in time, usually because another window holds a blocking upgrade.",
-} as const;
-
-/** Why the durable adapter is not in use. `undefined` means it is. */
-export type PersistenceUnavailableReason = keyof typeof PERSISTENCE_UNAVAILABLE_DESCRIPTIONS;
+    "Opening the database did not finish in time, usually because another window holds a " +
+    "blocking upgrade.",
+};
 
 /** One durable record. The partition is the session; the key is scoped within it. */
 export interface StoredRecord {

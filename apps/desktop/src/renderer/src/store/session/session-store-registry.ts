@@ -205,7 +205,8 @@ export class SessionStoreRegistry {
     return refuse(
       SESSION_REGISTRY_ORIGIN,
       "session-not-open",
-      `cannot ${attempted} session ${sessionId}: it is not open in this window. Open it before delivering to it, or drop the delivery.`,
+      `cannot ${attempted} session ${sessionId}: it is not open in this ` +
+        `window. Open it before delivering to it, or drop the delivery.`,
     );
   }
 }

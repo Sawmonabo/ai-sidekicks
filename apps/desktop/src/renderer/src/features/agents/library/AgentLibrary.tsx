@@ -28,7 +28,8 @@ const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
   {
     term: "What names them",
     statement:
-      "A name is a label, not an identifier. Renaming a sidekick changes nothing that is already running under it.",
+      "A name is a label, not an identifier. Renaming a sidekick " +
+      "changes nothing that is already running under it.",
   },
 ];
 
@@ -82,7 +83,9 @@ export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
       actions={
         <button
           type="button"
-          className="meridian-agent-library__new meridian-action-button meridian-action-button--raised"
+          className={
+            "meridian-agent-library__new meridian-action-button " + "meridian-action-button--raised"
+          }
           // Selection is state a person must be able to read, so it is `aria-pressed`.
           aria-pressed={snapshot.editorSubject?.kind === "new"}
           onClick={() => {

@@ -166,7 +166,7 @@ A few transitions deserve explicit notes because the source docs make them load-
 
 ## Related Specs
 
-- [Identity And User State (Spec-016)](../specs/016-identity-and-user-state.md) — control-plane data model for user identities and key registration.
+- [Hosted Account And Identity (Spec-016)](../specs/016-hosted-account-and-identity.md) — control-plane data model for user identities and key registration.
 - [Self-Host Secure Defaults (Spec-023)](../specs/023-self-host-secure-defaults.md) — first-run ceremony, fingerprint contract, secure-default override surface.
 - [Remote Control (Spec-027)](../specs/027-remote-control.md) — the statement chain, linking and revocation, and the channel that consumes the machine and device keys.
 - [Local IPC And Daemon Control (Spec-006)](../specs/006-local-ipc-and-daemon-control.md) — session-token transport that complements at-rest custody.

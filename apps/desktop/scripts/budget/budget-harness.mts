@@ -42,8 +42,10 @@ function formatBudgetVerdictBlock(gateReading: BudgetGateReading): readonly stri
   return [
     `Budget — ${budget.label}`,
     `  spec target:   ${budget.specTarget}`,
-    `  limit:         ${formatBytes(verdict.limitCanonicalValue)} (${budget.limit.value} ${budget.limit.unit})`,
-    `  measured:      ${formatBytes(verdict.measuredCanonicalValue)} — ${gateReading.measuredDescription}`,
+    `  limit:         ${formatBytes(verdict.limitCanonicalValue)} ` +
+      `(${budget.limit.value} ${budget.limit.unit})`,
+    `  measured:      ${formatBytes(verdict.measuredCanonicalValue)} ` +
+      `— ${gateReading.measuredDescription}`,
     `  headroom:      ${formatByteDelta(verdict.headroomCanonicalValue)}`,
     `  utilization:   ${(verdict.utilizationFraction * 100).toFixed(1)} % of budget`,
     `  verdict:       ${verdict.withinBudget ? "WITHIN BUDGET" : "OVER BUDGET"}`,

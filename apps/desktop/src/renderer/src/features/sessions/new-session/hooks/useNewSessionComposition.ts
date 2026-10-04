@@ -22,7 +22,8 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
   partial: "The session was created, but not everything the draft asked for could be sent.",
   refused: "Nothing was sent, and the draft is still here.",
   "created-unreadable":
-    "A session may have been created, and this window could not read the reply. Check the sessions list.",
+    "A session may have been created, and this window could not read " +
+    "the reply. Check the sessions list.",
 };
 
 /**

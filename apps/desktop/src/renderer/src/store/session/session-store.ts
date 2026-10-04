@@ -251,7 +251,9 @@ export class SessionStore {
       reportTripwire(
         "apply-chokepoint-bypass",
         SITE,
-        `re-entrant applyBatch of ${events.length} event(s) on session ${this.#sessionId}: a subscriber wrote during notification. The events are queued and will be applied, but the writing subscriber is the defect.`,
+        `re-entrant applyBatch of ${events.length} event(s) on session ` +
+          `${this.#sessionId}: a subscriber wrote during notification. The events ` +
+          `are queued and will be applied, but the writing subscriber is the defect.`,
       );
       return { ...NOTHING_APPLIED, buffered: events.length };
     }

@@ -5,7 +5,6 @@
 **/*.tsbuildinfo
 apps/desktop/out/**
 pnpm-lock.yaml
-.release-please-manifest.json
 LICENSE
 docs/reference/**
 docs/archive/reference/**

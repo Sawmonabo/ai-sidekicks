@@ -128,13 +128,17 @@ export function parseDefinitionFile(
   }
   if (!SCHEMA_MARKER_STORAGE_SHAPE.test(marker)) {
     return invalid(
-      `This file's \`${SCHEMA_MARKER_KEY}\` is \`${marker}\`, and a schema version is written as two numbers with a dot between them.`,
+      `This file's \`${SCHEMA_MARKER_KEY}\` is \`${marker}\`, and a ` +
+        "schema version is written as two numbers with a dot between " +
+        "them.",
     );
   }
   const unadmitted = firstUnadmittedKey(contents, FILE_TOP_LEVEL_KEYS);
   if (unadmitted !== undefined) {
     return invalid(
-      `This file carries a top-level \`${unadmitted}\`, which a definition file does not — a conforming reader refuses one rather than ignoring it.`,
+      `This file carries a top-level \`${unadmitted}\`, which a ` +
+        "definition file does not — a conforming reader refuses one " +
+        "rather than ignoring it.",
     );
   }
   if (LAYOUT_KEY in contents && !isWireRecord(contents[LAYOUT_KEY])) {
@@ -176,7 +180,10 @@ function readDocumentContents(parsedDocument: {
       : "A definition file is a document of named sections; this one is not.";
   } catch {
     // Nothing is stringified from the value; a person needs only that it could not be resolved.
-    return "This document could not be resolved — it refers to itself more times than a file is read for.";
+    return (
+      "This document could not be resolved — it refers to itself more " +
+      "times than a file is read for."
+    );
   }
 }
 

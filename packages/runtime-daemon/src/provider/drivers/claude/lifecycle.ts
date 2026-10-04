@@ -20,10 +20,6 @@ import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";
 import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
 import {
-  classifyProviderRequestFailure,
-  mayReattemptAfterDefinitelyUnsent,
-} from "../../transcript/failure-mapping.js";
-import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
@@ -38,7 +34,6 @@ import {
   type ClaudeProviderProcess,
   type ClaudeSessionTransport,
   composeClaudeMandatedEnvironment,
-  observeClaudeUserTextFailure,
 } from "./session-transport.js";
 import {
   CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
@@ -257,34 +252,20 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
     }
 
-    // Only a definitely-unsent write is retried; the shared classifier decides, as for Codex.
-    for (let dispatchAttemptsMade = 1; ; dispatchAttemptsMade += 1) {
-      const frame = this.#textNeutralization.registerOpeningDispatch(dispatch, params);
-      const attempt = await attemptClaudeFrameWrite(live.channel, frame);
-      if (attempt.settled === "written") {
-        return;
-      }
-      // Ruled before the retry decision: the ruling releases the frame's registration, and a
-      // second registered frame on one run key would trip the tripwire.
-      this.#textNeutralization.ruleFailedOpeningFrame({
-        sessionId: dispatch.sessionId,
-        runId: params.runId,
-        channel: live.channel,
-        frame,
-        delivery: attempt.delivery,
-      });
-      const disposition = classifyProviderRequestFailure(
-        observeClaudeUserTextFailure(attempt.delivery),
-      ).disposition;
-      // Only `unsent` is re-sent, as the one positive claim that the provider saw nothing.
-      // `reconcile-ambiguous-delivery` has no readback here, so the turn fails instead.
-      if (
-        disposition !== "retry-definitely-unsent" ||
-        !mayReattemptAfterDefinitelyUnsent(dispatchAttemptsMade)
-      ) {
-        throw attempt.cause;
-      }
+    // One write; the daemon never re-sends a failed one.
+    const frame = this.#textNeutralization.registerOpeningDispatch(dispatch, params);
+    const attempt = await attemptClaudeFrameWrite(live.channel, frame);
+    if (attempt.settled === "written") {
+      return;
     }
+    this.#textNeutralization.ruleFailedOpeningFrame({
+      sessionId: dispatch.sessionId,
+      runId: params.runId,
+      channel: live.channel,
+      frame,
+      delivery: attempt.delivery,
+    });
+    throw attempt.cause;
   }
 
   /**
@@ -620,7 +601,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
         return {
           decision: "quarantined",
           reason:
-            "frame arrived on a channel this session no longer holds; refused rather than projected into whichever session occupies the slot now",
+            "frame arrived on a channel this session no longer holds; refused rather than " +
+            "projected into whichever session occupies the slot now",
         };
       }
       // The band this registration joined: while the channel is bound, the session's band is this
@@ -682,7 +664,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       case "closing":
         return `A close for session ${sessionId} is still disposing its Claude process;`;
       case "quarantined":
-        return `The Claude process for session ${sessionId} refused to exit and is quarantined pending a successful close;`;
+        return (
+          `The Claude process for session ${sessionId} refused to exit and is quarantined ` +
+          `pending a successful close;`
+        );
     }
   }
 

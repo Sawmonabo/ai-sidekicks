@@ -457,7 +457,8 @@ export class CodexAppServerConnection {
         this.#clearReadyWait();
         reject(
           new CodexTransportError(
-            `The Codex app-server prelude did not report readiness within ${this.#startupTimeoutMs}ms.`,
+            `The Codex app-server prelude did not report readiness within ` +
+              `${this.#startupTimeoutMs}ms.`,
             { timeoutMs: String(this.#startupTimeoutMs) },
           ),
         );
@@ -627,7 +628,9 @@ export class CodexAppServerConnection {
     const responder = this.#serverRequestResponder;
     let result: CodexServerRequestResult;
     if (responder === undefined) {
-      const reason = `The daemon has no responder registered for "${method}"; refusing rather than answering without adjudication.`;
+      const reason =
+        `The daemon has no responder registered for "${method}"; refusing rather than ` +
+        `answering without adjudication.`;
       this.#reportDiagnosticQuietly({ kind: "unrouted-server-request-refused", method });
       result = descriptor.composeRefusedResult(reason);
     } else {
@@ -758,12 +761,7 @@ export class CodexAppServerConnection {
       const providerErrorCode = typeof rawCode === "number" ? rawCode : 0;
       const providerMessage = typeof rawMessage === "string" ? rawMessage : "";
       pending.reject(
-        new CodexProviderRequestError(
-          pending.method,
-          providerErrorCode,
-          providerMessage,
-          errorRecord["data"],
-        ),
+        new CodexProviderRequestError(pending.method, providerErrorCode, providerMessage),
       );
       return;
     }

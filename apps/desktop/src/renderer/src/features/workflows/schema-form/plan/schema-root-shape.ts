@@ -20,7 +20,9 @@ const OBJECT_TYPE = "object";
  * `enum` or `const`, which are author-written and unbounded.
  */
 const SCHEMA_ROOT_DETAIL =
-  "This phase's schema asks for an answer that cannot be the set of named fields an answer is submitted as, so its definition has to be corrected before anybody can answer it.";
+  "This phase's schema asks for an answer that cannot be the set " +
+  "of named fields an answer is submitted as, so its definition " +
+  "has to be corrected before anybody can answer it.";
 
 /**
  * The types this root declares, or nothing where it declares none readably. Both the string and

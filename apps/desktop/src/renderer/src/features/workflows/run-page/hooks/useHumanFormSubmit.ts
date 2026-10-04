@@ -141,6 +141,7 @@ function submitAlreadyInFlightRefusal(): Refusal {
   return refuse(
     WORKFLOW_HUMAN_FORM_ORIGIN,
     code,
-    "This answer is already with the background service. Wait for it to come back before sending another.",
+    "This answer is already with the background service. Wait for it " +
+      "to come back before sending another.",
   );
 }

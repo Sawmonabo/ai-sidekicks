@@ -117,7 +117,9 @@ const payloadSequenceSchema = z
   .int()
   .nonnegative()
   .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
-    message: `A payload sequence value must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER), the same injectivity ceiling EventEnvelope.sequence takes.`,
+    message:
+      `A payload sequence value must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} ` +
+      `(Number.MAX_SAFE_INTEGER), the same injectivity ceiling EventEnvelope.sequence takes.`,
   });
 
 // The event_maintenance payload base; `occurredAt` re-spells the envelope's own.
@@ -209,12 +211,17 @@ export type MachineContentDescriptor = {
   contentTruncated?: true | undefined;
 };
 
-/** Payload of `assistant.message` and `assistant.thinking_update`. */
+/**
+ * Payload of `assistant.message` and `assistant.thinking_update`. `runId` is absent only on a
+ * voice call's spoken answer, which comes outside any run and carries `origin: "voice"`.
+ */
 export type AssistantOutputPayload = MachineContentDescriptor & {
   sessionId: SessionId;
-  runId: string;
+  runId?: string | undefined;
   /** Media type of the body, set by the producer and not by the append path. */
   contentType?: string | undefined;
+  /** Present only on the answer a voice call spoke. */
+  origin?: "voice" | undefined;
   sourceEpoch?: SourceEpoch | undefined;
   sourcePosition?: SourcePosition | undefined;
 };
@@ -246,11 +253,12 @@ const buildAssistantOutputPayloadShape = () => ({
   sessionId: SessionIdSchema,
   // A bounded free-form guard like `EventEnvelope.id`, not the branded `RunIdSchema` that
   // `usage.model_rerouted` uses.
-  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId"),
+  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId").optional(),
   contentType: wireFreeFormString(
     EVENT_FIELD_MAX_LEN,
     "assistant output payload contentType",
   ).optional(),
+  origin: z.literal("voice").optional(),
   ...buildMachineContentDescriptorShape(),
 });
 
@@ -266,13 +274,23 @@ const buildToolActivityPayloadShape = () => ({
   ...buildMachineContentDescriptorShape(),
 });
 
+// A run carries every assistant row but a voice call's answer, which comes outside any run.
+const buildAssistantOutputPayloadSchema = () =>
+  withEpochStamp(z.object(buildAssistantOutputPayloadShape()).strict()).refine(
+    (payload) => (payload.runId === undefined) === (payload.origin === "voice"),
+    {
+      path: ["runId"],
+      message: "An assistant row carries a run id exactly when it is not a voice call's answer.",
+    },
+  );
+
 /** Strict payload schema of `assistant.message`, with the epoch stamp. */
 export const assistantMessagePayloadSchema: z.ZodType<AssistantMessageEvent["payload"]> =
-  withEpochStamp(z.object(buildAssistantOutputPayloadShape()).strict());
+  buildAssistantOutputPayloadSchema();
 /** Strict payload schema of `assistant.thinking_update`, with the epoch stamp. */
 export const assistantThinkingUpdatePayloadSchema: z.ZodType<
   AssistantThinkingUpdateEvent["payload"]
-> = withEpochStamp(z.object(buildAssistantOutputPayloadShape()).strict());
+> = buildAssistantOutputPayloadSchema();
 /** Strict payload schema of `tool.invoked`, with the epoch stamp. */
 export const toolInvokedPayloadSchema: z.ZodType<ToolInvokedEvent["payload"]> = withEpochStamp(
   z.object(buildToolActivityPayloadShape()).strict(),

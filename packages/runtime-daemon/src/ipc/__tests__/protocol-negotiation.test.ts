@@ -54,21 +54,25 @@ describe("daemon.hello version negotiation", () => {
     expect(ack.reason).toBeUndefined();
   });
 
-  it("an incompatible handshake from a client too old answers the floor reason and the daemon's versions", async () => {
-    const { gated } = makeFixture();
-    // The client's only version is older than the daemon's oldest.
-    const params: DaemonHello = {
-      protocolVersion: "2025-12-31",
-      supportedProtocols: ["2025-12-31"],
-    };
-    const ctx: HandlerContext = { transportId: 102 };
-    const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
-    expect(ack.compatible).toBe(false);
-    expect(ack.reason).toBe(NEGOTIATION_REASON_FLOOR_EXCEEDED);
-    // The daemon's versions are returned so the client can decide whether to retry.
-    expect(ack.daemonSupportedProtocols).toBeDefined();
-    expect(ack.daemonSupportedProtocols).toStrictEqual(DAEMON_SUPPORTED_PROTOCOL_VERSIONS);
-  });
+  it(
+    "an incompatible handshake from a client too old answers the floor reason and the daemon's " +
+      "versions",
+    async () => {
+      const { gated } = makeFixture();
+      // The client's only version is older than the daemon's oldest.
+      const params: DaemonHello = {
+        protocolVersion: "2025-12-31",
+        supportedProtocols: ["2025-12-31"],
+      };
+      const ctx: HandlerContext = { transportId: 102 };
+      const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
+      expect(ack.compatible).toBe(false);
+      expect(ack.reason).toBe(NEGOTIATION_REASON_FLOOR_EXCEEDED);
+      // The daemon's versions are returned so the client can decide whether to retry.
+      expect(ack.daemonSupportedProtocols).toBeDefined();
+      expect(ack.daemonSupportedProtocols).toStrictEqual(DAEMON_SUPPORTED_PROTOCOL_VERSIONS);
+    },
+  );
 
   it("an incompatible handshake from a client too new answers the ceiling reason", async () => {
     const { gated } = makeFixture();
@@ -99,61 +103,71 @@ describe("daemon.hello version negotiation", () => {
     expect(second.protocolVersion).toBe("2026-05-01");
   });
 
-  it("`cleanupTransport` clears the connection's state, and ignores an unknown connection", async () => {
-    const { gated, negotiator } = makeFixture();
-    const ctx: HandlerContext = { transportId: 105 };
-    const params: DaemonHello = {
-      protocolVersion: "2026-05-01",
-      supportedProtocols: ["2026-05-01"],
-    };
-    await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx);
-    expect(negotiator.getState(105).kind).toBe("done-compatible");
-    negotiator.cleanupTransport(105);
-    // An unknown transport reads as `pre`.
-    expect(negotiator.getState(105).kind).toBe("pre");
-    expect(() => negotiator.cleanupTransport(999)).not.toThrow();
-  });
+  it(
+    "`cleanupTransport` clears the connection's " + "state, and ignores an unknown connection",
+    async () => {
+      const { gated, negotiator } = makeFixture();
+      const ctx: HandlerContext = { transportId: 105 };
+      const params: DaemonHello = {
+        protocolVersion: "2026-05-01",
+        supportedProtocols: ["2026-05-01"],
+      };
+      await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx);
+      expect(negotiator.getState(105).kind).toBe("done-compatible");
+      negotiator.cleanupTransport(105);
+      // An unknown transport reads as `pre`.
+      expect(negotiator.getState(105).kind).toBe("pre");
+      expect(() => negotiator.cleanupTransport(999)).not.toThrow();
+    },
+  );
 });
 
 describe("the mutating-method gate", () => {
-  it("before a handshake, passes a read and refuses a mutating method as handshake_required", async () => {
-    const { raw, gated } = makeFixture();
-    const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
-    raw.register(
-      "math.read",
-      passthroughSchema<unknown>(),
-      passthroughSchema<{ ok: true }>(),
-      handler,
-      { mutating: false },
-    );
-    raw.register(
-      "math.write",
-      passthroughSchema<unknown>(),
-      passthroughSchema<{ ok: true }>(),
-      handler,
-      { mutating: true },
-    );
-    const ctx: HandlerContext = { transportId: 201 };
-    const result = await gated.dispatch("math.read", {}, ctx);
-    expect(result).toStrictEqual({ ok: true });
-    const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
-    expect(caught).toBeInstanceOf(NegotiationError);
-    if (caught instanceof NegotiationError) {
-      expect(caught.negotiationCode).toBe("protocol.handshake_required");
-    }
-  });
+  it(
+    "before a handshake, passes a read and refuses " + "a mutating method as handshake_required",
+    async () => {
+      const { raw, gated } = makeFixture();
+      const handler: Handler<unknown, { ok: true }> = async () => ({ ok: true });
+      raw.register(
+        "math.read",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: true }>(),
+        handler,
+        { mutating: false },
+      );
+      raw.register(
+        "math.write",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: true }>(),
+        handler,
+        { mutating: true },
+      );
+      const ctx: HandlerContext = { transportId: 201 };
+      const result = await gated.dispatch("math.read", {}, ctx);
+      expect(result).toStrictEqual({ ok: true });
+      const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
+      expect(caught).toBeInstanceOf(NegotiationError);
+      if (caught instanceof NegotiationError) {
+        expect(caught.negotiationCode).toBe("protocol.handshake_required");
+      }
+    },
+  );
 
-  it("unregistered methods bypass the gate predicate and surface `method_not_found` from the inner registry", async () => {
-    const { gated } = makeFixture();
-    const ctx: HandlerContext = { transportId: 204 };
-    // With no handshake, the gate must still let an unregistered method reach the inner
-    // registry; refusing it would hide the not-found error behind a handshake error.
-    const caught = await captureRejection(gated.dispatch("not.registered", {}, ctx));
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("method_not_found");
-    }
-  });
+  it(
+    "unregistered methods bypass the gate predicate and surface `method_not_found` from the " +
+      "inner registry",
+    async () => {
+      const { gated } = makeFixture();
+      const ctx: HandlerContext = { transportId: 204 };
+      // With no handshake, the gate must still let an unregistered method reach the inner
+      // registry; refusing it would hide the not-found error behind a handshake error.
+      const caught = await captureRejection(gated.dispatch("not.registered", {}, ctx));
+      expect(caught).toBeInstanceOf(RegistryDispatchError);
+      if (caught instanceof RegistryDispatchError) {
+        expect(caught.registryCode).toBe("method_not_found");
+      }
+    },
+  );
 
   it("after a compatible handshake, a mutating method passes", async () => {
     const { raw, gated } = makeFixture();
@@ -176,35 +190,38 @@ describe("the mutating-method gate", () => {
     expect(result).toStrictEqual({ ok: true });
   });
 
-  it("after an incompatible handshake, a read passes and a mutating method is refused", async () => {
-    const { raw, gated } = makeFixture();
-    raw.register(
-      "math.read",
-      passthroughSchema<unknown>(),
-      passthroughSchema<{ ok: true }>(),
-      async () => ({ ok: true }),
-      { mutating: false },
-    );
-    raw.register(
-      "math.write",
-      passthroughSchema<unknown>(),
-      passthroughSchema<{ ok: true }>(),
-      async () => ({ ok: true }),
-      { mutating: true },
-    );
-    const ctx: HandlerContext = { transportId: 203 };
-    const params: DaemonHello = {
-      protocolVersion: "2026-06-01",
-      supportedProtocols: ["2026-06-01", "2026-07-01"],
-    };
-    const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
-    expect(ack.compatible).toBe(false);
-    const readResult = await gated.dispatch("math.read", {}, ctx);
-    expect(readResult).toStrictEqual({ ok: true });
-    const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
-    expect(caught).toBeInstanceOf(NegotiationError);
-    if (caught instanceof NegotiationError) {
-      expect(caught.negotiationCode).toBe("protocol.version_mismatch");
-    }
-  });
+  it(
+    "after an incompatible handshake, a read " + "passes and a mutating method is refused",
+    async () => {
+      const { raw, gated } = makeFixture();
+      raw.register(
+        "math.read",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: true }>(),
+        async () => ({ ok: true }),
+        { mutating: false },
+      );
+      raw.register(
+        "math.write",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: true }>(),
+        async () => ({ ok: true }),
+        { mutating: true },
+      );
+      const ctx: HandlerContext = { transportId: 203 };
+      const params: DaemonHello = {
+        protocolVersion: "2026-06-01",
+        supportedProtocols: ["2026-06-01", "2026-07-01"],
+      };
+      const ack = (await gated.dispatch(DAEMON_HELLO_METHOD, params, ctx)) as DaemonHelloAck;
+      expect(ack.compatible).toBe(false);
+      const readResult = await gated.dispatch("math.read", {}, ctx);
+      expect(readResult).toStrictEqual({ ok: true });
+      const caught = await captureRejection(gated.dispatch("math.write", {}, ctx));
+      expect(caught).toBeInstanceOf(NegotiationError);
+      if (caught instanceof NegotiationError) {
+        expect(caught.negotiationCode).toBe("protocol.version_mismatch");
+      }
+    },
+  );
 });

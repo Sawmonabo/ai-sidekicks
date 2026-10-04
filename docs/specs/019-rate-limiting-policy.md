@@ -64,13 +64,12 @@ Nothing else on the relay is counted.
 
 - When the limit is exceeded, the relay must respond with HTTP `429 Too Many Requests`.
 - The response must include a `Retry-After` header indicating the number of seconds the client should wait.
-- The response must include standard rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
 - The refusal body is the standard `RateLimitResponse` from [Error Contracts](../architecture/contracts/error-contracts.md).
 
 ## Default Behavior
 
 - The limit is active by default on every sign-in route.
-- An allowed response carries no rate-limit header; the headers come only on a 429.
+- An allowed response carries no rate-limit header; `Retry-After` comes only on a 429.
 
 ## Fallback Behavior
 

@@ -95,7 +95,10 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
   }
 
   public describe(): string {
-    return `Preferences are stored on this machine (${this.#database.name} v${String(this.#database.version)}) and survive a restart.`;
+    return (
+      `Preferences are stored on this machine (${this.#database.name} ` +
+      `v${String(this.#database.version)}) and survive a restart.`
+    );
   }
 
   public async read(partition: string, key: string): Promise<StoredRecord | undefined> {
@@ -203,7 +206,8 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
         throw new PersistenceAdapterError(
           refusePersistence(
             "quota-exceeded",
-            "the browser storage quota for this window is full; older sessions' preferences are trimmed first, then the write is retried once",
+            "the browser storage quota for this window is full; older sessions' " +
+              "preferences are trimmed first, then the write is retried once",
           ),
           { cause: error },
         );
@@ -211,7 +215,8 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
       throw new PersistenceAdapterError(
         refusePersistence(
           "adapter-unavailable",
-          `the preferences database rejected an operation (${readErrorName(error) ?? "unknown error"})`,
+          `the preferences database rejected an operation ` +
+            `(${readErrorName(error) ?? "unknown error"})`,
         ),
         { cause: error },
       );

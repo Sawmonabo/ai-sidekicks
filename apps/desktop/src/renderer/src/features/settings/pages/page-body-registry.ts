@@ -19,7 +19,8 @@ const pageBodiesBySection = new KeyedRegistry<
   describeWhat: "settings page body",
   ownerOf: (descriptor) => descriptor.owner,
   duplicateHint:
-    "a page mounts one body; a second owner would make which one renders depend on composition order",
+    "a page mounts one body; a second owner would make which one " +
+    "renders depend on composition order",
 });
 
 /** Fill a page's body. A second owner is refused; the same owner replaces its body. */

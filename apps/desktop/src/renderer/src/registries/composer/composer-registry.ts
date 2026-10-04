@@ -37,7 +37,8 @@ export type ComposerRenderer = (props: ComposerProps) => React.ReactNode;
 
 const composerRegistry = new SingleEntryRegistry<ComposerRenderer>(
   "composer",
-  "the session view mounts one composer; a second owner would make which one renders depend on import order",
+  "the session view mounts one composer; a second owner " +
+    "would make which one renders depend on import order",
 );
 
 /** Fills the registry. A second owner is refused; the same owner replaces its body. */

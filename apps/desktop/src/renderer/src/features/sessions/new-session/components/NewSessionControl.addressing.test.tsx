@@ -32,28 +32,31 @@ import {
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
-  it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
-    // A settlement lands only in the composition it was sent for, so a person who discarded and
-    // started again never sees a refusal for a session this draft never sent.
-    const queued = bridgeQueueingCreates();
-    const container = renderControlOn(queued.bridge);
-    await openDraftWithFirstTurn();
-    await press("Send");
+  it(
+    "drops a discarded draft's settlement rather than showing it " + "under its replacement",
+    async () => {
+      // A settlement lands only in the composition it was sent for, so a person who discarded and
+      // started again never sees a refusal for a session this draft never sent.
+      const queued = bridgeQueueingCreates();
+      const container = renderControlOn(queued.bridge);
+      await openDraftWithFirstTurn();
+      await press("Send");
 
-    await press("Discard");
-    await openDraftWithFirstTurn();
-    await act(async () => {
-      queued.answerOldest();
-      await crossMacrotaskBoundary();
-    });
+      await press("Discard");
+      await openDraftWithFirstTurn();
+      await act(async () => {
+        queued.answerOldest();
+        await crossMacrotaskBoundary();
+      });
 
-    expect(container.textContent).not.toContain(
-      "The session was created, but the first turn was not queued.",
-    );
-    expect(politeText(container)).toBe("");
-    // The replacement is untouched and still sendable, including its sending flag.
-    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-  });
+      expect(container.textContent).not.toContain(
+        "The session was created, but the first turn was not queued.",
+      );
+      expect(politeText(container)).toBe("");
+      // The replacement is untouched and still sendable, including its sending flag.
+      expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    },
+  );
 
   it("keeps Send disabled when an older draft's send settles under a newer one", async () => {
     // One boolean over two drafts was cleared by whichever send settled first, re-enabling
@@ -144,7 +147,8 @@ describe("the composed new-session draft — the composition a completed send cl
       "What you typed after pressing Send was not sent, and it is still here.",
     );
     expect(politeText(container)).toBe(
-      "The session was created. What you typed after pressing Send was not sent, and it is still here.",
+      "The session was created. What you typed after pressing Send was " +
+        "not sent, and it is still here.",
     );
     // Every leg it names landed, so Send is closed rather than left to report the session again.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
@@ -152,27 +156,30 @@ describe("the composed new-session draft — the composition a completed send cl
     expect(settledSessionIds).toStrictEqual([]);
   });
 
-  it("negative control: a send nobody edited closes its draft and hands the session out", async () => {
-    // Without this, a control that never closed a draft would pass the case above and leave a
-    // form standing over a session the app had already started.
-    const settledSessionIds: string[] = [];
-    const held = bridgeHoldingCreate();
-    const container = renderControlOn(held.bridge, {
-      onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
-      queueFirstTurn: completingFirstTurn().call,
-    });
-    await openDraftWithFirstTurn();
-    await press("Send");
+  it(
+    "negative control: a send nobody edited closes its draft and " + "hands the session out",
+    async () => {
+      // Without this, a control that never closed a draft would pass the case above and leave a
+      // form standing over a session the app had already started.
+      const settledSessionIds: string[] = [];
+      const held = bridgeHoldingCreate();
+      const container = renderControlOn(held.bridge, {
+        onSessionCreated: (sessionId) => settledSessionIds.push(sessionId),
+        queueFirstTurn: completingFirstTurn().call,
+      });
+      await openDraftWithFirstTurn();
+      await press("Send");
 
-    await act(async () => {
-      held.answer();
-      await crossMacrotaskBoundary();
-    });
+      await act(async () => {
+        held.answer();
+        await crossMacrotaskBoundary();
+      });
 
-    expect(container.querySelector(".meridian-new-session")).toBeNull();
-    expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
-    expect(politeText(container)).toBe("The session was created.");
-  });
+      expect(container.querySelector(".meridian-new-session")).toBeNull();
+      expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
+      expect(politeText(container)).toBe("The session was created.");
+    },
+  );
 });
 
 /**
@@ -206,64 +213,70 @@ function bridgeCountingCreates(): {
 describe("the composed new-session draft — the transport it would send through", () => {
   afterEach(cleanup);
 
-  it("drops the draft when the bridge is replaced, and sends nothing through the retired one", async () => {
-    // A reconnect leaves a draft addressed to a retired transport, where its send would never
-    // land or would name a session nobody can open. The draft goes with the transport and
-    // "+ New" comes back.
-    const retired = bridgeCountingCreates();
-    const live = bridgeCountingCreates();
-    const { rerender } = render(
-      <LiveAnnouncerProvider>
-        <NewSessionControl
-          bridge={retired.bridge}
-          queueFirstTurn={REJECTING_FIRST_TURN}
-          lead={NEW_SESSION_LEAD}
-          onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
-        />
-      </LiveAnnouncerProvider>,
-    );
-    await openDraftWithFirstTurn();
+  it(
+    "drops the draft when the bridge is replaced, and sends nothing " + "through the retired one",
+    async () => {
+      // A reconnect leaves a draft addressed to a retired transport, where its send would never
+      // land or would name a session nobody can open. The draft goes with the transport and
+      // "+ New" comes back.
+      const retired = bridgeCountingCreates();
+      const live = bridgeCountingCreates();
+      const { rerender } = render(
+        <LiveAnnouncerProvider>
+          <NewSessionControl
+            bridge={retired.bridge}
+            queueFirstTurn={REJECTING_FIRST_TURN}
+            lead={NEW_SESSION_LEAD}
+            onSessionCreated={recordNothing}
+            onSessionDirectoryRecheck={recordNothing}
+          />
+        </LiveAnnouncerProvider>,
+      );
+      await openDraftWithFirstTurn();
 
-    rerender(
-      <LiveAnnouncerProvider>
-        <NewSessionControl
-          bridge={live.bridge}
-          queueFirstTurn={REJECTING_FIRST_TURN}
-          lead={NEW_SESSION_LEAD}
-          onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
-        />
-      </LiveAnnouncerProvider>,
-    );
+      rerender(
+        <LiveAnnouncerProvider>
+          <NewSessionControl
+            bridge={live.bridge}
+            queueFirstTurn={REJECTING_FIRST_TURN}
+            lead={NEW_SESSION_LEAD}
+            onSessionCreated={recordNothing}
+            onSessionDirectoryRecheck={recordNothing}
+          />
+        </LiveAnnouncerProvider>,
+      );
 
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+      expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
 
-    await openDraftWithFirstTurn();
-    await press("Send");
+      await openDraftWithFirstTurn();
+      await press("Send");
 
-    expect(live.createCount()).toBe(1);
-    expect(retired.createCount()).toBe(0);
-  });
+      expect(live.createCount()).toBe(1);
+      expect(retired.createCount()).toBe(0);
+    },
+  );
 
-  it("negative control: with no replacement, the same composition reaches its own bridge", async () => {
-    // Without this, the case above would pass over a Send that reached no bridge at all.
-    const composed = bridgeCountingCreates();
-    render(
-      <LiveAnnouncerProvider>
-        <NewSessionControl
-          bridge={composed.bridge}
-          queueFirstTurn={REJECTING_FIRST_TURN}
-          lead={NEW_SESSION_LEAD}
-          onSessionCreated={recordNothing}
-          onSessionDirectoryRecheck={recordNothing}
-        />
-      </LiveAnnouncerProvider>,
-    );
-    await openDraftWithFirstTurn();
-    await press("Send");
+  it(
+    "negative control: with no replacement, the same composition " + "reaches its own bridge",
+    async () => {
+      // Without this, the case above would pass over a Send that reached no bridge at all.
+      const composed = bridgeCountingCreates();
+      render(
+        <LiveAnnouncerProvider>
+          <NewSessionControl
+            bridge={composed.bridge}
+            queueFirstTurn={REJECTING_FIRST_TURN}
+            lead={NEW_SESSION_LEAD}
+            onSessionCreated={recordNothing}
+            onSessionDirectoryRecheck={recordNothing}
+          />
+        </LiveAnnouncerProvider>,
+      );
+      await openDraftWithFirstTurn();
+      await press("Send");
 
-    expect(composed.createCount()).toBe(1);
-  });
+      expect(composed.createCount()).toBe(1);
+    },
+  );
 });

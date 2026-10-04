@@ -80,8 +80,8 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * Other event kinds and transitions naming another shell are skipped. A `pty.control_changed`
  * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts
  * its reason) is not skipped unless it plainly names another shell: the holder becomes
- * `unrecognized-transition`, which shows no holder and writes nothing. Skipping it would leave the previous holder standing, and stdin open
- * for someone who no longer holds the shell.
+ * `unrecognized-transition`, which shows no holder and writes nothing. Skipping it would leave
+ * the previous holder standing, and stdin open for someone who no longer holds the shell.
  *
  * A later transition the reader can read clears the unread one.
  */

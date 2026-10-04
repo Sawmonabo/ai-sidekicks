@@ -13,9 +13,11 @@ import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-
  */
 const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = {
   "waiting-human":
-    "Nothing is scheduled to lift this. It ends when a user fills in and submits this phase's form.",
+    "Nothing is scheduled to lift this. It ends when a user fills in " +
+    "and submits this phase's form.",
   "provider-usage-limited":
-    "No reset boundary was reported, so nothing lifts this on its own. It waits until a run control does.",
+    "No reset boundary was reported, so nothing lifts this on its " +
+    "own. It waits until a run control does.",
 };
 
 /**

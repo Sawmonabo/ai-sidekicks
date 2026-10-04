@@ -123,8 +123,10 @@ export function detectConflicts(
           reason: overlap === "overlap" ? "overlapping-scope" : "undecidable-scope",
           detail:
             overlap === "overlap"
-              ? `Both bindings are live at once in at least one context (${describeScope(left)} and ${describeScope(right)})`
-              : `The two scopes name too many context keys to prove they never overlap (${describeScope(left)} and ${describeScope(right)})`,
+              ? `Both bindings are live at once in at least one context ` +
+                `(${describeScope(left)} and ${describeScope(right)})`
+              : `The two scopes name too many context keys to prove they never ` +
+                `overlap (${describeScope(left)} and ${describeScope(right)})`,
         });
       }
     }

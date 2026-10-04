@@ -144,5 +144,9 @@ function unreadDiffDetail(comparedStates: ComparedStates | undefined): string {
   if (comparedStates === undefined) {
     return "The diff is named on the turn that produced it, and its lines have not been read.";
   }
-  return `This turn compared ${comparedStates.baseRef} to ${comparedStates.headRef}, and the lines of that comparison have not been read.`;
+  return (
+    `This turn compared ${comparedStates.baseRef} to ` +
+    `${comparedStates.headRef}, and the lines of that comparison ` +
+    "have not been read."
+  );
 }

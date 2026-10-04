@@ -1,7 +1,7 @@
 import type { ExitCodeNotification } from "./pty-host-protocol.js";
 // Events the Rust PTY sidecar delivers for a session id the host does not know yet, and the ids the
 // host has closed. The sidecar can deliver a `DataFrame` or `ExitCodeNotification` ahead of its
-// `SpawnResponse` (unbiased `select!` in `merge_to_writer`); they are held and replayed. The caps
+// `SpawnResponse` (unbiased `select!` in `merge_to_writer`); they are held and correlated. The caps
 // bound memory if events arrive for an id no response resolves.
 
 const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
@@ -27,15 +27,15 @@ export interface PreSpawnSessionEvents {
  */
 export class SidecarPreSpawnBuffer {
   /**
-   * `DataFrame` chunks for a session whose `SpawnResponse` has not arrived, replayed by
-   * `replayPreSpawnEvents`. Cleared on child teardown: the sidecar's session counter restarts on
-   * respawn, so old ids would replay against a new session.
+   * `DataFrame` chunks for a session whose `SpawnResponse` has not arrived, delivered by
+   * `correlateBufferedSpawnEvents`. Cleared on child teardown: the sidecar's session counter
+   * restarts on respawn, so old ids would be delivered to a new session.
    */
   private readonly pendingDataFrames: Map<string, Uint8Array[]> = new Map();
 
   /**
-   * The `ExitCodeNotification` (at most one per session) awaiting its `SpawnResponse`; replayed and
-   * cleared like `pendingDataFrames`.
+   * The `ExitCodeNotification` (at most one per session) awaiting its `SpawnResponse`; delivered
+   * and cleared like `pendingDataFrames`.
    */
   private readonly pendingExits: Map<string, ExitCodeNotification> = new Map();
 
@@ -141,7 +141,7 @@ export class SidecarPreSpawnBuffer {
 
   /**
    * Clears the pre-spawn buffers and closed-id memory when the sidecar goes away. A respawned
-   * sidecar restarts its ids at `s-0`, so stale entries would replay into or suppress a new
+   * sidecar restarts its ids at `s-0`, so stale entries would be delivered into or suppress a new
    * session.
    */
   public clearPreSpawnState(): void {

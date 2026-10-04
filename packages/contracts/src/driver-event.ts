@@ -74,7 +74,9 @@ export const DriverEventSchema: z.ZodType<DriverEvent> = SessionEventSchema.supe
     ctx.addIssue({
       code: "custom",
       path: ["type"],
-      message: `Event type '${event.type}' is outside the driver event categories and cannot travel on a driver event stream.`,
+      message:
+        `Event type '${event.type}' is outside the driver event ` +
+        `categories and cannot travel on a driver event stream.`,
     });
   },
 ) as z.ZodType<DriverEvent>;

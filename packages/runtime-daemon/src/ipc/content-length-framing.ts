@@ -66,7 +66,8 @@ export function parseFrame(buffer: Buffer, maxBodyBytes: number): ParseFrameResu
     if (buffer.byteLength > MAX_HEADER_BYTES) {
       throw new FramingError(
         "header_too_long",
-        `parseFrame: header section exceeded ${MAX_HEADER_BYTES} bytes without ${JSON.stringify(HEADER_BODY_SEPARATOR)} (likely framing desync)`,
+        `parseFrame: header section exceeded ${MAX_HEADER_BYTES} bytes without ` +
+          `${JSON.stringify(HEADER_BODY_SEPARATOR)} (likely framing desync)`,
       );
     }
     return { frame: null, consumed: 0 };
@@ -74,7 +75,8 @@ export function parseFrame(buffer: Buffer, maxBodyBytes: number): ParseFrameResu
   if (separatorIndex > MAX_HEADER_BYTES) {
     throw new FramingError(
       "header_too_long",
-      `parseFrame: header section is ${separatorIndex} bytes (with delimiter present); exceeds ${MAX_HEADER_BYTES} byte cap`,
+      `parseFrame: header section is ${separatorIndex} bytes (with delimiter present); ` +
+        `exceeds ${MAX_HEADER_BYTES} byte cap`,
     );
   }
 
@@ -153,7 +155,8 @@ function extractContentLength(headerText: string): number {
       if (!/^\d+$/.test(value)) {
         throw new FramingError(
           "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not a non-negative decimal integer`,
+          `parseFrame: Content-Length value ${JSON.stringify(value)} is not a non-negative ` +
+            `decimal integer`,
         );
       }
       const parsed = Number.parseInt(value, 10);

@@ -43,10 +43,14 @@ export function findBeatOrderDefects(scenario: Scenario): readonly ScenarioContr
           subject,
           reason:
             `it opens the script at log position ${String(beat.event.sequence)}, and a session's ` +
-            `first delivered position is ${String(FIRST_LOG_POSITION)}. The fixture's session read ` +
-            "answers at cursor zero and `session.subscribe` represents the whole log, so the store " +
-            "counts every position between the two as missing and enters degradation and repair — " +
-            "where it can drop later rows — before the second beat is even due. Number the beats " +
+            `first delivered position is ` +
+            `${String(FIRST_LOG_POSITION)}. The fixture's session read ` +
+            "answers at cursor zero and `session.subscribe` " +
+            "represents the whole log, so the store " +
+            "counts every position between the two as " +
+            "missing and enters degradation and repair — " +
+            "where it can drop later rows — before the " +
+            "second beat is even due. Number the beats " +
             `from ${String(FIRST_LOG_POSITION)}.`,
         });
       }
@@ -74,7 +78,8 @@ export function findBeatOrderDefects(scenario: Scenario): readonly ScenarioContr
           `${beat.event.sequence > expectedSequence ? "skips a position" : "steps backwards"}. ` +
           "The store reconciles a subscription against the whole log from cursor zero, so it " +
           "reads that as a real gap or a real divergence, enters degradation and repair, and " +
-          `can drop later rows. Number the beats contiguously — this one is ${String(expectedSequence)}.`,
+          `can drop later rows. Number the beats contiguously ` +
+          `— this one is ${String(expectedSequence)}.`,
       });
     }
   }

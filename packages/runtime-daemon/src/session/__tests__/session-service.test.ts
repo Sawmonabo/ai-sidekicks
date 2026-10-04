@@ -1,4 +1,4 @@
-// SessionService over SQLite: replay order, restart durability, schema idempotency including a
+// SessionService over SQLite: rebuild order, restart durability, schema idempotency including a
 // concurrent-boot race across worker threads, the append guard and the read-side payload check.
 // Each test gets its own database file under os.tmpdir().
 
@@ -84,39 +84,43 @@ afterEach(() => {
 });
 
 // ----------------------------------------------------------------------------
-// Sequence-ASC replay
+// Sequence-ASC rebuild
 // ----------------------------------------------------------------------------
 
-describe("SessionService — replay reads events by sequence ASC", () => {
-  it("reproduces the snapshot deterministically when events are inserted in scrambled sequence order", () => {
-    // UNIQUE(session_id, sequence) tolerates any insert order; the read path's ORDER BY
-    // sequence ASC establishes the order.
-    const created: StoredEvent = makeCreatedEvent();
-    const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
-    const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
+describe("SessionService — rebuildSession reads events by sequence ASC", () => {
+  it(
+    "reproduces the snapshot deterministically when events are inserted in scrambled sequence " +
+      "order",
+    () => {
+      // UNIQUE(session_id, sequence) tolerates any insert order; the read path's ORDER BY
+      // sequence ASC establishes the order.
+      const created: StoredEvent = makeCreatedEvent();
+      const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
+      const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
-    insertStoredEvent(ctx.db, secondRename);
-    insertStoredEvent(ctx.db, created);
-    insertStoredEvent(ctx.db, firstRename);
+      insertStoredEvent(ctx.db, secondRename);
+      insertStoredEvent(ctx.db, created);
+      insertStoredEvent(ctx.db, firstRename);
 
-    const events = ctx.service.readEvents(SESSION_ID);
-    expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
+      const events = ctx.service.readEvents(SESSION_ID);
+      expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
 
-    const snapshot = ctx.service.replay(SESSION_ID);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-    expect(snapshot.asOfSequence).toBe(2);
-    expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
-  });
+      const snapshot = ctx.service.rebuildSession(SESSION_ID);
+      expect(snapshot).not.toBeNull();
+      if (snapshot === null) return;
+      expect(snapshot.asOfSequence).toBe(2);
+      expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
+    },
+  );
 });
 // ----------------------------------------------------------------------------
 // Sequence, not monotonic_ns
 // ----------------------------------------------------------------------------
 
-describe("SessionService — replay uses sequence not monotonic_ns", () => {
+describe("SessionService — rebuildSession uses sequence not monotonic_ns", () => {
   it("orders events by sequence even when monotonic_ns goes backwards across rows", () => {
-    // monotonic_ns is in-daemon debug data; sequence is the replay key, so clock skew in
-    // monotonic_ns must not reorder replay.
+    // monotonic_ns is in-daemon debug data; sequence is the rebuild key, so clock skew in
+    // monotonic_ns must not reorder the rebuild.
     const e0: StoredEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
     const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
     const e2: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
@@ -137,34 +141,39 @@ describe("SessionService — replay uses sequence not monotonic_ns", () => {
     expect(monotonicSorted.map((e) => e.sequence)).toEqual([1, 2, 0]);
 
     // Sequence order puts `session.created` first, so the snapshot still bootstraps.
-    const snapshot = ctx.service.replay(SESSION_ID);
+    const snapshot = ctx.service.rebuildSession(SESSION_ID);
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return;
     expect(snapshot.sessionId).toBe(SESSION_ID);
     expect(snapshot.asOfSequence).toBe(2);
   });
 
-  it("round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without precision loss", () => {
-    // The other fixtures sit below Number.MAX_SAFE_INTEGER, so a `Number(row.monotonic_ns)`
-    // regression in `hydrateRow` would not show. 2^53 + 1 is the first value a double cannot hold.
-    const BIGINT_BOUNDARY: bigint = 9_007_199_254_740_993n; // 2^53 + 1
-    const created: StoredEvent = {
-      ...makeCreatedEvent(),
-      monotonicNs: BIGINT_BOUNDARY,
-    };
-    insertStoredEvent(ctx.db, created);
+  it(
+    "round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without " +
+      "precision loss",
+    () => {
+      // The other fixtures sit below Number.MAX_SAFE_INTEGER, so a `Number(row.monotonic_ns)`
+      // regression in `hydrateRow` would not show. 2^53 + 1 is the first value a double cannot
+      // hold.
+      const BIGINT_BOUNDARY: bigint = 9_007_199_254_740_993n; // 2^53 + 1
+      const created: StoredEvent = {
+        ...makeCreatedEvent(),
+        monotonicNs: BIGINT_BOUNDARY,
+      };
+      insertStoredEvent(ctx.db, created);
 
-    const events = ctx.service.readEvents(SESSION_ID);
-    expect(events).toHaveLength(1);
-    const event = events[0];
-    expect(event).toBeDefined();
-    if (event === undefined) return; // type guard for TS
+      const events = ctx.service.readEvents(SESSION_ID);
+      expect(events).toHaveLength(1);
+      const event = events[0];
+      expect(event).toBeDefined();
+      if (event === undefined) return; // type guard for TS
 
-    expect(typeof event.monotonicNs).toBe("bigint");
-    // A `Number()` regression would come back as 2^53, one below the boundary.
-    expect(event.monotonicNs).toBe(BIGINT_BOUNDARY);
-    expect(event.monotonicNs).not.toBe(BIGINT_BOUNDARY - 1n);
-  });
+      expect(typeof event.monotonicNs).toBe("bigint");
+      // A `Number()` regression would come back as 2^53, one below the boundary.
+      expect(event.monotonicNs).toBe(BIGINT_BOUNDARY);
+      expect(event.monotonicNs).not.toBe(BIGINT_BOUNDARY - 1n);
+    },
+  );
 });
 
 // ----------------------------------------------------------------------------
@@ -181,7 +190,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
     insertStoredEvent(ctx.db, firstRename);
     insertStoredEvent(ctx.db, secondRename);
 
-    const beforeRestart = ctx.service.replay(SESSION_ID);
+    const beforeRestart = ctx.service.rebuildSession(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
 
     // Closing the handle stands in for the daemon process exiting.
@@ -197,7 +206,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
     ctx.db = reopenedDb;
     ctx.service = reopenedService;
 
-    const afterRestart = reopenedService.replay(SESSION_ID);
+    const afterRestart = reopenedService.rebuildSession(SESSION_ID);
     expect(afterRestart).not.toBeNull();
 
     expect(afterRestart).toEqual(beforeRestart);
@@ -324,129 +333,148 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
   // The 60_000 trailing argument is headroom: five trials each spawn four worker threads, and
   // spawn plus compile has exceeded vitest's 5 s default on a contended CI runner. The oracle is
   // FAILURE_THRESHOLD, never elapsed time.
-  it("4 workers × 5 trials of concurrent first boots under .immediate() stay below the SQLITE_BUSY failure threshold", async () => {
-    // A per-test retry cannot separate a host flake from a regression, since both fail as
-    // SQLITE_BUSY: with `retry: 5` a broken DEFERRED run still passed 5 of 5 times. The rates
-    // over 20 attempts (4 workers × 5 trials) do separate them:
-    //   * `.immediate()` on Linux bare metal: about 0 % failures.
-    //   * `.immediate()` on WSL2: 10-25 % per attempt (fcntl on 9p surfaces SQLITE_BUSY at
-    //     BEGIN IMMEDIATE without engaging the busy handler), so 2-5 of 20.
-    //   * DEFERRED on Linux bare metal: about 95 %, so about 19 of 20.
-    //   * DEFERRED on WSL2: 0-60 %, overlapping the working WSL2 range.
-    // The threshold of 10 is calibrated to the Linux gap. On WSL2 it detects a broken DEFERRED
-    // only about a third of the time but stays clear of false alarms, so CI is the real
-    // assertion. It would miss a regression with a much lower failure rate (around 30 %); the
-    // negative control below shows that DEFERRED contention exists, not how often.
-    const WORKER_COUNT: number = 4;
-    const TRIAL_COUNT: number = 5;
-    const FAILURE_THRESHOLD: number = 10; // out of 20 attempts (50%)
+  it(
+    "4 workers × 5 trials of concurrent first boots under .immediate() stay below the " +
+      "SQLITE_BUSY failure threshold",
+    async () => {
+      // A per-test retry cannot separate a host flake from a regression, since both fail as
+      // SQLITE_BUSY: with `retry: 5` a broken DEFERRED run still passed 5 of 5 times. The rates
+      // over 20 attempts (4 workers × 5 trials) do separate them:
+      //   * `.immediate()` on Linux bare metal: about 0 % failures.
+      //   * `.immediate()` on WSL2: 10-25 % per attempt (fcntl on 9p surfaces SQLITE_BUSY at
+      //     BEGIN IMMEDIATE without engaging the busy handler), so 2-5 of 20.
+      //   * DEFERRED on Linux bare metal: about 95 %, so about 19 of 20.
+      //   * DEFERRED on WSL2: 0-60 %, overlapping the working WSL2 range.
+      // The threshold of 10 is calibrated to the Linux gap. On WSL2 it detects a broken DEFERRED
+      // only about a third of the time but stays clear of false alarms, so CI is the real
+      // assertion. It would miss a regression with a much lower failure rate (around 30 %); the
+      // negative control below shows that DEFERRED contention exists, not how often.
+      const WORKER_COUNT: number = 4;
+      const TRIAL_COUNT: number = 5;
+      const FAILURE_THRESHOLD: number = 10; // out of 20 attempts (50%)
 
-    let totalFailures: number = 0;
-    const allResults: RaceWorkerResult[][] = [];
-    for (let trial = 0; trial < TRIAL_COUNT; trial++) {
-      const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
-      const trialResults: ReadonlyArray<RaceWorkerResult> = await runMigrationRace(
-        trialPath,
-        WORKER_COUNT,
-        /* useDeferred */ false,
-      );
-      allResults.push([...trialResults]);
-      totalFailures += trialResults.filter((r) => !r.ok).length;
-    }
-
-    expect(
-      totalFailures,
-      `expected ≤${FAILURE_THRESHOLD.toString()} failures across ${TRIAL_COUNT.toString()} trials × ${WORKER_COUNT.toString()} workers (=${(TRIAL_COUNT * WORKER_COUNT).toString()} attempts); a broken DEFERRED pattern produces ~19 BUSY failures across 20 attempts on Linux bare-metal (threshold set well below this; WSL2 detection ~35 % due to fcntl-on-9p reducing contention saturation, see test docstring). Got ${totalFailures.toString()}. Detail: ${JSON.stringify(allResults)}`,
-    ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
-
-    // Every trial's file must hold exactly the schema one in-process apply creates; the schema
-    // commits in one transaction, so a torn or doubled apply shows here or as a worker failure.
-    const reference: DatabaseType = new Database(join(raceTmpDir, "reference.db"));
-    let expectedObjects: ReadonlyArray<string>;
-    try {
-      applyPragmas(reference);
-      applyMigrations(reference);
-      expectedObjects = schemaObjectNames(reference);
-    } finally {
-      reference.close();
-    }
-    for (let trial = 0; trial < TRIAL_COUNT; trial++) {
-      const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
-      const verifier: DatabaseType = new Database(trialPath);
-      try {
-        applyPragmas(verifier);
-        expect(
-          schemaObjectNames(verifier),
-          `trial ${trial.toString()} expected exactly the reference schema`,
-        ).toEqual(expectedObjects);
-      } finally {
-        verifier.close();
+      let totalFailures: number = 0;
+      const allResults: RaceWorkerResult[][] = [];
+      for (let trial = 0; trial < TRIAL_COUNT; trial++) {
+        const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
+        const trialResults: ReadonlyArray<RaceWorkerResult> = await runMigrationRace(
+          trialPath,
+          WORKER_COUNT,
+          /* useDeferred */ false,
+        );
+        allResults.push([...trialResults]);
+        totalFailures += trialResults.filter((r) => !r.ok).length;
       }
-    }
-  }, 60_000);
+
+      expect(
+        totalFailures,
+        `expected ≤${FAILURE_THRESHOLD.toString()} failures across ${TRIAL_COUNT.toString()} ` +
+          `trials × ${WORKER_COUNT.toString()} workers (=` +
+          `${(TRIAL_COUNT * WORKER_COUNT).toString()} attempts); a broken DEFERRED pattern ` +
+          `produces ~19 BUSY failures across 20 attempts on Linux bare-metal (threshold set well ` +
+          `below this; WSL2 detection ~35 % due to fcntl-on-9p reducing contention saturation, ` +
+          `see test docstring). Got ${totalFailures.toString()}. Detail: ` +
+          `${JSON.stringify(allResults)}`,
+      ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
+
+      // Every trial's file must hold exactly the schema one in-process apply creates; the schema
+      // commits in one transaction, so a torn or doubled apply shows here or as a worker failure.
+      const reference: DatabaseType = new Database(join(raceTmpDir, "reference.db"));
+      let expectedObjects: ReadonlyArray<string>;
+      try {
+        applyPragmas(reference);
+        applyMigrations(reference);
+        expectedObjects = schemaObjectNames(reference);
+      } finally {
+        reference.close();
+      }
+      for (let trial = 0; trial < TRIAL_COUNT; trial++) {
+        const trialPath: string = join(raceTmpDir, `imm-trial-${trial.toString()}.db`);
+        const verifier: DatabaseType = new Database(trialPath);
+        try {
+          applyPragmas(verifier);
+          expect(
+            schemaObjectNames(verifier),
+            `trial ${trial.toString()} expected exactly the reference schema`,
+          ).toEqual(expectedObjects);
+        } finally {
+          verifier.close();
+        }
+      }
+    },
+    60_000,
+  );
 
   // The 60_000 trailing argument is headroom: a DEFERRED loser fails immediately, so the slowest
   // case is the barrier's 3 s deadline on a degraded trial, 5 × 3 s plus worker spawns.
-  it("the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces writer-vs-writer contention at least once — empirical proof .immediate() is load-bearing", async () => {
-    // Negative control: runs the broken BEGIN DEFERRED pattern to prove the workers really
-    // contend and that `.immediate()` is the seam that fixes it.
-    //
-    // The worker's snapshot barrier makes the collision structural. Each DEFERRED worker parks
-    // inside its open transaction, after the read that pins its WAL snapshot and before the write
-    // that upgrades it, until every sibling has arrived. When released, one wins the write lock
-    // and the other WORKER_COUNT-1 hold stale snapshots, which is SQLITE_BUSY_SNAPSHOT. Without
-    // the barrier, a saturated host serializes worker spawns, the snapshots stop overlapping, and
-    // the control passes cleanly by luck.
-    //
-    // The barrier's deadline lets a merely slow sibling degrade the test to that probabilistic
-    // behavior instead of hanging it; a worker that dies makes `runMigrationRace` reject and
-    // fails the test outright.
-    //
-    // The assertion is only "at least one" failure, weaker than the WORKER_COUNT-1 the barrier
-    // makes typical, because a deadline-expiry trial is a legitimate degraded run. Zero BUSY
-    // errors across all trials means the control is broken: the workers are not concurrent, or
-    // SQLite changed so that `.immediate()` is unnecessary.
-    const WORKER_COUNT: number = 8;
-    const TRIAL_COUNT: number = 5;
-    const allTrialResults: RaceWorkerResult[][] = [];
-    for (let trial = 0; trial < TRIAL_COUNT; trial++) {
-      const trialPath: string = join(raceTmpDir, `trial-${trial.toString()}.db`);
-      // A fresh counter per trial, so a straggler from a terminated trial cannot release the
-      // next trial's barrier early.
-      const snapshotBarrier: SharedArrayBuffer = new SharedArrayBuffer(
-        Int32Array.BYTES_PER_ELEMENT,
-      );
-      const trialResults: ReadonlyArray<RaceWorkerResult> = await runMigrationRace(
-        trialPath,
-        WORKER_COUNT,
-        /* useDeferred */ true,
-        snapshotBarrier,
-      );
-      allTrialResults.push([...trialResults]);
-    }
+  it(
+    "the SAME race pattern using BEGIN DEFERRED across multiple trials reproduces " +
+      "writer-vs-writer contention at least once — empirical proof .immediate() is load-bearing",
+    async () => {
+      // Negative control: runs the broken BEGIN DEFERRED pattern to prove the workers really
+      // contend and that `.immediate()` is the seam that fixes it.
+      //
+      // The worker's snapshot barrier makes the collision structural. Each DEFERRED worker parks
+      // inside its open transaction, after the read that pins its WAL snapshot and before the write
+      // that upgrades it, until every sibling has arrived. When released, one wins the write lock
+      // and the other WORKER_COUNT-1 hold stale snapshots, which is SQLITE_BUSY_SNAPSHOT. Without
+      // the barrier, a saturated host serializes worker spawns, the snapshots stop overlapping, and
+      // the control passes cleanly by luck.
+      //
+      // The barrier's deadline lets a merely slow sibling degrade the test to that probabilistic
+      // behavior instead of hanging it; a worker that dies makes `runMigrationRace` reject and
+      // fails the test outright.
+      //
+      // The assertion is only "at least one" failure, weaker than the WORKER_COUNT-1 the barrier
+      // makes typical, because a deadline-expiry trial is a legitimate degraded run. Zero BUSY
+      // errors across all trials means the control is broken: the workers are not concurrent, or
+      // SQLite changed so that `.immediate()` is unnecessary.
+      const WORKER_COUNT: number = 8;
+      const TRIAL_COUNT: number = 5;
+      const allTrialResults: RaceWorkerResult[][] = [];
+      for (let trial = 0; trial < TRIAL_COUNT; trial++) {
+        const trialPath: string = join(raceTmpDir, `trial-${trial.toString()}.db`);
+        // A fresh counter per trial, so a straggler from a terminated trial cannot release the
+        // next trial's barrier early.
+        const snapshotBarrier: SharedArrayBuffer = new SharedArrayBuffer(
+          Int32Array.BYTES_PER_ELEMENT,
+        );
+        const trialResults: ReadonlyArray<RaceWorkerResult> = await runMigrationRace(
+          trialPath,
+          WORKER_COUNT,
+          /* useDeferred */ true,
+          snapshotBarrier,
+        );
+        allTrialResults.push([...trialResults]);
+      }
 
-    const allFailures: RaceWorkerResult[] = allTrialResults.flat().filter((r) => !r.ok);
-    expect(
-      allFailures.length,
-      `expected at least one DEFERRED failure across ${TRIAL_COUNT.toString()} trials of ${WORKER_COUNT.toString()} workers as evidence of contention; got ${JSON.stringify(allTrialResults)}`,
-    ).toBeGreaterThanOrEqual(1);
-
-    // Any other error class (constraint violation, syntax error) would mean the control is
-    // exercising a different failure than the race.
-    for (const f of allFailures) {
-      const isBusyClass: boolean =
-        f.code === "SQLITE_BUSY" ||
-        f.code === "SQLITE_BUSY_SNAPSHOT" ||
-        // A racer that upgraded past BEGIN but lost at CREATE TABLE surfaces as a generic
-        // SQLITE_ERROR "table … already exists": the same race.
-        /already exists/i.test(f.message) ||
-        /SQLITE_BUSY/i.test(f.message);
+      const allFailures: RaceWorkerResult[] = allTrialResults.flat().filter((r) => !r.ok);
       expect(
-        isBusyClass,
-        `expected a SQLITE_BUSY-class failure as proof of writer-vs-writer contention; got ${JSON.stringify(f)}`,
-      ).toBe(true);
-    }
-  }, 60_000);
+        allFailures.length,
+        `expected at least one DEFERRED failure across ${TRIAL_COUNT.toString()} trials of ` +
+          `${WORKER_COUNT.toString()} workers as evidence of contention; got ` +
+          `${JSON.stringify(allTrialResults)}`,
+      ).toBeGreaterThanOrEqual(1);
+
+      // Any other error class (constraint violation, syntax error) would mean the control is
+      // exercising a different failure than the race.
+      for (const f of allFailures) {
+        const isBusyClass: boolean =
+          f.code === "SQLITE_BUSY" ||
+          f.code === "SQLITE_BUSY_SNAPSHOT" ||
+          // A racer that upgraded past BEGIN but lost at CREATE TABLE surfaces as a generic
+          // SQLITE_ERROR "table … already exists": the same race.
+          /already exists/i.test(f.message) ||
+          /SQLITE_BUSY/i.test(f.message);
+        expect(
+          isBusyClass,
+          `expected a SQLITE_BUSY-class failure as proof of writer-vs-writer contention; got ` +
+            `${JSON.stringify(f)}`,
+        ).toBe(true);
+      }
+    },
+    60_000,
+  );
 
   it("refuses a snapshot barrier on the IMMEDIATE path instead of ignoring it", async () => {
     // An IMMEDIATE racer never reaches the rendezvous, so accepting a barrier would silently

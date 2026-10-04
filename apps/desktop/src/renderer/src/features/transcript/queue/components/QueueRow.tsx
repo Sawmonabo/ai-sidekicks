@@ -74,7 +74,10 @@ export function QueueRow(props: {
       {item.state === CANCELABLE_STATE ? (
         <button
           type="button"
-          className="meridian-queue__cancel meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          className={
+            "meridian-queue__cancel meridian-action-button " +
+            "meridian-action-button--small meridian-action-button--raised"
+          }
           disabled={props.isCancelPending}
           aria-busy={props.isCancelPending}
           onClick={() => {

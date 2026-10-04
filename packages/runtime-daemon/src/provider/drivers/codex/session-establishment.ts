@@ -78,7 +78,7 @@ function composeSessionRecord(
   return {
     ...established,
     runIdByActiveTurnId: new Map(),
-    unmatchedTurnEvidence: new Map(),
+    bufferedTurnEvidence: new Map(),
     inFlightTurnStarts: 0,
     settledTurnIds: new Set(),
     inFlightSteers: 0,
@@ -213,7 +213,8 @@ export class CodexSessionEstablishment {
       // thread, and a zero-turn one has `turns: []`, like a genuine resume.
       if (thread.id !== params.resumeHandle) {
         throw new CodexTransportError(
-          `Resume handle ${params.resumeHandle} was answered by thread ${thread.id}; the provider started a replacement thread rather than resuming.`,
+          `Resume handle ${params.resumeHandle} was answered by thread ${thread.id}; the ` +
+            `provider started a replacement thread rather than resuming.`,
           {
             method: "thread/resume",
             requestedThreadId: params.resumeHandle,
@@ -225,7 +226,8 @@ export class CodexSessionEstablishment {
         // Populated on `thread/resume` by contract; a fabricated 0 would make a fresh thread look
         // resumed.
         throw new CodexTransportError(
-          "The Codex app-server resume response carried no turn history, so the session position is unknown.",
+          "The Codex app-server resume response carried no turn history, so the session " +
+            "position is unknown.",
           { threadId: thread.id },
         );
       }

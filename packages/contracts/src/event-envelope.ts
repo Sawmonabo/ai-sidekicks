@@ -157,7 +157,10 @@ export const buildCommonShape = (): {
     .int()
     .nonnegative()
     .max(EVENT_ENVELOPE_SEQUENCE_MAX, {
-      message: `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} (Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same IEEE-754 double, so two different events would carry the same replay key.`,
+      message:
+        `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} ` +
+        `(Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same ` +
+        `IEEE-754 double, so two different events would carry the same replay key.`,
     }),
   occurredAt: isoDateTimeSchema,
   // `.nullable()` comes after the helper so its string checks run only on strings.
@@ -182,7 +185,8 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
           ctx.addIssue({
             code: "custom",
             message:
-              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the record parser cannot preserve it, and silent stripping is forbidden.",
+              "EventEnvelope.payload MUST NOT carry an own __proto__ key — the " +
+              "record parser cannot preserve it, and silent stripping is forbidden.",
           });
         }
       })
@@ -253,14 +257,19 @@ export function withEpochStamp<
         ctx.addIssue({
           code: "custom",
           path: [SOURCE_POSITION_PAYLOAD_KEY],
-          message: `A ${SOURCE_EPOCH_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_POSITION_PAYLOAD_KEY}: the supersede cutoff cannot rank the row against its epoch's surviving prefix without a position.`,
+          message:
+            `A ${SOURCE_EPOCH_PAYLOAD_KEY} stamp REQUIREs ` +
+            `${SOURCE_POSITION_PAYLOAD_KEY}: the supersede cutoff cannot rank the ` +
+            `row against its epoch's surviving prefix without a position.`,
         });
       }
       if (!hasEpoch) {
         ctx.addIssue({
           code: "custom",
           path: [SOURCE_EPOCH_PAYLOAD_KEY],
-          message: `A ${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_EPOCH_PAYLOAD_KEY}: a position without its epoch names no epoch to supersede against.`,
+          message:
+            `A ${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs ${SOURCE_EPOCH_PAYLOAD_KEY}: ` +
+            `a position without its epoch names no epoch to supersede against.`,
         });
       }
       // Not a truthiness test: an empty `runId` is the base schema's to refuse.
@@ -268,7 +277,10 @@ export function withEpochStamp<
         ctx.addIssue({
           code: "custom",
           path: ["runId"],
-          message: `A ${SOURCE_EPOCH_PAYLOAD_KEY}/${SOURCE_POSITION_PAYLOAD_KEY} stamp REQUIREs a present, non-null runId: epochs and positions are run-local, so an epoch stamp on a row with no run identity is unattributable.`,
+          message:
+            `A ${SOURCE_EPOCH_PAYLOAD_KEY}/${SOURCE_POSITION_PAYLOAD_KEY} stamp ` +
+            `REQUIREs a present, non-null runId: epochs and positions are run-local, ` +
+            `so an epoch stamp on a row with no run identity is unattributable.`,
         });
       }
     }) as unknown as z.ZodObject<

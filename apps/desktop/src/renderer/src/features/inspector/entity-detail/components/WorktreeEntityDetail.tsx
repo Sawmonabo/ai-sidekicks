@@ -22,9 +22,15 @@ export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Elemen
       isInitialized={props.isInitialized}
       hasRecord={props.entity !== undefined}
       degradedCause={props.degradedCause}
-      degradedConsequence="a worktree that has since been merged or retired could still read as ready."
+      degradedConsequence={
+        "a worktree that has since been merged or retired could still " + "read as ready."
+      }
       absentTitle="No worktree with this identifier is in the session."
-      absentDetail="A worktree joins the record when the session provisions a checkout for it. Worktrees are created by the workspace they belong to, never from an inspector."
+      absentDetail={
+        "A worktree joins the record when the session provisions a " +
+        "checkout for it. Worktrees are created by the workspace they " +
+        "belong to, never from an inspector."
+      }
       facets={[
         wireFacet("Worktree", readBodyMember(props.entity, "worktreeId"), "worktree"),
         wireFacet("Workspace", readBodyMember(props.entity, "workspaceId"), "workspace"),

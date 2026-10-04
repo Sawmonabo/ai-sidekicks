@@ -17,8 +17,10 @@ describe("daemon.configUpdate", () => {
   it("refuses no setting, two, or a fact the service reports", () => {
     expect(DaemonConfigUpdateRequestSchema.safeParse({}).success).toBe(false);
     expect(
-      DaemonConfigUpdateRequestSchema.safeParse({ recordTraces: true, recordReplayLog: true })
-        .success,
+      DaemonConfigUpdateRequestSchema.safeParse({
+        recordTraces: true,
+        recordProviderMessages: true,
+      }).success,
     ).toBe(false);
     expect(
       DaemonConfigUpdateRequestSchema.safeParse({ toolMemoryCapEnforceable: false }).success,

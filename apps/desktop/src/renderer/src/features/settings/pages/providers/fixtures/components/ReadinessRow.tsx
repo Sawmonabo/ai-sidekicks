@@ -12,7 +12,8 @@ import { RemedyLine } from "./RemedyLine.js";
  *
  * The remedy is rendered, never computed: the daemon composes it at read time from the same
  * resolution the spawn path performs. An entry with no remedy is the authenticated one and
- * offers nothing. `indeterminate` reads as an honest unknown, not a failure. Readiness blocks
+ * offers nothing; an undecided one says so through its look-again remedy, never as a failure.
+ * Readiness blocks
  * nothing (the spawn gate stays the daemon's live check); the one gate on this row's control is
  * the sign-in flow, one brokered flow at a time, which disables the control with its reason.
  */
@@ -46,15 +47,10 @@ export function ReadinessRow(props: {
           </>
         )}
       </span>
-      {readiness.state === "indeterminate" ? (
-        <p className="meridian-settings-page__aside">
-          The stored observation could not decide. That is not a failure — nothing has been run to
-          find out, and a run will validate the account for itself.
-        </p>
-      ) : null}
       {remedy === undefined ? null : (
         <RemedyLine
           remedy={remedy}
+          state={readiness.state}
           onStartSignIn={onStartSignIn}
           startBlockedReason={startBlockedReason}
           startRefusal={startRefusal}

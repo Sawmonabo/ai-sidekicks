@@ -309,7 +309,8 @@ export const DriverInterventionResultSchema: z.ZodType<
         code: "custom",
         path: ["refusalCode"],
         message:
-          "refusalCode classifies the user text as swallowed, which status 'applied' denies; the code is expressible only on a degraded result.",
+          "refusalCode classifies the user text as swallowed, which status " +
+          "'applied' denies; the code is expressible only on a degraded result.",
       });
     }
   });

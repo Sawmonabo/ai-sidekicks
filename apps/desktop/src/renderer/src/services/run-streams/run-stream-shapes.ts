@@ -41,13 +41,16 @@ export function refuseSessionDisagreement(
   if (statedSessionId === undefined) {
     return unprojectableFor(
       event,
-      "names no `sessionId`, which every registered run payload requires and which no other member of these shapes can stand in for",
+      "names no `sessionId`, which every registered run payload requires " +
+        "and which no other member of these shapes can stand in for",
     );
   }
   if (statedSessionId !== event.sessionId) {
     return unprojectableFor(
       event,
-      `is delivered on session "${event.sessionId}" and names ${JSON.stringify(statedSessionId)} in its payload; outer attribution and payload cannot disagree about which session a beat is about`,
+      `is delivered on session "${event.sessionId}" and names ` +
+        `${JSON.stringify(statedSessionId)} in its payload; outer attribution ` +
+        `and payload cannot disagree about which session a beat is about`,
     );
   }
   return undefined;
@@ -66,7 +69,8 @@ export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery
   if (!parsed.success) {
     return unprojectableFor(
       event,
-      `does not satisfy its registered shape — ${parsed.error.issues.map(describeIssue).join("; ")}`,
+      `does not satisfy its registered shape — ` +
+        `${parsed.error.issues.map(describeIssue).join("; ")}`,
     );
   }
   return { status: "projected", delivery: parsed.data };
@@ -91,7 +95,8 @@ export function carriedOptionalMembers(
 export function unprojectableFor(event: ProjectedSessionEvent, fault: string): RunStreamProjection {
   return unprojectable(
     `the "${event.kind}" beat at sequence ${String(event.sequence)} ${fault}. ` +
-      "Script what the registered projection reads — the beat's own registered payload, and the " +
+      "Script what the registered projection reads " +
+      "— the beat's own registered payload, and the " +
       "row read it projects from — rather than letting the stream deliver a partial shape.",
   );
 }

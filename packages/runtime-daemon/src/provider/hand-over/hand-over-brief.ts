@@ -3,16 +3,9 @@
 //
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
-//   * The once-only key derives from the raw projection (before the transforms and the budget) and
-//     the target session, so a later change to how the brief is worded, stripped or evicted never
-//     makes a second brief for one switch. It rides as visible ASCII in the brief turn and leaves
-//     out `builtAtPosition`, which moves on any append. Nothing durable is written.
-//   * An ambiguous send stays unconfirmed until the marker appears or an absence is read after the
-//     caller's settlement barrier: a duplicate brief corrupts the conversation, a missing one only
-//     degrades it.
+//   * A send that fails is never retried or read back: the switch fails and the session stays where
+//     it was. Nothing durable is written.
 
-import { blake3 } from "@noble/hashes/blake3.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import {
   orderDeclaredLosses,
@@ -27,8 +20,8 @@ import type {
 } from "../provider-driver.js";
 
 /**
- * The target session a brief is delivered into. Only the provider session id is in the key: a
- * resume handle may rotate for one unchanged session, which would make one switch look like two.
+ * The target session a brief is delivered into, named by its provider session id alone: a resume
+ * handle may rotate for one unchanged session, which would make one switch look like two.
  */
 export interface BriefTargetIdentity {
   readonly providerSessionId: string;
@@ -36,8 +29,8 @@ export interface BriefTargetIdentity {
 
 /**
  * A target one coordinator established; only that coordinator may send to it, as its in-memory
- * register of ambiguous sends is the only duplicate guard. A caller passing an inherited session
- * id to `establishTarget` as fresh cannot be detected.
+ * record of the one send into each target is the only duplicate guard. A caller passing an
+ * inherited session id to `establishTarget` as fresh cannot be detected.
  */
 export class EstablishedBriefTarget {
   readonly #providerSessionId: string;
@@ -57,113 +50,17 @@ export class UnownedBriefTargetError extends Error {
 
   constructor(providerSessionId: string) {
     super(
-      `Refusing to deliver a brief into provider session "${providerSessionId}": this coordinator did not establish that target, so it holds no record of what may already have been sent into it.`,
+      `Refusing to deliver a brief into provider session "${providerSessionId}": this ` +
+        `coordinator did not establish that target, so it holds no record of what may already ` +
+        `have been sent into it.`,
     );
     this.name = "UnownedBriefTargetError";
     this.providerSessionId = providerSessionId;
   }
 }
 
-/** Digest size in bytes (128 bits): collision-safe for a session's switches, short to read. */
-export const BRIEF_IDENTITY_KEY_BYTE_LENGTH = 16;
-
-/** The visible marker prefix: lowercase ASCII with no punctuation a provider would reflow. */
-export const BRIEF_CONTINUITY_MARKER_PREFIX: string = "continuity-ref:";
-
-/** Separates the key from the record of what the brief carrying it dropped. */
-export const BRIEF_CONTINUITY_LOSS_SEPARATOR = ";dropped=";
-
-/** Joins the recorded loss kinds. Not a comma: a comma invites a space after it. */
-export const BRIEF_CONTINUITY_LOSS_JOINER = "+";
-
-/**
- * The exact marker text a brief renders: its key and what that brief dropped. One whitespace-free
- * token, so no reflow splits it; it is the only trace a delivered brief leaves.
- */
-function renderBriefContinuityMarker(
-  briefIdentityKey: string,
-  declaredLosses: readonly DeclaredLossKind[],
-): string {
-  return `${BRIEF_CONTINUITY_MARKER_PREFIX}${briefIdentityKey}${BRIEF_CONTINUITY_LOSS_SEPARATOR}${declaredLosses.join(
-    BRIEF_CONTINUITY_LOSS_JOINER,
-  )}`;
-}
-
-/** The loss this floor declares on every path; a record without it cannot come from the writer. */
-export const BRIEF_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
-
-/**
- * Appends one field to the key's pre-image, length-prefixed so a text containing a separator
- * cannot let two transcripts share a pre-image (a collision means a brief that never sends).
- */
-function appendKeyField(parts: string[], value: string | number): void {
-  const encoded: string = JSON.stringify(value);
-  parts.push(`${encoded.length.toString()}:${encoded}`);
-}
-
-function appendSegmentToKeyPreimage(parts: string[], segment: CanonicalTranscriptSegment): void {
-  appendKeyField(parts, segment.kind);
-  // A body the fold could not read renders as an empty one; without this, two transcripts
-  // differing only in that would share a pre-image.
-  appendKeyField(parts, segmentContentIsUnavailable(segment) ? "unavailable" : "available");
-  switch (segment.kind) {
-    case "text":
-      appendKeyField(parts, segment.text);
-      return;
-    case "reasoning":
-      appendKeyField(parts, segment.blockId);
-      appendKeyField(parts, segment.reasoningKind);
-      appendKeyField(parts, segment.disclosure);
-      appendKeyField(parts, segment.text);
-      return;
-    case "tool_call":
-      appendKeyField(parts, segment.toolCallId);
-      appendKeyField(parts, segment.toolName);
-      appendKeyField(parts, segment.argumentsJson);
-      return;
-    case "tool_result":
-      appendKeyField(parts, segment.toolCallId);
-      appendKeyField(parts, segment.outcome);
-      appendKeyField(parts, segment.provenance);
-      appendKeyField(parts, segment.text);
-      appendKeyField(parts, segment.enclosingReasoningBlockId ?? "");
-      // Hashed beside the block id it resolves: the id names a sibling a positional bound may cut
-      // away, the verdict decides whether the body travels. A fold that could not read the
-      // reasoning row withholds the result, and without this field the corrected brief would share
-      // the key.
-      appendKeyField(parts, segment.enclosureDisclosure ?? "");
-      return;
-    default:
-      return;
-  }
-}
-
-/**
- * The brief-identity key: a pure function of the raw projection's content and the target session,
- * recomputed by any daemon and persisted nowhere. It excludes `builtAtPosition` (see the header).
- */
-export function deriveBriefIdentityKey(
-  projection: CanonicalTranscriptProjection,
-  target: BriefTargetIdentity,
-): string {
-  const parts: string[] = [];
-  appendKeyField(parts, projection.sessionId as string);
-  appendKeyField(parts, projection.runId as string);
-  appendKeyField(parts, target.providerSessionId);
-  appendKeyField(parts, projection.turns.length);
-  for (const turn of projection.turns) {
-    appendKeyField(parts, turn.position);
-    appendKeyField(parts, turn.role);
-    appendKeyField(parts, turn.segments.length);
-    for (const segment of turn.segments) {
-      appendSegmentToKeyPreimage(parts, segment);
-    }
-  }
-  const digest: Uint8Array = blake3(new TextEncoder().encode(parts.join("")), {
-    dkLen: BRIEF_IDENTITY_KEY_BYTE_LENGTH,
-  });
-  return bytesToHex(digest);
-}
+/** The loss this floor declares on every path. */
+const BRIEF_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
 
 /**
  * Estimates the tokens a rendered fragment consumes; injected so a driver can supply its real
@@ -358,13 +255,16 @@ function renderExchange(exchange: TranscriptExchange): string {
 /** Never claims the shown exchanges are the newest: protection is per exchange, so gaps occur. */
 function renderEvictionNotice(evictedExchangeCount: number, totalExchangeCount: number): string {
   const shown: number = totalExchangeCount - evictedExchangeCount;
-  return `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ${totalExchangeCount.toString()} exchanges appear below in log order, and may not be consecutive.`;
+  return (
+    `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ` +
+    `${totalExchangeCount.toString()} exchanges appear below in log order, and may not be ` +
+    `consecutive.`
+  );
 }
 
 /** The pieces one assembled brief body is composed from, in emission order. */
 interface BriefBodyAssembly {
   readonly openingText: string;
-  readonly markerText: string;
   /** Already rendered, in log order. */
   readonly exchangeRenderings: readonly string[];
   readonly evictedExchangeCount: number;
@@ -376,7 +276,7 @@ interface BriefBodyAssembly {
  * emission both use it, so a candidate is priced as the exact text sent, separators included.
  */
 function assembleBriefBody(assembly: BriefBodyAssembly): string {
-  const bodyLines: string[] = [assembly.openingText, assembly.markerText];
+  const bodyLines: string[] = [assembly.openingText];
   if (assembly.evictedExchangeCount > 0) {
     bodyLines.push(
       renderEvictionNotice(assembly.evictedExchangeCount, assembly.totalExchangeCount),
@@ -387,17 +287,15 @@ function assembleBriefBody(assembly: BriefBodyAssembly): string {
   return bodyLines.join("\n");
 }
 
-/** What `BriefProjection.render` reads: the projection, the target and the budget. */
+/** What `BriefProjection.render` reads: the projection and the budget. */
 export interface BriefRenderRequest {
   readonly projection: CanonicalTranscriptProjection;
-  readonly target: BriefTargetIdentity;
   readonly budget: BriefBudgetPolicy;
 }
 
 /** The bounded brief prose plus what the budget kept and dropped. */
 export interface BriefRendering {
-  readonly briefIdentityKey: string;
-  /** The exact prose the brief turn carries, marker included. */
+  /** The exact prose the brief turn carries. */
   readonly text: string;
   /** The turns that survived the transforms and the budget, in log order. */
   readonly includedTurns: readonly CanonicalTranscriptTurn[];
@@ -423,8 +321,6 @@ export class BriefProjection {
   }
 
   render(request: BriefRenderRequest): BriefRendering {
-    const briefIdentityKey: string = deriveBriefIdentityKey(request.projection, request.target);
-
     // Strip what no other model may be shown, then repair the results the strip orphaned (an
     // unpaired call is accepted silently and rejected on every later request).
     const transformed: TransformedTranscript = transformTranscript(request.projection);
@@ -449,20 +345,11 @@ export class BriefProjection {
       // Always declared: an empty list would claim nothing was dropped.
       BRIEF_FLOOR_DECLARED_LOSS_KIND,
     ]);
-    // The marker records truncation, so its length depends on the outcome it helps decide: price
-    // every candidate against the longer, truncation-inclusive marker. The emitted text is measured
-    // separately below, so a non-monotone tokenizer shows as `exceedsBudget`, not a silent overrun.
-    const pricingMarkerText: string = renderBriefContinuityMarker(
-      briefIdentityKey,
-      orderDeclaredLosses([...preBudgetLosses, "context_truncated"]),
-    );
-
     // Priced over the whole assembled candidate: summing per-exchange prices undercounts separators
     // and assumes an additivity the injected estimator does not owe.
-    const assembleFor = (admittedIndices: ReadonlySet<number>, markerText: string): string =>
+    const assembleFor = (admittedIndices: ReadonlySet<number>): string =>
       assembleBriefBody({
         openingText,
-        markerText,
         exchangeRenderings: exchangeRenderings.filter((_rendering, index) =>
           admittedIndices.has(index),
         ),
@@ -480,7 +367,7 @@ export class BriefProjection {
         continue;
       }
       includedIndices.add(index);
-      if (this.#estimateTokens(assembleFor(includedIndices, pricingMarkerText)) > budgetTokens) {
+      if (this.#estimateTokens(assembleFor(includedIndices)) > budgetTokens) {
         includedIndices.delete(index);
         break;
       }
@@ -500,15 +387,11 @@ export class BriefProjection {
       ...(evictedExchangeCount > 0 ? (["context_truncated"] as const) : []),
     ]);
 
-    // Measured with the marker it will be sent with, so `estimatedTokens` prices the emitted text.
-    const text: string = assembleFor(
-      includedIndices,
-      renderBriefContinuityMarker(briefIdentityKey, declaredLosses),
-    );
+    // Measured on the emitted text, so a non-monotone tokenizer shows as `exceedsBudget`.
+    const text: string = assembleFor(includedIndices);
     const estimatedTokens: number = this.#estimateTokens(text);
 
     return {
-      briefIdentityKey,
       text,
       includedTurns,
       includedExchangeCount: includedExchanges.length,

@@ -50,7 +50,8 @@ const contractVersionSchema = wireFreeFormString(
 ).refine((value) => semver.valid(value) === value, {
   message:
     "contract_version must be a canonical, identifying semver string (no build metadata; " +
-    "SemVer section 10 build metadata is non-identifying and is rejected from this identity field).",
+    "SemVer section 10 build metadata is non-identifying and is rejected from this identity " +
+    "field).",
 });
 
 // Rejects whitespace-only handles, which the SQL CHECK would accept.
@@ -174,7 +175,9 @@ export function assertValidCapabilityFlags(flags: unknown): void {
   if (keys.length !== DRIVER_CAPABILITY_FLAGS.length) {
     throw new ProviderOutputValidationError("Invalid driver capability flags.", {
       field: "flags",
-      reason: `must declare exactly the ${DRIVER_CAPABILITY_FLAGS.length.toString()} canonical capability flags`,
+      reason:
+        `must declare exactly the ${DRIVER_CAPABILITY_FLAGS.length.toString()} canonical ` +
+        `capability flags`,
     });
   }
   for (const flag of DRIVER_CAPABILITY_FLAGS) {

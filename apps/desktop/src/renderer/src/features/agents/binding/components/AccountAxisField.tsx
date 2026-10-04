@@ -99,7 +99,9 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           <span className="meridian-axis-field__advisory">
             {isPinned
               ? `What follows is about ${advisoryChoice.displayLabel}, the account this form pins.`
-              : `Nothing is pinned, so this run resolves to ${advisoryChoice.displayLabel}. What follows is that account’s reading, and the request still names no account.`}
+              : "Nothing is pinned, so this run resolves to " +
+                `${advisoryChoice.displayLabel}. What follows is that account’s ` +
+                "reading, and the request still names no account."}
           </span>
           <ul className="meridian-axis-field__advisories">
             {accountAdvisoriesFor(advisoryChoice).map((advisory) => (

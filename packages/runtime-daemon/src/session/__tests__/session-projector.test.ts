@@ -1,10 +1,10 @@
-// `replay()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
+// `rebuildSession()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
 // an event log whose bootstrap is missing or not at sequence 0, since projecting from it would
 // present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 
-import { replay } from "../session-projector.js";
+import { rebuildSession } from "../session-projector.js";
 import type { DaemonSessionRecord, StoredEvent } from "../types.js";
 import {
   makeCreatedEvent,
@@ -15,7 +15,7 @@ import {
 
 describe("session-projector — bootstrap projection", () => {
   it("records the owner from a single session.created event", () => {
-    const record: DaemonSessionRecord | null = replay([makeCreatedEvent()]);
+    const record: DaemonSessionRecord | null = rebuildSession([makeCreatedEvent()]);
     expect(record).not.toBeNull();
     if (record === null) return; // type guard for TS
 
@@ -43,7 +43,7 @@ describe("session-projector — bootstrap refusals", () => {
       causationId: null,
       version: "1.0",
     };
-    expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
+    expect(() => rebuildSession([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
   // A stored row can carry any sequence, so this projector check is the only guard against a log
@@ -54,7 +54,7 @@ describe("session-projector — bootstrap refusals", () => {
       ...makeCreatedEvent(),
       sequence: 1,
     };
-    expect(() => replay([nonZeroBootstrap])).toThrow(
+    expect(() => rebuildSession([nonZeroBootstrap])).toThrow(
       /bootstrap 'session\.created' must have sequence=0 \(got sequence=1\)/,
     );
   });

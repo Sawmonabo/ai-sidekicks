@@ -322,7 +322,9 @@ export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, Provi
         context.addIssue({
           code: "custom",
           path: [],
-          message: `provider.update changes exactly one setting; this request carries ${String(present.length)}`,
+          message:
+            `provider.update changes exactly one setting; ` +
+            `this request carries ${String(present.length)}`,
         });
         return;
       }

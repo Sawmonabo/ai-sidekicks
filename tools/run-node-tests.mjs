@@ -121,7 +121,8 @@ function main(argv) {
 
   if (files.length < minimumFiles) {
     process.stderr.write(
-      `run-node-tests: resolved ${files.length} test file(s) but --min-files=${minimumFiles} was required.\n` +
+      `run-node-tests: resolved ${files.length} test file(s) but --min-files=${minimumFiles} was ` +
+        `required.\n` +
         "Either the suite lost files or a pattern stopped matching them.\n",
     );
     return 1;

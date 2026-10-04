@@ -206,27 +206,30 @@ class DeferredProviderDriver extends FakeProviderDriver {
 }
 
 describe("ProviderRegistry — last-call-wins registration race (latest-initiated wins)", () => {
-  it("the LATER-initiated register wins even when its getCapabilities() resolves LAST", async () => {
-    const registry = new ProviderRegistry();
-    // A is initiated first (steer supported), B second (tool_calls supported).
-    const driverA = new DeferredProviderDriver(makeFlags({ steer: true, tool_calls: false }));
-    const driverB = new DeferredProviderDriver(makeFlags({ tool_calls: true }));
+  it(
+    "the LATER-initiated register wins even " + "when its getCapabilities() resolves LAST",
+    async () => {
+      const registry = new ProviderRegistry();
+      // A is initiated first (steer supported), B second (tool_calls supported).
+      const driverA = new DeferredProviderDriver(makeFlags({ steer: true, tool_calls: false }));
+      const driverB = new DeferredProviderDriver(makeFlags({ tool_calls: true }));
 
-    const registerA = registry.register(DRIVER_ID, driverA);
-    const registerB = registry.register(DRIVER_ID, driverB);
+      const registerA = registry.register(DRIVER_ID, driverA);
+      const registerB = registry.register(DRIVER_ID, driverB);
 
-    // B resolves first, so the earlier-initiated A resolves last; a last-to-resolve-wins
-    // implementation would install A's stale snapshot.
-    driverB.settle();
-    driverA.settle();
-    await Promise.all([registerA, registerB]);
+      // B resolves first, so the earlier-initiated A resolves last; a last-to-resolve-wins
+      // implementation would install A's stale snapshot.
+      driverB.settle();
+      driverA.settle();
+      await Promise.all([registerA, registerB]);
 
-    // The registry holds B's snapshot: tool_calls passes and A's steer was dropped.
-    expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
-    expect(() => registry.checkCapability(DRIVER_ID, "steer")).toThrow(
-      DriverCapabilityUnsupportedError,
-    );
-  });
+      // The registry holds B's snapshot: tool_calls passes and A's steer was dropped.
+      expect(() => registry.checkCapability(DRIVER_ID, "tool_calls")).not.toThrow();
+      expect(() => registry.checkCapability(DRIVER_ID, "steer")).toThrow(
+        DriverCapabilityUnsupportedError,
+      );
+    },
+  );
 });
 
 describe("ProviderRegistry — re-register", () => {
@@ -269,28 +272,33 @@ class CallCountingProviderDriver extends FakeProviderDriver {
     _params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
     this.operationCallCount += 1;
-    throw new Error("listProviderCommands reached the driver — the capability gate did not refuse");
+    throw new Error(
+      "listProviderCommands reached the driver " + "— the capability gate did not refuse",
+    );
   }
 }
 
 describe("ProviderRegistry.checkCapability — fail-closed refusal", () => {
-  it("refuses an UNDECLARED flag the same way — the gate keys on `!== true`, never `=== false`", async () => {
-    const registry = new ProviderRegistry();
-    // `context_compaction` is absent rather than false. The cast reproduces an untyped-boundary
-    // input (a hand-edited cache row, a driver built against an older flag union), where a gate
-    // keyed on `=== false` would silently admit the call.
-    const partialFlags = { ...makeFlags({ tool_calls: true }) } as Record<
-      DriverCapabilityFlag,
-      boolean
-    >;
-    delete (partialFlags as Partial<Record<DriverCapabilityFlag, boolean>>).context_compaction;
+  it(
+    "refuses an UNDECLARED flag the same way — " + "the gate keys on `!== true`, never `=== false`",
+    async () => {
+      const registry = new ProviderRegistry();
+      // `context_compaction` is absent rather than false. The cast reproduces an untyped-boundary
+      // input (a hand-edited cache row, a driver built against an older flag union), where a gate
+      // keyed on `=== false` would silently admit the call.
+      const partialFlags = { ...makeFlags({ tool_calls: true }) } as Record<
+        DriverCapabilityFlag,
+        boolean
+      >;
+      delete (partialFlags as Partial<Record<DriverCapabilityFlag, boolean>>).context_compaction;
 
-    const driver = new CallCountingProviderDriver(partialFlags);
-    await registry.register(DRIVER_ID, driver);
+      const driver = new CallCountingProviderDriver(partialFlags);
+      await registry.register(DRIVER_ID, driver);
 
-    expect(() => registry.checkCapability(DRIVER_ID, "context_compaction")).toThrow(
-      DriverCapabilityUnsupportedError,
-    );
-    expect(driver.operationCallCount).toBe(0);
-  });
+      expect(() => registry.checkCapability(DRIVER_ID, "context_compaction")).toThrow(
+        DriverCapabilityUnsupportedError,
+      );
+      expect(driver.operationCallCount).toBe(0);
+    },
+  );
 });

@@ -63,7 +63,8 @@ export async function checkFixtureLaunchAgainstCatalog(launch: FixtureLaunch): P
   const scenario = findScenario(launch.scenarioId);
   if (launch.sessionId !== undefined && launch.sessionId !== scenario.sessionId) {
     throw new Error(
-      `the scenario "${scenario.id}" holds the session "${scenario.sessionId}", not "${launch.sessionId}"`,
+      `the scenario "${scenario.id}" holds the session ` +
+        `"${scenario.sessionId}", not "${launch.sessionId}"`,
     );
   }
 }

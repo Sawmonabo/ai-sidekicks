@@ -67,7 +67,8 @@ export class SecureDefaults {
   static effectiveSettings(): SecureDefaultsEffectiveSettings {
     if (loadedSettings === null) {
       throw new Error(
-        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before this view is read",
+        "SecureDefaults.effectiveSettings: SecureDefaults.load(config) must succeed before " +
+          "this view is read",
       );
     }
     return loadedSettings;
@@ -96,7 +97,8 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
     if (!KNOWN_KEYS.has(key)) {
       throw new SecureDefaultsValidationError(
         "unknown_setting",
-        `SecureDefaults.load: unknown setting "${key}" — the validation surface accepts only ${listKeys(KNOWN_KEYS)}`,
+        `SecureDefaults.load: unknown setting "${key}" — the validation surface accepts ` +
+          `only ${listKeys(KNOWN_KEYS)}`,
         { setting: key, value: (config as unknown as Record<string, unknown>)[key] },
       );
     }
@@ -114,7 +116,8 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
   if (typeof localIpcPath !== "string" || localIpcPath.length === 0) {
     throw new SecureDefaultsValidationError(
       "invalid_local_ipc_path",
-      `SecureDefaults.load: localIpcPath must be a non-empty string (got ${describeValue(localIpcPath)})`,
+      `SecureDefaults.load: localIpcPath must be a non-empty string (got ` +
+        `${describeValue(localIpcPath)})`,
       { setting: "localIpcPath", value: localIpcPath },
     );
   }

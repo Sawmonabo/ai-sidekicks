@@ -74,9 +74,9 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
         // A disabled `fieldset` stops taking presses and paints nothing that says why, so the
         // mount's own hold sentence is rendered beside it.
         // One live region, never two: the line below is the specialized rendering of the
-        // in-flight hold, so where the availability's reason is that sentence the two would announce
-        // one fact twice. Comparing against the composing module's output keeps both in step,
-        // and a mismatch falls through to this general line.
+        // in-flight hold, so where the availability's reason is that sentence the two would
+        // announce one fact twice. Comparing against the composing module's output keeps both in
+        // step, and a mismatch falls through to this general line.
         <p className="meridian-mode-picker__held" role="status">
           {unavailableBecause}
         </p>

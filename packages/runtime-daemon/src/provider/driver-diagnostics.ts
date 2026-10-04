@@ -363,7 +363,8 @@ export class NormalizedEventReorderBuffer<TEvent> {
         kind: "reorder_seen_initiation_evicted",
         rawWireType: null,
         dispositionReason:
-          "seen-initiation set exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
+          "seen-initiation set exceeded its declared cap; oldest identity evicted, so a " +
+          "later completion for it holds instead of pairing",
         details: {
           toolCallId: oldestEntry.value,
           maxSeenInitiationIds: this.#maxSeenInitiationIds,
@@ -396,7 +397,8 @@ export class NormalizedEventReorderBuffer<TEvent> {
           kind: "tool_pairing_timeout",
           rawWireType: null,
           dispositionReason:
-            "unpaired toolCallId held past the reorder buffer's pairing timeout; flushed in arrival order",
+            "unpaired toolCallId held past the reorder buffer's pairing timeout; flushed in " +
+            "arrival order",
           details: {
             toolCallId: held.buffered.toolCallId,
             heldForMs: nowMs - held.heldAtMs,

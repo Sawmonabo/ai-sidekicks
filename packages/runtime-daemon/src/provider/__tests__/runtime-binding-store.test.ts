@@ -95,9 +95,11 @@ function insertRawBinding(overrides: {
   const id: string = overrides.id ?? "raw-binding-0";
   db.prepare(
     `INSERT INTO runtime_bindings
-       (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+       (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
+      `resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
      VALUES
-       (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, NULL, @spawn_config, '{}', @created_at, @created_at)`,
+       (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, ` +
+      `NULL, @spawn_config, '{}', @created_at, @created_at)`,
   ).run({
     id,
     run_id: RUN_ID,
@@ -157,7 +159,8 @@ function readRawMutableColumns(id: string): {
 } {
   const row = db
     .prepare(
-      `SELECT contract_version, resume_handle, runtime_metadata, updated_at FROM runtime_bindings WHERE id = ?`,
+      `SELECT contract_version, resume_handle, runtime_metadata, updated_at FROM ` +
+        `runtime_bindings WHERE id = ?`,
     )
     .get(id) as
     | {
@@ -453,44 +456,48 @@ describe("RuntimeBindingStore — update revalidation", () => {
     expect(after?.updatedAt).toBe(created.updatedAt);
   });
 
-  it("REFUSES an update onto a row whose stored spawn_config is unreadable, and commits NOTHING", () => {
-    // Committing a patch onto an unreadable record would make it newer, still unreadable, and
-    // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
-    // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
-    // throw rolls everything back.
-    const store = makeStore();
-    const created = store.create({
-      runId: RUN_ID,
-      driverName: DRIVER_NAME,
-      contractVersion: "1.0.0",
-      resumeHandle: "handle-before",
-      spawnConfig: FULL_SPAWN_CONFIG,
-      runtimeMetadata: { attempt: 1 },
-    });
-    corruptSpawnConfigOutOfBand(created.id, "{not json at all");
+  it(
+    "REFUSES an update onto a row whose stored " +
+      "spawn_config is unreadable, and commits NOTHING",
+    () => {
+      // Committing a patch onto an unreadable record would make it newer, still unreadable, and
+      // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
+      // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
+      // throw rolls everything back.
+      const store = makeStore();
+      const created = store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: "1.0.0",
+        resumeHandle: "handle-before",
+        spawnConfig: FULL_SPAWN_CONFIG,
+        runtimeMetadata: { attempt: 1 },
+      });
+      corruptSpawnConfigOutOfBand(created.id, "{not json at all");
 
-    const thrown = captureThrow(() => {
-      store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
-    });
+      const thrown = captureThrow(() => {
+        store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
+      });
 
-    // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
-    // provider input.
-    expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
-    expect((thrown as Error).message).toContain(created.id);
-    expect((thrown as Error).message).toContain("spawn_config");
+      // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
+      // provider input.
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(ProviderOutputValidationError);
+      expect((thrown as Error).message).toContain(created.id);
+      expect((thrown as Error).message).toContain("spawn_config");
 
-    // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
-    // "unreadable".
-    const raw = readRawMutableColumns(created.id);
-    expect(raw.contract_version).toBe("1.0.0");
-    expect(raw.resume_handle).toBe("handle-before");
-    expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
-    // `updated_at` is the sharpest witness: an UPDATE that reached the DB would have moved it
-    // from the advancing clock even if the other columns matched.
-    expect(raw.updated_at).toBe(created.updatedAt);
-    expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
-  });
+      // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
+      // "unreadable".
+      const raw = readRawMutableColumns(created.id);
+      expect(raw.contract_version).toBe("1.0.0");
+      expect(raw.resume_handle).toBe("handle-before");
+      expect(raw.runtime_metadata).toBe(JSON.stringify({ attempt: 1 }));
+      // `updated_at` is the sharpest witness: an UPDATE that reached the DB would have moved it
+      // from the advancing clock even if the other columns matched.
+      expect(raw.updated_at).toBe(created.updatedAt);
+      expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
+    },
+  );
 });
 
 describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
@@ -623,29 +630,32 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it("keeps a printed version that did not parse, and refuses a parse with no printed version", () => {
-    const store = makeStore();
-    const created = store.create({
-      runId: RUN_ID,
-      driverName: DRIVER_NAME,
-      contractVersion: CONTRACT_VERSION,
-      cliVersion: { rawVersion: "Claude Code (unknown build)" },
-      spawnConfig: {},
-    });
-    expect(store.findById(created.id)?.cliVersion).toStrictEqual({
-      rawVersion: "Claude Code (unknown build)",
-    });
-    expect(readRawCliVersion(created.id)).toEqual({
-      cli_version_raw: "Claude Code (unknown build)",
-      cli_version_semver: null,
-    });
+  it(
+    "keeps a printed version that did not parse, " + "and refuses a parse with no printed version",
+    () => {
+      const store = makeStore();
+      const created = store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: CONTRACT_VERSION,
+        cliVersion: { rawVersion: "Claude Code (unknown build)" },
+        spawnConfig: {},
+      });
+      expect(store.findById(created.id)?.cliVersion).toStrictEqual({
+        rawVersion: "Claude Code (unknown build)",
+      });
+      expect(readRawCliVersion(created.id)).toEqual({
+        cli_version_raw: "Claude Code (unknown build)",
+        cli_version_semver: null,
+      });
 
-    // The seam cannot express a parse without its printed version, so only SQL can stage one.
-    expect(() =>
-      insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
-    ).toThrow(/CHECK constraint failed/);
-    expect(countBindings()).toBe(1);
-  });
+      // The seam cannot express a parse without its printed version, so only SQL can stage one.
+      expect(() =>
+        insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
+      ).toThrow(/CHECK constraint failed/);
+      expect(countBindings()).toBe(1);
+    },
+  );
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
     // SQLite re-evaluates every CHECK on a row for every write to it, so the update path must
@@ -679,10 +689,10 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 // handle at the provider.
 
 describe("RuntimeBindingStore — spawned-version carriers", () => {
-  // `spawned-provider-version.test.ts` proves the reading is taken from the dereferenced build. This proves
-  // that value is what a later reader gets back out of the database, through `create()`'s
-  // report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none of
-  // which the in-memory projection helpers exercise: the version recorded and the version run
+  // `spawned-provider-version.test.ts` proves the reading is taken from the dereferenced build.
+  // This proves that value is what a later reader gets back out of the database, through
+  // `create()`'s report validation, the CLI-version DDL CHECK and the `spawn_config` parser, none
+  // of which the in-memory projection helpers exercise: the version recorded and the version run
   // are one reading.
   const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
   const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";

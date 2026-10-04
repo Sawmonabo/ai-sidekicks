@@ -14,7 +14,9 @@ const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
 
 /** Why the registry is withheld: the bound transport does not write the `--mcp-config` for it. */
 export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
-  "the bound Claude transport declares it does not realize the callback-tool --mcp-config registration, so no invocation could arrive; the registry is withheld rather than offered undeliverable";
+  "the bound Claude transport declares it does not realize the callback-tool --mcp-config " +
+  "registration, so no invocation could arrive; the registry is withheld rather than offered " +
+  "undeliverable";
 
 /**
  * Composes the provider-facing name `mcp__<server>__<tool>`. It is never parsed back, since a tool

@@ -178,7 +178,8 @@ export class RendererBundleMeasurer {
       // file.
       this.#refuse(
         `the chunk manifest names ${relativePath}, whose extension belongs to no asset class ` +
-          `(${[...ASSET_CLASS_BY_EXTENSION.keys()].join(", ")}) — classify it before it can be budgeted`,
+          `(${[...ASSET_CLASS_BY_EXTENSION.keys()].join(", ")}` +
+          `) — classify it before it can be budgeted`,
       );
     }
     let contents: Buffer;
@@ -285,7 +286,8 @@ export function formatRendererBundleReport(
       title: "Renderer initial-graph budgets",
       provenance: [
         `  output tree:   ${measurement.rendererOutputDirectory}`,
-        `  chunk graph:   ${RENDERER_MANIFEST_RELATIVE_PATH}, entries: ${measurement.entryKeys.join(", ")}`,
+        `  chunk graph:   ${RENDERER_MANIFEST_RELATIVE_PATH}, ` +
+          `entries: ${measurement.entryKeys.join(", ")}`,
         `  measured at:   ${measurement.measuredAt}`,
       ],
       readings: [

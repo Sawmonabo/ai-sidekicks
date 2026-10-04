@@ -356,44 +356,50 @@ describe("RepoMountService.detach", () => {
     }
   });
 
-  it("refuses while a dependent is busy, naming the session running there, and persists nothing", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    // The older dependent is idle and belongs to another session, so naming the first dependent's
-    // session instead of the running one would name a session that holds nothing.
-    const idleWorkspaceId = await bindReadyWorkspace(
-      harness.workspaces,
-      SESSION_ID,
-      attached.repoMountId,
-      gitFixtures.repositoryRoot,
-    );
-    const busyWorkspaceId = await bindReadyWorkspace(
-      harness.workspaces,
-      OTHER_SESSION_ID,
-      attached.repoMountId,
-      gitFixtures.repositoryRoot,
-    );
-    await harness.workspaces.markBusy(busyWorkspaceId, RUN_ID);
-    const idleEventsBeforeRefusal = readLifecycleEventTypes(harness.db, SESSION_ID);
-    const busyEventsBeforeRefusal = readLifecycleEventTypes(harness.db, OTHER_SESSION_ID);
+  it(
+    "refuses while a dependent is busy, naming the " +
+      "session running there, and persists nothing",
+    async () => {
+      const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
+      // The older dependent is idle and belongs to another session, so naming the first dependent's
+      // session instead of the running one would name a session that holds nothing.
+      const idleWorkspaceId = await bindReadyWorkspace(
+        harness.workspaces,
+        SESSION_ID,
+        attached.repoMountId,
+        gitFixtures.repositoryRoot,
+      );
+      const busyWorkspaceId = await bindReadyWorkspace(
+        harness.workspaces,
+        OTHER_SESSION_ID,
+        attached.repoMountId,
+        gitFixtures.repositoryRoot,
+      );
+      await harness.workspaces.markBusy(busyWorkspaceId, RUN_ID);
+      const idleEventsBeforeRefusal = readLifecycleEventTypes(harness.db, SESSION_ID);
+      const busyEventsBeforeRefusal = readLifecycleEventTypes(harness.db, OTHER_SESSION_ID);
 
-    const error = await captureRejection(() =>
-      harness.service.detach({ repoMountId: attached.repoMountId }),
-    );
+      const error = await captureRejection(() =>
+        harness.service.detach({ repoMountId: attached.repoMountId }),
+      );
 
-    expect(error).toBeInstanceOf(RepoDetachConflictError);
-    expect((error as RepoDetachConflictError).code).toBe("repo.detach_conflict");
-    expect((error as RepoDetachConflictError).runningSessionId).toBe(OTHER_SESSION_ID);
-    expect((error as RepoDetachConflictError).detail).toEqual({
-      runningSessionId: OTHER_SESSION_ID,
-    });
+      expect(error).toBeInstanceOf(RepoDetachConflictError);
+      expect((error as RepoDetachConflictError).code).toBe("repo.detach_conflict");
+      expect((error as RepoDetachConflictError).runningSessionId).toBe(OTHER_SESSION_ID);
+      expect((error as RepoDetachConflictError).detail).toEqual({
+        runningSessionId: OTHER_SESSION_ID,
+      });
 
-    // Nothing moved and nothing was appended.
-    expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("attached");
-    expect(requireWorkspaceRow(harness.db, idleWorkspaceId).state).toBe("ready");
-    expect(requireWorkspaceRow(harness.db, busyWorkspaceId).state).toBe("busy");
-    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(idleEventsBeforeRefusal);
-    expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual(busyEventsBeforeRefusal);
-  });
+      // Nothing moved and nothing was appended.
+      expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("attached");
+      expect(requireWorkspaceRow(harness.db, idleWorkspaceId).state).toBe("ready");
+      expect(requireWorkspaceRow(harness.db, busyWorkspaceId).state).toBe("busy");
+      expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual(idleEventsBeforeRefusal);
+      expect(readLifecycleEventTypes(harness.db, OTHER_SESSION_ID)).toEqual(
+        busyEventsBeforeRefusal,
+      );
+    },
+  );
 
   it("refuses while a run's execution root is unreleased after its workspace hold is", async () => {
     // A run releases its workspace hold and its execution root separately, so once the hold is
@@ -470,64 +476,67 @@ describe("RepoMountService.detach", () => {
     expect(countMountRows()).toBe(0);
   });
 
-  it("announces the remaining dependents when one archived append fails, then rejects", async () => {
-    const emitter = new FirstArchiveAppendFailingEmitter({
-      sessionEvents: new EventLogService({
-        db: harness.db,
-      }),
-    });
-    const service = createService({ events: emitter });
+  it(
+    "announces the remaining dependents when " + "one archived append fails, then rejects",
+    async () => {
+      const emitter = new FirstArchiveAppendFailingEmitter({
+        sessionEvents: new EventLogService({
+          db: harness.db,
+        }),
+      });
+      const service = createService({ events: emitter });
 
-    const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
-    const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
-    const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
+      const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
+      const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
+      const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
 
-    const error = await captureRejection(() =>
-      service.detach({ repoMountId: attached.repoMountId }),
-    );
+      const error = await captureRejection(() =>
+        service.detach({ repoMountId: attached.repoMountId }),
+      );
 
-    // The transaction committed, but the caller is told the log is incomplete, not handed a
-    // success.
-    expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
-    expect((error as RepoMountServiceInvariantError).kind).toBe("detach_notification_incomplete");
-    expect((error as RepoMountServiceInvariantError).repoMountId).toBe(attached.repoMountId);
-    expect((error as Error).cause).toBeInstanceOf(Error);
-    expect(((error as Error).cause as Error).message).toBe(SIMULATED_APPEND_FAILURE_MESSAGE);
+      // The transaction committed, but the caller is told the log is incomplete, not handed a
+      // success.
+      expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
+      expect((error as RepoMountServiceInvariantError).kind).toBe("detach_notification_incomplete");
+      expect((error as RepoMountServiceInvariantError).repoMountId).toBe(attached.repoMountId);
+      expect((error as Error).cause).toBeInstanceOf(Error);
+      expect(((error as Error).cause as Error).message).toBe(SIMULATED_APPEND_FAILURE_MESSAGE);
 
-    // The loop attempted both announcements; stopping at the first failure would leave
-    // `attemptedWorkspaceIds` one element long.
-    expect(emitter.attemptedWorkspaceIds).toEqual([firstWorkspaceId, secondWorkspaceId]);
+      // The loop attempted both announcements; stopping at the first failure would leave
+      // `attemptedWorkspaceIds` one element long.
+      expect(emitter.attemptedWorkspaceIds).toEqual([firstWorkspaceId, secondWorkspaceId]);
 
-    // The rows are correct; the failure is confined to the log.
-    expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("detached");
-    expect(requireWorkspaceRow(harness.db, firstWorkspaceId).state).toBe("archived");
-    expect(requireWorkspaceRow(harness.db, secondWorkspaceId).state).toBe("archived");
+      // The rows are correct; the failure is confined to the log.
+      expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("detached");
+      expect(requireWorkspaceRow(harness.db, firstWorkspaceId).state).toBe("archived");
+      expect(requireWorkspaceRow(harness.db, secondWorkspaceId).state).toBe("archived");
 
-    // Exactly one `workspace.archived` landed, for the second workspace, whose append ran after the
-    // failure. That proves the loop continued.
-    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
-      "workspace.preparing",
-      "workspace.preparing",
-      "workspace.archived",
-    ]);
-    const archivedEnvelopes = readLifecycleEnvelopes(harness.db, SESSION_ID).filter(
-      (row) => row.type === "workspace.archived",
-    );
-    expect(
-      (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
-    ).toBe(secondWorkspaceId);
+      // Exactly one `workspace.archived` landed, for the second workspace, whose append ran after
+      // the failure. That proves the loop continued.
+      expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
+        "workspace.preparing",
+        "workspace.preparing",
+        "workspace.archived",
+      ]);
+      const archivedEnvelopes = readLifecycleEnvelopes(harness.db, SESSION_ID).filter(
+        (row) => row.type === "workspace.archived",
+      );
+      expect(
+        (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
+      ).toBe(secondWorkspaceId);
 
-    // Calling again does not recover the missing event: the mount is already `detached`, so the
-    // call is a no-op with an empty answer, not a second cascade.
-    const retry = await service.detach({ repoMountId: attached.repoMountId });
-    expect(retry.state).toBe("detached");
-    expect(retry.archivedWorkspaceIds).toEqual([]);
-    expect(
-      readLifecycleEventTypes(harness.db, SESSION_ID).filter(
-        (type) => type === "workspace.archived",
-      ),
-    ).toHaveLength(1);
-  });
+      // Calling again does not recover the missing event: the mount is already `detached`, so the
+      // call is a no-op with an empty answer, not a second cascade.
+      const retry = await service.detach({ repoMountId: attached.repoMountId });
+      expect(retry.state).toBe("detached");
+      expect(retry.archivedWorkspaceIds).toEqual([]);
+      expect(
+        readLifecycleEventTypes(harness.db, SESSION_ID).filter(
+          (type) => type === "workspace.archived",
+        ),
+      ).toHaveLength(1);
+    },
+  );
 
   it("archives a dependent that appeared AFTER the pre-transaction read", async () => {
     // A `ready` workspace is committed on this mount between `detach`'s row read and its

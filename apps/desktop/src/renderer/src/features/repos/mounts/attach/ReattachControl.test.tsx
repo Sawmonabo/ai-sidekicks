@@ -2,7 +2,7 @@
 // control is an `AlertDialog.Close`, so it sends and closes at once; a discard wired to every
 // close would fire right after `sending` was published, freeing the trigger under an attach
 // still on the wire (see also `execution-roots/RootRemovalConfirmation.test.tsx`). The popup
-// is portalled, so acts are read off `document` and the settlement off the render container.
+// is portaled, so acts are read off `document` and the settlement off the render container.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -54,15 +54,18 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
 const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses("meridian-reattach");
 
 describe("ReattachControl — the confirm press keeps its settlement", () => {
-  it("still reports the re-attach as sent once the confirm control has closed the dialog", async () => {
-    const { container } = renderControl(operationsHoldingTheCall());
+  it(
+    "still reports the re-attach as sent once the confirm control " + "has closed the dialog",
+    async () => {
+      const { container } = renderControl(operationsHoldingTheCall());
 
-    await pressOpen();
-    await pressConfirm();
+      await pressOpen();
+      await pressConfirm();
 
-    expect(container.textContent).toContain("Re-attaching.");
-    expect(trigger()?.disabled).toBe(true);
-  });
+      expect(container.textContent).toContain("Re-attaching.");
+      expect(trigger()?.disabled).toBe(true);
+    },
+  );
 });
 
 describe("ReattachControl — a discarded consideration", () => {

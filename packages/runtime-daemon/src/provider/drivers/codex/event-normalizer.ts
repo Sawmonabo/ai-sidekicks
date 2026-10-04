@@ -236,14 +236,19 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "attestation/generate",
     transport: "server-request",
     reason:
-      "control-plane request answered on the transport (the initialize-declared requestAttestation capability); it asks the daemon to mint an attestation and carries no session observation, so it has no transcript capability to lose",
+      "control-plane request answered on the transport (the initialize-declared " +
+      "requestAttestation capability); it asks the daemon to mint an attestation and carries " +
+      "no session observation, so it has no transcript capability to lose",
   },
   "account/chatgptAuthTokens/refresh": {
     disposition: "not-evented",
     nativeMethod: "account/chatgptAuthTokens/refresh",
     transport: "server-request",
     reason:
-      "credential-refresh brokering answered on the transport (provider-account plane, which stores no credential material); routing a credential frame onto the session transcript would put an auth-plane event in the audit log and is exactly what that plane's un-evented posture forbids",
+      "credential-refresh brokering answered on the transport (provider-account plane, which " +
+      "stores no credential material); routing a credential frame onto the session " +
+      "transcript would put an auth-plane event in the audit log and is exactly what that " +
+      "plane's un-evented posture forbids",
   },
   error: {
     disposition: "normalized",
@@ -319,7 +324,10 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "skills/changed",
     transport: "server-notification",
     reason:
-      "empty-payload invalidation signal for the provider's local skill-file watch; it carries no session observation to lose, and its only consequence — discarding the driver-held command enumeration so the next read re-reads in full — is daemon-side state the provider is telling the client to refresh",
+      "empty-payload invalidation signal for the provider's local skill-file watch; it " +
+      "carries no session observation to lose, and its only consequence — discarding the " +
+      "driver-held command enumeration so the next read re-reads in full — is daemon-side " +
+      "state the provider is telling the client to refresh",
   },
   // Only the review's completion is evented, not its start.
   "item/autoApprovalReview/started": {
@@ -327,7 +335,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "item/autoApprovalReview/started",
     transport: "server-notification",
     reason:
-      "the start of Codex's own auto-approval review; only the review's completion records anything (a denied or timed-out review is the reviewer's block), so the start goes to the daemon's log only",
+      "the start of Codex's own auto-approval review; only the review's completion records " +
+      "anything (a denied or timed-out review is the reviewer's block), so the start goes to " +
+      "the daemon's log only",
   },
   // A denied or timed-out review is the reviewer's block; the daemon seals Codex's review with the
   // row so `Allow once` can send it back.
@@ -346,7 +356,9 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "model/safetyBuffering/updated",
     transport: "server-notification",
     reason:
-      "Codex's safety hold on a running turn is a live detail of the run's working status: it is relayed on the run's state stream as the hold frame and never written to the session's history, so a re-opened session does not replay it",
+      "Codex's safety hold on a running turn is a live detail of the run's working status: " +
+      "it is relayed on the run's state stream as the hold frame and never written to the " +
+      "session's history, so a re-opened session does not replay it",
   },
   // `process/*` frames land in `tool.result`; output and exit differ only in kind.
   "process/outputDelta": {
@@ -366,7 +378,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "turn/moderationMetadata",
     transport: "server-notification",
     reason:
-      "a moderation display hint with no words, which Codex's own app does not draw; it goes to the daemon's log only",
+      "a moderation display hint with no words, which Codex's own app does not draw; it goes " +
+      "to the daemon's log only",
   },
   "autoApprovalReview/strictReviewRequired": {
     disposition: "normalized",
@@ -384,28 +397,39 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/reverted",
     transport: "server-notification",
     reason:
-      "correlation-only wire echo, not an empty frame — it is the notification counterpart of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon requested. The rewind-confirmation consumer is the lifecycle leg, not the transcript: the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon settles the intervention, so adopting this echo would mint a second record of a boundary the daemon already owns and could report a rollback the daemon refused",
+      "correlation-only wire echo, not an empty frame — it is the notification counterpart " +
+      "of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon " +
+      "requested. The rewind-confirmation consumer is the lifecycle leg, not the transcript: " +
+      "the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon " +
+      "settles the intervention, so adopting this echo would mint a second record of a " +
+      "boundary the daemon already owns and could report a rollback the daemon refused",
   },
   "thread/queue/changed": {
     disposition: "not-evented",
     nativeMethod: "thread/queue/changed",
     transport: "server-notification",
     reason:
-      "provider-side queue-depth notice; the daemon's own queue is the authority and already emits the `queue_item.*` interactive_request rows, so this frame carries no capability the transcript lacks",
+      "provider-side queue-depth notice; the daemon's own queue is the authority and already " +
+      "emits the `queue_item.*` interactive_request rows, so this frame carries no " +
+      "capability the transcript lacks",
   },
   "project/changed": {
     disposition: "not-evented",
     nativeMethod: "project/changed",
     transport: "server-notification",
     reason:
-      "Codex project-scope bookkeeping; repo and workspace binding is daemon-owned (`repo.*` / `workspace.*` session_lifecycle rows sourced from the daemon's own mount state), so a provider-authored project notice would be a second source of truth for a binding the daemon set",
+      "Codex project-scope bookkeeping; repo and workspace binding is daemon-owned (`repo.*` " +
+      "/ `workspace.*` session_lifecycle rows sourced from the daemon's own mount state), so " +
+      "a provider-authored project notice would be a second source of truth for a binding " +
+      "the daemon set",
   },
   "thread/project/updated": {
     disposition: "not-evented",
     nativeMethod: "thread/project/updated",
     transport: "server-notification",
     reason:
-      "per-thread projection of the same Codex project-scope bookkeeping as `project/changed`; same daemon-owned-binding reason",
+      "per-thread projection of the same Codex project-scope bookkeeping as " +
+      "`project/changed`; same daemon-owned-binding reason",
   },
   "thread/environment/connected": {
     disposition: "not-evented",
@@ -421,14 +445,18 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/environment/disconnected",
     transport: "server-notification",
     reason:
-      "the paired disconnect of `thread/environment/connected`; same daemon-owned-liveness reason, and the run-terminal consequence of a real disconnect reaches the transcript through the lifecycle module's terminal emission rather than through this notice",
+      "the paired disconnect of `thread/environment/connected`; same daemon-owned-liveness " +
+      "reason, and the run-terminal consequence of a real disconnect reaches the transcript " +
+      "through the lifecycle module's terminal emission rather than through this notice",
   },
   "thread/settings/updated": {
     disposition: "not-evented",
     nativeMethod: "thread/settings/updated",
     transport: "server-notification",
     reason:
-      "provider-side settings echo; agent configuration is daemon-owned and settles as `agent.provider_binding_changed` when the daemon applies it, so adopting the echo would double-record a mutation the daemon authored",
+      "provider-side settings echo; agent configuration is daemon-owned and settles as " +
+      "`agent.provider_binding_changed` when the daemon applies it, so adopting the echo " +
+      "would double-record a mutation the daemon authored",
   },
   // The diff is a `tool.result` row (kind `diff`), not `artifact_publication`.
   "turn/diff/updated": {
@@ -489,7 +517,8 @@ export function resolveCodexFrameEmissionRoute(
       kind: "unmapped_wire_kind",
       rawWireType: nativeMethod,
       dispositionReason:
-        "wire method outside the pinned Codex inbound census; routed to the daemon diagnostic default branch, never silently dropped and never forced into an envelope",
+        "wire method outside the pinned Codex inbound census; routed to the daemon " +
+        "diagnostic default branch, never silently dropped and never forced into an envelope",
       details: {},
     };
     diagnostics.emit(record);
@@ -504,7 +533,9 @@ export function resolveCodexFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: nativeMethod,
       dispositionReason:
-        "normalized kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
+        "normalized kind whose target SessionEventType has no registered SessionEventSchema " +
+        "payload variant; envelope construction is forbidden without one, so the frame " +
+        "routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);

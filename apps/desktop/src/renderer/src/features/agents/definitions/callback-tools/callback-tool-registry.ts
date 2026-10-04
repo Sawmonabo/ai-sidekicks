@@ -30,7 +30,9 @@ export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
   {
     name: "workflow_run",
     description:
-      "Start a workflow run in this session by definition name. Resolution is most-specific-first across the session, project, and shared scopes.",
+      "Start a workflow run in this session by definition name. " +
+      "Resolution is most-specific-first across the session, project, " +
+      "and shared scopes.",
     inputSchema: {
       type: "object",
       properties: {

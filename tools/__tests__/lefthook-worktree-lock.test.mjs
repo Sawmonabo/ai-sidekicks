@@ -274,7 +274,8 @@ test("the rc file releases the lock and preserves the status when the hook fails
 test("the rc file skips the lock when an ancestor hook already holds it", () => {
   const { root, hookPath } = makeHookFixture(
     "pre-commit",
-    'if [ -f "$LOCKPATH" ]; then echo held > "$LOCK_WITNESS_TARGET"; else echo free > "$LOCK_WITNESS_TARGET"; fi',
+    'if [ -f "$LOCKPATH" ]; then echo held > "$LOCK_WITNESS_TARGET"; ' +
+      'else echo free > "$LOCK_WITNESS_TARGET"; fi',
   );
   try {
     const lockPath = join(commonGitDirectoryOf(root), "lefthook-unstaged-backup.lock");

@@ -11,20 +11,24 @@ import { composedAnswer, renderForm } from "./SchemaFormWithReadout.test-support
 afterEach(cleanup);
 
 describe("the value a control puts in the answer", () => {
-  it("submits an enumeration member the schema spells empty rather than reading it as no answer", async () => {
-    const container = await renderForm({
-      type: "object",
-      properties: { severity: { type: "string", enum: ["", "high"], title: "Severity" } },
-    });
-    const severity = screen.getByLabelText("Severity");
-    const emptyMemberOption = [...severity.querySelectorAll("option")].find(
-      (option) => option.textContent === "",
-    );
+  it(
+    "submits an enumeration member the schema spells empty rather " +
+      "than reading it as no answer",
+    async () => {
+      const container = await renderForm({
+        type: "object",
+        properties: { severity: { type: "string", enum: ["", "high"], title: "Severity" } },
+      });
+      const severity = screen.getByLabelText("Severity");
+      const emptyMemberOption = [...severity.querySelectorAll("option")].find(
+        (option) => option.textContent === "",
+      );
 
-    fireEvent.change(severity, { target: { value: emptyMemberOption?.value } });
+      fireEvent.change(severity, { target: { value: emptyMemberOption?.value } });
 
-    expect(composedAnswer(container)).toEqual({ severity: "" });
-  });
+      expect(composedAnswer(container)).toEqual({ severity: "" });
+    },
+  );
 
   it("writes the boolean a person picked rather than the word the option showed", async () => {
     const container = await renderForm({

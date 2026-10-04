@@ -21,7 +21,10 @@ export type RestoreTarget =
  */
 export function readRestoreResult(result: SessionRestoreResult, target: RestoreTarget): string {
   if (result.outcome === "resend-unapplied") {
-    return `Resend failed · ${result.reason} · ${midSentence(restoredWords(target, "conversation-and-files"))}`;
+    return (
+      `Resend failed · ${result.reason} ` +
+      `· ${midSentence(restoredWords(target, "conversation-and-files"))}`
+    );
   }
   switch (result.restored) {
     case "nothing":

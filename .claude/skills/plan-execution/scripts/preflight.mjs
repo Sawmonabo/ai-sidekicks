@@ -316,8 +316,11 @@ function labelsIn(list) {
 // another plan's phase inside a precondition block is already the gate.
 // The window stops at the next phase reference or sentence end, so a later
 // sentence's "merged" is never credited to an earlier mention.
-const SHIPMENT_CLAIM =
-  /^(?:(?!\bPhases?\b|\bPlan-\d{3}\b|\.\s|;).){0,60}?\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b/is;
+const SHIPMENT_CLAIM = new RegExp(
+  "^(?:(?!\\bPhases?\\b|\\bPlan-\\d{3}\\b|\\.\\s|;).){0,60}?" +
+    "\\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\\b",
+  "is",
+);
 
 const required = [];
 for (const m of preconditionText.matchAll(PHASE_REFERENCE)) {

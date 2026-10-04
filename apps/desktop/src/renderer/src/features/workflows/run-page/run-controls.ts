@@ -120,6 +120,7 @@ export function actAlreadyInFlightRefusal(action: WorkflowRunControlAction): Ref
   return refuse(
     WORKFLOW_RUN_CONTROL_ORIGIN,
     code,
-    `${ACTION_PROSE[action]} is already in flight for this run. Wait for the answer; a second press is not queued.`,
+    `${ACTION_PROSE[action]} is already in flight for this run. Wait ` +
+      "for the answer; a second press is not queued.",
   );
 }

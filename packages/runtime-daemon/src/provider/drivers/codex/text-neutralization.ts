@@ -29,7 +29,7 @@ import {
   type CodexLifecycleOptions,
   type CodexSessionRecord,
   rememberSettledTurn,
-  rememberUnmatchedTurn,
+  bufferTurnEvidence,
 } from "./session-state.js";
 import type { CodexRequestDelivery } from "./app-server-connection.js";
 import { type CodexRunConfig } from "./session-config.js";
@@ -104,28 +104,28 @@ export class CodexTextNeutralization {
   }
 
   /**
-   * For a turn whose notifications arrived before its `turn/start` answer, replays the remembered
-   * evidence onto the re-keyed opening frame and rules a remembered terminal.
+   * For a turn whose notifications arrived before its `turn/start` answer, correlates the buffered
+   * evidence onto the re-keyed opening frame and rules a buffered terminal.
    */
-  replayRememberedTurnEvidence(record: CodexSessionRecord, runId: RunId, turnId: string): void {
+  correlateBufferedTurnEvidence(record: CodexSessionRecord, runId: RunId, turnId: string): void {
     // The turn can already be over: this continuation is a microtask while `#ingest` drains the
-    // chunk synchronously, so the sweep may have matched nothing. The remembered evidence closes
-    // that window and is replayed onto the re-keyed frame so the terminal is ruled here.
-    const remembered = record.unmatchedTurnEvidence.get(turnId);
-    if (remembered === undefined) {
+    // chunk synchronously, so the sweep may have matched nothing. The buffered evidence closes
+    // that window and is correlated onto the re-keyed frame so the terminal is ruled here.
+    const buffered = record.bufferedTurnEvidence.get(turnId);
+    if (buffered === undefined) {
       return;
     }
-    record.unmatchedTurnEvidence.delete(turnId);
-    for (const observation of remembered.observations) {
+    record.bufferedTurnEvidence.delete(turnId);
+    for (const observation of buffered.observations) {
       this.#outboundFrameTripwire.observe(turnId, observation);
     }
-    const rememberedTerminal = remembered.terminal;
-    if (rememberedTerminal === undefined) {
+    const bufferedTerminal = buffered.terminal;
+    if (bufferedTerminal === undefined) {
       // In-flight evidence only: the turn is still running; its own terminal settles the frame.
       return;
     }
     this.#runRoutes.retireTurnRoute(record, turnId);
-    const decision = this.#outboundFrameTripwire.settle(turnId, rememberedTerminal);
+    const decision = this.#outboundFrameTripwire.settle(turnId, bufferedTerminal);
     if (!decision.tripped) {
       return;
     }
@@ -238,12 +238,12 @@ export class CodexTextNeutralization {
         // No frame is correlated onto this turn yet; it may still wait on the `turn/start`
         // continuation that re-keys it. Remembering the observation avoids tripping on the
         // terminal alone.
-        const remembered = rememberUnmatchedTurn(observingRecord, inFlightEvidence.turnId);
-        if (remembered === null) {
+        const buffered = bufferTurnEvidence(observingRecord, inFlightEvidence.turnId);
+        if (buffered === null) {
           this.#refuseUnretainableTurnEvidence(observingRecord);
           return;
         }
-        remembered.observations.add(inFlightEvidence.observation);
+        buffered.observations.add(inFlightEvidence.observation);
       }
     }
     if (method !== CODEX_TURN_COMPLETED_METHOD) {
@@ -310,12 +310,12 @@ export class CodexTextNeutralization {
       this.#disposeQuarantinedSession(record);
     }
     if (!matchedRoute) {
-      const remembered = rememberUnmatchedTurn(record, turnId);
-      if (remembered === null) {
+      const buffered = bufferTurnEvidence(record, turnId);
+      if (buffered === null) {
         this.#refuseUnretainableTurnEvidence(record);
         return;
       }
-      remembered.terminal = classification;
+      buffered.terminal = classification;
     }
   }
 
@@ -341,14 +341,14 @@ export class CodexTextNeutralization {
   }
 
   /**
-   * The loud path for a turn-evidence memory at its ceiling while a `turn/start` is in flight,
+   * The loud path for a turn-evidence buffer at its ceiling while a `turn/start` is in flight,
    * when every entry may be the terminal that start will claim. Dropping or evicting would
    * silently lose a terminal and report a swallowed turn as completed.
    */
   #refuseUnretainableTurnEvidence(record: CodexSessionRecord): void {
     this.#refuseUnretainableTurnMemory(record, {
       kind: "turn-evidence-memory-overflowed",
-      retainedTurnCount: record.unmatchedTurnEvidence.size,
+      retainedTurnCount: record.bufferedTurnEvidence.size,
     });
   }
 

@@ -1,6 +1,6 @@
 // A claim rule one modifier too broad takes `S` from a page's search box; one too narrow kills
 // the person's whole chord set inside a pane. Neither shows until somebody is typing. The
-// replay is asserted at both ends, the pane's own capture handler and the window the keybinding
+// forwarding is asserted at both ends, the pane's own capture handler and the window the keybinding
 // table listens on, because a re-target that fixes one breaks the other.
 
 import { describe, expect, it } from "vitest";
@@ -55,8 +55,8 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
   });
 });
 
-describe("KeyboardHandback.replay", () => {
-  it("focuses the pane and replays the chord, carrying every modifier through unchanged", () => {
+describe("KeyboardHandback.forwardChord", () => {
+  it("focuses the pane and forwards the chord, carrying every modifier through unchanged", () => {
     const handback = handbackOver(["$mod+Shift+KeyK"]);
     const paneRoot = attachedPaneRoot();
     const seen: KeyboardEvent[] = [];
@@ -65,9 +65,9 @@ describe("KeyboardHandback.replay", () => {
     };
     window.addEventListener("keydown", listener);
     try {
-      const outcome = handback.replay(chord({ metaKey: true, shiftKey: true }), paneRoot);
-      expect(outcome).toStrictEqual({ status: "replayed" });
-      expect(handback.replayCount).toBe(1);
+      const outcome = handback.forwardChord(chord({ metaKey: true, shiftKey: true }), paneRoot);
+      expect(outcome).toStrictEqual({ status: "forwarded" });
+      expect(handback.forwardCount).toBe(1);
       expect(seen).toHaveLength(1);
       expect(seen[0]?.code).toBe("KeyK");
       expect(seen[0]?.metaKey).toBe(true);
@@ -80,7 +80,7 @@ describe("KeyboardHandback.replay", () => {
 
   it("reaches the pane's own capture handler, which is where the close chord is handled", () => {
     // Dispatching on `window` makes it the target, and a target's propagation path excludes its
-    // descendants, so the pane's `onKeyDownCapture` never saw the replay.
+    // descendants, so the pane's `onKeyDownCapture` never saw the forwarded chord.
     const handback = handbackOver([CLOSE_TAB_CHORD]);
     const paneRoot = attachedPaneRoot();
     const seenAtPane: KeyboardEvent[] = [];
@@ -89,9 +89,12 @@ describe("KeyboardHandback.replay", () => {
     };
     paneRoot.addEventListener("keydown", paneCaptureHandler, { capture: true });
 
-    const outcome = handback.replay(chord({ key: "w", code: "KeyW", metaKey: true }), paneRoot);
+    const outcome = handback.forwardChord(
+      chord({ key: "w", code: "KeyW", metaKey: true }),
+      paneRoot,
+    );
 
-    expect(outcome).toStrictEqual({ status: "replayed" });
+    expect(outcome).toStrictEqual({ status: "forwarded" });
     expect(seenAtPane).toHaveLength(1);
     expect(seenAtPane[0]?.code).toBe("KeyW");
     expect(seenAtPane[0]?.metaKey).toBe(true);

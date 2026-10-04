@@ -47,7 +47,8 @@ export function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResul
     // Present but not a string: an unreadable shape is probe ill-health, not a credential verdict.
     return buildAuthProbeResult(
       "indeterminate",
-      `the Codex app-server "${CODEX_AUTH_STATUS_METHOD}" response carried an unreadable authMethod`,
+      `the Codex app-server "${CODEX_AUTH_STATUS_METHOD}" response carried an unreadable ` +
+        `authMethod`,
     );
   }
   return buildAuthProbeResult(

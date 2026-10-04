@@ -51,7 +51,9 @@ export function readInterventionFormSettlement(
         notice: refuse(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
-          "This intervention expired before it was applied. What you typed is still here — confirm again to raise a new one, or cancel to close.",
+          "This intervention expired before it was applied. What you typed " +
+            "is still here — confirm again to raise a new one, or cancel to " +
+            "close.",
         ),
       };
     case "requested":
@@ -61,7 +63,10 @@ export function readInterventionFormSettlement(
         notice: refuse(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
-          "The background service recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
+          "The background service recorded this intervention and has not " +
+            "applied it yet. Your text is on that record; confirming again " +
+            "would raise a second one, so this control stays latched until " +
+            "you close it.",
         ),
       };
   }
@@ -74,9 +79,13 @@ export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
 
 /** What the form says beside a rejected settlement; the wire cause is the refusal's code. */
 const REJECTED_DETAIL =
-  "The background service did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
+  "The background service did not apply this. What you typed is " +
+  "still here — change what it asks for and confirm again, or " +
+  "cancel to close without sending.";
 
 const ADMISSION_REFUSAL_DETAIL: Readonly<Record<RunControlAdmissionRefusal, string>> = {
   "in-flight":
-    "An earlier request for this run is still settling, so nothing was sent. What you typed is still here — confirm again once it lands.",
+    "An earlier request for this run is still settling, so nothing " +
+    "was sent. What you typed is still here — confirm again once it " +
+    "lands.",
 };

@@ -28,8 +28,10 @@ const CANONICAL_OCCURRED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{
 // The wire schema's `z.iso.datetime({ offset: true })` shape without calendar checks (the read-back
 // below does those). Groups: 1 year, 2 month, 3 day, 4 hour, 5 minute, 6 second?, 7 fraction?,
 // then `Z` or an offset giving 8 sign, 9 hours, 10 minutes.
-const CANONICALIZABLE_OCCURRED_AT_PATTERN =
-  /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.(\d+))?)?(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$/;
+const CANONICALIZABLE_OCCURRED_AT_PATTERN = new RegExp(
+  String.raw`^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.(\d+))?)?` +
+    String.raw`(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$`,
+);
 
 /**
  * Normalizes an `occurredAt` to `YYYY-MM-DDTHH:MM:SS.sssZ`; throws for a bad shape, sub-millisecond
@@ -39,7 +41,8 @@ export function normalizeOccurredAt(occurredAt: string): string {
   const match = CANONICALIZABLE_OCCURRED_AT_PATTERN.exec(occurredAt);
   if (match === null) {
     throw new Error(
-      `EventEnvelope.occurredAt must be an RFC 3339 date-time with an uppercase T separator and a Z or ±HH:MM offset received ${JSON.stringify(occurredAt)}.`,
+      `EventEnvelope.occurredAt must be an RFC 3339 date-time with an uppercase T separator ` +
+        `and a Z or ±HH:MM offset received ${JSON.stringify(occurredAt)}.`,
     );
   }
 
@@ -54,7 +57,10 @@ export function normalizeOccurredAt(occurredAt: string): string {
   // Trailing zeros past the third digit are notation; any other digit is refused, not truncated.
   if (/[1-9]/.test(fractionalDigits.slice(3))) {
     throw new Error(
-      `EventEnvelope.occurredAt carries sub-millisecond precision (${JSON.stringify(occurredAt)}), which the canonical form YYYY-MM-DDTHH:MM:SS.sssZ cannot represent. Truncating it here would store a different instant than the one recorded, so the producer must emit millisecond precision.`,
+      `EventEnvelope.occurredAt carries sub-millisecond precision (` +
+        `${JSON.stringify(occurredAt)}), which the canonical form YYYY-MM-DDTHH:MM:SS.sssZ ` +
+        `cannot represent. Truncating it here would store a different instant than the one ` +
+        `recorded, so the producer must emit millisecond precision.`,
     );
   }
   const millisecond = Number(fractionalDigits.padEnd(3, "0").slice(0, 3));
@@ -70,7 +76,8 @@ export function normalizeOccurredAt(occurredAt: string): string {
     instant.getUTCDate() !== day
   ) {
     throw new Error(
-      `EventEnvelope.occurredAt names a date that does not exist on the calendar: ${JSON.stringify(occurredAt)}.`,
+      `EventEnvelope.occurredAt names a date that does not exist on the calendar: ` +
+        `${JSON.stringify(occurredAt)}.`,
     );
   }
 
@@ -88,7 +95,9 @@ export function normalizeOccurredAt(occurredAt: string): string {
     // The fold lands outside the four-digit years `toISOString()` renders
     // (`0000-01-01T00:00:00+05:00` folds to year -1, `9999-12-31T23:59:59-05:00` to year 10000).
     throw new Error(
-      `EventEnvelope.occurredAt does not fold into the canonical form YYYY-MM-DDTHH:MM:SS.sssZ: ${JSON.stringify(occurredAt)} normalizes to ${JSON.stringify(normalized)}.`,
+      `EventEnvelope.occurredAt does not fold into the canonical form ` +
+        `YYYY-MM-DDTHH:MM:SS.sssZ: ${JSON.stringify(occurredAt)} normalizes to ` +
+        `${JSON.stringify(normalized)}.`,
     );
   }
   return normalized;
@@ -115,7 +124,10 @@ function assertWithinCanonicalDepth(value: unknown): void {
     if (entry.node === null || typeof entry.node !== "object") continue;
     if (entry.depth > CANONICAL_JSON_MAX_DEPTH) {
       throw new Error(
-        `RFC 8785 canonicalization refused: the value nests containers deeper than ${CANONICAL_JSON_MAX_DEPTH} levels. The guards after this one have no cycle detection, so an unbounded or cyclic value would stall this entry point, which handles untrusted request bodies.`,
+        `RFC 8785 canonicalization refused: the value nests containers deeper than ` +
+          `${CANONICAL_JSON_MAX_DEPTH} levels. The guards after this one have no cycle ` +
+          `detection, so an unbounded or cyclic value would stall this entry point, which ` +
+          `handles untrusted request bodies.`,
       );
     }
     for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
@@ -147,7 +159,12 @@ function assertNoToJsonOverride(value: unknown): void {
           entry.containersAbove === 0
             ? "the top-level value"
             : `a value nested ${String(entry.containersAbove)} containers deep`
-        } carries a callable toJSON, which the serializer invokes and serializes INSTEAD of the value — so the canonical bytes would come from a tree none of this module's guards inspected, and a stateful toJSON makes two canonicalizations of one value produce DIFFERENT bytes, which no consumer re-canonicalizing the value can reproduce. Apply the conversion explicitly and pass the converted plain-JSON value instead. The property path is withheld: this entry point also canonicalizes PII plaintext.`,
+        } carries a callable toJSON, which the serializer invokes and serializes INSTEAD of the ` +
+          `value — so the canonical bytes would come from a tree none of this module's guards ` +
+          `inspected, and a stateful toJSON makes two canonicalizations of one value produce ` +
+          `DIFFERENT bytes, which no consumer re-canonicalizing the value can reproduce. Apply ` +
+          `the conversion explicitly and pass the converted plain-JSON value instead. The ` +
+          `property path is withheld: this entry point also canonicalizes PII plaintext.`,
       );
     }
     for (const childValue of Object.values(entry.node as Record<string, unknown>)) {
@@ -179,7 +196,11 @@ function assertNoLoneSurrogate(text: string, positionDescription: string): void 
   if (unpairedIndex === -1) return;
   const codeUnit = text.charCodeAt(unpairedIndex);
   throw new Error(
-    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ${String(unpairedIndex)}. RFC 8785 section 3.2.2.2 requires a compliant JCS implementation to terminate on lone surrogates. The string itself is withheld: this entry point also canonicalizes PII plaintext.`,
+    `RFC 8785 canonicalization refused: ${positionDescription} carries an unpaired UTF-16 ` +
+      `surrogate (U+${codeUnit.toString(16).toUpperCase().padStart(4, "0")}) at index ` +
+      `${String(unpairedIndex)}. RFC 8785 section 3.2.2.2 requires a compliant JCS ` +
+      `implementation to terminate on lone surrogates. The string itself is withheld: this ` +
+      `entry point also canonicalizes PII plaintext.`,
   );
 }
 
@@ -222,7 +243,8 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
     // A top-level `undefined`, function or symbol yields no output, and
     // `TextEncoder.encode(undefined)` would return zero bytes for it.
     throw new Error(
-      "RFC 8785 canonicalization produced no output: the value has no JSON representation (undefined, a function, or a symbol).",
+      "RFC 8785 canonicalization produced no output: the value has no JSON representation " +
+        "(undefined, a function, or a symbol).",
     );
   }
   const canonicalUtf8Bytes: Uint8Array = utf8Encoder.encode(canonicalText);
@@ -239,7 +261,11 @@ export function canonicalizeJson(value: unknown): CanonicalBytes {
 function assertRepresentableSequence(sequence: number): void {
   if (!Number.isSafeInteger(sequence)) {
     throw new Error(
-      `RFC 8785 canonicalization refused: sequence ${String(sequence)} is not a safe integer (|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an integer). Outside that range distinct sequences collapse onto the same IEEE-754 double, so two different events would produce identical canonical bytes and share one replay key.`,
+      `RFC 8785 canonicalization refused: sequence ${String(sequence)} is not a safe integer ` +
+        `(|value| must be at most ${String(Number.MAX_SAFE_INTEGER)}, and it must be an ` +
+        `integer). Outside that range distinct sequences collapse onto the same IEEE-754 ` +
+        `double, so two different events would produce identical canonical bytes and share one ` +
+        `replay key.`,
     );
   }
 }

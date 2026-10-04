@@ -114,7 +114,8 @@ describe("release build — the fixture code is absent, not merely unreachable",
     const carriers = carriersOf(RENDERER_PRESENCE_MARKER, builtFiles);
     expect(
       carriers.length,
-      `no built file mentions "${RENDERER_PRESENCE_MARKER}", so the absence claims below would be vacuous`,
+      `no built file mentions "${RENDERER_PRESENCE_MARKER}", ` +
+        `so the absence claims below would be vacuous`,
     ).toBeGreaterThan(0);
   });
 

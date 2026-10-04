@@ -38,15 +38,18 @@ describe("feature-flag gate", () => {
     expect(result.logs[0]).toContain("CONTROL_PLANE_BOOTSTRAP_ENABLED");
   });
 
-  it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is 'true' (only literal '1' passes)", async () => {
-    // Strict equality: 'true', 'yes' and 'on' all refuse.
-    const result = await runGate({
-      CONTROL_PLANE_BOOTSTRAP_ENABLED: "true",
-      ENVIRONMENT: "development",
-    });
-    expect(result.status).toBe(503);
-    expect(result.logs[0]).toContain("CONTROL_PLANE_BOOTSTRAP_ENABLED");
-  });
+  it(
+    "refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED " + "is 'true' (only literal '1' passes)",
+    async () => {
+      // Strict equality: 'true', 'yes' and 'on' all refuse.
+      const result = await runGate({
+        CONTROL_PLANE_BOOTSTRAP_ENABLED: "true",
+        ENVIRONMENT: "development",
+      });
+      expect(result.status).toBe(503);
+      expect(result.logs[0]).toContain("CONTROL_PLANE_BOOTSTRAP_ENABLED");
+    },
+  );
 });
 
 interface RefusalRow {

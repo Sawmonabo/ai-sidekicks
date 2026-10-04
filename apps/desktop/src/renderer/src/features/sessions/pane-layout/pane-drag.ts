@@ -153,7 +153,9 @@ export function paneDropAnnouncement(
     };
   }
   return {
-    message: `Moved the ${TITLE_BY_PANE_KIND[paneKind]} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
+    message:
+      `Moved the ${TITLE_BY_PANE_KIND[paneKind]} pane to position ` +
+      `${String(toPosition + 1)} of ${String(paneCount)}.`,
     politeness: "polite",
   };
 }

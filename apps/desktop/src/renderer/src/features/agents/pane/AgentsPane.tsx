@@ -52,7 +52,10 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
           kind="not-checked"
           placement="block"
           title="This app was not handed a session to read sidekicks from."
-          detail="The sidekick list and the binding are scoped to one session, so nothing was asked of the background service."
+          detail={
+            "The sidekick list and the binding are scoped to one session, so " +
+            "nothing was asked of the background service."
+          }
         />
       ) : (
         <AgentBindingColumn models={models} agentId={props.agentId} />

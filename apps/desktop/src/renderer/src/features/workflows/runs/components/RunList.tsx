@@ -29,7 +29,10 @@ export function RunList(props: RunListProps): React.JSX.Element {
         kind="empty"
         placement="block"
         title="No runs here."
-        detail="A run started from a definition appears here, with whatever it is waiting on said in place."
+        detail={
+          "A run started from a definition appears here, with whatever it " +
+          "is waiting on said in place."
+        }
       />
     );
   }

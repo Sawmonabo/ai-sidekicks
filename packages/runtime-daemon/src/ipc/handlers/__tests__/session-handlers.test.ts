@@ -132,23 +132,27 @@ function buildSessionLogRead(): SessionLogRead {
 }
 
 describe("session.create round-trip through MethodRegistry dispatch", () => {
-  it("dispatches `session.create` to the deps' createSession; returns the canonical response shape", async () => {
-    const registry = new MethodRegistryImpl();
-    const expectedResponse = buildSessionCreateResponse();
-    const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
-      async () => expectedResponse,
-    );
-    const deps: SessionCreateDeps = { createSession: mockCreateSession };
-    registerSessionCreate(registry, deps);
+  it(
+    "dispatches `session.create` to the deps' " +
+      "createSession; returns the canonical response shape",
+    async () => {
+      const registry = new MethodRegistryImpl();
+      const expectedResponse = buildSessionCreateResponse();
+      const mockCreateSession = vi.fn<
+        (req: SessionCreateRequest) => Promise<SessionCreateResponse>
+      >(async () => expectedResponse);
+      const deps: SessionCreateDeps = { createSession: mockCreateSession };
+      registerSessionCreate(registry, deps);
 
-    const directCtx: HandlerContext = {};
-    const result = await registry.dispatch("session.create", SESSION_CREATE_REQUEST, directCtx);
+      const directCtx: HandlerContext = {};
+      const result = await registry.dispatch("session.create", SESSION_CREATE_REQUEST, directCtx);
 
-    expect(mockCreateSession).toHaveBeenCalledTimes(1);
-    expect(mockCreateSession).toHaveBeenCalledWith(SESSION_CREATE_REQUEST);
-    // The registry re-parses the result against the schema but does not change it.
-    expect(result).toStrictEqual(expectedResponse);
-  });
+      expect(mockCreateSession).toHaveBeenCalledTimes(1);
+      expect(mockCreateSession).toHaveBeenCalledWith(SESSION_CREATE_REQUEST);
+      // The registry re-parses the result against the schema but does not change it.
+      expect(result).toStrictEqual(expectedResponse);
+    },
+  );
 });
 
 // The handler batches changes on a timer window, so the `session.subscribe` tests fake
@@ -289,22 +293,26 @@ describe("session.subscribe batches a session's changes into frames", () => {
     expect(registry.isMutating("session.subscribe")).toBe(false);
   });
 
-  it("sends the changes of one window as one frame when the window closes, each with its cursor", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const stream = await subscribeWith(ALWAYS_ROOM);
+  it(
+    "sends the changes of one window as one frame " +
+      "when the window closes, each with its cursor",
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const stream = await subscribeWith(ALWAYS_ROOM);
 
-    stream.onChange(changeAt(1));
-    vi.advanceTimersByTime(5);
-    stream.onChange(changeAt(2));
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS - 6);
-    expect(stream.send).not.toHaveBeenCalled();
+      stream.onChange(changeAt(1));
+      vi.advanceTimersByTime(5);
+      stream.onChange(changeAt(2));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS - 6);
+      expect(stream.send).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(1);
-    expect(sentFrames(stream.send)).toStrictEqual([{ changes: [changeAt(1), changeAt(2)] }]);
-    expect(stream.send.mock.calls[0]?.[0]).toBe(7);
-    const params = stream.send.mock.calls[0]?.[1].params as SubscriptionNotifyParams<unknown>;
-    expect(params.subscriptionId).toBe(stream.subscriptionId);
-  });
+      vi.advanceTimersByTime(1);
+      expect(sentFrames(stream.send)).toStrictEqual([{ changes: [changeAt(1), changeAt(2)] }]);
+      expect(stream.send.mock.calls[0]?.[0]).toBe(7);
+      const params = stream.send.mock.calls[0]?.[1].params as SubscriptionNotifyParams<unknown>;
+      expect(params.subscriptionId).toBe(stream.subscriptionId);
+    },
+  );
 
   it("sends a full frame at once, without waiting for the window", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -393,25 +401,29 @@ describe("session.subscribe never waits for a connection that falls behind", () 
     expect(stream.send).toHaveBeenCalledTimes(1);
   });
 
-  it("sends one frame with no changes, the drop mark and the newest cursor once a quiet connection catches up", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const outbound = controllableOutboundQueue();
-    const stream = await subscribeWith(outbound.queue);
+  it(
+    "sends one frame with no changes, the drop mark and the newest cursor once a quiet " +
+      "connection catches up",
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const outbound = controllableOutboundQueue();
+      const stream = await subscribeWith(outbound.queue);
 
-    outbound.fill();
-    stream.onChange(changeAt(1));
-    stream.onChange(changeAt(2));
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-    expect(stream.send).not.toHaveBeenCalled();
+      outbound.fill();
+      stream.onChange(changeAt(1));
+      stream.onChange(changeAt(2));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      expect(stream.send).not.toHaveBeenCalled();
 
-    outbound.drain();
+      outbound.drain();
 
-    expect(sentFrames(stream.send)).toStrictEqual([
-      { changes: [], dropped: true, cursor: changeAt(2).cursor },
-    ]);
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-    expect(stream.send).toHaveBeenCalledTimes(1);
-  });
+      expect(sentFrames(stream.send)).toStrictEqual([
+        { changes: [], dropped: true, cursor: changeAt(2).cursor },
+      ]);
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      expect(stream.send).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("stops listening for room once the subscription is canceled", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -439,40 +451,47 @@ describe("session.subscribe survives a malformed frame", () => {
     vi.restoreAllMocks();
   });
 
-  it("replay: a malformed event in a replayed frame cancels the subscription and sends nothing after it", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
-    const replay = [
-      malformed,
-      ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
-    ];
+  it(
+    "replay: a malformed event in a replayed frame cancels the subscription and sends nothing " +
+      "after it",
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
+      const replay = [
+        malformed,
+        ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
+      ];
 
-    const stream = await subscribeWith(ALWAYS_ROOM, replay);
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      const stream = await subscribeWith(ALWAYS_ROOM, replay);
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
-    expect(stream.send).not.toHaveBeenCalled();
-    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
-    expect(prefix).toContain("[session.subscribe] replay event validation/emission failed");
-    expect(prefix).toContain(stream.subscriptionId);
-    expect((err as Error).name).toBe("StreamingValidationError");
-  });
+      expect(stream.send).not.toHaveBeenCalled();
+      expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
+      expect(prefix).toContain("[session.subscribe] replay event validation/emission failed");
+      expect(prefix).toContain(stream.subscriptionId);
+      expect((err as Error).name).toBe("StreamingValidationError");
+    },
+  );
 
-  it("live tail: a malformed event cancels the subscription without throwing into the upstream", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const stream = await subscribeWith(ALWAYS_ROOM);
+  it(
+    "live tail: a malformed event cancels the " + "subscription without throwing into the upstream",
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const stream = await subscribeWith(ALWAYS_ROOM);
 
-    stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
-    expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
+      stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
+      expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
 
-    expect(stream.send).not.toHaveBeenCalled();
-    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-    const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
-    expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
-  });
+      expect(stream.send).not.toHaveBeenCalled();
+      expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
+      const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
+      expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
+    },
+  );
 });
 
 describe("session.subscribe detaches the upstream when the subscription ends", () => {
@@ -524,76 +543,85 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
 });
 
 describe("session.read", () => {
-  it("dispatches a known sessionId to the readSession deps and answers it with the held draft", async () => {
-    const registry = new MethodRegistryImpl();
-    const logRead = buildSessionLogRead();
-    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
-      async () => logRead,
-    );
-    const deps: SessionReadDeps = {
-      readSession: mockReadSession,
-      draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
-    };
-    registerSessionRead(registry, deps);
+  it(
+    "dispatches a known sessionId to the readSession " + "deps and answers it with the held draft",
+    async () => {
+      const registry = new MethodRegistryImpl();
+      const logRead = buildSessionLogRead();
+      const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
+        async () => logRead,
+      );
+      const deps: SessionReadDeps = {
+        readSession: mockReadSession,
+        draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
+      };
+      registerSessionRead(registry, deps);
 
-    const directCtx: HandlerContext = {};
-    const result = await registry.dispatch(
-      "session.read",
-      { sessionId: TEST_SESSION_ID },
-      directCtx,
-    );
+      const directCtx: HandlerContext = {};
+      const result = await registry.dispatch(
+        "session.read",
+        { sessionId: TEST_SESSION_ID },
+        directCtx,
+      );
 
-    expect(mockReadSession).toHaveBeenCalledTimes(1);
-    expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
+      expect(mockReadSession).toHaveBeenCalledTimes(1);
+      expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
 
-    // The log's read, with the draft the store holds for that session.
-    expect(result).toStrictEqual({
-      ...logRead,
-      session: { ...logRead.session, draft: HELD_DRAFT },
-    });
+      // The log's read, with the draft the store holds for that session.
+      expect(result).toStrictEqual({
+        ...logRead,
+        session: { ...logRead.session, draft: HELD_DRAFT },
+      });
 
-    // The answer also passes the wire schema.
-    const parsed = SessionReadResponseSchema.safeParse(result);
-    expect(parsed.success).toBe(true);
-  });
+      // The answer also passes the wire schema.
+      const parsed = SessionReadResponseSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+    },
+  );
 
-  it("maps an unknown sessionId throw to -32602 + data.type session.not_found via SessionNotFoundError", async () => {
-    // `SessionReadDeps.readSession` must throw `SessionNotFoundError` (not a plain `Error`) for an
-    // unknown id, so `mapJsonRpcError` produces this envelope instead of the `-32603` catch-all.
-    const registry = new MethodRegistryImpl();
-    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
-      async () => {
-        throw new SessionNotFoundError("session not found", {
-          sessionId: UNKNOWN_SESSION_ID,
-        });
-      },
-    );
-    const deps: SessionReadDeps = { readSession: mockReadSession, draftStore: NO_DRAFTS };
-    registerSessionRead(registry, deps);
+  it(
+    "maps an unknown sessionId throw to -32602 + data.type session.not_found via " +
+      "SessionNotFoundError",
+    async () => {
+      // `SessionReadDeps.readSession` must throw `SessionNotFoundError` (not a plain `Error`) for
+      // an unknown id, so `mapJsonRpcError` produces this envelope instead of the `-32603`
+      // catch-all.
+      const registry = new MethodRegistryImpl();
+      const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
+        async () => {
+          throw new SessionNotFoundError("session not found", {
+            sessionId: UNKNOWN_SESSION_ID,
+          });
+        },
+      );
+      const deps: SessionReadDeps = { readSession: mockReadSession, draftStore: NO_DRAFTS };
+      registerSessionRead(registry, deps);
 
-    // `dispatch()` does not wrap handler throws (only `method_not_found`, `invalid_params` and
-    // `invalid_result` become `RegistryDispatchError`), and the gateway passes the raw throw to
-    // `mapJsonRpcError`.
-    const ctx: HandlerContext = {};
-    const caught = await captureRejection(
-      registry.dispatch("session.read", { sessionId: UNKNOWN_SESSION_ID }, ctx),
-    );
-    expect(caught).toBeInstanceOf(SessionNotFoundError);
+      // `dispatch()` does not wrap handler throws (only `method_not_found`, `invalid_params` and
+      // `invalid_result` become `RegistryDispatchError`), and the gateway passes the raw throw to
+      // `mapJsonRpcError`.
+      const ctx: HandlerContext = {};
+      const caught = await captureRejection(
+        registry.dispatch("session.read", { sessionId: UNKNOWN_SESSION_ID }, ctx),
+      );
+      expect(caught).toBeInstanceOf(SessionNotFoundError);
 
-    const envelope = mapJsonRpcError(caught, 7);
+      const envelope = mapJsonRpcError(caught, 7);
 
-    expect(envelope.id).toBe(7);
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(envelope.error.data).toBeDefined();
-    const data = envelope.error.data;
-    if (data === undefined) throw new Error("unreachable — envelope.error.data was asserted above");
-    expect(data.type).toBe("session.not_found");
-    // The throw site's `fields` projects through to `data.fields`, with `sessionId` intact.
-    const fields = data.fields;
-    if (fields === undefined) throw new Error("unreachable — fields was passed at throw site");
-    // Bracket access: `noPropertyAccessFromIndexSignature` forbids dot access on a record.
-    expect(fields["sessionId"]).toBe(UNKNOWN_SESSION_ID);
-    // The throw came from the deps layer, not from somewhere else in the registry.
-    expect(mockReadSession).toHaveBeenCalledTimes(1);
-  });
+      expect(envelope.id).toBe(7);
+      expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+      expect(envelope.error.data).toBeDefined();
+      const data = envelope.error.data;
+      if (data === undefined)
+        throw new Error("unreachable — envelope.error.data was asserted above");
+      expect(data.type).toBe("session.not_found");
+      // The throw site's `fields` projects through to `data.fields`, with `sessionId` intact.
+      const fields = data.fields;
+      if (fields === undefined) throw new Error("unreachable — fields was passed at throw site");
+      // Bracket access: `noPropertyAccessFromIndexSignature` forbids dot access on a record.
+      expect(fields["sessionId"]).toBe(UNKNOWN_SESSION_ID);
+      // The throw came from the deps layer, not from somewhere else in the registry.
+      expect(mockReadSession).toHaveBeenCalledTimes(1);
+    },
+  );
 });

@@ -79,9 +79,12 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
     expect(target.reasons).toStrictEqual(["terminal-event"]);
   });
 
-  it("asks for a read on every frame of a declared kind when the reading states no frame rule", () => {
-    const target = new KindOnlyReadTarget();
-    wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1)]);
-    expect(target.reasons).toStrictEqual(["terminal-event"]);
-  });
+  it(
+    "asks for a read on every frame of a declared " + "kind when the reading states no frame rule",
+    () => {
+      const target = new KindOnlyReadTarget();
+      wireAndApply(target, [frameNaming(SUBJECT_ELSEWHERE, 1)]);
+      expect(target.reasons).toStrictEqual(["terminal-event"]);
+    },
+  );
 });

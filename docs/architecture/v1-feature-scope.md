@@ -68,7 +68,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | Spec | Coverage |
 | --- | --- |
 | [Spec-009](../specs/009-gitflow-pr-and-diff-attribution.md) | Gitflow, PR preparation, and diff attribution |
-| [Spec-016](../specs/016-identity-and-user-state.md) | Identity and user state |
+| [Spec-016](../specs/016-hosted-account-and-identity.md) | Hosted account and identity |
 | [Spec-017](../specs/017-notifications-and-attention-model.md) | Notifications and attention model |
 | [Spec-018](../specs/018-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-019](../specs/019-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
@@ -77,7 +77,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25 and SA-26 items in its own body; SA-23, SA-27, SA-28 and SA-29 live in Plan-014 as implementation detail.
+- **V1 features:** each has a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-22, SA-24, SA-25 and SA-26 items in its own body; SA-23, SA-27 and SA-28 live in Plan-014 as implementation detail.
 
 ## Backlog Coverage Assessment
 

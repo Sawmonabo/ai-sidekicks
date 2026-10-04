@@ -1,6 +1,7 @@
 // node:test suite for lib/codex-verdict.mjs.
 // Run via:
-//   node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+//   node --test --experimental-strip-types \
+//     '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 //
 // The decision table is unit-tested rather than probed against live PRs because
 // its highest-risk branches are unreachable from real data: every findings review
@@ -930,31 +931,34 @@ const KNOWN_VERDICTS = new Set([
   "no_ack_yet",
 ]);
 
-test("every verdict arm is reachable, and the ladder produces nothing outside the known set", () => {
-  const observedVerdicts = new Set();
+test(
+  "every verdict arm is reachable, and the " + "ladder produces nothing outside the known set",
+  () => {
+    const observedVerdicts = new Set();
 
-  for (const signals of allVerdictSignals()) {
-    const { verdict } = computeVerdict(signals);
-    // A bare `has` rather than an assertion per combination: the sweep visits
-    // over a million signal objects, and rendering a failure message for each
-    // would cost more than the invariant it documents.
-    if (!KNOWN_VERDICTS.has(verdict)) {
-      assert.fail(`unlisted verdict ${JSON.stringify(verdict)} from ${JSON.stringify(signals)}`);
+    for (const signals of allVerdictSignals()) {
+      const { verdict } = computeVerdict(signals);
+      // A bare `has` rather than an assertion per combination: the sweep visits
+      // over a million signal objects, and rendering a failure message for each
+      // would cost more than the invariant it documents.
+      if (!KNOWN_VERDICTS.has(verdict)) {
+        assert.fail(`unlisted verdict ${JSON.stringify(verdict)} from ${JSON.stringify(signals)}`);
+      }
+      observedVerdicts.add(verdict);
     }
-    observedVerdicts.add(verdict);
-  }
 
-  // An if/else ladder is exactly where a reordering shadows a branch, and a
-  // shadowed arm is indistinguishable from a working one without this check —
-  // it simply never fires. The risk is not hypothetical here: the file header
-  // records that this decision table's highest-risk branches are unreachable
-  // from any real PR, so live traffic will never be the thing that notices.
-  assert.deepEqual(
-    [...KNOWN_VERDICTS].filter((verdict) => !observedVerdicts.has(verdict)),
-    [],
-    "verdict arms no combination in the sweep reaches",
-  );
-});
+    // An if/else ladder is exactly where a reordering shadows a branch, and a
+    // shadowed arm is indistinguishable from a working one without this check —
+    // it simply never fires. The risk is not hypothetical here: the file header
+    // records that this decision table's highest-risk branches are unreachable
+    // from any real PR, so live traffic will never be the thing that notices.
+    assert.deepEqual(
+      [...KNOWN_VERDICTS].filter((verdict) => !observedVerdicts.has(verdict)),
+      [],
+      "verdict arms no combination in the sweep reaches",
+    );
+  },
+);
 
 // --------------------------------------------------------------- CI rollup
 
@@ -1400,7 +1404,9 @@ test("a security-review usage-limits comment is NOT a rate-limit terminal", () =
   const result = deriveCommentSignals(
     [
       comment({
-        body: "You have reached your Codex usage limits for security reviews. Please try again later.",
+        body:
+          "You have reached your Codex usage limits " +
+          "for security reviews. Please try again later.",
       }),
     ],
     commentAnchors,
@@ -1465,7 +1471,9 @@ test("PR #256's real clean shape — ONE comment, both verdict and citation", ()
   const result = deriveCommentSignals(
     [
       comment({
-        body: `Codex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major issues. ` +
+          `:tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
       }),
     ],
     commentAnchors,
@@ -1482,7 +1490,9 @@ test("the sha-cited clean verdict asserts clean at ANY age — the sha is the an
   const result = deriveCommentSignals(
     [
       comment({
-        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major ` +
+          `issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
         created_at: "2020-01-01T00:00:00Z",
       }),
     ],
@@ -1572,7 +1582,9 @@ test("a comment matching BOTH ack legs is counted once, not twice", () => {
   const result = deriveCommentSignals(
     [
       comment({
-        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major ` +
+          `issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
       }),
     ],
     commentAnchors,
@@ -1932,7 +1944,9 @@ test("PR #256's clean shape still merges once settled", () => {
   const result = verdictForShape({
     comments: [
       comment({
-        body: `Codex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major issues. ` +
+          `:tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
         created_at: "2026-07-27T16:40:00Z",
       }),
     ],
@@ -1946,7 +1960,9 @@ test("PR #256's clean shape is held inside the settle window", () => {
   const result = verdictForShape({
     comments: [
       comment({
-        body: `Codex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major issues. ` +
+          `:tada:\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
         created_at: "2026-07-27T16:40:00Z",
       }),
     ],
@@ -2157,7 +2173,9 @@ test("a sha-citing findings comment cannot merge with the window fully expired",
   const result = verdictForShape({
     comments: [
       comment({
-        body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\`\n\n### 💡 Codex Review\n![P2 Badge](x) something is wrong`,
+        body:
+          `**Reviewed commit:** \`${HEAD_SHA_SHORT}\`\n\n### ` +
+          `💡 Codex Review\n![P2 Badge](x) something is wrong`,
         created_at: "2026-07-27T15:45:00Z",
       }),
     ],
@@ -2182,7 +2200,9 @@ test("a sha-citing findings comment cannot merge with the window fully expired",
  * it read — and it is not this one.
  */
 const PREVIOUS_HEAD_SHA_SHORT = "9f3c1d77aa";
-const PREVIOUS_HEAD_CLEAN_BODY = `Codex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** \`${PREVIOUS_HEAD_SHA_SHORT}\``;
+const PREVIOUS_HEAD_CLEAN_BODY =
+  `Codex Review: Didn't find any major issues. ` +
+  `:tada:\n\n**Reviewed commit:** \`${PREVIOUS_HEAD_SHA_SHORT}\``;
 
 test("a clean verdict naming ANOTHER commit is not a clean ack of HEAD", () => {
   const result = deriveCommentSignals(
@@ -2614,7 +2634,9 @@ test("a clean verdict NAMING HEAD is never refused — the sha binds it, not the
     reactions: [],
     comments: [
       comment({
-        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major ` +
+          `issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
         created_at: "2026-07-27T16:15:00Z",
       }),
     ],
@@ -3034,27 +3056,32 @@ test("END TO END R5-1 CONTROL: the same +1 after first sighting merges", () => {
   assert.equal(result.mergeOk, true);
 });
 
-test("END TO END: a usage-limits notice in the push-to-sighting gap still reports rate_limited", () => {
-  // The third floor-conflation instance, and the reason `freshnessAnchorMs`
-  // exists. A quota notice is not a claim about any commit, so the ack floor is
-  // the wrong question to ask of it. Anchored on first sighting instead, this
-  // notice falls below the floor, `rateLimited` goes false, and the gate tells
-  // the operator to keep waiting for an ack that cannot arrive until the quota
-  // resets — the opposite of the action the notice calls for.
-  const result = verdictForShape({
-    comments: [
-      {
-        user: { login: BOT_REST_LOGIN },
-        body: "You have reached your Codex usage limits for code reviews. Please try again later.",
-        created_at: "2026-07-27T16:36:25Z",
-      },
-    ],
-    baselineMs: Date.parse("2026-07-27T17:36:20Z"),
-    nowMs: Date.parse("2026-07-27T17:45:00Z"),
-  });
-  assert.equal(result.verdict, "rate_limited");
-  assert.equal(result.mergeOk, false);
-});
+test(
+  "END TO END: a usage-limits notice in the " + "push-to-sighting gap still reports rate_limited",
+  () => {
+    // The third floor-conflation instance, and the reason `freshnessAnchorMs`
+    // exists. A quota notice is not a claim about any commit, so the ack floor is
+    // the wrong question to ask of it. Anchored on first sighting instead, this
+    // notice falls below the floor, `rateLimited` goes false, and the gate tells
+    // the operator to keep waiting for an ack that cannot arrive until the quota
+    // resets — the opposite of the action the notice calls for.
+    const result = verdictForShape({
+      comments: [
+        {
+          user: { login: BOT_REST_LOGIN },
+          body:
+            "You have reached your Codex usage limits for code reviews. " +
+            "Please try again later.",
+          created_at: "2026-07-27T16:36:25Z",
+        },
+      ],
+      baselineMs: Date.parse("2026-07-27T17:36:20Z"),
+      nowMs: Date.parse("2026-07-27T17:45:00Z"),
+    });
+    assert.equal(result.verdict, "rate_limited");
+    assert.equal(result.mergeOk, false);
+  },
+);
 
 test("END TO END: a stale review in the push-to-sighting gap still blocks a later +1", () => {
   // The interaction between the two floors, end to end, and the case that made
@@ -3090,7 +3117,9 @@ test("END TO END: a sha-citing clean verdict merges with NO baseline at all", ()
   const result = verdictForShape({
     comments: [
       comment({
-        body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
+        body:
+          `Codex Review: Didn't find any major ` +
+          `issues.\n\n**Reviewed commit:** \`${HEAD_SHA_SHORT}\``,
         created_at: "2026-07-27T16:40:00Z",
       }),
     ],

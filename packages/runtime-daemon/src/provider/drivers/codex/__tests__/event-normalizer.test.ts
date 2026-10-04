@@ -17,17 +17,21 @@ describe("resolveCodexFrameEmissionRoute", () => {
     return makeSilentDriverDiagnostics();
   }
 
-  it("routes an unmapped method to the diagnostic default branch, emitted, never thrown, never enveloped", () => {
-    const diagnostics = makeDiagnostics();
-    const route = resolveCodexFrameEmissionRoute("thread/unheard-of", diagnostics);
-    expect(route.route).toBe("diagnostic");
-    if (route.route === "diagnostic") {
-      expect(route.record.kind).toBe("unmapped_wire_kind");
-      expect(route.record.rawWireType).toBe("thread/unheard-of");
-      expect(route.record.provider).toBe("codex");
-    }
-    expect(diagnostics.emittedRecordCount()).toBe(1);
-  });
+  it(
+    "routes an unmapped method to the diagnostic default branch, emitted, never thrown, never " +
+      "enveloped",
+    () => {
+      const diagnostics = makeDiagnostics();
+      const route = resolveCodexFrameEmissionRoute("thread/unheard-of", diagnostics);
+      expect(route.route).toBe("diagnostic");
+      if (route.route === "diagnostic") {
+        expect(route.record.kind).toBe("unmapped_wire_kind");
+        expect(route.record.rawWireType).toBe("thread/unheard-of");
+        expect(route.record.provider).toBe("codex");
+      }
+      expect(diagnostics.emittedRecordCount()).toBe(1);
+    },
+  );
 });
 
 describe("classifyCodexFrameFamilyForRouting", () => {

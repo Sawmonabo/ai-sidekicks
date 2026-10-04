@@ -1,6 +1,6 @@
 /**
- * The per-session state the Codex lifecycle keeps: the session record, the memory of turns that
- * arrived before their run, the lifecycle options, and the readers for frames it routes.
+ * The per-session state the Codex lifecycle keeps: the session record, the buffer of turn evidence
+ * that arrived before its run, the lifecycle options, and the readers for frames it routes.
  */
 
 import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider-driver";
@@ -19,11 +19,6 @@ import {
 } from "../../usage-delta-accountant.js";
 import { type CredentialEnvPolicy } from "../../spawn-env.js";
 import {
-  type UserTurnReadbackReader,
-  type ProviderRefusalShape,
-  type ProviderRequestFailureObservation,
-} from "../../transcript/failure-mapping.js";
-import {
   CODEX_THREAD_STARTED_METHOD,
   deriveCodexChildThreadAnnouncement,
 } from "./event-normalizer.js";
@@ -35,7 +30,7 @@ import {
 } from "../../outbound-frame.js";
 import type { CodexAppServerConnection, CodexConnectionOptions } from "./app-server-connection.js";
 import type { CodexSessionConfig } from "./session-config.js";
-import { CodexProviderRequestError, type CodexSessionSlotState } from "./session-errors.js";
+import { type CodexSessionSlotState } from "./session-errors.js";
 import type { CodexSessionServerRequestResponder } from "./server-requests.js";
 import { isPlainObject } from "../../record-readers.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
@@ -47,14 +42,14 @@ export const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
   "failed",
 ]);
 
-/** Unmatched terminal evidence kept per session (see `startRun`); bounded so it cannot leak. */
-const CODEX_UNMATCHED_TURN_MEMORY = 64;
+/** Turn evidence buffered per session (see `startRun`); bounded so it cannot leak. */
+const CODEX_BUFFERED_TURN_EVIDENCE_LIMIT = 64;
 
 /**
- * Ceiling for that memory while a `turn/start` is in flight and nothing may be evicted; past it
+ * Ceiling for that buffer while a `turn/start` is in flight and nothing may be evicted; past it
  * the session is torn down rather than discard evidence.
  */
-const CODEX_UNMATCHED_TURN_MEMORY_CEILING = CODEX_UNMATCHED_TURN_MEMORY * 4;
+const CODEX_BUFFERED_TURN_EVIDENCE_CEILING = CODEX_BUFFERED_TURN_EVIDENCE_LIMIT * 4;
 
 /**
  * Ceiling on interrupted runs whose terminals are still owed (see
@@ -111,10 +106,10 @@ export interface CodexSessionRecord {
   readonly runIdByActiveTurnId: Map<string, RunId>;
   /**
    * Turn evidence that arrived before any route pointed at its turn; insertion-ordered, capped
-   * (`CODEX_UNMATCHED_TURN_MEMORY`), consumed by `startRun`, which rules the tripwire on the
+   * (`CODEX_BUFFERED_TURN_EVIDENCE_LIMIT`), consumed by `startRun`, which rules the tripwire on the
    * evidence itself (an id alone would report a zero-turn interception as a completed turn).
    */
-  readonly unmatchedTurnEvidence: Map<string, UnmatchedTurnEvidence>;
+  readonly bufferedTurnEvidence: Map<string, BufferedTurnEvidence>;
   /**
    * `turn/start` requests awaiting an answer. At zero nothing can claim evidence: only the start
    * handed the turn id claims it, and the provider never reuses a turn id.
@@ -141,7 +136,7 @@ export interface CodexSessionRecord {
  * What was observed about a turn before any correlated frame was re-keyed onto it. The
  * tripwire is ruled on both parts: a `notLoaded` terminal alone cannot restate the observations.
  */
-interface UnmatchedTurnEvidence {
+interface BufferedTurnEvidence {
   readonly observations: Set<TurnEvidenceClass>;
   /** The settling classification, once this turn's terminal has arrived. */
   terminal: TurnEvidenceClassification | undefined;
@@ -156,31 +151,31 @@ export type CodexUsageEstablishment =
   | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
 
 /**
- * Gets or creates a turn's entry in the bounded evidence memory, or returns `null` when it can
+ * Gets or creates a turn's entry in the bounded evidence buffer, or returns `null` when it can
  * neither evict nor grow, which is session-fatal. While a `turn/start` is in flight nothing is
  * evicted (one synchronous drain can outrun the waiting `startRun` continuation, and dropping
  * its terminal would report a swallowed opening as a completed turn) and the memory may grow to
- * `CODEX_UNMATCHED_TURN_MEMORY_CEILING`. With none in flight, oldest-first eviction is free.
+ * `CODEX_BUFFERED_TURN_EVIDENCE_CEILING`. With none in flight, oldest-first eviction is free.
  */
-export function rememberUnmatchedTurn(
+export function bufferTurnEvidence(
   record: CodexSessionRecord,
   turnId: string,
-): UnmatchedTurnEvidence | null {
-  const memory = record.unmatchedTurnEvidence;
+): BufferedTurnEvidence | null {
+  const memory = record.bufferedTurnEvidence;
   const existing = memory.get(turnId);
   if (
     existing === undefined &&
     record.inFlightTurnStarts > 0 &&
-    memory.size >= CODEX_UNMATCHED_TURN_MEMORY_CEILING
+    memory.size >= CODEX_BUFFERED_TURN_EVIDENCE_CEILING
   ) {
     // Only a turn not already held is refused; dropping a held one would make the refusal the loss.
     return null;
   }
-  const remembered = existing ?? { observations: new Set(), terminal: undefined };
+  const buffered = existing ?? { observations: new Set(), terminal: undefined };
   memory.delete(turnId);
-  memory.set(turnId, remembered);
+  memory.set(turnId, buffered);
   if (record.inFlightTurnStarts === 0) {
-    while (memory.size > CODEX_UNMATCHED_TURN_MEMORY) {
+    while (memory.size > CODEX_BUFFERED_TURN_EVIDENCE_LIMIT) {
       const oldest = memory.keys().next();
       if (oldest.done === true) {
         break;
@@ -188,7 +183,7 @@ export function rememberUnmatchedTurn(
       memory.delete(oldest.value);
     }
   }
-  return remembered;
+  return buffered;
 }
 
 /**
@@ -280,51 +275,6 @@ export interface CodexSessionTransition {
 /** The slot states a transition can publish: all but `live`, which is what a settled record is. */
 export type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 
-// A failed `turn/start` is ambiguous unless the provider returned a clean JSON-RPC error: a
-// deadline, transport death or unusable turn id may hide an accepted turn, and leaving it running
-// unreachable (or replaying it) costs more than one re-establish. `#assertWritable`'s
-// already-closed refusal counts too. Recovery tears the session down for a re-establish and
-// re-sends nothing; the positional reconcile in `startRun` adopts no turn.
-
-/**
- * Reduces `error.data.codexErrorInfo` to the classifier's shape (message prose is never read).
- * Only `badRequest` is structural; where a rejection carries the member is undocumented at the
- * pin. `-32600` refusals differ only in the deserializer's prose, so neither the code nor the
- * message can be read; only the typed member counts, and without one the refusal is not escalated.
- */
-function readCodexProviderRefusalShape(
-  providerErrorData: unknown,
-): ProviderRefusalShape | undefined {
-  if (
-    typeof providerErrorData !== "object" ||
-    providerErrorData === null ||
-    Array.isArray(providerErrorData)
-  ) {
-    return undefined;
-  }
-  const codexErrorInfo = (providerErrorData as Record<string, unknown>)["codexErrorInfo"];
-  // Object-shaped members are never the structural class.
-  if (typeof codexErrorInfo !== "string") {
-    return undefined;
-  }
-  return codexErrorInfo === CODEX_STRUCTURAL_REFUSAL_ERROR_INFO
-    ? "history-structurally-invalid"
-    : "request-otherwise-refused";
-}
-
-/** The one `CodexErrorInfo` member that indicts the thread's own history. */
-const CODEX_STRUCTURAL_REFUSAL_ERROR_INFO = "badRequest";
-
-/** One failed `turn/start` for the shared classifier; anything unanswered is `indeterminate`. */
-export function observeCodexTurnStartFailure(cause: unknown): ProviderRequestFailureObservation {
-  return cause instanceof CodexProviderRequestError
-    ? {
-        delivery: "consumed-and-refused",
-        refusalShape: readCodexProviderRefusalShape(cause.providerErrorData),
-      }
-    : { delivery: "indeterminate" };
-}
-
 /**
  * Resolves the credential policy for the posture a spawn states, per spawn and never cached.
  * `undefined` for a posture that carries a reference is a wiring fault: the spawn refuses.
@@ -393,12 +343,6 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
-  /**
-   * Reads how many user-originated turns a thread holds, for the positional reconcile of an
-   * ambiguous `turn/start` against `turnBoundaries`. Unbound, the ambiguity reports
-   * `unrecoverable`: nothing is re-sent.
-   */
-  readonly userTurnReadback?: UserTurnReadbackReader | undefined;
 }
 
 /**

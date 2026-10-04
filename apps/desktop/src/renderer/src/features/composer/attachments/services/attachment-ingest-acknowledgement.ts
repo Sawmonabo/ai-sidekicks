@@ -42,21 +42,31 @@ export function readChunkAcknowledgement(
   if (acknowledgement.ingestId !== sentIngestId) {
     return {
       status: "unusable",
-      detail: `The background service acknowledged ${String(acknowledgement.ingestId)} for a chunk sent on ${sentIngestId}, so the reply belongs to another upload.`,
+      detail:
+        "The background service acknowledged " +
+        `${String(acknowledgement.ingestId)} for a chunk sent on ` +
+        `${sentIngestId}, so the reply belongs to another upload.`,
     };
   }
   const { receivedBytes } = acknowledgement;
   if (!Number.isFinite(receivedBytes) || receivedBytes <= entry.receivedBytes) {
     return {
       status: "unusable",
-      detail: `The background service acknowledged ${String(receivedBytes)} spooled bytes on ${sentIngestId} after this client had already sent ${String(entry.receivedBytes)}, so the stream's offset is no longer shared.`,
+      detail:
+        `The background service acknowledged ${String(receivedBytes)} ` +
+        `spooled bytes on ${sentIngestId} after this client had already ` +
+        `sent ${String(entry.receivedBytes)}, so the stream's offset is ` +
+        "no longer shared.",
     };
   }
   if (receivedBytes > entry.declared.byteLength) {
     reportTripwire(
       "wire-figure-formatting",
       ATTACHMENT_ACKNOWLEDGEMENT_SITE,
-      `ingest progress for ${entry.declared.localId} was acknowledged at ${String(receivedBytes)} decoded bytes past a declared total of ${String(entry.declared.byteLength)}; a progress figure counts decoded bytes and never an encoded length`,
+      `ingest progress for ${entry.declared.localId} was acknowledged ` +
+        `at ${String(receivedBytes)} decoded bytes past a declared total ` +
+        `of ${String(entry.declared.byteLength)}; a progress figure ` +
+        "counts decoded bytes and never an encoded length",
     );
     return { status: "acknowledged", receivedBytes: entry.declared.byteLength };
   }

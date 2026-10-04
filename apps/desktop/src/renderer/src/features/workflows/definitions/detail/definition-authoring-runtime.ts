@@ -93,7 +93,9 @@ export function publishCodecUnavailable(
     refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
       code: "call-rejected",
       detail:
-        "The part of this app that reads and writes definition files did not load, so nothing happened. Pressing again asks for it once more.",
+        "The part of this app that reads and writes definition files did " +
+        "not load, so nothing happened. Pressing again asks for it once " +
+        "more.",
     }),
   });
 }

@@ -33,6 +33,7 @@ const RUN_STATE_BY_KIND: Readonly<Record<RunStateKind, RunState>> = Object.freez
   "run.paused": "paused",
   "run.completed": "completed",
   "run.interrupted": "interrupted",
+  "run.stopped": "stopped",
   "run.failed": "failed",
 } satisfies Record<RunStateKind, RunState>);
 

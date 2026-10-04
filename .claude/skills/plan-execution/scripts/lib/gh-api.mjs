@@ -111,8 +111,10 @@ export function flattenSlurpedPages(slurped) {
  * nonexistent PR number — exit 1, NOT_FOUND alongside the null), so the fetch
  * throws instead of returning a silent empty.
  *
- * @param {(cursor: string | null) => ({totalCount?: number, nodes?: Array<object>, pageInfo?: {hasNextPage?: boolean, endCursor?: string | null}} | null | undefined)} fetchPage
- * @returns {{nodes: Array<object>, totalCount: number, truncated: boolean, truncationReason: TruncationReason | null, pages: number}}
+ * @param {(cursor: string | null) => ({totalCount?: number, nodes?: Array<object>,
+ *     pageInfo?: {hasNextPage?: boolean, endCursor?: string | null}} | null | undefined)} fetchPage
+ * @returns {{nodes: Array<object>, totalCount: number, truncated: boolean,
+ *     truncationReason: TruncationReason | null, pages: number}}
  */
 export function drainConnection(fetchPage) {
   const nodes = [];
@@ -180,18 +182,25 @@ export function drainConnection(fetchPage) {
  * server sent no total at all. A gate that blocks a merge has to be able to say
  * why.
  *
- * @param {{truncationReason: TruncationReason | null, nodes: Array<unknown>, totalCount: number}} drain
+ * @param {{truncationReason: TruncationReason | null, nodes: Array<unknown>,
+ *     totalCount: number}} drain
  * @returns {string}
  */
 export function describeTruncation(drain) {
   const fetched = drain.nodes?.length ?? 0;
   switch (drain.truncationReason) {
     case "cursor-stalled":
-      return `the server kept handing back a cursor the walk had already used, so it never advanced past its first page (${fetched} node(s) fetched, repeats included)`;
+      return (
+        `the server kept handing back a cursor the walk had already used, so it never ` +
+        `advanced past its first page (${fetched} node(s) fetched, repeats included)`
+      );
     case "pages-pending":
       return `the walk stopped with more pages still outstanding, after ${fetched} node(s)`;
     case "no-total-count":
-      return `the server sent no totalCount, so the ${fetched} node(s) fetched cannot be confirmed complete`;
+      return (
+        `the server sent no totalCount, so the ${fetched} ` +
+        `node(s) fetched cannot be confirmed complete`
+      );
     // `short-drain` and the untruncated case both read naturally as a count.
     default:
       return `fetched ${fetched} of ${drain.totalCount}`;

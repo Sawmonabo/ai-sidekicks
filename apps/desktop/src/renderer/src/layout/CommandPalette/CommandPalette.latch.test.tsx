@@ -11,6 +11,7 @@ import {
 } from "@renderer/registries/commands/command-registry.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";
+import { installPaletteLayout } from "./CommandPalette.test-support.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 /** The reading the palette opens on: a session screen. */
@@ -130,6 +131,8 @@ function openPaletteOverSession(ledger: RunLedger): {
 }
 
 describe("the palette — the captured command context", () => {
+  installPaletteLayout();
+
   it("acts on the reading it displayed, not on the route it ended up over", async () => {
     // A dispatch handed the live context would find this command hidden and run nothing.
     const ledger: RunLedger = { ran: [] };

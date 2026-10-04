@@ -137,7 +137,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // argument, no read, no composition) that makes this tier idle.
         expect(
           await readPlayingScenarioId(appUnderTest),
-          `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+          `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this ` +
+            `build, or the launch did not select a scenario`,
         ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
         // One warm-up cycle before the baseline, so the one-time allocation of the palette, its
@@ -168,7 +169,9 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           if (transcriptRowsHaveMounted) {
             expect(
               cycleReading.transcriptRowCount,
-              `cycle ${String(cycle)} left the transcript holding no row after an earlier cycle had mounted one, so every cycle after it churned a route whose transcript is gone`,
+              `cycle ${String(cycle)} left the transcript holding no ` +
+                `row after an earlier cycle had mounted one, so every ` +
+                `cycle after it churned a route whose transcript is gone`,
             ).toBeGreaterThan(0);
           }
           if (cycleReading.transcriptRowCount > 0) {
@@ -198,7 +201,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
             `final ${String(Math.round(finalHeapBytes / 1024))} kB, ` +
             `growth ${String(growthKilobytes)} kB over ${String(CHURN_CYCLE_COUNT)} cycles ` +
             `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
-            `${String(beatsDelivered)} of ${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
+            `${String(beatsDelivered)} of ` +
+            `${String(CONCURRENT_STREAMING_SCENARIO.beats.length)} at ` +
             `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
             `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
             `${String(appliedEventCount)}; transcript rows mounted on ` +
@@ -209,7 +213,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // reading taken over an app whose transcript never came up.
         expect(
           cyclesWithTranscriptRows,
-          "no churn cycle found a mounted transcript row, so the whole loop churned a route whose transcript never drew — the pane's chrome is what satisfied every wait",
+          "no churn cycle found a mounted transcript row, so the whole loop churned a route " +
+            "whose transcript never drew — the pane's chrome is what satisfied every wait",
         ).toBeGreaterThan(0);
 
         // The workload moved: the first says the handle was reachable and the script running,
@@ -224,7 +229,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // tripwire registry below, since a build without the handle would make this vacuous.
         expect(
           appliedEventCount,
-          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
+          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, ` +
+            `so nothing can be shown about where the workload's events went`,
         ).not.toBeNull();
         expect(appliedEventsAfterWarmUp).not.toBeNull();
         expect(appliedEventsAtMidRun).not.toBeNull();
@@ -260,7 +266,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         );
         if (transcriptWindow === null) {
           throw new Error(
-            `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport for this session, so nothing here says anything about windowing`,
+            `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no transcript viewport ` +
+              `for this session, so nothing here says anything about windowing`,
           );
         }
         process.stdout.write(
@@ -283,11 +290,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         // is the workload's, since the fixture script is what has to grow until it overflows.
         expect(
           transcriptWindow.viewportScrollHeightPx,
-          "the concurrent-streaming script does not overflow the transcript's viewport, so this window is bounded by having nothing to hold — grow the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
+          "the concurrent-streaming script does not overflow the transcript's " +
+            "viewport, so this window is bounded by having nothing to hold — grow " +
+            "the scenario in fixtures/scenarios/concurrent-streaming.ts until it does",
         ).toBeGreaterThan(transcriptWindow.viewportClientHeightPx);
         expect(
           transcriptWindow.mountedRowCount,
-          "the transcript mounted every row it holds, so it is not bounded by the viewport and the whole log is being laid out",
+          "the transcript mounted every row it holds, so it is not " +
+            "bounded by the viewport and the whole log is being laid out",
         ).toBeLessThan(transcriptWindow.totalRowCount);
         // Bounded by the box plus its declared overscan: the rows the box intersects, and
         // `TRANSCRIPT_OVERSCAN_ROWS` either side.
@@ -312,7 +322,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         try {
           expect(
             await readPlayingScenarioId(appUnderTest),
-            `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+            `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this ` +
+              `build, or the launch did not select a scenario`,
           ).toBe(CONCURRENT_STREAMING_SCENARIO.id);
 
           for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
@@ -349,7 +360,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           // absent, and the subject's bound below would pass over it.
           expect(
             instancesOf("Map"),
-            "the snapshot reports no Map at all, so it was not written, not parsed, or not this renderer's",
+            "the snapshot reports no Map at all, so it was " +
+              "not written, not parsed, or not this renderer's",
           ).toBeGreaterThan(0);
           expect(instancesOf("Array")).toBeGreaterThan(0);
 
@@ -357,12 +369,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
           // which would make the subject a permanent zero.
           expect(
             instancesOf("HTMLDivElement"),
-            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached HTMLDivElement` subject below is a name nothing in this heap can match",
+            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached " +
+              "HTMLDivElement` subject below is a name nothing in this heap can match",
           ).toBeGreaterThan(0);
 
           expect(
             retainedBytesOf("Detached HTMLDivElement"),
-            "the app is retaining detached DOM subtrees across route churn — a frame or a store is holding a reference into a tree it unmounted",
+            "the app is retaining detached DOM subtrees across route churn — " +
+              "a frame or a store is holding a reference into a tree it unmounted",
           ).toBeLessThanOrEqual(DETACHED_NODE_RETENTION_CEILING_BYTES);
         } finally {
           await heapProbe.detach();

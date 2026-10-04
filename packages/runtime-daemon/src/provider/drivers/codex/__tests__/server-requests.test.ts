@@ -88,45 +88,52 @@ describe("CodexAppServerConnection routed server requests", () => {
     });
   }, 30_000);
 
-  it("REFUSES an approval whose named turn is unresolvable, never attributing it to another run", async () => {
-    // A request that names a turn claims which run raised it. Falling back to the sole active run
-    // would decide a retired turn's approval under a newer run; a decline is visible and retryable.
-    const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRuns.push(request.runId);
-        return await Promise.resolve({ decision: "allow" });
-      },
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
+  it(
+    "REFUSES an approval whose named turn is " +
+      "unresolvable, never attributing it to another run",
+    async () => {
+      // A request that names a turn claims which run raised it. Falling back to the sole active run
+      // would decide a retired turn's approval under a newer run; a decline is visible and
+      // retryable.
+      const attributedRuns: Array<string | null> = [];
+      const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness({
+        answer: async (request): Promise<CodexServerRequestDecision> => {
+          attributedRuns.push(request.runId);
+          return await Promise.resolve({ decision: "allow" });
+        },
+      });
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+      });
 
-    const answer = await askProvider("item/commandExecution/requestApproval", {
-      turnId: "turn-that-already-retired",
-    });
-
-    // The method's own refusal vocabulary, not a protocol error.
-    expect(answer["result"]).toStrictEqual({ decision: "decline" });
-    // Refused before the responder ran.
-    expect(attributedRuns).toStrictEqual([]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([
-      {
-        kind: "routed-ask-turn-unresolved",
-        method: "item/commandExecution/requestApproval",
+      const answer = await askProvider("item/commandExecution/requestApproval", {
         turnId: "turn-that-already-retired",
-        turnIdTruncated: false,
-        disposition: "refused",
-      },
-    ]);
-    // `callback_tool_invocation_refused` counts callback-tool refusals only; an approval refusal
-    // must not reach it.
-    expect(driverDiagnosticRecords).toStrictEqual([]);
-  });
+      });
+
+      // The method's own refusal vocabulary, not a protocol error.
+      expect(answer["result"]).toStrictEqual({ decision: "decline" });
+      // Refused before the responder ran.
+      expect(attributedRuns).toStrictEqual([]);
+      expect(
+        harness.diagnostics.filter(
+          (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
+        ),
+      ).toStrictEqual([
+        {
+          kind: "routed-ask-turn-unresolved",
+          method: "item/commandExecution/requestApproval",
+          turnId: "turn-that-already-retired",
+          turnIdTruncated: false,
+          disposition: "refused",
+        },
+      ]);
+      // `callback_tool_invocation_refused` counts callback-tool refusals only; an approval refusal
+      // must not reach it.
+      expect(driverDiagnosticRecords).toStrictEqual([]);
+    },
+  );
 
   it("REFUSES an approval whose named turn is past the reader's bound", async () => {
     // A turn id past the bound is named but unresolvable; resolving a truncated prefix could match
@@ -163,48 +170,59 @@ describe("CodexAppServerConnection routed server requests", () => {
     ]);
   });
 
-  it("still attributes an approval whose named turn IS live — the eligible shape stays eligible", async () => {
-    // Control for the refusals above: an approval naming its live turn reaches the responder
-    // stamped with that turn's run.
-    const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (request): Promise<CodexServerRequestDecision> => {
-        attributedRuns.push(request.runId);
-        return await Promise.resolve({ decision: "allow" });
-      },
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
-    });
+  it(
+    "still attributes an approval whose named turn " +
+      "IS live — the eligible shape stays eligible",
+    async () => {
+      // Control for the refusals above: an approval naming its live turn reaches the responder
+      // stamped with that turn's run.
+      const attributedRuns: Array<string | null> = [];
+      const { harness, askProvider } = await routedAskHarness({
+        answer: async (request): Promise<CodexServerRequestDecision> => {
+          attributedRuns.push(request.runId);
+          return await Promise.resolve({ decision: "allow" });
+        },
+      });
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await harness.driver.startRun({
+        runId: RUN_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+      });
 
-    const answer = await askProvider("item/commandExecution/requestApproval", {
-      turnId: TURN_ID,
-    });
+      const answer = await askProvider("item/commandExecution/requestApproval", {
+        turnId: TURN_ID,
+      });
 
-    expect(answer["result"]).toStrictEqual({ decision: "accept" });
-    expect(attributedRuns).toStrictEqual([RUN_ID]);
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([]);
-  });
+      expect(answer["result"]).toStrictEqual({ decision: "accept" });
+      expect(attributedRuns).toStrictEqual([RUN_ID]);
+      expect(
+        harness.diagnostics.filter(
+          (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
+        ),
+      ).toStrictEqual([]);
+    },
+  );
 
-  it("records nothing and still ATTRIBUTES a legacy approval that publishes no turn id at all", async () => {
-    // `ExecCommandApprovalParams` has no `turnId` member, so the ask claims no turn: the
-    // sole-active fallback is its attribution and nothing is recorded.
-    const { harness, askProvider } = await routedAskHarness({
-      answer: async (): Promise<CodexServerRequestDecision> =>
-        await Promise.resolve({ decision: "allow" }),
-    });
+  it(
+    "records nothing and still ATTRIBUTES a legacy " + "approval that publishes no turn id at all",
+    async () => {
+      // `ExecCommandApprovalParams` has no `turnId` member, so the ask claims no turn: the
+      // sole-active fallback is its attribution and nothing is recorded.
+      const { harness, askProvider } = await routedAskHarness({
+        answer: async (): Promise<CodexServerRequestDecision> =>
+          await Promise.resolve({ decision: "allow" }),
+      });
 
-    const answer = await askProvider("execCommandApproval", { callId: "call-9" });
+      const answer = await askProvider("execCommandApproval", { callId: "call-9" });
 
-    expect(answer["result"]).toStrictEqual({ decision: "approved" });
-    expect(
-      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
-    ).toStrictEqual([]);
-  });
+      expect(answer["result"]).toStrictEqual({ decision: "approved" });
+      expect(
+        harness.diagnostics.filter(
+          (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
+        ),
+      ).toStrictEqual([]);
+    },
+  );
 
   it("refuses each approval spelling in that method's own vocabulary, never `-32601`", async () => {
     // Each method has its own refusal shape (from the pinned response types); one shape shared

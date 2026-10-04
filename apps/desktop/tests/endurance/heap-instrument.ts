@@ -119,7 +119,8 @@ const SETTLING_SAMPLE_COUNT = 6;
  * expectation and the sampler finds it first.
  */
 const HEAP_INSTRUMENT_UNAVAILABLE =
-  "performance.memory is unavailable in this renderer; the endurance tier cannot measure a heap without it";
+  "performance.memory is unavailable in this renderer; " +
+  "the endurance tier cannot measure a heap without it";
 
 /**
  * Proves `performance.memory` is measuring this renderer rather than reciting a cached bucket.

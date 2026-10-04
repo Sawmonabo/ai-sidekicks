@@ -13,6 +13,7 @@ import {
 import { countSchema } from "./internal/wire-scalars.js";
 import { DRIVER_WIRE_REASON_MAX_LEN } from "./provider-driver-wire.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
+import { QueueItemIdSchema, type QueueItemId } from "./run-queue.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "./session.js";
 
@@ -39,12 +40,16 @@ export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerReq
   })
   .strict();
 
-/** Interrupts one child, and only that child; its pending messages go as its next turn. */
+/**
+ * Interrupts one child, and only that child; its pending messages go as its next turn, with
+ * `deliverFirst`, the row `Send now` was pressed on, ahead of the rest.
+ */
 export interface ChildInterruptRequest {
   targetRunId: RunId;
   childHandle: ChildHandle;
   expectedRunVersion: number;
   clientIdempotencyKey: string;
+  deliverFirst?: QueueItemId | undefined;
 }
 /** Parses a {@link ChildInterruptRequest}. */
 export const ChildInterruptRequestSchema: z.ZodType<ChildInterruptRequest, ChildInterruptRequest> =
@@ -54,6 +59,7 @@ export const ChildInterruptRequestSchema: z.ZodType<ChildInterruptRequest, Child
       childHandle: ChildHandleSchema,
       expectedRunVersion: countSchema,
       clientIdempotencyKey: z.uuid(),
+      deliverFirst: QueueItemIdSchema.optional(),
     })
     .strict();
 

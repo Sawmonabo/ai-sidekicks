@@ -138,30 +138,33 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     });
   });
 
-  it("draws the refusal on its workspace, frees the picker and the key, and re-reads nothing", async () => {
-    const { reader, clock, port } = await openWithHeldSelect("rejected");
-    const pressed = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
-    await crossMacrotaskBoundary();
-    const readsBefore = reader.performCount;
+  it(
+    "draws the refusal on its workspace, frees the picker and the " + "key, and re-reads nothing",
+    async () => {
+      const { reader, clock, port } = await openWithHeldSelect("rejected");
+      const pressed = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
+      await crossMacrotaskBoundary();
+      const readsBefore = reader.performCount;
 
-    port.release();
-    await pressed;
-    clock.advance(REFRESH_DEBOUNCE_MS);
-    await crossMacrotaskBoundary();
+      port.release();
+      await pressed;
+      clock.advance(REFRESH_DEBOUNCE_MS);
+      await crossMacrotaskBoundary();
 
-    expect(reader.snapshot.refusedModeByWorkspaceId[HEALTHY_WORKSPACE_ID]?.detail).toBe(
-      "The daemon could not be reached.",
-    );
-    expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBeUndefined();
-    expect(reader.performCount).toBe(readsBefore);
-    // The key is free: the next press reaches the wire, and sending it clears the refusal.
-    const pressedAgain = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
-    await crossMacrotaskBoundary();
-    expect(port.selectCallCount()).toBe(2);
-    expect(reader.snapshot.refusedModeByWorkspaceId).toStrictEqual({});
-    port.release();
-    await pressedAgain;
-  });
+      expect(reader.snapshot.refusedModeByWorkspaceId[HEALTHY_WORKSPACE_ID]?.detail).toBe(
+        "The daemon could not be reached.",
+      );
+      expect(reader.snapshot.pendingModeByWorkspaceId[HEALTHY_WORKSPACE_ID]).toBeUndefined();
+      expect(reader.performCount).toBe(readsBefore);
+      // The key is free: the next press reaches the wire, and sending it clears the refusal.
+      const pressedAgain = reader.requestModeSelection(HEALTHY_WORKSPACE, WORKTREE_MODE);
+      await crossMacrotaskBoundary();
+      expect(port.selectCallCount()).toBe(2);
+      expect(reader.snapshot.refusedModeByWorkspaceId).toStrictEqual({});
+      port.release();
+      await pressedAgain;
+    },
+  );
 
   it("keeps the picker held when a read lands while the switch is on the wire", async () => {
     // A read published beside a mutation must not rebuild the pending map, which would release

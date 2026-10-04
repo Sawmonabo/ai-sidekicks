@@ -126,7 +126,9 @@ export const DiffRowView: React.MemoExoticComponent<
       {/* One cell, not three: `role="row"` admits only cells, and the gutters belong to the
           line. */}
       <span
-        className={`meridian-diff__side meridian-diff__side--unified meridian-diff__side--${line.kind}`}
+        className={
+          "meridian-diff__side meridian-diff__side--unified " + `meridian-diff__side--${line.kind}`
+        }
         role="cell"
       >
         <DiffGutter line={line} side="base" />

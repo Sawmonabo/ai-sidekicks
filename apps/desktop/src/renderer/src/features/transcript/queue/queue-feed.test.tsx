@@ -226,24 +226,27 @@ describe("the queue feed folds the rows the tail delivers", () => {
 });
 
 describe("a snapshot read the daemon refuses", () => {
-  it("settles refused with the refusal, so a failed read never reads as an empty queue", async () => {
-    const { bridge, clock, queueCalls } = queueFeedBridge();
-    const refusingCalls: QueueCalls = {
-      ...queueCalls,
-      list: () => Promise.reject(new Error("the queue could not be read")),
-    };
-    let held: QueueFeed | undefined;
-    render(
-      <QueueFeedProbe
-        bridge={bridge}
-        sessionId={SESSION_ID}
-        queueCalls={refusingCalls}
-        onFeed={(feed) => (held = feed)}
-      />,
-      { wrapper: bridgeWrapper(bridge, clock) },
-    );
-    await settleScheduledRead(clock);
-    expect(held?.phase).toBe("refused");
-    expect(held?.readRefusal?.detail).toBe("the queue could not be read");
-  });
+  it(
+    "settles refused with the refusal, so a failed read never reads " + "as an empty queue",
+    async () => {
+      const { bridge, clock, queueCalls } = queueFeedBridge();
+      const refusingCalls: QueueCalls = {
+        ...queueCalls,
+        list: () => Promise.reject(new Error("the queue could not be read")),
+      };
+      let held: QueueFeed | undefined;
+      render(
+        <QueueFeedProbe
+          bridge={bridge}
+          sessionId={SESSION_ID}
+          queueCalls={refusingCalls}
+          onFeed={(feed) => (held = feed)}
+        />,
+        { wrapper: bridgeWrapper(bridge, clock) },
+      );
+      await settleScheduledRead(clock);
+      expect(held?.phase).toBe("refused");
+      expect(held?.readRefusal?.detail).toBe("the queue could not be read");
+    },
+  );
 });

@@ -104,16 +104,19 @@ describe("accessibility — the transcript", () => {
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
 
-    it(`has no axe violation over the transcript's empty state in the ${scheme} scheme`, async () => {
-      await emulateSystemScheme(scheme);
-      const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
+    it(
+      `has no axe violation over the transcript's ` + `empty state in the ${scheme} scheme`,
+      async () => {
+        await emulateSystemScheme(scheme);
+        const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 
-      // The same control from the other side: the pane must actually have reached the empty
-      // state, which a scenario that grew a beat would silently stop doing.
-      expect(container.textContent).toContain("No messages yet. Say what you are after.");
-      expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
+        // The same control from the other side: the pane must actually have reached the empty
+        // state, which a scenario that grew a beat would silently stop doing.
+        expect(container.textContent).toContain("No messages yet. Say what you are after.");
+        expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
-      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-    });
+        expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+      },
+    );
   }
 });

@@ -99,7 +99,9 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
         code: "custom",
         path: ["nonInteractiveToken"],
         message:
-          "accountId selects an account whose sealed token is to be replaced, so a request carrying it must also carry nonInteractiveToken; omit accountId to register a new account instead.",
+          "accountId selects an account whose sealed token is to be " +
+          "replaced, so a request carrying it must also carry nonInteractiveToken; " +
+          "omit accountId to register a new account instead.",
       });
     }
   });

@@ -112,7 +112,11 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           <button
             type="button"
             className="meridian-keymap__reset meridian-action-button"
-            aria-label={`Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, the chord the app ships`}
+            aria-label={
+              `Reset ${row.title} to ` +
+              `${describeShippedChord(row.shippedChord)}, the chord the app ` +
+              "ships"
+            }
             onClick={props.onReset}
           >
             {row.shippedChord === undefined ? (

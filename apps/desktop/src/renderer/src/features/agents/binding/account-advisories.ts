@@ -16,9 +16,12 @@ const OBSERVED_HEALTH_ADVISORIES: Readonly<
   Record<ProviderAccount["healthState"], (observedAt: string) => string>
 > = {
   authenticated: (observedAt) =>
-    `The observation at ${observedAt} found a credential in this account's home and nothing local reporting it dead. Whether the provider still accepts it is decided when a run starts.`,
+    `The observation at ${observedAt} found a credential in this ` +
+    "account's home and nothing local reporting it dead. Whether the " +
+    "provider still accepts it is decided when a run starts.",
   reauth_required: (observedAt) =>
-    `The observation at ${observedAt} found this account needing a fresh sign-in before a run can use it.`,
+    `The observation at ${observedAt} found this account needing a ` +
+    "fresh sign-in before a run can use it.",
   home_missing: (observedAt) =>
     `The observation at ${observedAt} found no credential home where this account expects one.`,
   indeterminate: (observedAt) =>
@@ -52,6 +55,10 @@ const REMEDY_ADVISORIES: Readonly<Record<ProviderRemedy["kind"], string>> = {
   register: "No account is registered for this provider.",
   choose_default: "Accounts are registered for this provider and none of them is the default.",
   sign_in: "Signing this account in again is what run admission is waiting for.",
+  paste_token:
+    "This account cannot refresh itself. A fresh token minted at the " +
+    "provider and pasted in is what run admission is waiting for.",
+  look_again: "Nothing is wrong that can be seen from here. The next check may settle it.",
 };
 
 /**

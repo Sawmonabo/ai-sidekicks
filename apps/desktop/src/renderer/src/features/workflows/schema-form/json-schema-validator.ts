@@ -57,7 +57,9 @@ export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
   } catch (error) {
     return {
       status: "uncompilable",
-      detail: `This phase's schema could not be checked here (${thrownDetail(error)}), so only the JSON itself is checked.`,
+      detail:
+        "This phase's schema could not be checked here (" +
+        `${thrownDetail(error)}), so only the JSON itself is checked.`,
     };
   }
   return {

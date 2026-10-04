@@ -125,7 +125,8 @@ export function decodePaneLayoutSnapshot(
     return emptyDecode(
       refusePaneLayoutRestore(
         "snapshot-shape-invalid",
-        "The saved layout is not a layout record, so none of it was restored. The session opens with no panes.",
+        "The saved layout is not a layout record, so none of it was " +
+          "restored. The session opens with no panes.",
       ),
     );
   }
@@ -136,7 +137,9 @@ export function decodePaneLayoutSnapshot(
     return emptyDecode(
       refusePaneLayoutRestore(
         "snapshot-version-unknown",
-        "The saved layout was written by a different version of the app, so none of it was restored. The session opens with no panes and saves again as you arrange them.",
+        "The saved layout was written by a different version of the app, " +
+          "so none of it was restored. The session opens with no panes and " +
+          "saves again as you arrange them.",
       ),
     );
   }
@@ -169,7 +172,9 @@ export function decodePaneLayoutSnapshot(
       refusals.push(
         refusePaneLayoutRestore(
           "restore-cap-exceeded",
-          `The saved layout held more than ${String(restoredPaneCap)} panes. The first ${String(restoredPaneCap)} were restored and the rest were left closed.`,
+          `The saved layout held more than ${String(restoredPaneCap)} ` +
+            `panes. The first ${String(restoredPaneCap)} were restored and ` +
+            "the rest were left closed.",
         ),
       );
       break;
@@ -255,7 +260,8 @@ function decodePane(
       address.code === "pane-kind-unknown"
         ? refusePaneLayoutRestore(
             "pane-kind-unknown",
-            "One saved pane is a kind this version of the app does not have, so it was left closed.",
+            "One saved pane is a kind this version of the app does not have, " +
+              "so it was left closed.",
           )
         : refusePaneLayoutRestore(
             "pane-entity-invalid",

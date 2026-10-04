@@ -218,7 +218,8 @@ if (input.snapshotBarrier !== undefined) {
     input.barrierWorkerCount < 1
   ) {
     throw new Error(
-      "migration-race-worker.mjs: workerData.barrierWorkerCount must be a positive integer whenever snapshotBarrier is supplied",
+      "migration-race-worker.mjs: workerData.barrierWorkerCount must be a positive integer " +
+        "whenever snapshotBarrier is supplied",
     );
   }
   // Refused rather than ignored: an IMMEDIATE racer serializes at BEGIN and
@@ -226,7 +227,8 @@ if (input.snapshotBarrier !== undefined) {
   // here would silently disable it instead of failing the fixture misuse.
   if (!input.useDeferred) {
     throw new Error(
-      "migration-race-worker.mjs: workerData.snapshotBarrier is valid only on the DEFERRED replica path",
+      "migration-race-worker.mjs: workerData.snapshotBarrier is valid only on the DEFERRED " +
+        "replica path",
     );
   }
   snapshotBarrier = {

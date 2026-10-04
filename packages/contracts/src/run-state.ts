@@ -4,7 +4,8 @@ import { z } from "zod";
 
 /**
  * Where a run stands. `pausing` is the step in flight finishing after a pause was
- * asked for; the run reads `paused` once nothing runs.
+ * asked for; the run reads `paused` once nothing runs. `stopped` is a child ended by a stop
+ * that reached several agents: final on Claude Code, resumable by a send on Codex.
  */
 export type RunState =
   | "queued"
@@ -16,6 +17,7 @@ export type RunState =
   | "paused"
   | "completed"
   | "interrupted"
+  | "stopped"
   | "failed";
 /** Parses a {@link RunState}. */
 export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum([
@@ -28,5 +30,6 @@ export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum([
   "paused",
   "completed",
   "interrupted",
+  "stopped",
   "failed",
 ]);

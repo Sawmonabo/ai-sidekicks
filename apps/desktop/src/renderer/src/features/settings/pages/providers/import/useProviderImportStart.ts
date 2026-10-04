@@ -85,7 +85,8 @@ export class ProviderImportStart {
       return refuse(
         PROVIDER_IMPORT_ORIGIN,
         START_IN_FLIGHT_CODE,
-        "The import was not put: the last press is still waiting for its answer. Wait for it to settle, then press again.",
+        "The import was not put: the last press is still waiting for its " +
+          "answer. Wait for it to settle, then press again.",
       );
     }
     this.#publish({ status: "running" });

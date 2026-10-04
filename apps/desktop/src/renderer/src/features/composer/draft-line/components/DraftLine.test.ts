@@ -193,40 +193,43 @@ describe("DraftLine — Send runs a line-reading command", () => {
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  it("starts the workflow a sent `/workflow start <name>` names, and sends no message", async () => {
-    // Registered here as the palette entry would register it: the executor sends an unlisted
-    // name as typed before any handler runs.
-    commandRegistry.register({
-      id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
-      group: WORKFLOW_START_COMMAND_GROUP,
-      run: () => undefined,
-    });
-    const sentMethods: string[] = [];
-    const workflowCalls = recordedWorkflowCalls();
-    const { line, result } = mountDraftLine({
-      calls: sendCallsAnswering(async ({ method }) => {
-        sentMethods.push(method);
-        return QUEUE_CREATED;
-      }),
-      draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
-      sessionStore: openSessionStore(),
-      workflowStartOperations: fixtureWorkflowStartOperations({
-        definitions: [{ name: "nightly-review" }],
-        calls: workflowCalls,
-      }),
-    });
+  it(
+    "starts the workflow a sent `/workflow start <name>` names, and " + "sends no message",
+    async () => {
+      // Registered here as the palette entry would register it: the executor sends an unlisted
+      // name as typed before any handler runs.
+      commandRegistry.register({
+        id: WORKFLOW_COMMAND_ROOT,
+        title: "Start a workflow",
+        group: WORKFLOW_START_COMMAND_GROUP,
+        run: () => undefined,
+      });
+      const sentMethods: string[] = [];
+      const workflowCalls = recordedWorkflowCalls();
+      const { line, result } = mountDraftLine({
+        calls: sendCallsAnswering(async ({ method }) => {
+          sentMethods.push(method);
+          return QUEUE_CREATED;
+        }),
+        draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
+        sessionStore: openSessionStore(),
+        workflowStartOperations: fixtureWorkflowStartOperations({
+          definitions: [{ name: "nightly-review" }],
+          calls: workflowCalls,
+        }),
+      });
 
-    fireEvent.change(line, {
-      target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
-    });
-    await act(async () => {
-      pressSend(result.container);
-    });
+      fireEvent.change(line, {
+        target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
+      });
+      await act(async () => {
+        pressSend(result.container);
+      });
 
-    expect(workflowCalls.started).toStrictEqual([
-      { workflowVersionId: "version-nightly-review", sessionId: SESSION_ID },
-    ]);
-    expect(sentMethods).toStrictEqual([]);
-  });
+      expect(workflowCalls.started).toStrictEqual([
+        { workflowVersionId: "version-nightly-review", sessionId: SESSION_ID },
+      ]);
+      expect(sentMethods).toStrictEqual([]);
+    },
+  );
 });

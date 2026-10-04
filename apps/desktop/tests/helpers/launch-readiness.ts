@@ -58,7 +58,8 @@ export async function awaitPaintingAppWindow(
     throw new Error(
       `the app document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
         "nothing measured in it would describe the app; the launched build must honor " +
-        `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/windows/window-reveal.ts)`,
+        `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background ` +
+        `throttling (src/main/windows/window-reveal.ts)`,
     );
   }
   const frames = await new FramePaintProbe(rendererFrameSource(window)).probe();
@@ -73,7 +74,8 @@ export async function awaitPaintingAppWindow(
   // Printed on every launch, passing ones included: the bound can only be re-derived from figures
   // a real runner produced.
   console.error(
-    `${LAUNCH_TRACE_TAG} first frame ${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
+    `${LAUNCH_TRACE_TAG} first frame ` +
+      `${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
       `${String(frames.waitedMs)} ms driver-side, against a ${String(frames.budgetMs)} ms bound`,
   );
   return window;

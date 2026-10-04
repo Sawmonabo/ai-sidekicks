@@ -114,7 +114,7 @@ export class ScenarioEngine {
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
     return this.#delivery.subscribeToBeats(
       sink,
-      options?.replayDeliveredPrefix === true && !this.#disposed,
+      options?.resendDeliveredEvents === true && !this.#disposed,
     );
   }
 
@@ -136,7 +136,8 @@ export class ScenarioEngine {
       reportTripwire(
         "tick-after-teardown",
         `ScenarioEngine(${this.#scenario.id})`,
-        `a scenario tick of ${String(deltaMs)}ms arrived after teardown; the engine dropped it rather than delivering into a disposed store`,
+        `a scenario tick of ${String(deltaMs)}ms arrived after teardown; ` +
+          `the engine dropped it rather than delivering into a disposed store`,
       );
       return;
     }

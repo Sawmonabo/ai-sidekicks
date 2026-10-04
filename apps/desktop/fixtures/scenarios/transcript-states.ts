@@ -430,7 +430,9 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
   id: TRANSCRIPT_STATES_SCENARIO_ID,
   label: "Three lanes",
   purpose:
-    "A session whose three runs end in three different conditions at once — one finished behind a rewind boundary, one parked, one still streaming — so the run groups and the seams all have something to render.",
+    "A session whose three runs end in three different conditions at once — " +
+    "one finished behind a rewind boundary, one parked, one still streaming " +
+    "— so the run groups and the seams all have something to render.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({

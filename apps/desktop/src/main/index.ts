@@ -139,7 +139,9 @@ if (!gotTheLock) {
           at: new Date().toISOString(),
           level: "error",
           source: "main/index",
-          message: `startup failed: ${startupFailure instanceof Error ? startupFailure.message : String(startupFailure)}`,
+          message:
+            `startup failed: ` +
+            `${startupFailure instanceof Error ? startupFailure.message : String(startupFailure)}`,
         });
         await reportUnwrittenDiagnostics(startupLog, (message) => {
           console.error(message);

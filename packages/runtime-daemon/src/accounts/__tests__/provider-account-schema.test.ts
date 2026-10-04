@@ -85,7 +85,8 @@ describe("provider-account schema", () => {
     const accountId = `account-${String(nextAccountNumber)}`;
     db.prepare(
       `INSERT INTO provider_accounts (account_id, provider, display_label, credential_home_path,
-         credential_generation, billing_mode, health_state, health_observed_at, memory_import_outcome,
+         credential_generation, billing_mode, health_state, health_observed_at, ` +
+        `memory_import_outcome,
          memory_import_count, memory_imported_at, is_default, created_at, updated_at)
        VALUES (?, ?, 'Work', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
@@ -129,13 +130,16 @@ describe("provider-account schema", () => {
       expect(() => insertAccount({ billingMode: NON_MEMBER })).toThrow(CHECK_FAILURE);
     });
 
-    it("stores every health state and NULL (never probed), and refuses one outside the union", () => {
-      for (const healthState of Object.keys(HEALTH_STATE_MEMBERS)) {
-        expect(() => insertAccount({ healthState })).not.toThrow();
-      }
-      expect(() => insertAccount({ healthState: null })).not.toThrow();
-      expect(() => insertAccount({ healthState: NON_MEMBER })).toThrow(CHECK_FAILURE);
-    });
+    it(
+      "stores every health state and NULL (never " + "probed), and refuses one outside the union",
+      () => {
+        for (const healthState of Object.keys(HEALTH_STATE_MEMBERS)) {
+          expect(() => insertAccount({ healthState })).not.toThrow();
+        }
+        expect(() => insertAccount({ healthState: null })).not.toThrow();
+        expect(() => insertAccount({ healthState: NON_MEMBER })).toThrow(CHECK_FAILURE);
+      },
+    );
 
     it("stores the contract's generation floor and refuses a generation below it", () => {
       expect(() =>

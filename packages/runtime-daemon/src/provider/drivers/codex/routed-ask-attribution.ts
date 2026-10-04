@@ -144,7 +144,8 @@ export class CodexRoutedAskAttributor {
       kind: "callback_tool_invocation_refused",
       rawWireType: method,
       dispositionReason:
-        "the invocation named no turn this daemon holds a live route for, so no run's tool registry could adjudicate it",
+        "the invocation named no turn this daemon holds a live route for, so no run's tool " +
+        "registry could adjudicate it",
       // Untrusted provider text, bounded at the reader, carried verbatim to correlate with its
       // log.
       details: { sessionId, method, turnId, turnIdTruncated },

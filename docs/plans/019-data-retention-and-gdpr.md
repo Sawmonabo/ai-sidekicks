@@ -63,7 +63,7 @@ Per [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-m
 
 | Bucket | Content | Owner Plan | Removal Path |
 | --- | --- | --- | --- |
-| `driver_raw_events` (log files, daemon-local) | raw driver payloads | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
+| `driver_raw_events` (log files, daemon-local) | raw provider messages, written only while `Record raw provider messages` is on | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
 | `command_output` (log files, daemon-local) | stdout, stderr | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
 | `tool_traces` (log files, daemon-local) | tool-call arguments and result bodies | Plan-017 (T2.1) | Path 3 — a file deleted whole past `Keep diagnostic logs for`; deleted with the data folder on erase |
 | `workflow_engine_events` (newline-delimited JSON files, one per day, daemon-local) | each record's engine decision and its typed values | Plan-017 (T2.2) | Path 3 — a day's file deleted past `Keep diagnostic logs for`; deleted with the data folder on erase |

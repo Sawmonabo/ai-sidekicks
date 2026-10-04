@@ -121,37 +121,41 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 });
 
 describe("useSubjectScopedResource — two publishes before one commit", () => {
-  it("closes the resource the second publish replaced, and leaves the committed one to the effect", () => {
-    // Two direct settlements in one event: the first replacement is installed and replaced
-    // with no commit in between, so no effect closed over it and the holder's own write is
-    // the last moment anything reaches it.
-    const ledger = new ResourceOpenCloseLog();
-    let publishInto: (next: OpenResource) => void = () => {};
-    const view = render(
-      <SwapProbe
-        subject={DISCARDED_SUBJECT}
-        ledger={ledger}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
+  it(
+    "closes the resource the second publish replaced, " +
+      "and leaves the committed one to the effect",
+    () => {
+      // Two direct settlements in one event: the first replacement is installed and replaced
+      // with no commit in between, so no effect closed over it and the holder's own write is
+      // the last moment anything reaches it.
+      const ledger = new ResourceOpenCloseLog();
+      let publishInto: (next: OpenResource) => void = () => {};
+      const view = render(
+        <SwapProbe
+          subject={DISCARDED_SUBJECT}
+          ledger={ledger}
+          onReady={(publish) => {
+            publishInto = publish;
+          }}
+        />,
+      );
 
-    act(() => {
-      publishInto(ledger.open("published first"));
-      publishInto(ledger.open("published second"));
-    });
+      act(() => {
+        publishInto(ledger.open("published first"));
+        publishInto(ledger.open("published second"));
+      });
 
-    expect(ledger.opened).toStrictEqual(["discarded", "published first", "published second"]);
-    // The committed resource closes after it, by the effect holding it; never during the
-    // publish, where the frame on screen still reads it and the pass may yet be discarded.
-    expect(ledger.closed).toStrictEqual(["published first", "discarded"]);
-    expect(view.container.textContent).toBe("published second");
+      expect(ledger.opened).toStrictEqual(["discarded", "published first", "published second"]);
+      // The committed resource closes after it, by the effect holding it; never during the
+      // publish, where the frame on screen still reads it and the pass may yet be discarded.
+      expect(ledger.closed).toStrictEqual(["published first", "discarded"]);
+      expect(view.container.textContent).toBe("published second");
 
-    // The survivor is on screen and closed once, at the mount's end.
-    view.unmount();
-    expect(ledger.closed).toStrictEqual(["published first", "discarded", "published second"]);
-  });
+      // The survivor is on screen and closed once, at the mount's end.
+      view.unmount();
+      expect(ledger.closed).toStrictEqual(["published first", "discarded", "published second"]);
+    },
+  );
 });
 
 describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {

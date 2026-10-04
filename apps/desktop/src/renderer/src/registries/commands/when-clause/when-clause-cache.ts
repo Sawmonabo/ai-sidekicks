@@ -19,7 +19,8 @@ export class WhenClauseCache {
     if (!result.ok && import.meta.env.DEV) {
       // `warn`, not `throw`: the app must still render; the hidden command is the signal.
       console.warn(
-        `when-clause did not parse and its command is hidden: ${source} — ${result.error.message} (at ${String(result.error.position)})`,
+        `when-clause did not parse and its command is hidden: ${source} — ` +
+          `${result.error.message} (at ${String(result.error.position)})`,
       );
     }
     return result;

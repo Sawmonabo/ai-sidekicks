@@ -154,5 +154,6 @@ function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): st
   }
   return unreadMountCount === 0
     ? `Mounts read for this session: ${formatCount(readings.length)}.`
-    : `Mounts read for this session: ${formatCount(readings.length)}, with ${formatCount(unreadMountCount)} more not read.`;
+    : `Mounts read for this session: ${formatCount(readings.length)}, ` +
+        `with ${formatCount(unreadMountCount)} more not read.`;
 }

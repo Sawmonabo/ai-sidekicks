@@ -152,7 +152,8 @@ describe("importing a provider's conversations", () => {
     // And the moment the import it started settles, the form is a form again.
     await step();
     expect(progressText(view.container)).toBe(
-      "The last import brought in 58 of 61 conversations; 4 already here. 1 conversation could not be imported. Attached 1 project.",
+      "The last import brought in 58 of 61 conversations; 4 already " +
+        "here. 1 conversation could not be imported. Attached 1 project.",
     );
     expect(submitControl(view.container).disabled).toBe(false);
   });

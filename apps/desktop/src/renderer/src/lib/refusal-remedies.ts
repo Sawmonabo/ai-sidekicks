@@ -50,14 +50,16 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   "intervention.idempotency_conflict": {
     rendering: "inline",
     nextMove:
-      "This was already sent with different text. Nothing new went out — send the line again as a new message.",
+      "This was already sent with different text. Nothing " +
+      "new went out — send the line again as a new message.",
     settled: true,
   },
   // The run left the daemon; the row stays and stops claiming to be live.
   "run.not_found": {
     rendering: "card",
     nextMove:
-      "This run is gone from the background service. What is shown is the last state the stream reported.",
+      "This run is gone from the background service. What " +
+      "is shown is the last state the stream reported.",
     settled: true,
   },
   // The session is gone, so every control in the window answers about nothing: a banner, not a
@@ -65,7 +67,8 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   "session.not_found": {
     rendering: "banner",
     nextMove:
-      "This session is gone from the background service. Open it again from the session list, or open another one.",
+      "This session is gone from the background service. Open " +
+      "it again from the session list, or open another one.",
     settled: true,
   },
   // Another device answered; the next projection read drops the card, so its actions come off now.

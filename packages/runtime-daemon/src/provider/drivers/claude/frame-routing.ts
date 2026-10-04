@@ -102,7 +102,9 @@ export class ClaudeFrameRouting {
       this.#emitResumeBaseUnavailable(
         sessionId,
         priorEmittedThreadId,
-        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not be rebuilt; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
+        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not " +
+          "be rebuilt; base registers start at zero, so the first post-resume reading meters " +
+          "pre-resume spend again",
       );
       return undefined;
     }
@@ -114,7 +116,9 @@ export class ClaudeFrameRouting {
       this.#emitResumeBaseUnavailable(
         sessionId,
         priorEmittedThreadId,
-        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be rebuilt (${sanitizeFailureDetail(describeFailure(error))}); base registers start at zero, so the first post-resume reading meters pre-resume spend again`,
+        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be ` +
+          `rebuilt (${sanitizeFailureDetail(describeFailure(error))}); base registers start at ` +
+          `zero, so the first post-resume reading meters pre-resume spend again`,
       );
       return undefined;
     }
@@ -201,7 +205,8 @@ export class ClaudeFrameRouting {
               kind: "thread_duplicate_child_announcement",
               rawWireType: observation.frameKind,
               dispositionReason:
-                "duplicate subagent announcement for an already-registered child; usage base retained and no second started emission",
+                "duplicate subagent announcement for an already-registered child; usage base " +
+                "retained and no second started emission",
               details: { sessionId, childThreadId: registration.childThreadId },
             });
           } else {

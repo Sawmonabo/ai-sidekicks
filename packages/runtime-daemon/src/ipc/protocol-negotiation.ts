@@ -153,13 +153,16 @@ class WrappedRegistry implements MethodRegistry {
         if (state.kind === "pre") {
           throw new NegotiationError(
             "protocol.handshake_required",
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before \`${DAEMON_HELLO_METHOD}\` completed (fail-closed)`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused before ` +
+              `\`${DAEMON_HELLO_METHOD}\` completed (fail-closed)`,
           );
         }
         if (state.kind === "done-incompatible") {
           throw new NegotiationError(
             "protocol.version_mismatch",
-            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because the connection's prior handshake was incompatible (reason=${JSON.stringify(state.reason)})`,
+            `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because ` +
+              `the connection's prior handshake was incompatible (reason=` +
+              `${JSON.stringify(state.reason)})`,
             { reason: state.reason },
           );
         }
@@ -212,7 +215,8 @@ export class ProtocolNegotiator {
       // A missing transport id is a wiring bug, not a client violation, so a plain Error.
       if (ctx.transportId === undefined) {
         throw new Error(
-          `${DAEMON_HELLO_METHOD}: handler requires ctx.transportId (per-connection negotiation state requires a transport identity)`,
+          `${DAEMON_HELLO_METHOD}: handler requires ctx.transportId (per-connection ` +
+            `negotiation state requires a transport identity)`,
         );
       }
       const transportId = ctx.transportId;

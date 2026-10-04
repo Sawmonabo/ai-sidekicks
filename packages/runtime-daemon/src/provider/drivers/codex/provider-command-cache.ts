@@ -52,7 +52,8 @@ export class CodexProviderCommandCache {
         kind: "provider_command_entries_truncated",
         rawWireType: CODEX_SKILLS_LIST_METHOD,
         dispositionReason:
-          "the provider published more entries than the wire-and-render cap admits; the reply's tail was dropped and the driver's held enumeration was left whole",
+          "the provider published more entries than the wire-and-render cap admits; the " +
+          "reply's tail was dropped and the driver's held enumeration was left whole",
         details: {
           sessionId,
           heldCount: held.length,
@@ -114,8 +115,11 @@ export class CodexProviderCommandCache {
       kind: "provider_command_entry_rejected",
       rawWireType: CODEX_SKILLS_LIST_METHOD,
       dispositionReason: rejection.dropped
-        ? "the provider published a command or skill entry the contract's own bounds refuse; it is dropped from this reply and its siblings are unaffected"
-        : "the provider declared a command or skill field the contract's own bounds refuse; the entry is kept and the field reads ABSENT, which on this contract means the provider declared none",
+        ? "the provider published a command or skill entry the contract's own bounds refuse; " +
+          "it is dropped from this reply and its siblings are unaffected"
+        : "the provider declared a command or skill field the contract's own bounds refuse; " +
+          "the entry is kept and the field reads ABSENT, which on this contract means the " +
+          "provider declared none",
       details: {
         sessionId,
         entryKind: "skill",

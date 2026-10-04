@@ -51,9 +51,11 @@ const REFUSAL_DETAIL: Readonly<
   Record<Exclude<PaletteInvocationRefusalCode, "unavailable">, string>
 > = {
   "unknown-command":
-    "That command is gone, so the palette did not run it; close and reopen the palette to act on what is here now.",
+    "That command is gone, so the palette did not run it; close and reopen the palette to act " +
+    "on what is here now.",
   "hidden-in-context":
-    "That command does not apply here any more, so it did not run; close and reopen the palette to act on what is here now.",
+    "That command does not apply here any more, so it did not run; close and reopen the " +
+    "palette to act on what is here now.",
 };
 
 /**

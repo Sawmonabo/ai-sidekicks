@@ -179,7 +179,8 @@ export function registerSessionSubscribe(
   ) => {
     if (ctx.transportId === undefined) {
       throw new Error(
-        "session.subscribe: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
+        "session.subscribe: handler requires ctx.transportId (per-connection streaming state " +
+          "requires a transport identity)",
       );
     }
     const transportId = ctx.transportId;

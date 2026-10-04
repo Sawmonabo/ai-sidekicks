@@ -29,12 +29,14 @@ const EMPTY_STATE_COPY: Readonly<
   workspace: {
     title: "No diff has been asked for.",
     detail:
-      "None has been requested for this workspace, so the app is not reporting that nothing changed.",
+      "None has been requested for this workspace, so the app is not " +
+      "reporting that nothing changed.",
   },
   worktree: {
     title: "No diff has been asked for.",
     detail:
-      "None has been requested for this execution root, so the app is not reporting that nothing changed.",
+      "None has been requested for this execution root, so the app is " +
+      "not reporting that nothing changed.",
   },
 };
 

@@ -138,7 +138,9 @@ export class ClaudeSessionEstablishment {
       );
       throw new ClaudeSessionUnavailableError("session_id_pin_diverged", {
         sessionId: params.sessionId,
-        detail: `Pinned ${pinnedProviderSessionId}, announced ${attachment.providerSessionId}.${disposalNote}`,
+        detail:
+          `Pinned ${pinnedProviderSessionId}, announced ${attachment.providerSessionId}.` +
+          `${disposalNote}`,
       });
     }
 
@@ -178,7 +180,8 @@ export class ClaudeSessionEstablishment {
     if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
       return buildClaudeResumeFailure(
         "recovery-needed",
-        "ResumeSessionParams.providerAccountId is present but empty; an account was meant to be bound and none was.",
+        "ResumeSessionParams.providerAccountId is present but empty; an account was meant to " +
+          "be bound and none was.",
       );
     }
     const spawnBoundLegs = this.#spawnLegs.buildSpawnBoundLegs(params);
@@ -201,7 +204,9 @@ export class ClaudeSessionEstablishment {
       );
       return buildClaudeResumeFailure(
         "recovery-needed",
-        `Resume handle ${params.resumeHandle} was answered by session ${attachment.providerSessionId}; the provider started a replacement session rather than resuming.${disposalNote}`,
+        `Resume handle ${params.resumeHandle} was answered by session ` +
+          `${attachment.providerSessionId}; the provider started a replacement session rather ` +
+          `than resuming.${disposalNote}`,
       );
     }
 
@@ -224,7 +229,8 @@ export class ClaudeSessionEstablishment {
         );
         return buildClaudeResumeFailure(
           "recovery-needed",
-          `The Claude transport reported a resume that fails the driver resume contract: ${validated.error.message}${disposalNote}`,
+          `The Claude transport reported a resume that fails the driver resume contract: ` +
+            `${validated.error.message}${disposalNote}`,
         );
       }
       validatedResumeResult = validated.data;
@@ -245,7 +251,8 @@ export class ClaudeSessionEstablishment {
       // `recovery-needed`, not `reauth-required`: adoption failed after a resume that succeeded.
       return buildClaudeResumeFailure(
         "recovery-needed",
-        `The Claude session resumed but could not be adopted: ${describeFailure(error)}${disposalNote}`,
+        `The Claude session resumed but could not be adopted: ${describeFailure(error)}` +
+          `${disposalNote}`,
       );
     }
     return validatedResumeResult;
@@ -295,7 +302,9 @@ export class ClaudeSessionEstablishment {
           : await disposeRefusedChannel(attachment.channel, "resume_identity_diverged");
       return ForkConversationResultSchema.parse({
         status: "degraded",
-        fallbackAction: `rewind-not-forked: the provider answered with session ${attachment.providerSessionId} rather than a fork.${disposalNote}`,
+        fallbackAction:
+          `rewind-not-forked: the provider answered with session ` +
+          `${attachment.providerSessionId} rather than a fork.${disposalNote}`,
       });
     }
 
@@ -316,7 +325,9 @@ export class ClaudeSessionEstablishment {
         );
         return ForkConversationResultSchema.parse({
           status: "degraded",
-          fallbackAction: `rewind-result-invalid: ${sanitizeFailureDetail(validated.error.message)}${disposalNote}`,
+          fallbackAction:
+            `rewind-result-invalid: ${sanitizeFailureDetail(validated.error.message)}` +
+            `${disposalNote}`,
         });
       }
       validatedRollbackResult = validated.data;
@@ -339,7 +350,9 @@ export class ClaudeSessionEstablishment {
       const disposalNote = await disposeRefusedChannel(attachment.channel, "establishment_failed");
       return ForkConversationResultSchema.parse({
         status: "degraded",
-        fallbackAction: `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}${disposalNote}`,
+        fallbackAction:
+          `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}` +
+          `${disposalNote}`,
       });
     }
 

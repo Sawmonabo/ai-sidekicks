@@ -30,7 +30,7 @@ export function handbackOver(
   return new KeyboardHandback({ readInstalledChords: () => installed, platform });
 }
 
-/** A focusable pane root that is actually in the document, which `replay` requires. */
+/** A focusable pane root that is actually in the document, which `forwardChord` requires. */
 export function attachedPaneRoot(): HTMLElement {
   const root = document.createElement("div");
   root.tabIndex = -1;

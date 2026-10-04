@@ -84,7 +84,8 @@ function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void
   });
   if (resolved.error !== undefined) {
     process.stderr.write(
-      `${LOG_PREFIX} could not resolve \`${baseRef}\`: git did not run (${resolved.error.message}).\n`,
+      `${LOG_PREFIX} could not resolve \`${baseRef}\`: ` +
+        `git did not run (${resolved.error.message}).\n`,
     );
     process.exit(MISUSE_EXIT_CODE);
   }

@@ -14,20 +14,23 @@ afterEach(() => {
 });
 
 describe("LiveRegion — the pair speaks without being replaced", () => {
-  it("keeps both regions mounted while it speaks, rather than creating one to speak through", () => {
-    const announcer = new LiveAnnouncer({ clock: new ManualClock() });
-    const { container } = render(<LiveRegion announcer={announcer} />);
-    const before = regionsOf(container);
+  it(
+    "keeps both regions mounted while it speaks, " + "rather than creating one to speak through",
+    () => {
+      const announcer = new LiveAnnouncer({ clock: new ManualClock() });
+      const { container } = render(<LiveRegion announcer={announcer} />);
+      const before = regionsOf(container);
 
-    act(() => {
-      announcer.announce("the request was refused", "assertive");
-    });
+      act(() => {
+        announcer.announce("the request was refused", "assertive");
+      });
 
-    const after = regionsOf(container);
-    expect(after).toHaveLength(2);
-    // Identity, not count: a replaced region is inserted carrying its text, which most readers
-    // skip.
-    expect(after[0]).toBe(before[0]);
-    expect(after[1]).toBe(before[1]);
-  });
+      const after = regionsOf(container);
+      expect(after).toHaveLength(2);
+      // Identity, not count: a replaced region is inserted carrying its text, which most readers
+      // skip.
+      expect(after[0]).toBe(before[0]);
+      expect(after[1]).toBe(before[1]);
+    },
+  );
 });

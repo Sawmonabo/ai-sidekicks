@@ -99,27 +99,33 @@ describe("Codex callback-tool round trip", () => {
     };
   }
 
-  it("adjudicates, runs and answers a call, attributed to the run whose turn it names", async () => {
-    // With two live runs the sole-active fallback has no answer; the named turn resolves the run.
-    const roundTrip = await roundTripHarness();
-    await roundTrip.startTurn(RUN_ID, TURN_ID);
-    await roundTrip.startTurn(SECOND_RUN_ID, SECOND_TURN_ID);
+  it(
+    "adjudicates, runs and answers a call, " + "attributed to the run whose turn it names",
+    async () => {
+      // With two live runs the sole-active fallback has no answer; the named turn resolves the run.
+      const roundTrip = await roundTripHarness();
+      await roundTrip.startTurn(RUN_ID, TURN_ID);
+      await roundTrip.startTurn(SECOND_RUN_ID, SECOND_TURN_ID);
 
-    const answer = await roundTrip.askToolCall({ callId: "call-1", turnId: SECOND_TURN_ID });
-    await roundTrip.askToolCall({ callId: "call-2", turnId: TURN_ID });
+      const answer = await roundTrip.askToolCall({ callId: "call-1", turnId: SECOND_TURN_ID });
+      await roundTrip.askToolCall({ callId: "call-2", turnId: TURN_ID });
 
-    expect(roundTrip.evaluatedToolNames).toStrictEqual([SEARCH_TOOL.name, SEARCH_TOOL.name]);
-    expect(
-      roundTrip.executedInvocations.map((invocation) => [invocation.toolCallId, invocation.runId]),
-    ).toStrictEqual([
-      ["call-1", SECOND_RUN_ID],
-      ["call-2", RUN_ID],
-    ]);
-    expect(answer["result"]).toStrictEqual({
-      success: true,
-      contentItems: [{ type: "inputText", text: "2 matches" }],
-    });
-  });
+      expect(roundTrip.evaluatedToolNames).toStrictEqual([SEARCH_TOOL.name, SEARCH_TOOL.name]);
+      expect(
+        roundTrip.executedInvocations.map((invocation) => [
+          invocation.toolCallId,
+          invocation.runId,
+        ]),
+      ).toStrictEqual([
+        ["call-1", SECOND_RUN_ID],
+        ["call-2", RUN_ID],
+      ]);
+      expect(answer["result"]).toStrictEqual({
+        success: true,
+        contentItems: [{ type: "inputText", text: "2 matches" }],
+      });
+    },
+  );
 
   it.each([
     ["names a tool that is not registered", { tool: "delete_everything", turnId: TURN_ID }],
@@ -159,43 +165,56 @@ describe("Codex native compaction", () => {
     });
   }
 
-  it("compacts the session's own thread and settles applied on the typed frame, not the acknowledgement", async () => {
-    const harness = await compactionHarness();
-    let observed: DriverCompactionResult | "still-waiting" = "still-waiting";
+  it(
+    "compacts the session's own thread and settles applied on the typed frame, not the " +
+      "acknowledgement",
+    async () => {
+      const harness = await compactionHarness();
+      let observed: DriverCompactionResult | "still-waiting" = "still-waiting";
 
-    const compaction = harness.manager.compactContext(BINDING);
-    void compaction.then((result) => {
-      observed = result;
-    });
-    await drainMicrotasks();
+      const compaction = harness.manager.compactContext(BINDING);
+      void compaction.then((result) => {
+        observed = result;
+      });
+      await drainMicrotasks();
 
-    expect(harness.server.framesForMethod("thread/compact/start")[0]?.["params"]).toStrictEqual({
-      threadId: THREAD_ID,
-    });
-    // The empty acknowledgement has resolved and the operation is still open, waiting at its bound.
-    expect(observed).toBe("still-waiting");
-    expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
+      expect(harness.server.framesForMethod("thread/compact/start")[0]?.["params"]).toStrictEqual({
+        threadId: THREAD_ID,
+      });
+      // The empty acknowledgement has resolved and the operation is still open, waiting at its
+      // bound.
+      expect(observed).toBe("still-waiting");
+      expect(harness.scheduler.pendingDelays()).toContain(COMPACTION_WAIT_MS);
 
-    emitCompactionBoundary(harness);
-    await expect(compaction).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
-  });
+      emitCompactionBoundary(harness);
+      await expect(compaction).resolves.toStrictEqual({
+        status: "applied",
+        boundaryPosition: null,
+      });
+    },
+  );
 
-  it("settles wait_expired at its bound, and a late boundary frame still reaches the transcript", async () => {
-    const harness = await compactionHarness();
-    const compaction = harness.manager.compactContext(BINDING);
-    await drainMicrotasks();
+  it(
+    "settles wait_expired at its bound, and a late " +
+      "boundary frame still reaches the transcript",
+    async () => {
+      const harness = await compactionHarness();
+      const compaction = harness.manager.compactContext(BINDING);
+      await drainMicrotasks();
 
-    // Only the compaction bound: firing the transport deadline too would fail for the wrong reason.
-    expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
-    await expect(compaction).resolves.toStrictEqual({ status: "failed", reason: "wait_expired" });
+      // Only the compaction bound: firing the transport deadline too would fail for the wrong
+      // reason.
+      expect(harness.scheduler.fireDelay(COMPACTION_WAIT_MS)).toBe(1);
+      await expect(compaction).resolves.toStrictEqual({ status: "failed", reason: "wait_expired" });
 
-    const before = harness.notifications.length;
-    emitCompactionBoundary(harness);
-    await drainMicrotasks();
-    expect(harness.notifications.slice(before).map((entry) => entry.method)).toEqual([
-      "thread/compacted",
-    ]);
-  });
+      const before = harness.notifications.length;
+      emitCompactionBoundary(harness);
+      await drainMicrotasks();
+      expect(harness.notifications.slice(before).map((entry) => entry.method)).toEqual([
+        "thread/compacted",
+      ]);
+    },
+  );
 
   it("settles provider_error on a refused trigger and withdraws its wait", async () => {
     const harness = createManagerHarness({ onServerNotification: true });
@@ -314,21 +333,27 @@ describe("Codex provider command list", () => {
     expect(result.bindings[0]?.entries).toHaveLength(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
   });
 
-  it("re-reads in full on skills/changed, and never serves one session's list to the next", async () => {
-    const { harness, setSkills } = await enumerationHarness([{ name: "alpha" }, { name: "beta" }]);
-    expect(await entryNames(harness)).toEqual(["alpha", "beta"]);
-    await entryNames(harness);
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+  it(
+    "re-reads in full on skills/changed, and " + "never serves one session's list to the next",
+    async () => {
+      const { harness, setSkills } = await enumerationHarness([
+        { name: "alpha" },
+        { name: "beta" },
+      ]);
+      expect(await entryNames(harness)).toEqual(["alpha", "beta"]);
+      await entryNames(harness);
+      expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
 
-    // The notification carries no payload, so a patch would leave the deleted `beta` behind.
-    setSkills([{ name: "alpha" }, { name: "gamma" }]);
-    harness.server.emitFrame({ jsonrpc: "2.0", method: "skills/changed", params: {} });
-    await drainMicrotasks();
-    expect(await entryNames(harness)).toEqual(["alpha", "gamma"]);
+      // The notification carries no payload, so a patch would leave the deleted `beta` behind.
+      setSkills([{ name: "alpha" }, { name: "gamma" }]);
+      harness.server.emitFrame({ jsonrpc: "2.0", method: "skills/changed", params: {} });
+      await drainMicrotasks();
+      expect(await entryNames(harness)).toEqual(["alpha", "gamma"]);
 
-    await harness.manager.closeSession({ sessionId: SESSION_ID });
-    await harness.manager.createSession(CREATE_PARAMS);
-    await entryNames(harness);
-    expect(harness.server.framesForMethod("skills/list")).toHaveLength(3);
-  });
+      await harness.manager.closeSession({ sessionId: SESSION_ID });
+      await harness.manager.createSession(CREATE_PARAMS);
+      await entryNames(harness);
+      expect(harness.server.framesForMethod("skills/list")).toHaveLength(3);
+    },
+  );
 });

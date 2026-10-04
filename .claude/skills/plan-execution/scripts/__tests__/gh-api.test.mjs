@@ -1,6 +1,7 @@
 // node:test suite for lib/gh-api.mjs.
 // Run via:
-//   node --test --experimental-strip-types '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
+//   node --test --experimental-strip-types \
+//     '.claude/skills/plan-execution/scripts/__tests__/**/*.test.mjs'
 //
 // The drain behaviors are unit-tested rather than probed against live PRs
 // because none of them is reachable from real data: both GraphQL connections

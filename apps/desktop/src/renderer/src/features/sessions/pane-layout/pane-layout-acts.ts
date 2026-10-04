@@ -53,7 +53,8 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
       return;
     }
     announce(
-      `Focused the ${TITLE_BY_PANE_KIND[focused.kind]} pane, position ${String(position + 1)} of ${String(panes.length)}.`,
+      `Focused the ${TITLE_BY_PANE_KIND[focused.kind]} pane, position ` +
+        `${String(position + 1)} of ${String(panes.length)}.`,
       "polite",
     );
   };

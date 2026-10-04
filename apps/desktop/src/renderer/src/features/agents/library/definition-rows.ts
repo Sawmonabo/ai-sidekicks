@@ -58,8 +58,10 @@ export type SettledAgentDefinitionReading = Exclude<
 >;
 
 /** The empty registry's own sentence, so the page and its announcement agree. */
-export const NO_SAVED_DEFINITIONS =
-  "No sidekicks yet — a sidekick is a set of instructions and a model binding you tune once and reuse in every session and workflow on this machine.";
+export const NO_SAVED_DEFINITIONS: string =
+  "No sidekicks yet — a sidekick is a set of instructions and a " +
+  "model binding you tune once and reuse in every session and " +
+  "workflow on this machine.";
 
 /** Read the registry's rows into what the page renders. */
 export function readDefinitions(

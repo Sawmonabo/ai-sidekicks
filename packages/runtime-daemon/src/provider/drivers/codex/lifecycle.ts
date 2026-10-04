@@ -19,11 +19,6 @@ import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import { ThreadFrameRouter } from "../../thread-frame-router.js";
 import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
-import {
-  AmbiguousDeliveryReconciler,
-  classifyProviderRequestFailure,
-  PermanentStructuralRefusalError,
-} from "../../transcript/failure-mapping.js";
 import { CODEX_SKILLS_CHANGED_METHOD } from "./event-normalizer.js";
 import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
 import {
@@ -43,7 +38,6 @@ import {
   type CodexSessionTransition,
   type CodexSessionTransitionKind,
   newestActiveTurnForRun,
-  observeCodexTurnStartFailure,
   rememberInterruptedRun,
 } from "./session-state.js";
 import {
@@ -57,6 +51,7 @@ import {
   parseCodexRunConfig,
 } from "./session-config.js";
 import {
+  CodexProviderRequestError,
   CodexSessionAlreadyLiveError,
   type CodexSessionSlotState,
   CodexTransportError,
@@ -113,12 +108,6 @@ export class CodexLifecycleManager {
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
-  /**
-   * Settles an ambiguous `turn/start` positionally; its per-thread serialization keeps one
-   * reconcile's read and ruling atomic. A concurrent successful start can only inflate the read,
-   * which can only settle `delivered` (re-sends nothing), never `cleared-for-retry`.
-   */
-  readonly #ambiguousDeliveryReconciler: AmbiguousDeliveryReconciler;
   // The intended-close producer: one gate per session, latched at the top of `closeSession`; the
   // gate stamps it on the terminal payload. Keyed beside the record map because a close during
   // establishment holds no installed record.
@@ -148,7 +137,6 @@ export class CodexLifecycleManager {
     this.#pendingCompactions = new PendingCompactionRegistry(
       options.scheduleTimeout ?? defaultScheduleTimeout,
     );
-    this.#ambiguousDeliveryReconciler = new AmbiguousDeliveryReconciler(options.userTurnReadback);
     // The only composer of provider-bound text on this leg: `turn/start` and `turn/steer` take
     // their input from a frame it minted.
     const outboundTextFrameWriter = new OutboundTextFrameWriter({
@@ -246,7 +234,7 @@ export class CodexLifecycleManager {
     const openingFrame = this.#textNeutralization.composeRunOpeningFrame(params, runConfig);
     let turnId: string;
     // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
-    // belong to the turn about to be named, so `rememberUnmatchedTurn` must not evict. Lowered in
+    // belong to the turn about to be named, so `bufferTurnEvidence` must not evict. Lowered in
     // a `finally` so a failed start cannot leak the count.
     record.inFlightTurnStarts += 1;
     try {
@@ -256,32 +244,16 @@ export class CodexLifecycleManager {
       );
     } catch (cause) {
       // Dropped by frame, not key: nothing serializes two starts for one run, and a key-wide drop
-      // would strand a concurrent attempt's frame so its turn passes uncorrelated. Safe here: the
-      // reconcile proves the turn never started or kills the child (a steer's turn runs on).
+      // would strand a concurrent attempt's frame so its turn passes uncorrelated. Safe here: a
+      // refusal means the turn never started, and any other failure kills the child below (a
+      // steer's turn runs on).
       this.#outboundFrameTripwire.forgetFrame(openingFrame);
-      // Classified before any teardown, as some dispositions need the live connection. Routing is
-      // exhaustive over the shared classifier's union, not this leg's own error classes.
-      const disposition = classifyProviderRequestFailure(
-        observeCodexTurnStartFailure(cause),
-      ).disposition;
-      if (disposition === "permanent-structural-refusal") {
-        // Condemned, not just torn down: the history was typed unacceptable, so only a fresh spawn
-        // leads back. Session is quarantined first so a synchronous caller cannot resolve it.
-        this.#runtimeBindingQuarantine.disposeSession(record.sessionId);
-        this.#runtimeBindingQuarantine.disposeRun(params.runId, record.sessionId);
+      // A clean JSON-RPC refusal leaves the session usable. Anything else (a deadline, transport
+      // death, no usable turn id) may hide an accepted turn that would run on with no route to
+      // it, so the child is killed; nothing is sent again.
+      if (!(cause instanceof CodexProviderRequestError)) {
         await this.#disposeAmbiguousSession(record);
-        throw new PermanentStructuralRefusalError({
-          providerSessionId: record.threadId,
-          runId: params.runId,
-          cause,
-        });
       }
-      if (disposition === "reconcile-ambiguous-delivery") {
-        await this.#settleAmbiguousTurnStart(record);
-      }
-      // `fail-consumed-and-declined` disposes nothing: the provider answered "no", so the session
-      // stays usable. `retry-definitely-unsent` cannot occur, as `observeCodexTurnStartFailure`
-      // never reports `unsent`; narrowing that needs a retry branch here.
       throw cause;
     } finally {
       record.inFlightTurnStarts -= 1;
@@ -307,27 +279,7 @@ export class CodexLifecycleManager {
     // Appended at acceptance, not completion: a completion-time ledger would omit interrupted and
     // failed turns and misname later positions.
     record.turnBoundaries.push(turnId);
-    this.#textNeutralization.replayRememberedTurnEvidence(record, params.runId, turnId);
-  }
-
-  /**
-   * Settles an ambiguous `turn/start` by reading the thread's user-turn count back against
-   * `turnBoundaries` (positional: a user may repeat words). The run fails on every arm;
-   * `delivered` and `unrecoverable` dispose the session so no re-dispatch duplicates spend.
-   */
-  async #settleAmbiguousTurnStart(record: CodexSessionRecord): Promise<void> {
-    await this.#ambiguousDeliveryReconciler.reconcileThenAct(
-      {
-        targetProviderSessionId: record.threadId,
-        acknowledgedUserSends: record.turnBoundaries.length,
-      },
-      async (settlement) => {
-        if (settlement.settlement === "cleared-for-retry") {
-          return;
-        }
-        await this.#disposeAmbiguousSession(record);
-      },
-    );
+    this.#textNeutralization.correlateBufferedTurnEvidence(record, params.runId, turnId);
   }
 
   /** The `turn/start` request itself, split out so `startRun` reads as its policy. */
@@ -801,7 +753,8 @@ export class CodexLifecycleManager {
     }
     if (holderState === "establishing") {
       throw new CodexTransportError(
-        `Codex session "${sessionId}" is being re-established; the leg it runs on is about to change.`,
+        `Codex session "${sessionId}" is being re-established; the leg it runs on is about ` +
+          `to change.`,
         { sessionId, holderState },
       );
     }

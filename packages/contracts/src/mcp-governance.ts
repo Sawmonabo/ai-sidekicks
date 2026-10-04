@@ -1,4 +1,5 @@
-// The `mcp.*` method table, the sign-in event payload, the status notice and the refusal codes. A payload names a binding by its provider, scope and server name, never its folder.
+// The `mcp.*` method table, the sign-in event payload, the status notice and the refusal codes. A
+// payload names a binding by its provider, scope and server name, never its folder.
 import { z } from "zod";
 
 import {

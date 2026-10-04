@@ -103,61 +103,65 @@ afterEach(() => {
 });
 
 describe("capability gating across the registry, the durable cache and a restart", () => {
-  it("registry gate, declare, hydrate, and a re-seeded registry-B all agree on the gating set across a daemon restart", async () => {
-    const { writer, registry } = makeStack();
+  it(
+    "registry gate, declare, hydrate, and a re-seeded registry-B all agree on the gating set " +
+      "across a daemon restart",
+    async () => {
+      const { writer, registry } = makeStack();
 
-    // steer:false, resume:true, tool_calls:true, and a non-empty tools array.
-    // Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
-    // round-trip is an identity check.
-    const advertised: GetCapabilitiesResult = makeResult({
-      capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
-      tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
-    });
-    const driver = makeMockDriver(advertised);
+      // steer:false, resume:true, tool_calls:true, and a non-empty tools array.
+      // Tools are already in canonical order with an explicit `idempotency_class`, so a hydrate
+      // round-trip is an identity check.
+      const advertised: GetCapabilitiesResult = makeResult({
+        capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
+        tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
+      });
+      const driver = makeMockDriver(advertised);
 
-    // Registry A: the live gate reads the snapshot resolved at register.
-    await registry.register(DRIVER_NAME, driver);
-    // A declared-true flag returns void.
-    expect(registry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
-    // A declared-false flag throws.
-    const refusal = captureThrow(() => registry.checkCapability(DRIVER_NAME, "steer"));
-    expect(refusal).toBeInstanceOf(DriverCapabilityUnsupportedError);
-    expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
-      "driver.capability_unsupported",
-    );
+      // Registry A: the live gate reads the snapshot resolved at register.
+      await registry.register(DRIVER_NAME, driver);
+      // A declared-true flag returns void.
+      expect(registry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
+      // A declared-false flag throws.
+      const refusal = captureThrow(() => registry.checkCapability(DRIVER_NAME, "steer"));
+      expect(refusal).toBeInstanceOf(DriverCapabilityUnsupportedError);
+      expect((refusal as DriverCapabilityUnsupportedError).code).toBe(
+        "driver.capability_unsupported",
+      );
 
-    // Persist the snapshot to the durable cache.
-    expect(
-      await writer.declare({
-        driverName: DRIVER_NAME,
-        result: advertised,
-      }),
-    ).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
+      // Persist the snapshot to the durable cache.
+      expect(
+        await writer.declare({
+          driverName: DRIVER_NAME,
+          result: advertised,
+        }),
+      ).toEqual({ snapshotChange: "created", cliVersionRefreshed: true });
 
-    // Hydrate reproduces the whole result, `cliVersion` included; a member-wise check would let a
-    // dropped `cliVersion` pass.
-    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
-    expect(hydrated).toEqual(advertised);
-    expect(hydrated.capabilities.flags).toEqual(makeFlags({ steer: false }));
-    expect(hydrated.capabilities.contractVersion).toBe(CONTRACT_VERSION);
-    expect(hydrated.tools).toEqual([
-      { name: "search", idempotency_class: "idempotent", description: "search the web" },
-    ]);
-    expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
+      // Hydrate reproduces the whole result, `cliVersion` included; a member-wise check would let a
+      // dropped `cliVersion` pass.
+      const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+      expect(hydrated).toEqual(advertised);
+      expect(hydrated.capabilities.flags).toEqual(makeFlags({ steer: false }));
+      expect(hydrated.capabilities.contractVersion).toBe(CONTRACT_VERSION);
+      expect(hydrated.tools).toEqual([
+        { name: "search", idempotency_class: "idempotent", description: "search the web" },
+      ]);
+      expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
 
-    // Cold-start re-seed: registry B is fed the hydrated cache, not the live driver, and must gate
-    // identically to registry A.
-    const registryB: ProviderRegistry = new ProviderRegistry();
-    // The cache's own object is handed over unmodified; re-attaching `CLI_VERSION_REPORT` would
-    // mask a cache that dropped it.
-    await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
-    expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
-    const refusalB = captureThrow(() => registryB.checkCapability(DRIVER_NAME, "steer"));
-    expect(refusalB).toBeInstanceOf(DriverCapabilityUnsupportedError);
-    expect((refusalB as DriverCapabilityUnsupportedError).code).toBe(
-      "driver.capability_unsupported",
-    );
-  });
+      // Cold-start re-seed: registry B is fed the hydrated cache, not the live driver, and must
+      // gate identically to registry A.
+      const registryB: ProviderRegistry = new ProviderRegistry();
+      // The cache's own object is handed over unmodified; re-attaching `CLI_VERSION_REPORT` would
+      // mask a cache that dropped it.
+      await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
+      expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
+      const refusalB = captureThrow(() => registryB.checkCapability(DRIVER_NAME, "steer"));
+      expect(refusalB).toBeInstanceOf(DriverCapabilityUnsupportedError);
+      expect((refusalB as DriverCapabilityUnsupportedError).code).toBe(
+        "driver.capability_unsupported",
+      );
+    },
+  );
 
   it("steer false→true reports changed and the refreshed registry passes steer", async () => {
     const { writer } = makeStack();

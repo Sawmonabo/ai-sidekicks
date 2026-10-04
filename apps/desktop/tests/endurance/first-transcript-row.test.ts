@@ -264,19 +264,23 @@ function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
-    `the launched app recorded no first-contentful-paint entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
+    `the launched app recorded no first-contentful-paint ` +
+    `entry inside ${String(PAINT_WAIT_BUDGET_MS)} ms, ` +
     "so the interval has no start instant: nothing was timed, and reporting a figure would be " +
     "reporting the harness",
   "no-scenario-handle":
-    "the launched app exposed no scenario handle, so the concurrent-streaming script was never delivered: " +
+    "the launched app exposed no scenario handle, so the " +
+    "concurrent-streaming script was never delivered: " +
     "nothing was timed, and reporting a figure would be reporting the harness",
   "pane-never-painted":
     `the app never painted the session screen's pane inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
     "The instrument was ready and the app did not mount — this is an app failure, not a " +
     "harness that was not there yet, and re-running it will not change the answer",
   "row-never-painted":
-    `the app painted the session screen's pane but no transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
-    "An app that mounts no transcript row at all is the regression this budget row exists to catch — " +
+    `the app painted the session screen's pane but no ` +
+    `transcript row inside ${String(PAINT_WAIT_BUDGET_MS)} ms. ` +
+    "An app that mounts no transcript row at all is the " +
+    "regression this budget row exists to catch — " +
     "this is an app failure, not a harness that was not there yet",
 };
 
@@ -337,7 +341,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
       expect(elapsedFromWindowShow(reading)).toBeGreaterThan(PLANTED_PAINT_STALL_MS);
       expect(
         evaluateBudget(budget, elapsedFromWindowShow(reading)).withinBudget,
-        "an app that took longer than the ceiling to paint its first row passed the budget, so this gate " +
+        "an app that took longer than the ceiling to paint " +
+          "its first row passed the budget, so this gate " +
           "would report green over the one failure it exists to catch",
       ).toBe(false);
     });

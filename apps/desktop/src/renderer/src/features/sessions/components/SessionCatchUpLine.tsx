@@ -40,7 +40,10 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
           {"Couldn't catch up · "}
           <button
             type="button"
-            className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
+            className={
+              "meridian-action-button meridian-action-button--small " +
+              "meridian-action-button--outline"
+            }
             onClick={() => {
               props.sessionStore.failedDependentReads.retryFailed();
               props.onTryAgain(props.sessionStore.sessionId);

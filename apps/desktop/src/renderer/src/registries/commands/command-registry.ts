@@ -36,7 +36,8 @@ export class CommandRegistry {
     duplicatePolicy: "throw",
     describeWhat: "command",
     duplicateHint:
-      "two contributors cannot claim one id, because the winner would be decided by module evaluation order",
+      "two contributors cannot claim one id, because the winner would be decided by module " +
+      "evaluation order",
   });
   readonly #recentCommandIds: string[] = [];
   readonly #whenClauses = new WhenClauseCache();

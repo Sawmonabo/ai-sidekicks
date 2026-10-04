@@ -210,20 +210,24 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
     ]);
   });
 
-  it("refuses a superseded binding's dispatch rather than adjudicating it against the live registry", async () => {
-    const harness = buildCallbackToolHostHarness();
-    const supersededBinding = bindSpawn(harness);
-    bindSpawn(harness);
+  it(
+    "refuses a superseded binding's dispatch rather than adjudicating it against the live " +
+      "registry",
+    async () => {
+      const harness = buildCallbackToolHostHarness();
+      const supersededBinding = bindSpawn(harness);
+      bindSpawn(harness);
 
-    const result = await supersededBinding.onCallbackToolCall(makeInvocation());
+      const result = await supersededBinding.onCallbackToolCall(makeInvocation());
 
-    expect(result.status).toBe("failed");
-    // A same-named tool in the replacement registry must not carry a dead process's call into
-    // the live spawn's approval seam.
-    expect(harness.evaluatedRequests).toStrictEqual([]);
-    expect(harness.executedInvocations).toStrictEqual([]);
-    expect(harness.activityRecords[0]?.disposition).toBe("failed-superseded-binding");
-  });
+      expect(result.status).toBe("failed");
+      // A same-named tool in the replacement registry must not carry a dead process's call into
+      // the live spawn's approval seam.
+      expect(harness.evaluatedRequests).toStrictEqual([]);
+      expect(harness.executedInvocations).toStrictEqual([]);
+      expect(harness.activityRecords[0]?.disposition).toBe("failed-superseded-binding");
+    },
+  );
 });
 
 describe("CallbackToolHost — a failed replacement spawn rolls its registry back", () => {
@@ -231,29 +235,32 @@ describe("CallbackToolHost — a failed replacement spawn rolls its registry bac
   // predecessor that a resume path deliberately leaves alive. `release()` would delete only
   // the replacement, and the surviving process would then dispatch against an absent registry and
   // be refused on every later call.
-  it("restores the predecessor's registry, so the surviving process keeps dispatching", async () => {
-    const harness = buildCallbackToolHostHarness();
-    const liveBinding = bindSpawn(harness);
-    const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);
+  it(
+    "restores the predecessor's registry, so " + "the surviving process keeps dispatching",
+    async () => {
+      const harness = buildCallbackToolHostHarness();
+      const liveBinding = bindSpawn(harness);
+      const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);
 
-    failedReplacement.rollback();
+      failedReplacement.rollback();
 
-    // The predecessor's own token addresses the restored registry again; its closure holds
-    // nothing else.
-    await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
-      status: "completed",
-      output: { hits: 0 },
-    });
-    // The restore is a registry replacement like any other and is recorded as one.
-    expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
-      "callback_tool_registry_superseded",
-      "callback_tool_registry_superseded",
-    ]);
-    expect(harness.emittedDiagnostics[1]?.dispositionReason).toContain("rolled");
-    expect(harness.emittedDiagnostics[1]?.details["installedInstallation"]).toBe(
-      harness.emittedDiagnostics[0]?.details["supersededInstallation"],
-    );
-  });
+      // The predecessor's own token addresses the restored registry again; its closure holds
+      // nothing else.
+      await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+        status: "completed",
+        output: { hits: 0 },
+      });
+      // The restore is a registry replacement like any other and is recorded as one.
+      expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
+        "callback_tool_registry_superseded",
+        "callback_tool_registry_superseded",
+      ]);
+      expect(harness.emittedDiagnostics[1]?.dispositionReason).toContain("rolled");
+      expect(harness.emittedDiagnostics[1]?.details["installedInstallation"]).toBe(
+        harness.emittedDiagnostics[0]?.details["supersededInstallation"],
+      );
+    },
+  );
 
   it("ignores a rollback whose installation a THIRD spawn already superseded", async () => {
     // Undoing here would tear down a live registry to restore a dead one; it is recorded as an

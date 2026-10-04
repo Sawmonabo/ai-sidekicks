@@ -130,18 +130,21 @@ describe("machine settings — a write", () => {
     expect(store.snapshot().reading?.repair).toBeUndefined();
   });
 
-  it("negative control: a refused write keeps the stored value, stops pending and says why", async () => {
-    const { store, service } = startedStore();
-    service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
+  it(
+    "negative control: a refused write keeps the stored value, stops " + "pending and says why",
+    async () => {
+      const { store, service } = startedStore();
+      service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
 
-    const chosen = store.choose("updatesAutomatic", false);
-    service.refuse(0, new Error("read-only"));
+      const chosen = store.choose("updatesAutomatic", false);
+      service.refuse(0, new Error("read-only"));
 
-    await chosen;
-    expect(effectiveSettings(store.snapshot()).updatesAutomatic).toBe(true);
-    expect(store.snapshot().pendingMembers.size).toBe(0);
-    expect(store.snapshot().refusalByMember.get("updatesAutomatic")?.detail).toBe("read-only");
-  });
+      await chosen;
+      expect(effectiveSettings(store.snapshot()).updatesAutomatic).toBe(true);
+      expect(store.snapshot().pendingMembers.size).toBe(0);
+      expect(store.snapshot().refusalByMember.get("updatesAutomatic")?.detail).toBe("read-only");
+    },
+  );
 
   it("drops a write's answer that lands after a newer feed delivery", async () => {
     // Another window's change arrives while this write is out; installing the write's older
@@ -174,28 +177,31 @@ describe("machine settings — a write", () => {
 });
 
 describe("machine settings — which rows are waiting", () => {
-  it("clears only the settled member, and holds a member until its last write settles", async () => {
-    const { store, service } = startedStore();
-    const first = store.choose("updatesAutomatic", false);
-    const second = store.choose("keepCrashReports", false);
-    const third = store.choose("updatesAutomatic", true);
-    expect(store.snapshot().pendingMembers).toStrictEqual(
-      new Set(["updatesAutomatic", "keepCrashReports"]),
-    );
+  it(
+    "clears only the settled member, and holds a member until its " + "last write settles",
+    async () => {
+      const { store, service } = startedStore();
+      const first = store.choose("updatesAutomatic", false);
+      const second = store.choose("keepCrashReports", false);
+      const third = store.choose("updatesAutomatic", true);
+      expect(store.snapshot().pendingMembers).toStrictEqual(
+        new Set(["updatesAutomatic", "keepCrashReports"]),
+      );
 
-    await service.answer(0, settingsWith({ updatesAutomatic: false }));
-    await first;
-    // The second write for the same member is still out, so its row still waits.
-    expect(store.snapshot().pendingMembers).toStrictEqual(
-      new Set(["updatesAutomatic", "keepCrashReports"]),
-    );
+      await service.answer(0, settingsWith({ updatesAutomatic: false }));
+      await first;
+      // The second write for the same member is still out, so its row still waits.
+      expect(store.snapshot().pendingMembers).toStrictEqual(
+        new Set(["updatesAutomatic", "keepCrashReports"]),
+      );
 
-    await service.answer(1, settingsWith({ updatesAutomatic: false, keepCrashReports: false }));
-    await second;
-    expect(store.snapshot().pendingMembers).toStrictEqual(new Set(["updatesAutomatic"]));
+      await service.answer(1, settingsWith({ updatesAutomatic: false, keepCrashReports: false }));
+      await second;
+      expect(store.snapshot().pendingMembers).toStrictEqual(new Set(["updatesAutomatic"]));
 
-    await service.answer(2, settingsWith({ updatesAutomatic: true, keepCrashReports: false }));
-    await third;
-    expect(store.snapshot().pendingMembers).toStrictEqual(new Set());
-  });
+      await service.answer(2, settingsWith({ updatesAutomatic: true, keepCrashReports: false }));
+      await third;
+      expect(store.snapshot().pendingMembers).toStrictEqual(new Set());
+    },
+  );
 });

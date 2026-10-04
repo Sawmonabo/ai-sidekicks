@@ -80,7 +80,7 @@ sidekicks relay repin --force    # a relay without a publicly trusted certificat
 
 ## Related Specs
 
-- [Identity And User State](../specs/016-identity-and-user-state.md)
+- [Hosted Account And Identity](../specs/016-hosted-account-and-identity.md)
 - [Self-Host Secure Defaults](../specs/023-self-host-secure-defaults.md)
 - [Remote Control](../specs/027-remote-control.md)
 

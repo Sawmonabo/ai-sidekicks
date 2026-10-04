@@ -120,122 +120,141 @@ const SIDECAR_CRASHES = [
 ];
 
 describe("RustSidecarPtyHost — request wire", () => {
-  it("frames each request to the sidecar, resolves it on its response, and decodes output", async () => {
-    const subject = makeHost();
-    const { host } = subject;
-    const output = vi.fn();
-    host.setOnData(output);
+  it(
+    "frames each request to the sidecar, resolves " + "it on its response, and decodes output",
+    async () => {
+      const subject = makeHost();
+      const { host } = subject;
+      const output = vi.fn();
+      host.setOnData(output);
 
-    const spawning = host.spawn({ ...SHELL_SPAWN_REQUEST, args: ["-c", "echo hi"] });
-    await flushMicrotasks();
-    const child = subject.latestChild();
-    // The sidecar reads exactly this header before the JSON body.
-    expect(child.readStdin().toString("utf8")).toMatch(/^Content-Length: \d+\r\n\r\n\{/);
-    expect(lastFrameSentTo(child)).toMatchObject({ command: "/bin/sh", args: ["-c", "echo hi"] });
-    child.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
-    await expect(spawning).resolves.toEqual({ kind: "spawn_response", session_id: "s-0" });
+      const spawning = host.spawn({ ...SHELL_SPAWN_REQUEST, args: ["-c", "echo hi"] });
+      await flushMicrotasks();
+      const child = subject.latestChild();
+      // The sidecar reads exactly this header before the JSON body.
+      expect(child.readStdin().toString("utf8")).toMatch(/^Content-Length: \d+\r\n\r\n\{/);
+      expect(lastFrameSentTo(child)).toMatchObject({ command: "/bin/sh", args: ["-c", "echo hi"] });
+      child.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-0" }));
+      await expect(spawning).resolves.toEqual({ kind: "spawn_response", session_id: "s-0" });
 
-    const resizing = host.resize("s-0", 30, 100);
-    await flushMicrotasks();
-    expect(lastFrameSentTo(child)).toEqual({
-      kind: "resize_request",
-      session_id: "s-0",
-      rows: 30,
-      cols: 100,
-    });
-    child.writeStdout(frameEnvelope({ kind: "resize_response", session_id: "s-0" }));
-    await expect(resizing).resolves.toBeUndefined();
+      const resizing = host.resize("s-0", 30, 100);
+      await flushMicrotasks();
+      expect(lastFrameSentTo(child)).toEqual({
+        kind: "resize_request",
+        session_id: "s-0",
+        rows: 30,
+        cols: 100,
+      });
+      child.writeStdout(frameEnvelope({ kind: "resize_response", session_id: "s-0" }));
+      await expect(resizing).resolves.toBeUndefined();
 
-    const writing = host.write("s-0", Buffer.from("hello", "utf8"));
-    await flushMicrotasks();
-    expect(lastFrameSentTo(child)).toEqual({
-      kind: "write_request",
-      session_id: "s-0",
-      bytes: "aGVsbG8=",
-    });
-    child.writeStdout(frameEnvelope({ kind: "write_response", session_id: "s-0" }));
-    await expect(writing).resolves.toBeUndefined();
+      const writing = host.write("s-0", Buffer.from("hello", "utf8"));
+      await flushMicrotasks();
+      expect(lastFrameSentTo(child)).toEqual({
+        kind: "write_request",
+        session_id: "s-0",
+        bytes: "aGVsbG8=",
+      });
+      child.writeStdout(frameEnvelope({ kind: "write_response", session_id: "s-0" }));
+      await expect(writing).resolves.toBeUndefined();
 
-    const killing = host.kill("s-0", "SIGTERM");
-    await flushMicrotasks();
-    expect(lastFrameSentTo(child)).toEqual({
-      kind: "kill_request",
-      session_id: "s-0",
-      signal: "SIGTERM",
-    });
-    child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
-    await expect(killing).resolves.toBeUndefined();
+      const killing = host.kill("s-0", "SIGTERM");
+      await flushMicrotasks();
+      expect(lastFrameSentTo(child)).toEqual({
+        kind: "kill_request",
+        session_id: "s-0",
+        signal: "SIGTERM",
+      });
+      child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+      await expect(killing).resolves.toBeUndefined();
 
-    child.writeStdout(dataFrame("s-0", "world"));
-    await flushMicrotasks();
-    expect(output).toHaveBeenCalledTimes(1);
-    const [sessionId, chunk] = output.mock.calls[0]!;
-    expect(sessionId).toBe("s-0");
-    expect(Buffer.from(chunk).toString("utf8")).toBe("world");
-  });
+      child.writeStdout(dataFrame("s-0", "world"));
+      await flushMicrotasks();
+      expect(output).toHaveBeenCalledTimes(1);
+      const [sessionId, chunk] = output.mock.calls[0]!;
+      expect(sessionId).toBe("s-0");
+      expect(Buffer.from(chunk).toString("utf8")).toBe("world");
+    },
+  );
 
-  it("rejects a request the sidecar answers with an error, and tracks no session for a failed spawn", async () => {
-    const subject = makeHost();
-    const { host } = subject;
+  it(
+    "rejects a request the sidecar answers with an error, and tracks no session for a failed " +
+      "spawn",
+    async () => {
+      const subject = makeHost();
+      const { host } = subject;
 
-    const failedSpawn = host.spawn(SHELL_SPAWN_REQUEST);
-    await flushMicrotasks();
-    const child = subject.latestChild();
-    child.writeStdout(
-      frameEnvelope({ kind: "spawn_response", session_id: "s-failed", error: "command not found" }),
-    );
-    await expect(failedSpawn).rejects.toThrow("command not found");
-    await expect(host.write("s-failed", new Uint8Array([0]))).rejects.toThrow(
-      "unknown sessionId 's-failed'",
-    );
+      const failedSpawn = host.spawn(SHELL_SPAWN_REQUEST);
+      await flushMicrotasks();
+      const child = subject.latestChild();
+      child.writeStdout(
+        frameEnvelope({
+          kind: "spawn_response",
+          session_id: "s-failed",
+          error: "command not found",
+        }),
+      );
+      await expect(failedSpawn).rejects.toThrow("command not found");
+      await expect(host.write("s-failed", new Uint8Array([0]))).rejects.toThrow(
+        "unknown sessionId 's-failed'",
+      );
 
-    // A request racing the process's own exit gets an error response; it must not hang.
-    await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
-    const killing = host.kill("s-0", "SIGKILL");
-    await flushMicrotasks();
-    child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0", error: "gone" }));
-    await expect(killing).rejects.toThrow("gone");
+      // A request racing the process's own exit gets an error response; it must not hang.
+      await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
+      const killing = host.kill("s-0", "SIGKILL");
+      await flushMicrotasks();
+      child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0", error: "gone" }));
+      await expect(killing).rejects.toThrow("gone");
 
-    const writing = host.write("s-0", new Uint8Array([1]));
-    await flushMicrotasks();
-    child.writeStdout(frameEnvelope({ kind: "write_response", session_id: "s-0", error: "gone" }));
-    await expect(writing).rejects.toThrow("gone");
+      const writing = host.write("s-0", new Uint8Array([1]));
+      await flushMicrotasks();
+      child.writeStdout(
+        frameEnvelope({ kind: "write_response", session_id: "s-0", error: "gone" }),
+      );
+      await expect(writing).rejects.toThrow("gone");
 
-    const resizing = host.resize("s-0", 30, 100);
-    await flushMicrotasks();
-    child.writeStdout(frameEnvelope({ kind: "resize_response", session_id: "s-0", error: "gone" }));
-    await expect(resizing).rejects.toThrow("gone");
-  });
+      const resizing = host.resize("s-0", 30, 100);
+      await flushMicrotasks();
+      child.writeStdout(
+        frameEnvelope({ kind: "resize_response", session_id: "s-0", error: "gone" }),
+      );
+      await expect(resizing).rejects.toThrow("gone");
+    },
+  );
 
-  it("close() SIGTERMs the session and reports nothing for it afterwards, whatever the sidecar answers", async () => {
-    const subject = makeHost();
-    const { host } = subject;
-    const output = vi.fn();
-    const exits = vi.fn();
-    host.setOnData(output);
-    host.setOnExit(exits);
-    await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
-    const child = subject.latestChild();
-    const sentBeforeClose = child.readStdin().length;
+  it(
+    "close() SIGTERMs the session and reports nothing for it afterwards, whatever the sidecar " +
+      "answers",
+    async () => {
+      const subject = makeHost();
+      const { host } = subject;
+      const output = vi.fn();
+      const exits = vi.fn();
+      host.setOnData(output);
+      host.setOnExit(exits);
+      await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
+      const child = subject.latestChild();
+      const sentBeforeClose = child.readStdin().length;
 
-    const closing = host.close("s-0");
-    await flushMicrotasks();
-    expect(parseFramesFromStdin(child.readStdin().subarray(sentBeforeClose))).toEqual([
-      { kind: "kill_request", session_id: "s-0", signal: "SIGTERM" },
-    ]);
+      const closing = host.close("s-0");
+      await flushMicrotasks();
+      expect(parseFramesFromStdin(child.readStdin().subarray(sentBeforeClose))).toEqual([
+        { kind: "kill_request", session_id: "s-0", signal: "SIGTERM" },
+      ]);
 
-    // The exit can reach the wire before the kill response, and the response is an error when
-    // close() races the process's own exit; neither may reach the caller.
-    child.writeStdout(exitNotification("s-0", 137));
-    await flushMicrotasks();
-    child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0", error: "gone" }));
-    await expect(closing).resolves.toBeUndefined();
+      // The exit can reach the wire before the kill response, and the response is an error when
+      // close() races the process's own exit; neither may reach the caller.
+      child.writeStdout(exitNotification("s-0", 137));
+      await flushMicrotasks();
+      child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0", error: "gone" }));
+      await expect(closing).resolves.toBeUndefined();
 
-    child.writeStdout(Buffer.concat([exitNotification("s-0", 137), dataFrame("s-0", "late")]));
-    await flushMicrotasks();
-    expect(exits).not.toHaveBeenCalled();
-    expect(output).not.toHaveBeenCalled();
-  });
+      child.writeStdout(Buffer.concat([exitNotification("s-0", 137), dataFrame("s-0", "late")]));
+      await flushMicrotasks();
+      expect(exits).not.toHaveBeenCalled();
+      expect(output).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("RustSidecarPtyHost — sidecar crash", () => {
@@ -314,25 +333,28 @@ describe("RustSidecarPtyHost — sidecar crash", () => {
     expect(subject.children).toHaveLength(2);
   });
 
-  it("reads a respawned sidecar with a fresh parser and ignores its predecessor's late output", async () => {
-    const subject = makeHost();
-    await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
-    const oldChild = subject.latestChild();
-    // A half-read header left in the parser would garble every frame the next sidecar sends.
-    oldChild.writeStdout(Buffer.from("Content-Length: 27\r", "utf8"));
-    await flushMicrotasks();
-    oldChild.triggerExit(1, null);
-    await flushMicrotasks();
+  it(
+    "reads a respawned sidecar with a fresh parser " + "and ignores its predecessor's late output",
+    async () => {
+      const subject = makeHost();
+      await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
+      const oldChild = subject.latestChild();
+      // A half-read header left in the parser would garble every frame the next sidecar sends.
+      oldChild.writeStdout(Buffer.from("Content-Length: 27\r", "utf8"));
+      await flushMicrotasks();
+      oldChild.triggerExit(1, null);
+      await flushMicrotasks();
 
-    const respawning = subject.host.spawn(SHELL_SPAWN_REQUEST);
-    await flushMicrotasks();
-    oldChild.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-stale" }));
-    await flushMicrotasks();
-    subject
-      .latestChild()
-      .writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-fresh" }));
-    await expect(respawning).resolves.toEqual({ kind: "spawn_response", session_id: "s-fresh" });
-  });
+      const respawning = subject.host.spawn(SHELL_SPAWN_REQUEST);
+      await flushMicrotasks();
+      oldChild.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-stale" }));
+      await flushMicrotasks();
+      subject
+        .latestChild()
+        .writeStdout(frameEnvelope({ kind: "spawn_response", session_id: "s-fresh" }));
+      await expect(respawning).resolves.toEqual({ kind: "spawn_response", session_id: "s-fresh" });
+    },
+  );
 
   // A pipe error is emitted as an 'error' event; with no listener it would throw out of the
   // stream and take the daemon down.
@@ -435,17 +457,20 @@ describe("RustSidecarPtyHost — crash budget", () => {
     expect(subject.children).toHaveLength(1);
   });
 
-  it("rejects spawn with PtyBackendUnavailableError when the binary cannot be resolved", async () => {
-    const host = new RustSidecarPtyHost({
-      resolveBinaryPath: () => {
-        throw new Error("custom resolver failure");
-      },
-      spawn: vi.fn<SidecarSpawnFn>(),
-    });
-    await expect(host.spawn(SHELL_SPAWN_REQUEST)).rejects.toBeInstanceOf(
-      PtyBackendUnavailableError,
-    );
-  });
+  it(
+    "rejects spawn with PtyBackendUnavailableError " + "when the binary cannot be resolved",
+    async () => {
+      const host = new RustSidecarPtyHost({
+        resolveBinaryPath: () => {
+          throw new Error("custom resolver failure");
+        },
+        spawn: vi.fn<SidecarSpawnFn>(),
+      });
+      await expect(host.spawn(SHELL_SPAWN_REQUEST)).rejects.toBeInstanceOf(
+        PtyBackendUnavailableError,
+      );
+    },
+  );
 });
 
 describe("RustSidecarPtyHost — output the host cannot trust", () => {
@@ -595,24 +620,27 @@ describe("RustSidecarPtyHost — output racing the spawn response", () => {
     },
   );
 
-  it("drops what a crashed sidecar buffered instead of replaying it into the respawned one", async () => {
-    // Session ids restart at s-0 in a new sidecar, so a replay would land in a different session.
-    const subject = makeHost();
-    const events = recordEvents(subject.host);
-    const crashedSpawn = subject.host.spawn(SHELL_SPAWN_REQUEST);
-    await flushMicrotasks();
-    subject
-      .latestChild()
-      .writeStdout(Buffer.concat([dataFrame("s-0", "STALE"), exitNotification("s-0", 1)]));
-    await flushMicrotasks();
-    subject.latestChild().triggerExit(1, null);
-    await expect(crashedSpawn).rejects.toThrow();
+  it(
+    "drops what a crashed sidecar buffered " + "instead of replaying it into the respawned one",
+    async () => {
+      // Session ids restart at s-0 in a new sidecar, so a replay would land in a different session.
+      const subject = makeHost();
+      const events = recordEvents(subject.host);
+      const crashedSpawn = subject.host.spawn(SHELL_SPAWN_REQUEST);
+      await flushMicrotasks();
+      subject
+        .latestChild()
+        .writeStdout(Buffer.concat([dataFrame("s-0", "STALE"), exitNotification("s-0", 1)]));
+      await flushMicrotasks();
+      subject.latestChild().triggerExit(1, null);
+      await expect(crashedSpawn).rejects.toThrow();
 
-    const respawning = subject.host.spawn(SHELL_SPAWN_REQUEST);
-    await flushMicrotasks();
-    subject.latestChild().writeStdout(Buffer.concat([spawnResponse, dataFrame("s-0", "FRESH")]));
-    await respawning;
-    await flushSetImmediate();
-    expect(events).toEqual(["data s-0 FRESH"]);
-  });
+      const respawning = subject.host.spawn(SHELL_SPAWN_REQUEST);
+      await flushMicrotasks();
+      subject.latestChild().writeStdout(Buffer.concat([spawnResponse, dataFrame("s-0", "FRESH")]));
+      await respawning;
+      await flushSetImmediate();
+      expect(events).toEqual(["data s-0 FRESH"]);
+    },
+  );
 });

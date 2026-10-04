@@ -96,7 +96,8 @@ export async function openPalette(appUnderTest: PaletteApp): Promise<Locator> {
     .poll(async () => await readPaletteInputFocus(appWindow), {
       timeout: appUnderTest.bodyAllowance.boundedMs(openingPhase.remainingMs()),
       message:
-        "the palette opened but never moved focus into its input — the reading names whether the input was absent or present and unfocused",
+        "the palette opened but never moved focus into its input — the reading names whether " +
+        "the input was absent or present and unfocused",
     })
     .toBe("focused");
   return appWindow.getByRole("combobox", { name: PALETTE_INPUT_ACCESSIBLE_NAME });

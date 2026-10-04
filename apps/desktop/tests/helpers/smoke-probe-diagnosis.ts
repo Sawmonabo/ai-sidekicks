@@ -73,7 +73,8 @@ export function captureDiagnostics(
         { encoding: "utf8", timeout: budgetMs },
       );
       readings.push(
-        `[${label}] process tree (pgid=${String(child.pid)}):\n${processTree.stdout ?? "<unavailable>"}`,
+        `[${label}] process tree ` +
+          `(pgid=${String(child.pid)}):\n${processTree.stdout ?? "<unavailable>"}`,
       );
     }
   }
@@ -118,7 +119,8 @@ function renderDiagnosticDump(result: SpawnResult): string {
   return (
     `--- readiness events observed ---\n${breadcrumbs}\n` +
     `--- environment ---\n${result.diagnostics.join("\n")}\n` +
-    `--- tagged lines that did not parse ---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
+    `--- tagged lines that did not parse ` +
+    `---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
     `--- stdout ---\n${result.stdout}\n` +
     `--- stderr ---\n${result.stderr}\n`
   );
@@ -190,7 +192,8 @@ function diagnoseMissingProbe(result: SpawnResult): string {
     const disposition =
       result.signal !== null
         ? `terminated (${result.signal})`
-        : `terminated (SIGTERM; the electron shim forwarded it and exited ${String(result.exitCode)})`;
+        : `terminated (SIGTERM; the electron shim forwarded ` +
+          `it and exited ${String(result.exitCode)})`;
     return (
       `the process was still running at the ${String(result.spawnBudgetMs)}ms deadline and was ` +
       `${disposition} — \`did-finish-load\` never fired. ${reached}`
@@ -209,7 +212,10 @@ function diagnoseMissingProbe(result: SpawnResult): string {
       "being shared with another Electron."
     );
   }
-  return "the process exited without emitting the probe line and without a recognized failure marker.";
+  return (
+    "the process exited without emitting the probe " +
+    "line and without a recognized failure marker."
+  );
 }
 
 /** Renders the "no probe line arrived" failure message. */
@@ -217,7 +223,8 @@ export function renderReadinessFailure(result: SpawnResult): string {
   return (
     `Desktop main process never became ready: ${diagnoseMissingProbe(result)}\n` +
     `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(result.spawnBudgetMs)}ms.\n` +
-    `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
+    `Exit code: ${String(result.exitCode)}, signal: ` +
+    `${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
     renderDiagnosticDump(result)
   );
 }

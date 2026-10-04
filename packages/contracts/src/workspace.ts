@@ -109,7 +109,9 @@ export const WorkspaceExecutionModeCapabilitiesReadRequestSchema: z.ZodType<
     },
     {
       message:
-        "WorkspaceExecutionModeCapabilitiesReadRequest MUST carry exactly one of `repoMountId` (what could a workspace on this mount do) or `workspaceId` (what may this workspace do now).",
+        "WorkspaceExecutionModeCapabilitiesReadRequest MUST carry " +
+        "exactly one of `repoMountId` (what could a workspace on this " +
+        "mount do) or `workspaceId` (what may this workspace do now).",
     },
   );
 

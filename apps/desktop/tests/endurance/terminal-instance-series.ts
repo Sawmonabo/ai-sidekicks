@@ -227,7 +227,8 @@ export function admissibilityOf(series: TerminalInstanceSeries): SeriesAdmissibi
     return {
       admissible: false,
       reason:
-        `${observed} — the later panes cost a fraction of the first one, so the gated figure is ` +
+        `${observed} — the later panes cost a fraction ` +
+        `of the first one, so the gated figure is ` +
         "dominated by a cost that is paid once rather than per instance.",
     };
   }
@@ -236,7 +237,8 @@ export function admissibilityOf(series: TerminalInstanceSeries): SeriesAdmissibi
     return {
       admissible: false,
       reason:
-        `${observed} — the later panes cost more than the first one, so the gated figure is not ` +
+        `${observed} — the later panes cost more than ` +
+        `the first one, so the gated figure is not ` +
         "the worst case this row claims to bound.",
     };
   }

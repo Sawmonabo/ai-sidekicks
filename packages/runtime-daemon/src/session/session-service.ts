@@ -4,9 +4,9 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import type { DaemonSessionRecord, StoredEvent } from "./types.js";
-import { replay as projectReplay } from "./session-projector.js";
+import { rebuildSession } from "./session-projector.js";
 
-// A row as better-sqlite3 returns it from the replay query. `safeIntegers` applies to every
+// A row as better-sqlite3 returns it from the events query. `safeIntegers` applies to every
 // integer column of a statement, so `sequence` and `monotonic_ns` both arrive as bigint.
 // `sequence` is converted back to a number at hydration (a per-session counter cannot reach
 // 2^53); `monotonic_ns` stays bigint because `process.hrtime.bigint()` can exceed it.
@@ -25,14 +25,14 @@ interface SessionEventRow {
   readonly version: string;
 }
 
-/** Reads a session's events and replays them to a record. */
+/** Reads a session's events and rebuilds its record from them. */
 export class SessionService {
   // Only the statements are kept: each one references its database, which keeps the connection
   // alive.
-  readonly #replayStmt: Statement;
+  readonly #readEventsStatement: Statement;
 
   constructor(db: Database) {
-    this.#replayStmt = db
+    this.#readEventsStatement = db
       .prepare(
         `SELECT id, session_id, sequence, occurred_at, monotonic_ns,
                 category, type, actor, payload,
@@ -47,15 +47,15 @@ export class SessionService {
 
   /** Returns a session's events ordered by `sequence ASC`, or `[]` for an unknown session. */
   readEvents(sessionId: string): ReadonlyArray<StoredEvent> {
-    const rows: ReadonlyArray<SessionEventRow> = this.#replayStmt.all(
+    const rows: ReadonlyArray<SessionEventRow> = this.#readEventsStatement.all(
       sessionId,
     ) as ReadonlyArray<SessionEventRow>;
     return rows.map((row) => hydrateRow(row));
   }
 
-  /** Replays a session to its record, or `null` when it has no events. */
-  replay(sessionId: string): DaemonSessionRecord | null {
-    return projectReplay(this.readEvents(sessionId));
+  /** Rebuilds a session's record from its events, or `null` when it has no events. */
+  rebuildSession(sessionId: string): DaemonSessionRecord | null {
+    return rebuildSession(this.readEvents(sessionId));
   }
 }
 
@@ -86,13 +86,16 @@ function parsePayload(row: SessionEventRow): Record<string, unknown> {
     parsed = JSON.parse(row.payload);
   } catch (err) {
     throw new Error(
-      `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
+      `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=` +
+        `${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
       { cause: err },
     );
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(
-      `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} sequence=${String(row.sequence)} (got ${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,
+      `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} ` +
+        `sequence=${String(row.sequence)} (got ` +
+        `${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,
     );
   }
   return parsed as Record<string, unknown>;

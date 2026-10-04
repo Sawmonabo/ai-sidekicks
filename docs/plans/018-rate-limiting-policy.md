@@ -9,7 +9,7 @@
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) |
 | **Required ADRs** | [ADR-013: tRPC Control-Plane API](../decisions/013-trpc-control-plane-api.md); [ADR-019: V1 Deployment Model And OSS License](../decisions/019-v1-deployment-model-and-oss-license.md); [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md); [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) |
-| **Dependencies** | the shipped control-plane host (the stable tRPC middleware-mount surface consumed here; `wrangler.toml` deployment config extended); the sign-in, token-refresh and device-linking procedures the middleware wraps ([Plan-015](./015-identity-and-user-state.md), [Plan-025](./025-remote-control.md) Phase 5). Non-blocking context, not dependencies: Plan-005 daemon-IPC scope exclusion (§Non-Goals); Plan-025's self-host relay node as a downstream consumer (see §Cross-Plan Obligations) |
+| **Dependencies** | the shipped control-plane host (the stable tRPC middleware-mount surface consumed here; `wrangler.toml` deployment config extended); the sign-in, token-refresh and device-linking procedures the middleware wraps ([Plan-015](./015-hosted-account-and-identity.md), [Plan-025](./025-remote-control.md) Phase 5). Non-blocking context, not dependencies: Plan-005 daemon-IPC scope exclusion (§Non-Goals); Plan-025's self-host relay node as a downstream consumer (see §Cross-Plan Obligations) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
 ## Goal
@@ -25,7 +25,7 @@ Ship Spec-019's count on the person's own relay — the Workers relay in their o
 - `RateLimiterFactory` — selects the implementation from the deployment's configuration (T21.2-5).
 - One admission stage (D-018-1): `checkAdmission` runs `RateLimiter.check()`, whose sliding-window counter is the only stage; a trip is a 429 with the window's `Retry-After`, and a counter error fails that one request like any backend error. tRPC procedures and raw routes call only `checkAdmission`. The relay's channel carries no rate limit: it forwards each device's frames as fast as the machine drains them, and backpressure on the channel bounds both directions.
 - tRPC v11 middleware `rateLimitProcedure({ endpoint })` wired per the §Endpoint Wiring Ownership table (D-018-3).
-- Retry-After and standard rate-limit headers on every 429 ([Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); an allowed response carries no rate-limit header.
+- `Retry-After` on every 429 ([Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); an allowed response carries no rate-limit header.
 
 ## Non-Goals
 
@@ -158,15 +158,12 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
 ```
 
 - Usage on a procedure: `t.procedure.use(rateLimitProcedure({ endpoint: 'auth.endpoint' }))`. The tRPC v11 middleware chaining model is documented in [tRPC v11 middlewares](https://trpc.io/docs/server/middlewares) (uses `.use()` with opts `{ ctx, path, type, input, getRawInput, next }`).
-- Header policy: every rate-limit header on every 429, and none on an allowed response.
+- Header policy: `Retry-After` on every 429, and none on an allowed response.
 
-### Standard headers on 429 responses
+### Retry-After on 429 responses
 
-429 responses must set:
+A 429 response must set:
 
-- `X-RateLimit-Limit: <limit>`
-- `X-RateLimit-Remaining: 0`
-- `X-RateLimit-Reset: <unix-timestamp-seconds>`
 - `Retry-After: <seconds>` — formula: `max(0, ceil((resetAt - now) / 1000))`. On both implementations `resetAt` is "the time the oldest counted request ages out of the window" (the oldest in-window hit's timestamp plus the window duration), read from the DO's window state on the Workers relay (D-018-1).
 
 ## Invariants
@@ -191,7 +188,7 @@ export const rateLimitProcedure = (opts: { endpoint: RateLimitEndpointGroup }) =
 
 | Endpoint group (canonical key) | Procedure owner | Wiring owner + mechanism |
 | --- | --- | --- |
-| `auth.endpoint` | the sign-in and token-refresh procedures, the four WebAuthn ceremony routes (`WebAuthnRegistrationOptionsIssue`, `WebAuthnRegistrationVerify`, `WebAuthnAuthenticationOptionsIssue`, `WebAuthnAuthenticationVerify`) and the device-code page's `Create an account` arm ([Plan-015](./015-identity-and-user-state.md)), and the device-linking procedures ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T21.3-3 |
+| `auth.endpoint` | the sign-in and token-refresh procedures, the four WebAuthn ceremony routes (`WebAuthnRegistrationOptionsIssue`, `WebAuthnRegistrationVerify`, `WebAuthnAuthenticationOptionsIssue`, `WebAuthnAuthenticationVerify`) and the device-code page's `Create an account` arm ([Plan-015](./015-hosted-account-and-identity.md)), and the device-linking procedures ([Plan-025](./025-remote-control.md) Phase 5) | Plan-018 T21.3-3 |
 
 ## Design Decisions
 
@@ -277,8 +274,8 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Overflow Response (429 + Retry-After on refusal), Spec-019 §Fallback Behavior
   - **Verifies invariant:** I-018-1
   - **Consumes:** `RateLimiter` via factory ← T21.2-5.
-- **T21.3-2 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 429 with the canonical envelope. Unit tests: a request with no resolvable address → 400; an allowed request carries no rate-limit header, and a 429 carries every header.
-  - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After; standard headers)
+- **T21.3-2 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: the source address (D-018-4), 429 with the canonical envelope. Unit tests: a request with no resolvable address → 400; an allowed request carries no rate-limit header, and a 429 carries `Retry-After`.
+  - **Spec coverage:** Spec-019 §Default Behavior, Spec-019 §Overflow Response (429; Retry-After)
   - **Verifies invariant:** I-018-1, I-018-4
   - **Consumes:** `checkAdmission` ← T21.3-1; the CP-018-1 mount surface ← the control-plane host (§Preconditions).
 - **T21.3-3 — Wire the sign-in routes + the daemon's import boundary.** Apply `rateLimitProcedure({ endpoint: 'auth.endpoint' })` per the §Endpoint Wiring Ownership table to the sign-in, token-refresh and device-linking procedures, the four WebAuthn ceremony routes and the device-code page's `Create an account` arm, inside the CP-018-1 mount seam (export-only host edit), and call `checkAdmission` from any of them served as a raw route. Add a `no-restricted-imports` entry to `eslint.config.mjs`, scoped to `packages/runtime-daemon/**`, whose patterns refuse any import of the control plane's `middleware` and `rate-limit` modules, so `rateLimitProcedure` cannot reach the daemon; type-only `packages/contracts` imports stay allowed. `pnpm lint` enforces it.
@@ -294,7 +291,7 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T21.4-1 — AC-anchored integration verification (`packages/control-plane/src/rate-limit/__tests__/`).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 + every rate-limit header, `Retry-After` per formula, and the first request after the window frees → allowed; (2) in the Workers test project this task adds, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
+- **T21.4-1 — AC-anchored integration verification (`packages/control-plane/src/rate-limit/__tests__/`).** Named rows: (1) the 21st `auth.endpoint` request from one address in 60 s → 429 with `Retry-After` per formula, and the first request after the window frees → allowed; (2) in the Workers test project this task adds, 21 `auth.endpoint` requests from one address split across two simulated edge locations → the 21st refused; (3) a counter error fails that one request, and the next request is counted.
   - **Files:** `packages/control-plane/vitest.config.ts` (EXTEND — its one node project becomes two Vitest `projects`: the node project, and a Workers project, a `defineProject` carrying the `cloudflareTest()` plugin from `@cloudflare/vitest-plugin` with `wrangler: { configPath: "./wrangler.toml" }`, so row (2) runs in `workerd` with the `RATE_LIMIT_IDENTITY` Durable Object binding Phase 2 declares; the node project excludes the files the Workers project includes, so each row runs in one project only), `packages/control-plane/package.json` (EXTEND — `@cloudflare/vitest-plugin` as a devDependency). The plugin is Cloudflare's own Vitest integration for Workers and replaces `@cloudflare/vitest-pool-workers`; it requires Vitest 4.1 or later, which the workspace's testing catalog meets, and it runs the test inside the Workers runtime against the Worker's own bindings, which a node project cannot.
   - **Spec coverage:** Spec-019 §Acceptance Criteria, Spec-019 §Fallback Behavior, Spec-019 §Example Flows (the auth-endpoint example)
   - **Verifies invariant:** I-018-1
@@ -343,7 +340,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 - Every enforced transport admits through one stage (I-018-1): tRPC procedures and raw routes through `checkAdmission`.
 - `rateLimitProcedure` is wired on the sign-in, token-refresh and device-linking procedures, and on nothing else.
 - A counter error fails only the request it occurred on.
-- 429s include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` computed as `max(0, ceil((resetAt - now) / 1000))`; allowed responses carry no rate-limit header.
+- 429s include `Retry-After` computed as `max(0, ceil((resetAt - now) / 1000))`; allowed responses carry no rate-limit header.
 - api-payload-contracts.md parity verified against the typed exports (`RateLimitResponse`, timing pair required; `RateLimitCheckRequest`; `RateLimitCheckResponse`; `ErrorNamespace` + `ratelimit`; T21.1-2 lands only drift fixes), and every code the implementation emits resolves to a registered error-contracts.md row (T21.1-3).
 - Local daemon IPC path is NOT rate-limited — enforced by the daemon's `no-restricted-imports` lint rule, not by review.
 

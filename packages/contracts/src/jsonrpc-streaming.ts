@@ -119,7 +119,8 @@ export function StreamFrameSchema<Change, Cursor>(
           : frame.dropped === true && frame.cursor !== undefined,
       {
         message:
-          "A frame carries changes and no frame cursor, or no changes with the drop mark and the newest cursor.",
+          "A frame carries changes and no frame cursor, or no " +
+          "changes with the drop mark and the newest cursor.",
       },
     ) as unknown as z.ZodType<StreamFrame<Change, Cursor>>;
 }

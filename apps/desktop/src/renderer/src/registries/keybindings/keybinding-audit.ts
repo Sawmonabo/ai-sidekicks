@@ -41,7 +41,8 @@ const RESERVED_CHORDS_BY_PLATFORM: Readonly<Record<ChordPlatform, readonly Reser
     {
       chord: "Alt+Tab",
       reason:
-        "The desktop environment usually switches windows on this chord before any application sees it.",
+        "The desktop environment usually switches windows " +
+        "on this chord before any application sees it.",
     },
   ],
 };

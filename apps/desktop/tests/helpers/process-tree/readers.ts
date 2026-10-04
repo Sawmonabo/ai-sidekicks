@@ -155,7 +155,8 @@ export function readProcessTable(
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.Ticks)" }',
+            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) ' +
+              '$($_.ParentProcessId) $($_.CreationDate.Ticks)" }',
           ],
           remainingBudgetMilliseconds,
         )
@@ -188,7 +189,8 @@ export function readProcessStartStamp(
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(processId)}").CreationDate.Ticks`,
+          `(Get-CimInstance Win32_Process -Filter ` +
+            `"ProcessId=${String(processId)}").CreationDate.Ticks`,
         ],
         remainingBudgetMilliseconds,
       )

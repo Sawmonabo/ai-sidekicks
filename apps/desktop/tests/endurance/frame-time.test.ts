@@ -182,7 +182,8 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
     const run = await sampleFrameTimings(appUnderTest, plantedStallMilliseconds);
     if (run === null) {
       throw new Error(
-        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, so no frame in it was driven by a ` +
+        `${SCENARIO_FIXTURE_GLOBAL} is not exposed by ` +
+          `this build, so no frame in it was driven by a ` +
           "scenario and every interval sampled would describe an idle window",
       );
     }
@@ -199,7 +200,8 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
 function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
     run.beatsAtWindowEnd,
-    "the concurrent-streaming script had not finished delivering by the end of the sampled window, so the " +
+    "the concurrent-streaming script had not finished " +
+      "delivering by the end of the sampled window, so the " +
       "reading describes an app the session never fully reached",
   ).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
   expect(

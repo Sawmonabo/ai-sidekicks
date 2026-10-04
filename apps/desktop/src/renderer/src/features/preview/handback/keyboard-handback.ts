@@ -1,5 +1,5 @@
 // The renderer's half of the keyboard handback: decides whether a keystroke seen inside a page
-// belongs to the application, and replays a claimed chord as a key event on the pane root.
+// belongs to the application, and forwards a claimed chord as a key event on the pane root.
 // A chord is claimed only with control, meta or alt AND a matching chord in the mirror. The mirror
 // lists which chords exist, never what they mean; an unreadable mirror leaves keys to the page.
 
@@ -44,9 +44,9 @@ export type HandbackDecision =
   | { readonly claimed: true }
   | { readonly claimed: false; readonly because: HandbackDeclineReason };
 
-/** What a replay did. A refusal is rendered; it is never swallowed. */
-export type ChordReplayOutcome =
-  | { readonly status: "replayed" }
+/** What a forward did. A refusal is rendered; it is never swallowed. */
+export type ChordForwardOutcome =
+  | { readonly status: "forwarded" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What a `KeyboardHandback` reads: the installed chords and the host platform. */
@@ -65,13 +65,13 @@ export interface KeyboardHandbackOptions {
 }
 
 /**
- * The renderer's half of the handback. `replayCount` lets a test assert that a replay happened
+ * The renderer's half of the handback. `forwardCount` lets a test assert that a forward happened
  * rather than trust that a dispatched event was delivered.
  */
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
   readonly #platform: ChordPlatform;
-  #replayCount = 0;
+  #forwardCount = 0;
 
   public constructor(options: KeyboardHandbackOptions) {
     this.#readInstalledChords = options.readInstalledChords;
@@ -87,9 +87,9 @@ export class KeyboardHandback {
     return installed === undefined ? undefined : projectClaimableChords(installed);
   }
 
-  /** How many chords were replayed into the window. */
-  public get replayCount(): number {
-    return this.#replayCount;
+  /** How many chords were forwarded into the window. */
+  public get forwardCount(): number {
+    return this.#forwardCount;
   }
 
   /** Whether the application claims this keystroke from the page, and if not, why. */
@@ -110,31 +110,34 @@ export class KeyboardHandback {
   }
 
   /**
-   * Focus the pane and replay the chord into it as a key event, so the keybinding table, its
+   * Focus the pane and forward the chord into it as a key event, so the keybinding table, its
    * `when` clauses, the palette and the pane's handlers see it as if typed with the pane focused.
    *
    * Dispatched on the pane root, not `window`: a window target excludes its descendants, so the
    * pane's `onKeyDownCapture` (the close-tab chord) would never run. `window` still hears it as
    * the event bubbles.
    */
-  public replay(descriptor: ChordDescriptor, paneRoot: HTMLElement): ChordReplayOutcome {
+  public forwardChord(descriptor: ChordDescriptor, paneRoot: HTMLElement): ChordForwardOutcome {
     const decision = this.decide(descriptor);
     if (!decision.claimed) {
       return this.#refuse(
         "not-claimable",
-        `This keystroke is the page's — ${decision.because.replaceAll("-", " ")} — so the console does not replay it.`,
+        "This keystroke is the page's — " +
+          `${decision.because.replaceAll("-", " ")} — so the console does ` +
+          "not forward it.",
       );
     }
     if (!paneRoot.isConnected) {
       return this.#refuse(
         "pane-detached",
-        "The pane that received this chord is no longer on screen, so there is nothing to focus and nothing to replay it into.",
+        "The pane that received this chord is no longer on screen, so " +
+          "there is nothing to focus and nothing to forward it into.",
       );
     }
     paneRoot.focus();
     paneRoot.dispatchEvent(authorKeyboardEvent(descriptor));
-    this.#replayCount += 1;
-    return { status: "replayed" };
+    this.#forwardCount += 1;
+    return { status: "forwarded" };
   }
 
   /**
@@ -152,7 +155,7 @@ export class KeyboardHandback {
     });
   }
 
-  #refuse(code: KeyboardHandbackRefusalCode, detail: string): ChordReplayOutcome {
+  #refuse(code: KeyboardHandbackRefusalCode, detail: string): ChordForwardOutcome {
     return { status: "refused", refusal: refuse(KEYBOARD_HANDBACK_REFUSAL_ORIGIN, code, detail) };
   }
 }
@@ -167,7 +170,7 @@ function resolvePlatformModifier(chord: string, platform: ChordPlatform): string
 }
 
 /**
- * The keystroke as a `KeyboardEvent` again, shared by the matcher and the replay so a stand-in
+ * The keystroke as a `KeyboardEvent` again, shared by the matcher and the forward so a stand-in
  * built for the match cannot answer `getModifierState` differently from the event dispatched.
  */
 function authorKeyboardEvent(descriptor: ChordDescriptor): KeyboardEvent {

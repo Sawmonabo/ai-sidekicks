@@ -150,7 +150,8 @@ describe("the composed new-session draft — the create it cannot answer for", (
     // The draft stays: a person can still read what they typed and copy it out.
     expect(container.querySelector(".meridian-new-session")).not.toBeNull();
     expect(politeText(container)).toBe(
-      "A session may have been created, and this window could not read the reply. Check the sessions list.",
+      "A session may have been created, and this window could not read " +
+        "the reply. Check the sessions list.",
     );
   });
 

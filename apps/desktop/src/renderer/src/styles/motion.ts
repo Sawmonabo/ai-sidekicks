@@ -26,4 +26,5 @@ export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
  * It is emitted under the name every stylesheet reads, `--meridian-ease-settle`.
  */
 export const CHROME_SETTLE_EASING: string =
-  "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, 0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";
+  "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, " +
+  "0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";

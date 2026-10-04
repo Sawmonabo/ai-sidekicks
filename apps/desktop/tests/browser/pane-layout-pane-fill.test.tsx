@@ -67,7 +67,9 @@ describe("browser — a pane fills the cell the pane layout gives it", () => {
     expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
-      "the pane is sized by its content rather than by its cell, so every box below it — the transcript's scroll container included — is measuring against a height the pane layout never gave it",
+      "the pane is sized by its content rather than by its cell, so " +
+        "every box below it — the transcript's scroll container included " +
+        "— is measuring against a height the pane layout never gave it",
     ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 

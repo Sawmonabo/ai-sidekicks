@@ -195,33 +195,39 @@ describe("the mount moves under the form", () => {
     ]);
   });
 
-  it("sends the revision the form was composed against, not the one the refresh carried", async () => {
-    // A refresh finding the same attempt at a newer revision keeps the draft. Reading the
-    // revision at press time would stamp an answer composed against 0 with 1, and the
-    // daemon's optimistic comparison would accept it over whatever moved the run.
-    const probe = watchingSubmits();
-    const composedAgainst = fixtureWaitPhase();
-    const mountPoint = await renderSwitchableMountPoint({
-      phase: composedAgainst,
-      submitForm: probe.submitForm,
-    });
-    fireEvent.change(screen.getByLabelText(/Notes/u), {
-      target: { value: "answered before the refresh" },
-    });
+  it(
+    "sends the revision the form was composed against, not the one " + "the refresh carried",
+    async () => {
+      // A refresh finding the same attempt at a newer revision keeps the draft. Reading the
+      // revision at press time would stamp an answer composed against 0 with 1, and the
+      // daemon's optimistic comparison would accept it over whatever moved the run.
+      const probe = watchingSubmits();
+      const composedAgainst = fixtureWaitPhase();
+      const mountPoint = await renderSwitchableMountPoint({
+        phase: composedAgainst,
+        submitForm: probe.submitForm,
+      });
+      fireEvent.change(screen.getByLabelText(/Notes/u), {
+        target: { value: "answered before the refresh" },
+      });
 
-    await mountPoint.switchTo({
-      ...composedAgainst,
-      formRevision: composedAgainst.formRevision + 1,
-    });
+      await mountPoint.switchTo({
+        ...composedAgainst,
+        formRevision: composedAgainst.formRevision + 1,
+      });
 
-    // The attempt did not change, so the draft stands.
-    expect(screen.getByLabelText(/Notes/u)).toHaveProperty("value", "answered before the refresh");
+      // The attempt did not change, so the draft stands.
+      expect(screen.getByLabelText(/Notes/u)).toHaveProperty(
+        "value",
+        "answered before the refresh",
+      );
 
-    await act(async () => {
-      pressSubmit();
-    });
-    await settle();
+      await act(async () => {
+        pressSubmit();
+      });
+      await settle();
 
-    expect(probe.requests.at(0)?.expectedRevision).toBe(composedAgainst.formRevision);
-  });
+      expect(probe.requests.at(0)?.expectedRevision).toBe(composedAgainst.formRevision);
+    },
+  );
 });

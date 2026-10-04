@@ -62,7 +62,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — app came up blank", () => {
       // the claim `ScreenNotice` carries at the screen layer.
       await appWindow
         .locator(
-          `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--error`,
+          `section[aria-label="${PANE_HARNESS_LABEL}"] ` +
+            `.meridian-nothing--block.meridian-nothing--error`,
         )
         .waitFor({
           state: "visible",

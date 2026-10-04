@@ -45,7 +45,7 @@ CREATE TABLE session_events (
 CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted');
+CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
 
 -- Projection-level terminal-key CHECK (Spec-005 at-most-once terminal emission; assigned to the Plan-004
 -- schema work). A CHECK sees only the row being written, never the row an UPDATE replaces, so the guard is a
@@ -54,22 +54,22 @@ CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_
 -- UNIQUE index, which keys by storage class). The BEFORE UPDATE leg keys off OLD (the row WAS terminal) and additionally aborts a value-changing key rewrite (NEW key IS NOT OLD, null-safe) or a category/type de-scope — either frees the index entry for a duplicate terminal. The promote leg rejects re-typing any non-terminal row INTO the guarded set (terminal rows are INSERT-only): an OLD-keyed guard alone would let a null-keyed promotion slip both legs and the NULL-distinct UNIQUE index.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL OR json_type(NEW.payload, '$.runId') <> 'text' OR json_extract(NEW.payload, '$.runVersion') IS NULL OR json_type(NEW.payload, '$.runVersion') <> 'integer')
 BEGIN
   SELECT RAISE(ABORT, 'terminal run_lifecycle requires text runId + integer runVersion (non-null, correct storage class)');
 END;
 CREATE TRIGGER trg_run_terminal_key_update BEFORE UPDATE OF payload, category, type ON session_events
 WHEN OLD.category = 'run_lifecycle'
-  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
   AND (json_extract(NEW.payload, '$.runId') IS NULL OR json_type(NEW.payload, '$.runId') <> 'text' OR json_extract(NEW.payload, '$.runVersion') IS NULL OR json_type(NEW.payload, '$.runVersion') <> 'integer' OR json_extract(NEW.payload, '$.runId') IS NOT json_extract(OLD.payload, '$.runId') OR json_extract(NEW.payload, '$.runVersion') IS NOT json_extract(OLD.payload, '$.runVersion') OR NEW.category IS NOT OLD.category OR NEW.type IS NOT OLD.type)
 BEGIN
   SELECT RAISE(ABORT, 'terminal run_lifecycle row must preserve runId + runVersion (value + storage class) + category + type');
 END;
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
-WHEN NOT (OLD.category = 'run_lifecycle' AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted'))
+WHEN NOT (OLD.category = 'run_lifecycle' AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped'))
   AND NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted')
+  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
 BEGIN
   SELECT RAISE(ABORT, 'session_events rows cannot be promoted to terminal run_lifecycle by UPDATE — terminal rows are INSERT-only');
 END;
@@ -323,7 +323,7 @@ CREATE TABLE runtime_bindings (
                       CHECK (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0)),
   resume_handle       TEXT                      -- provider-owned opaque handle
                       CHECK (resume_handle IS NULL OR (length(resume_handle) > 0 AND length(resume_handle) <= 4096 AND instr(resume_handle, char(0)) = 0)),
-  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-003 T3.40 / T3.18 / T3.23); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
+  spawn_config        TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-owned record of the spawn-bound configuration realized at process spawn (executionPosture / callbackTools / subagentPolicy / outputSchema plus providerAccountId, maxStepsPerTurn and resolvedExecutablePath — each valued by Plan-003 T3.45 / T3.18 / T3.23); written at every spawn — the durable source recovery re-reads to reconstruct ResumeSessionParams' data legs without the original client request (function legs re-injected fresh, never stored). Daemon-constructed, so no provider-string CHECK — same trust class as runtime_metadata below
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
@@ -396,7 +396,7 @@ CREATE TABLE driver_contract_meta (
 
 The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path Zod guard (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
-**Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.taskStart`), read by `cloud.taskList` and `cloud.taskRead`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
+**Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.taskStart`), read by `cloud.taskList` and `cloud.taskRead`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. Each row also keeps the task's environment label, from which [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 reads the project's last Codex environment back. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
 
 ---
 

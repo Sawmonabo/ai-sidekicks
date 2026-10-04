@@ -21,7 +21,11 @@ export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Eleme
       degradedCause={props.degradedCause}
       degradedConsequence="the state below may predate the preparation that finished it."
       absentTitle="No workspace with this identifier is in the session."
-      absentDetail="A workspace joins the record when a repo is attached and preparation begins. Attach a repo and the workspace appears here with its mount."
+      absentDetail={
+        "A workspace joins the record when a repo is attached and " +
+        "preparation begins. Attach a repo and the workspace appears " +
+        "here with its mount."
+      }
       facets={[
         wireFacet("Repo mount", readBodyMember(props.entity, "repoMountId"), "repo mount"),
         wireFacet("Workspace", readBodyMember(props.entity, "workspaceId"), "workspace"),

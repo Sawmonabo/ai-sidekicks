@@ -41,7 +41,8 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
         cause: "root-not-an-object",
         memberPath: [],
         detail:
-          "This phase asks for something other than a set of named answers, so it is answered as JSON.",
+          "This phase asks for something other than a set of named " +
+          "answers, so it is answered as JSON.",
       },
     };
   }
@@ -85,7 +86,10 @@ function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
   return {
     cause: "member-out-of-set",
     memberPath,
-    detail: `The schema asks for ${encodeMemberPointer(memberPath)} in a shape this form cannot draw, so the whole answer is given as JSON instead.`,
+    detail:
+      `The schema asks for ${encodeMemberPointer(memberPath)} in a ` +
+      "shape this form cannot draw, so the whole answer is given as " +
+      "JSON instead.",
   };
 }
 
@@ -94,7 +98,10 @@ function undrawableDefault(memberPath: SchemaMemberPath): SchemaFallback {
   return {
     cause: "default-undrawable",
     memberPath,
-    detail: `The schema declares a value for ${encodeMemberPointer(memberPath)} that these controls could not show, so the whole answer is given as JSON instead.`,
+    detail:
+      "The schema declares a value for " +
+      `${encodeMemberPointer(memberPath)} that these controls could ` +
+      "not show, so the whole answer is given as JSON instead.",
   };
 }
 
@@ -103,7 +110,10 @@ function undrawableConstraint(memberPath: SchemaMemberPath): SchemaFallback {
   return {
     cause: "constraint-undrawable",
     memberPath,
-    detail: `The schema can require ${encodeMemberPointer(memberPath)}, which it declares no member for, so the whole answer is given as JSON instead.`,
+    detail:
+      `The schema can require ${encodeMemberPointer(memberPath)}, ` +
+      "which it declares no member for, so the whole answer is given " +
+      "as JSON instead.",
   };
 }
 

@@ -31,7 +31,9 @@ const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.freeze([
  */
 export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_command">;
 
-/** A run's opening text is the user's own message: a fact of the code path, not a caller's claim. */
+/**
+ * A run's opening text is the user's own message: a fact of the code path, not a caller's claim.
+ */
 export const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "human_text";
 
 /**
@@ -324,7 +326,10 @@ export function composeSupersededDeliveryRunFailure(
     eventType: "run.failed",
     failureCategory: "provider failure",
     recoveryCondition: "recovery-needed",
-    providerFailureDetail: `The runtime binding carrying ${SUPERSEDED_DELIVERY_ORIGIN_PHRASE[origin]} for this run was superseded by a fresh spawn before the provider settled the turn, so whether those words reached the model was never established.`,
+    providerFailureDetail:
+      `The runtime binding carrying ${SUPERSEDED_DELIVERY_ORIGIN_PHRASE[origin]} for this run ` +
+      `was superseded by a fresh spawn before the provider settled the turn, so whether those ` +
+      `words reached the model was never established.`,
   };
 }
 
@@ -770,9 +775,12 @@ export class OutboundFrameCapacityRefusedError extends Error {
 
   constructor(scopeKey: string, scopePendingFrameCount: number, totalPendingFrameCount: number) {
     super(
-      `Refusing to send provider-bound text on session ${scopeKey}: the text-neutralization tripwire cannot watch another frame. ` +
-        `That session holds ${String(scopePendingFrameCount)} unsettled frames (limit ${String(OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY)}) ` +
-        `and ${String(totalPendingFrameCount)} are unsettled across all sessions (limit ${String(OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY)}). ` +
+      `Refusing to send provider-bound text on session ${scopeKey}: the text-neutralization ` +
+        `tripwire cannot watch another frame. ` +
+        `That session holds ${String(scopePendingFrameCount)} unsettled frames (limit ` +
+        `${String(OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY)}) ` +
+        `and ${String(totalPendingFrameCount)} are unsettled across all sessions (limit ` +
+        `${String(OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY)}). ` +
         `Turns on this session are not settling.`,
     );
     this.name = "OutboundFrameCapacityRefusedError";
@@ -791,7 +799,8 @@ export class TextNeutralizationRefusedError extends Error {
 
   constructor(subject: "run" | "session", subjectId: string) {
     super(
-      `The runtime binding for ${subject} ${subjectId} was disposed after a provider-bound text neutralization failure and cannot be attached to.`,
+      `The runtime binding for ${subject} ${subjectId} was disposed after a provider-bound ` +
+        `text neutralization failure and cannot be attached to.`,
     );
     this.name = "TextNeutralizationRefusedError";
   }

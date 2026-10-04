@@ -85,7 +85,12 @@ export class RevealLane {
     report({
       kind: "out-of-band-source-change",
       laneId: delta.laneId,
-      detail: `an authoritative commit did not extend the text this lane had published; the lane was re-based on the ${String(agreedPrefixLength)} characters both sources agree on and ${String(alreadyPublished.length - agreedPrefixLength)} characters were retracted`,
+      detail:
+        "an authoritative commit did not extend the text this lane had " +
+        "published; the lane was re-based on the " +
+        `${String(agreedPrefixLength)} characters both sources agree on ` +
+        `and ${String(alreadyPublished.length - agreedPrefixLength)} ` +
+        "characters were retracted",
     });
     this.#adoptAsWholeSource(delta.text, agreedPrefixLength);
     this.isCatchingUp = false;

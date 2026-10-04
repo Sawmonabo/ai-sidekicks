@@ -151,7 +151,9 @@ export class UiStateStore {
       return this.#refuse(
         refusePersistence(
           "value-too-large",
-          `${valueClass} at ${site} serializes to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
+          `${valueClass} at ${site} serializes to ${String(recordByteLength)} ` +
+            `bytes including its address, past the ` +
+            `${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
         ),
         site,
       );

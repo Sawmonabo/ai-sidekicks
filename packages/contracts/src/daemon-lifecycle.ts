@@ -10,39 +10,24 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { countSchema } from "./internal/wire-scalars.js";
 
 /**
- * How long a stop or restart waits for the other connected clients to leave
- * when the request names no deadline.
- *
- * @consumedBy the daemon's stop and restart, when a request names no deadline
+ * A stop or restart takes nothing: a confirmed one goes ahead at once, with no wait for the
+ * other connected clients, and is never refused.
  */
-export const DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS = 5_000;
-
-// The one member a stop and a restart share.
-function drainDeadlineShape(): { idleDrainDeadlineMs: z.ZodOptional<z.ZodNumber> } {
-  return { idleDrainDeadlineMs: countSchema.optional() };
-}
-
-/**
- * A stop or restart: how long to wait for the other connected clients to
- * leave before going ahead anyway. Omitted, the service waits
- * {@link DAEMON_IDLE_DRAIN_DEADLINE_DEFAULT_MS}. A confirmed stop is never refused.
- */
-export interface DaemonStopRequest {
-  idleDrainDeadlineMs?: number | undefined;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface DaemonStopRequest {}
 /** Parses a {@link DaemonStopRequest}. */
 export const DaemonStopRequestSchema: z.ZodType<DaemonStopRequest, DaemonStopRequest> = z
-  .object(drainDeadlineShape())
+  .object({})
   .strict();
 
-/** A restart takes the same deadline as a stop. */
-export type DaemonRestartRequest = DaemonStopRequest;
+/** A restart takes nothing, as a stop does. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface DaemonRestartRequest {}
 /** Parses a {@link DaemonRestartRequest}. */
 export const DaemonRestartRequestSchema: z.ZodType<DaemonRestartRequest, DaemonRestartRequest> = z
-  .object(drainDeadlineShape())
+  .object({})
   .strict();
 
 /** The service took the stop or restart. */

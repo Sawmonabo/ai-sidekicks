@@ -74,24 +74,28 @@ describe("the write gate — watch mode is the default", () => {
     expect(adapter.isStdinDisabled).toBe(true);
   });
 
-  it("shuts the gate while the emulator is off screen and re-opens it on the next mount element", () => {
-    // The write state belongs to the tie: a detached emulator has no box to click, so an open
-    // gate there accepts input nobody can see, and the next mount element gets the lease's
-    // answer without being told again.
-    const { adapter, mountElement } = mountedAdapter({ terminalId: "gated-by-mount" });
-    adapter.setWriteEnabled(true);
-    expect(adapter.isStdinDisabled).toBe(false);
+  it(
+    "shuts the gate while the emulator is off screen and re-opens it " +
+      "on the next mount element",
+    () => {
+      // The write state belongs to the tie: a detached emulator has no box to click, so an open
+      // gate there accepts input nobody can see, and the next mount element gets the lease's
+      // answer without being told again.
+      const { adapter, mountElement } = mountedAdapter({ terminalId: "gated-by-mount" });
+      adapter.setWriteEnabled(true);
+      expect(adapter.isStdinDisabled).toBe(false);
 
-    adapter.detach();
+      adapter.detach();
 
-    expect(adapter.isWriteEnabled).toBe(false);
-    expect(adapter.isStdinDisabled).toBe(true);
+      expect(adapter.isWriteEnabled).toBe(false);
+      expect(adapter.isStdinDisabled).toBe(true);
 
-    adapter.attach(mountElement);
+      adapter.attach(mountElement);
 
-    expect(adapter.isWriteEnabled).toBe(true);
-    expect(adapter.isStdinDisabled).toBe(false);
-  });
+      expect(adapter.isWriteEnabled).toBe(true);
+      expect(adapter.isStdinDisabled).toBe(false);
+    },
+  );
 
   it("keeps a watcher's gate shut across a detach and re-attach", () => {
     // A re-attach restores the lease's answer; it never opens stdin on its own.

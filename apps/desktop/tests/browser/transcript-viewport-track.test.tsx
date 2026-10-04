@@ -44,7 +44,8 @@ describe("browser — the transcript's scroll container takes the viewport's hei
 
     expect(
       scrollContainer.getBoundingClientRect().height,
-      "the scroll container is sized by its content rather than by the viewport, so the window is ranging against a height the pane never gave it",
+      "the scroll container is sized by its content rather than by the viewport, " +
+        "so the window is ranging against a height the pane never gave it",
     ).toBe(VIEWPORT_BOX_HEIGHT_PX);
   });
 });

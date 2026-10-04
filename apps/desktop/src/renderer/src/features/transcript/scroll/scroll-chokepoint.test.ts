@@ -123,22 +123,25 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("re-arms the pass for the scroll container a re-attach brought, not the one it canceled", () => {
-    // `attach` detaches first, which cancels the armed frame. The obligation belongs to the
-    // transcript, not the departed container: under a frozen clock every remount armed and
-    // canceled a pass, so the box was never re-measured.
-    const outgoing = createCountingScrollContainer({ clientHeight: 300, scrollHeight: 4000 });
-    const incoming = createCountingScrollContainer({ clientHeight: 640, scrollHeight: 9000 });
-    const measuredViewportHeights: number[] = [];
-    controller.observeOverflow((geometry) => {
-      measuredViewportHeights.push(geometry.viewportHeight);
-    });
+  it(
+    "re-arms the pass for the scroll container a re-attach brought, " + "not the one it canceled",
+    () => {
+      // `attach` detaches first, which cancels the armed frame. The obligation belongs to the
+      // transcript, not the departed container: under a frozen clock every remount armed and
+      // canceled a pass, so the box was never re-measured.
+      const outgoing = createCountingScrollContainer({ clientHeight: 300, scrollHeight: 4000 });
+      const incoming = createCountingScrollContainer({ clientHeight: 640, scrollHeight: 9000 });
+      const measuredViewportHeights: number[] = [];
+      controller.observeOverflow((geometry) => {
+        measuredViewportHeights.push(geometry.viewportHeight);
+      });
 
-    controller.attach(outgoing);
-    controller.requestOverflowMeasurement();
-    controller.attach(incoming);
-    clock.runFrame();
+      controller.attach(outgoing);
+      controller.requestOverflowMeasurement();
+      controller.attach(incoming);
+      clock.runFrame();
 
-    expect(measuredViewportHeights).toStrictEqual([640]);
-  });
+      expect(measuredViewportHeights).toStrictEqual([640]);
+    },
+  );
 });

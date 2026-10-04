@@ -397,21 +397,24 @@ type MemberAdmittingNull<Envelope> = {
 }[keyof Envelope];
 
 describe("actor is the canonical set's only null-admitting member", () => {
-  it("derives the null-admitting member set from the contract, at compile time and at runtime", () => {
-    // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
-    expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
-    // Independent of the type-level check: asks the runtime validator which of the schema's own
-    // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
-    // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
-    const declaredMembers = Object.keys(
-      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
-    );
-    const membersAcceptingNull = declaredMembers.filter(
-      (memberName) =>
-        EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
-    );
-    expect(membersAcceptingNull).toStrictEqual(["actor"]);
-  });
+  it(
+    "derives the null-admitting member set from " + "the contract, at compile time and at runtime",
+    () => {
+      // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
+      expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
+      // Independent of the type-level check: asks the runtime validator which of the schema's own
+      // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
+      // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
+      const declaredMembers = Object.keys(
+        (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
+      );
+      const membersAcceptingNull = declaredMembers.filter(
+        (memberName) =>
+          EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
+      );
+      expect(membersAcceptingNull).toStrictEqual(["actor"]);
+    },
+  );
 });
 
 /** Wraps `innermostLeaf` in `containerLevels` objects, so the leaf sits at depth levels + 1. */
@@ -753,15 +756,18 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
     });
   }
 
-  it("reports sub-millisecond precision BEFORE calendar validity — check order is observable", () => {
-    // This input trips both the sub-millisecond guard and the calendar-existence guard;
-    // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
-    // The single-fault rows in the refusal table above show each guard fires on its own input,
-    // so this test shows order, not a broken calendar guard.
-    const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
-    expect(message).toMatch(/carries sub-millisecond precision/);
-    expect(message).not.toMatch(/does not exist on the calendar/);
-  });
+  it(
+    "reports sub-millisecond precision BEFORE " + "calendar validity — check order is observable",
+    () => {
+      // This input trips both the sub-millisecond guard and the calendar-existence guard;
+      // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
+      // The single-fault rows in the refusal table above show each guard fires on its own input,
+      // so this test shows order, not a broken calendar guard.
+      const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
+      expect(message).toMatch(/carries sub-millisecond precision/);
+      expect(message).not.toMatch(/does not exist on the calendar/);
+    },
+  );
 
   it("is idempotent — the canonical form is a fixed point of every branch", () => {
     // A stored row must re-canonicalize to the same bytes whether the append path persisted the

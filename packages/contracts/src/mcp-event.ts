@@ -1,7 +1,7 @@
-// The MCP governance stream: the session events of the `mcp_governance`
-// category, the live notices of an edit to a binding and of a status change,
-// and the `mcp.subscribe` method that carries them. A leaf below `event.ts`, because the MCP contract
-// files are imported by `event.ts` and cannot import it back.
+// The MCP governance stream: the session events of the `mcp_governance` category, the live notices
+// of an edit to a binding and of a status change, and the `mcp.subscribe` method that carries them.
+// A leaf below `event.ts`, because the MCP contract files are imported by `event.ts` and cannot
+// import it back.
 import { z } from "zod";
 
 import { MCP_GOVERNANCE_EVENT_TYPES } from "./event-registry.js";
@@ -36,7 +36,9 @@ export const McpGovernanceEventSchema: z.ZodType<McpGovernanceEvent> =
     });
   }) as z.ZodType<McpGovernanceEvent>;
 
-/** One `mcp.subscribe` frame: a governance event, or the live notice of an edit or a status change. */
+/**
+ * One `mcp.subscribe` frame: a governance event, or the live notice of an edit or a status change.
+ */
 export type McpSubscribeEmission =
   | McpGovernanceEvent
   | McpServerConfigChangedNotice

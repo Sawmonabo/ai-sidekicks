@@ -9,7 +9,6 @@ import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
-import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
 import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
 import { agentToolAllowlistPosition } from "../tool-allowlist.js";
 
@@ -51,7 +50,6 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
         <BindingAxis label="output speed" value={binding.outputSpeed} absenceMeaning="never set" />
       </p>
 
-      <ObservedOutputSpeed agent={agent} />
       <ToolAllowlistLine position={toolAllowlist} />
 
       {agent.resolvedConfiguration === undefined ? null : (

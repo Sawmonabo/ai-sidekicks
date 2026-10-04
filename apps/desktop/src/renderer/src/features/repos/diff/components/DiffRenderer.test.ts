@@ -188,14 +188,18 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
     });
   });
 
-  it("holds the scroller open at the height the rows measured, not the height they were estimated at", () => {
-    // One row three lines tall makes the diff that much taller; a window multiplying a row
-    // count by a constant would report the estimate and scroll past the end of the content.
-    const container = renderDiff({ model: bigDiff });
-    expect(contentHeightPx(container)).toBe(
-      reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
-    );
-  });
+  it(
+    "holds the scroller open at the height the rows measured, not " +
+      "the height they were estimated at",
+    () => {
+      // One row three lines tall makes the diff that much taller; a window multiplying a row
+      // count by a constant would report the estimate and scroll past the end of the content.
+      const container = renderDiff({ model: bigDiff });
+      expect(contentHeightPx(container)).toBe(
+        reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
+      );
+    },
+  );
 
   it("places the window below a wrapped row at the offset that row was measured at", () => {
     // Every row above the first rendered one is one row tall except the grown one, so the

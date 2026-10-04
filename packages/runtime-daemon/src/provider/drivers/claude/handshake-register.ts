@@ -101,7 +101,8 @@ export class ClaudeHandshakeRegister {
         kind: "provider_command_entries_truncated",
         rawWireType: null,
         dispositionReason:
-          "the provider published more command and skill entries than one group admits; the tail is dropped from this reply and the held enumeration is unchanged",
+          "the provider published more command and skill entries than one group admits; the " +
+          "tail is dropped from this reply and the held enumeration is unchanged",
         details: {
           sessionId,
           declaredEntryCount: declared.length,
@@ -127,7 +128,10 @@ export class ClaudeHandshakeRegister {
     }
     throw new ClaudeSessionUnavailableError("provider_account_ambiguous", {
       sessionId,
-      detail: `The session was admitted against provider account ${admitted} while the daemon's account registry reports ${registered}; the enumeration is routed by that identity, so neither resolver may silently win.`,
+      detail:
+        `The session was admitted against provider account ${admitted} while the daemon's ` +
+        `account registry reports ${registered}; the enumeration is routed by that identity, ` +
+        `so neither resolver may silently win.`,
     });
   }
 
@@ -161,7 +165,8 @@ export class ClaudeHandshakeRegister {
       kind: "output_speed_state_rejected",
       rawWireType: null,
       dispositionReason:
-        "the provider declared an output-speed state the contract's own bounds refuse; this binding reads as having no observation until it declares another",
+        "the provider declared an output-speed state the contract's own bounds refuse; this " +
+        "binding reads as having no observation until it declares another",
       details: {
         sessionId,
         // The failing field and lengths, never the untrusted values.
@@ -193,7 +198,8 @@ export class ClaudeHandshakeRegister {
         kind: "provider_command_entry_rejected",
         rawWireType: null,
         dispositionReason:
-          "the provider published a command or skill entry the contract's own bounds refuse; it is dropped from this reply and its siblings are unaffected",
+          "the provider published a command or skill entry the contract's own bounds refuse; " +
+          "it is dropped from this reply and its siblings are unaffected",
         details: {
           sessionId,
           entryKind: candidate.kind,

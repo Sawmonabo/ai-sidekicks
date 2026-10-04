@@ -101,10 +101,16 @@ export class CodexSpawnPosture {
     if (requestedAccountId !== undefined && requestedAccountId !== environmentAccountId) {
       const environmentSource =
         existing === undefined
-          ? `no live session record survives, so the only environment available is the node-wide default's, constructed for ${environmentAccountId ?? "no bound account"}`
-          : `the live session record this resume relaunches from was established for ${environmentAccountId ?? "no bound account"}, so its environment is not that account's`;
+          ? `no live session record survives, so the only environment available is the ` +
+            `node-wide default's, constructed for ${environmentAccountId ?? "no bound account"}`
+          : `the live session record this resume relaunches from was established for ` +
+            `${environmentAccountId ?? "no bound account"}, so its environment is not that ` +
+            `account's`;
       throw new CodexDriverConfigError(
-        `ResumeSessionParams.providerAccountId names provider account ${requestedAccountId}, but ${environmentSource}; this driver is handed a constructed credential environment and cannot build another account's, so the relaunch is refused rather than spawned against an environment that bills elsewhere.`,
+        `ResumeSessionParams.providerAccountId names provider account ${requestedAccountId}, ` +
+          `but ${environmentSource}; this driver is handed a constructed credential ` +
+          `environment and cannot build another account's, so the relaunch is refused rather ` +
+          `than spawned against an environment that bills elsewhere.`,
         "ResumeSessionParams.providerAccountId",
       );
     }
@@ -134,7 +140,8 @@ export class CodexSpawnPosture {
     const resolved = await this.#options.resolveCredentialEnvPolicy(posture);
     if (resolved === undefined) {
       throw new CodexDriverConfigError(
-        `The execution posture "${posture.mode}" carries a credential policy reference that resolved to no policy, so the spawned child cannot be filtered.`,
+        `The execution posture "${posture.mode}" carries a credential policy reference that ` +
+          `resolved to no policy, so the spawned child cannot be filtered.`,
         postureRefusalField,
       );
     }
@@ -185,7 +192,8 @@ export class CodexSpawnPosture {
     const sessionPosture = record.executionPosture;
     if (sessionPosture === undefined) {
       throw new CodexTransportError(
-        `The run declares execution posture ${runPosture.mode}, but session "${record.sessionId}" was established with none.`,
+        `The run declares execution posture ${runPosture.mode}, but session "` +
+          `${record.sessionId}" was established with none.`,
         {
           sessionId: record.sessionId,
           runId: params.runId,
@@ -196,7 +204,9 @@ export class CodexSpawnPosture {
     const divergence = findCodexSandboxModeDivergence(runPosture, sessionPosture);
     if (divergence !== undefined) {
       throw new CodexTransportError(
-        `The run's execution posture ${runPosture.mode} runs Codex in the ${divergence.run} sandbox, but session "${record.sessionId}" was established at ${sessionPosture.mode} in the ${divergence.session} sandbox.`,
+        `The run's execution posture ${runPosture.mode} runs Codex in the ${divergence.run} ` +
+          `sandbox, but session "${record.sessionId}" was established at ${sessionPosture.mode}` +
+          ` in the ${divergence.session} sandbox.`,
         {
           sessionId: record.sessionId,
           runId: params.runId,

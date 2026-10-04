@@ -117,25 +117,28 @@ function MountedWithDelivery(props: { readonly settled: AnswerDelivery }): React
 }
 
 describe("the answers it sends", () => {
-  it("sends one answer per question, in the record's order, only once every question has one", () => {
-    const sent: QuestionAnswer[][] = [];
-    const container = renderCard((answers) => sent.push(answers));
+  it(
+    "sends one answer per question, in the record's order, only once " + "every question has one",
+    () => {
+      const sent: QuestionAnswer[][] = [];
+      const container = renderCard((answers) => sent.push(answers));
 
-    pick(container, 0, "develop");
-    expect(answerButton(container).disabled).toBe(true);
-    fireEvent.click(answerButton(container));
-    expect(sent).toStrictEqual([]);
+      pick(container, 0, "develop");
+      expect(answerButton(container).disabled).toBe(true);
+      fireEvent.click(answerButton(container));
+      expect(sent).toStrictEqual([]);
 
-    type(container, 1, "the flaky test is known");
-    fireEvent.click(answerButton(container));
+      type(container, 1, "the flaky test is known");
+      fireEvent.click(answerButton(container));
 
-    expect(sent).toStrictEqual([
-      [
-        { kind: "picked", labels: ["develop"] },
-        { kind: "typed", text: "the flaky test is known" },
-      ],
-    ]);
-  });
+      expect(sent).toStrictEqual([
+        [
+          { kind: "picked", labels: ["develop"] },
+          { kind: "typed", text: "the flaky test is known" },
+        ],
+      ]);
+    },
+  );
 
   it("takes whichever of a marked row and typed text the person touched last", () => {
     const sent: QuestionAnswer[][] = [];

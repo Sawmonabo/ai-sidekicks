@@ -140,7 +140,9 @@ export class ProviderAccountDeliveries {
       severity: "warning",
       source: PROVIDER_QUOTA_REFUSAL_ORIGIN,
       kind: "dropped-below-high-water",
-      detail: `account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ${String(usageWindow.usedPercent)}% used inside a window already observed higher`,
+      detail:
+        `account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ` +
+        `${String(usageWindow.usedPercent)}% used inside a window already observed higher`,
     });
   }
 

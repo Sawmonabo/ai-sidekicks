@@ -67,7 +67,8 @@ function main() {
       console.error(`::error::coverage-report: no coverage report for ${entry}`);
     }
     console.error(
-      "::error::coverage-report: every root with a test:coverage script must produce a report; a missing one means the run skipped it",
+      "::error::coverage-report: every root with a test:coverage script " +
+        "must produce a report; a missing one means the run skipped it",
     );
     process.exit(1);
   }

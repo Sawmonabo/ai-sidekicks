@@ -63,7 +63,10 @@ function settledSentence(
   switch (settlement.outcome) {
     case "finished":
       return [
-        `The last import brought in ${formatCount(settlement.imported)} of ${countOf(settlement.total, "conversation", "conversations")}; ${formatCount(settlement.alreadyHere)} already here.`,
+        `The last import brought in ${formatCount(settlement.imported)} ` +
+          "of " +
+          `${countOf(settlement.total, "conversation", "conversations")}; ` +
+          `${formatCount(settlement.alreadyHere)} already here.`,
         ...failureClauses(settlement.failures.length, settlement.unreadableFiles.length),
         ...(settlement.attachedProjects.length === 0
           ? []

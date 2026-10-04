@@ -61,19 +61,22 @@ describe("superseded turns — the rewind floor is EXCEEDS and nothing else", ()
     expect(index.isSuperseded("b9")).toBe(false);
   });
 
-  it("marks a row that arrived already carrying its own cutoff, with no boundary in the window", () => {
-    const index = new SupersededIndex([
-      runRow({
-        id: "pre",
-        sequence: 1,
-        type: "run.running",
-        runId: "run-a",
-        position: 3,
-        supersededTargetPosition: 1,
-      }),
-    ]);
-    expect(index.isSuperseded("pre")).toBe(true);
-  });
+  it(
+    "marks a row that arrived already carrying its own cutoff, with " + "no boundary in the window",
+    () => {
+      const index = new SupersededIndex([
+        runRow({
+          id: "pre",
+          sequence: 1,
+          type: "run.running",
+          runId: "run-a",
+          position: 3,
+          supersededTargetPosition: 1,
+        }),
+      ]);
+      expect(index.isSuperseded("pre")).toBe(true);
+    },
+  );
 
   it("takes the LOWEST applicable cutoff when a row is reached by two", () => {
     // The first accepted rollback wins: a later, higher cutoff never displaces an earlier one.

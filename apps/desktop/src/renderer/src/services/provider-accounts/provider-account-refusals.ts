@@ -10,5 +10,6 @@ export const PROVIDER_QUOTA_REFUSAL_ORIGIN = "provider-account-quota";
 export const PROVIDER_QUOTA_DELIVERY_STREAM: UnreadableDeliveryStream = {
   origin: PROVIDER_QUOTA_REFUSAL_ORIGIN,
   sentence:
-    "A provider-account delivery did not match the registered notification shape, so it moved no account or quota here",
+    "A provider-account delivery did not match the registered " +
+    "notification shape, so it moved no account or quota here",
 };

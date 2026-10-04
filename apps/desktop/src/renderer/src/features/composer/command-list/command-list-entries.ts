@@ -103,7 +103,9 @@ export function composeCommandList(input: {
         source: "provider",
         // Keyed by the binding as well as the name: two bindings can each publish `review`, and
         // a name-only key would collapse them into one row whose provenance depended on order.
-        key: `provider:${group.binding.driverName}:${group.binding.providerAccountId ?? ""}:${entry.name}`,
+        key:
+          `provider:${group.binding.driverName}:` +
+          `${group.binding.providerAccountId ?? ""}:${entry.name}`,
         name: entry.name,
         description: entry.description,
         kind: entry.kind,

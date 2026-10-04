@@ -226,7 +226,8 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
 /** The classes one action wears: the shared action button, then the accent fill or the outline. */
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const base = `${APPROVAL_CARD_ACTION_CLASS} meridian-action-button meridian-action-button--regular`;
+  const base =
+    `${APPROVAL_CARD_ACTION_CLASS} meridian-action-button ` + "meridian-action-button--regular";
   return action === PRIMARY_ACTION
     ? `${base} ${ACCENT_FILL_CLASS}`
     : `${base} meridian-action-button--outline`;

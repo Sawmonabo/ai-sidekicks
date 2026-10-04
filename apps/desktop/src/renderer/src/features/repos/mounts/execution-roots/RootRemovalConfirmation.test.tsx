@@ -1,7 +1,7 @@
 // A settlement belongs to the press that produced it, and closing does not take it back. The
 // confirm is an `AlertDialog.Close`, so it sends and closes in one act; a discard wired to every
 // close would fire right after `send()` published `sending`, idling the card and re-enabling the
-// trigger under a call still on the wire. The popup is portalled, so presses are read off
+// trigger under a call still on the wire. The popup is portaled, so presses are read off
 // `document`.
 
 import { render } from "@testing-library/react";
@@ -41,15 +41,18 @@ const { trigger, pressOpen, pressConfirm, pressCancel } =
   confirmationPresses("meridian-root-removal");
 
 describe("RootRemovalConfirmation — the confirm press keeps its settlement", () => {
-  it("still reports the removal as sent once the confirm control has closed the dialog", async () => {
-    const { container } = renderConfirmation(daemonHoldingTheCall());
+  it(
+    "still reports the removal as sent once the confirm control has " + "closed the dialog",
+    async () => {
+      const { container } = renderConfirmation(daemonHoldingTheCall());
 
-    await pressOpen();
-    await pressConfirm();
+      await pressOpen();
+      await pressConfirm();
 
-    expect(container.textContent).toContain("Sending.");
-    expect(trigger()?.disabled).toBe(true);
-  });
+      expect(container.textContent).toContain("Sending.");
+      expect(trigger()?.disabled).toBe(true);
+    },
+  );
 });
 
 describe("RootRemovalConfirmation — a discarded consideration", () => {

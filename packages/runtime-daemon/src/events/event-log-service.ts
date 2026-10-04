@@ -227,7 +227,11 @@ function composeRow(
 function narrowHeadSequence(value: unknown, sessionId: SessionId): bigint {
   if (typeof value !== "bigint") {
     throw new Error(
-      `session_events.sequence for session ${sessionId} is not an INTEGER: got a value of type ${typeof value}. The column is declared INTEGER NOT NULL and this statement reads it with safeIntegers, so a non-bigint value means the row was written or altered outside this module. Refusing here rather than allocating the next sequence from it.`,
+      `session_events.sequence for session ${sessionId} is not an INTEGER: got a value of ` +
+        `type ${typeof value}. The column is declared INTEGER NOT NULL and this statement ` +
+        `reads it with safeIntegers, so a non-bigint value means the row was written or ` +
+        `altered outside this module. Refusing here rather than allocating the next sequence ` +
+        `from it.`,
     );
   }
   return value;

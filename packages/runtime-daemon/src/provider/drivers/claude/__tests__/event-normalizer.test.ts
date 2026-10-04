@@ -120,28 +120,32 @@ describe("pinned stream surface", () => {
 });
 
 describe("unknown frame handling", () => {
-  it("refuses an unmapped kind with a typed error rather than dropping it or fabricating a category", () => {
-    const thrown = captureThrow(() => {
-      normalizeClaudeWireFrame("system/zzq_nonexistent_subtype");
-    });
-    expect(thrown).toBeInstanceOf(UnknownClaudeWireFrameError);
-    const typed = thrown as UnknownClaudeWireFrameError;
-    expect(typed.name).toBe("UnknownClaudeWireFrameError");
-    // The diagnostic record needs the verbatim kind as data, not parsed out of the message.
-    expect(typed.frameKind).toBe("system/zzq_nonexistent_subtype");
+  it(
+    "refuses an unmapped kind with a typed error rather than dropping it or fabricating a " +
+      "category",
+    () => {
+      const thrown = captureThrow(() => {
+        normalizeClaudeWireFrame("system/zzq_nonexistent_subtype");
+      });
+      expect(thrown).toBeInstanceOf(UnknownClaudeWireFrameError);
+      const typed = thrown as UnknownClaudeWireFrameError;
+      expect(typed.name).toBe("UnknownClaudeWireFrameError");
+      // The diagnostic record needs the verbatim kind as data, not parsed out of the message.
+      expect(typed.frameKind).toBe("system/zzq_nonexistent_subtype");
 
-    for (const frameKind of [
-      "assistant",
-      "user",
-      "SubagentStart",
-      "SubagentStop",
-      "prompt_suggestion",
-      "system/prompt_suggestion",
-      "",
-    ]) {
-      expect(() => normalizeClaudeWireFrame(frameKind)).toThrow(UnknownClaudeWireFrameError);
-    }
-  });
+      for (const frameKind of [
+        "assistant",
+        "user",
+        "SubagentStart",
+        "SubagentStop",
+        "prompt_suggestion",
+        "system/prompt_suggestion",
+        "",
+      ]) {
+        expect(() => normalizeClaudeWireFrame(frameKind)).toThrow(UnknownClaudeWireFrameError);
+      }
+    },
+  );
 
   it("is immune to prototype-chain keys", () => {
     for (const hostileKey of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
@@ -151,39 +155,47 @@ describe("unknown frame handling", () => {
 });
 
 describe("resolveClaudeFrameEmissionRoute", () => {
-  it("routes an unmapped kind to the diagnostic default branch — emitted, never thrown, never enveloped", () => {
-    const diagnostics = makeSilentDriverDiagnostics();
-    const route = resolveClaudeFrameEmissionRoute("system/unheard_of", diagnostics);
-    expect(route.route).toBe("diagnostic");
-    if (route.route === "diagnostic") {
-      expect(route.record.kind).toBe("unmapped_wire_kind");
-      expect(route.record.rawWireType).toBe("system/unheard_of");
-      expect(route.record.provider).toBe("claude");
-    }
-    expect(diagnostics.emittedRecordCount()).toBe(1);
-    // The bare resolver still throws; the diagnostic route is the driver-core entry point.
-    expect(() => normalizeClaudeWireFrame("system/unheard_of")).toThrow(
-      UnknownClaudeWireFrameError,
-    );
-  });
+  it(
+    "routes an unmapped kind to the diagnostic default branch — emitted, never thrown, never " +
+      "enveloped",
+    () => {
+      const diagnostics = makeSilentDriverDiagnostics();
+      const route = resolveClaudeFrameEmissionRoute("system/unheard_of", diagnostics);
+      expect(route.route).toBe("diagnostic");
+      if (route.route === "diagnostic") {
+        expect(route.record.kind).toBe("unmapped_wire_kind");
+        expect(route.record.rawWireType).toBe("system/unheard_of");
+        expect(route.record.provider).toBe("claude");
+      }
+      expect(diagnostics.emittedRecordCount()).toBe(1);
+      // The bare resolver still throws; the diagnostic route is the driver-core entry point.
+      expect(() => normalizeClaudeWireFrame("system/unheard_of")).toThrow(
+        UnknownClaudeWireFrameError,
+      );
+    },
+  );
 });
 
 describe("classifyClaudeFrameFamilyForRouting", () => {
-  it("classifies an unlisted kind unknown with or without a usage reading, and never promotes a connection-scoped one", () => {
-    expect(
-      classifyClaudeFrameFamilyForRouting("novel/unheard_of", { cumulativeUsage: undefined }),
-    ).toEqual({ scope: "unknown" });
+  it(
+    "classifies an unlisted kind unknown with or without a usage reading, and never promotes a " +
+      "connection-scoped one",
+    () => {
+      expect(
+        classifyClaudeFrameFamilyForRouting("novel/unheard_of", { cumulativeUsage: undefined }),
+      ).toEqual({ scope: "unknown" });
 
-    const carriedReading = { cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } } };
-    // Connection-scoped frames already route without an identity.
-    expect(classifyClaudeFrameFamilyForRouting("system/init", carriedReading)).toEqual({
-      scope: "connection",
-    });
-    // An unlisted kind stays unknown even when it carries a number.
-    expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of", carriedReading)).toEqual({
-      scope: "unknown",
-    });
-  });
+      const carriedReading = { cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } } };
+      // Connection-scoped frames already route without an identity.
+      expect(classifyClaudeFrameFamilyForRouting("system/init", carriedReading)).toEqual({
+        scope: "connection",
+      });
+      // An unlisted kind stays unknown even when it carries a number.
+      expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of", carriedReading)).toEqual({
+        scope: "unknown",
+      });
+    },
+  );
 });
 
 // Frames carry the retry frame's recorded members: `{ type: "system", subtype: "api_retry",
@@ -247,37 +259,40 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
     }
   });
 
-  it("takes the null path when the ladder members are absent, malformed, or announce no ladder", () => {
-    // No signal means "not known to be limited": the run continues and a later failure takes the
-    // ordinary failure path, rather than parking against a boundary the frame did not state.
+  it(
+    "takes the null path when the ladder members " + "are absent, malformed, or announce no ladder",
+    () => {
+      // No signal means "not known to be limited": the run continues and a later failure takes the
+      // ordinary failure path, rather than parking against a boundary the frame did not state.
 
-    // A frame with neither member, written out because the helper always supplies both.
-    expect(
-      classifyClaudeUsageLimitSignal(
-        { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
-        RETRY_OBSERVED_AT_EPOCH_MS,
-      ),
-    ).toBeNull();
-
-    const unusableLadders: readonly Record<string, unknown>[] = [
-      { attempt: undefined, max_retries: 10 },
-      { attempt: 10, max_retries: undefined },
-      // `"10" >= "10"` is true, so a comparison without the numeric guard would emit here.
-      { attempt: "10", max_retries: "10" },
-      { attempt: "10", max_retries: 10 },
-      { attempt: 10, max_retries: null },
-      { attempt: Number.NaN, max_retries: 10 },
-      { attempt: 10, max_retries: [10] },
-      // `max_retries: 0` announces no ladder; a bare finite check would let `0 >= 0` emit.
-      { attempt: 0, max_retries: 0 },
-      { attempt: -1, max_retries: -1 },
-    ];
-    for (const ladder of unusableLadders) {
+      // A frame with neither member, written out because the helper always supplies both.
       expect(
-        classifyClaudeUsageLimitSignal(apiRetryFrame(ladder), RETRY_OBSERVED_AT_EPOCH_MS),
+        classifyClaudeUsageLimitSignal(
+          { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
+          RETRY_OBSERVED_AT_EPOCH_MS,
+        ),
       ).toBeNull();
-    }
-  });
+
+      const unusableLadders: readonly Record<string, unknown>[] = [
+        { attempt: undefined, max_retries: 10 },
+        { attempt: 10, max_retries: undefined },
+        // `"10" >= "10"` is true, so a comparison without the numeric guard would emit here.
+        { attempt: "10", max_retries: "10" },
+        { attempt: "10", max_retries: 10 },
+        { attempt: 10, max_retries: null },
+        { attempt: Number.NaN, max_retries: 10 },
+        { attempt: 10, max_retries: [10] },
+        // `max_retries: 0` announces no ladder; a bare finite check would let `0 >= 0` emit.
+        { attempt: 0, max_retries: 0 },
+        { attempt: -1, max_retries: -1 },
+      ];
+      for (const ladder of unusableLadders) {
+        expect(
+          classifyClaudeUsageLimitSignal(apiRetryFrame(ladder), RETRY_OBSERVED_AT_EPOCH_MS),
+        ).toBeNull();
+      }
+    },
+  );
 
   it("returns the CAUSE ALONE when the frame carries no usable delay", () => {
     for (const retryDelayMs of [undefined, null, 0, -1, Number.NaN, "60000", {}]) {
@@ -298,33 +313,37 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
     }
   });
 
-  it("produces no signal from usage-limit prose plus a 429 when the typed member says otherwise", () => {
-    // Each frame carries a 429 and usage-limit prose, but its typed `error` says otherwise.
-    const proseAndStatusFrames: readonly unknown[] = [
-      apiRetryFrame({
-        error: "server_error",
-        error_status: 429,
-        message: "Rate limit exceeded — usage limit reached, retry after 60s",
-      }),
-      apiRetryFrame({
-        error: "overloaded",
-        error_status: 429,
-        detail: "You have exceeded your plan's usage limit.",
-      }),
-      {
-        type: "result",
-        subtype: "error_during_execution",
-        is_error: true,
-        error_status: 429,
-        exitCode: 1,
-        result: "Claude usage limit reached. Your limit will reset at 3pm.",
-      },
-      { type: "system", subtype: "api_error", error_status: 429, error: "rate_limit" },
-    ];
-    for (const frame of proseAndStatusFrames) {
-      expect(classifyClaudeUsageLimitSignal(frame, RETRY_OBSERVED_AT_EPOCH_MS)).toBeNull();
-    }
-  });
+  it(
+    "produces no signal from usage-limit prose " +
+      "plus a 429 when the typed member says otherwise",
+    () => {
+      // Each frame carries a 429 and usage-limit prose, but its typed `error` says otherwise.
+      const proseAndStatusFrames: readonly unknown[] = [
+        apiRetryFrame({
+          error: "server_error",
+          error_status: 429,
+          message: "Rate limit exceeded — usage limit reached, retry after 60s",
+        }),
+        apiRetryFrame({
+          error: "overloaded",
+          error_status: 429,
+          detail: "You have exceeded your plan's usage limit.",
+        }),
+        {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          error_status: 429,
+          exitCode: 1,
+          result: "Claude usage limit reached. Your limit will reset at 3pm.",
+        },
+        { type: "system", subtype: "api_error", error_status: 429, error: "rate_limit" },
+      ];
+      for (const frame of proseAndStatusFrames) {
+        expect(classifyClaudeUsageLimitSignal(frame, RETRY_OBSERVED_AT_EPOCH_MS)).toBeNull();
+      }
+    },
+  );
 
   it("does not read `error_status` — a bare 429 is not evidence an allowance is spent", () => {
     // Positive control: the same frame is recognized on its typed member and silent once that

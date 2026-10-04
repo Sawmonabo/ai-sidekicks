@@ -206,7 +206,7 @@ None.
 ## References
 
 - [Spec-002: Machine Registration](002-machine-registration.md) — the machine's registration and reachability, and the per-shell control lease.
-- [Spec-016: Identity And User State](016-identity-and-user-state.md) — identity-key custody and registration.
+- [Spec-016: Hosted Account And Identity](016-hosted-account-and-identity.md) — identity-key custody and registration.
 - [Spec-006: Local IPC And Daemon Control](006-local-ipc-and-daemon-control.md) — the daemon status command that prints the relay's own state.
 - [Spec-017: Notifications And Attention Model](017-notifications-and-attention-model.md) — the notification kinds, text and stable ids every path carries.
 - [Spec-021: Desktop App And Renderer](021-desktop-app-and-renderer.md) — the console surfaces a device drives, the preview pane and the Settings pages among them.

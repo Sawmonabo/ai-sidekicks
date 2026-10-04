@@ -25,7 +25,10 @@ class ContentDescriptionSeededError extends Error {
 
   constructor(refuser: string, seededKey: string) {
     super(
-      `${refuser} refuses an event whose payload already carries ${seededKey}: the append path is the only producer of ${CONTENT_DESCRIPTION_PAYLOAD_KEYS.join(", ")}, each measured from the body it actually stores. Pass the prose as content.body; contentType is the producer's member and is unaffected.`,
+      `${refuser} refuses an event whose payload already carries ${seededKey}: the append ` +
+        `path is the only producer of ${CONTENT_DESCRIPTION_PAYLOAD_KEYS.join(", ")}, each ` +
+        `measured from the body it actually stores. Pass the prose as content.body; ` +
+        `contentType is the producer's member and is unaffected.`,
     );
     this.name = "ContentDescriptionSeededError";
     this.seededKey = seededKey;
@@ -141,7 +144,11 @@ export function composeContentRow(envelope: EventEnvelope, body: string): Compos
   // `Object.hasOwn` stops a `type` of `"__proto__"` borrowing a prototype member.
   if (!Object.hasOwn(BODY_BEARING_EVENT_TYPES, envelope.type)) {
     throw new Error(
-      `refuses a content partition on event type ${JSON.stringify(envelope.type)}: machine-authored prose is kept only for ${Object.keys(BODY_BEARING_EVENT_TYPES).join(", ")}, the types whose registered payload declares the content members. Any other type would be stored carrying members its own schema rejects.`,
+      `refuses a content partition on event type ${JSON.stringify(envelope.type)}: ` +
+        `machine-authored prose is kept only for ` +
+        `${Object.keys(BODY_BEARING_EVENT_TYPES).join(", ")}, the types whose registered ` +
+        `payload declares the content members. Any other type would be stored carrying members ` +
+        `its own schema rejects.`,
     );
   }
   // SQLite stores TEXT as UTF-8, which would replace an unpaired surrogate with U+FFFD and keep
@@ -149,7 +156,8 @@ export function composeContentRow(envelope: EventEnvelope, body: string): Compos
   const unpairedSurrogateIndex = findUnpairedSurrogateIndex(body);
   if (unpairedSurrogateIndex >= 0) {
     throw new Error(
-      `refuses a content body that is not well-formed UTF-16: it carries an unpaired surrogate at UTF-16 index ${String(unpairedSurrogateIndex)}.`,
+      `refuses a content body that is not well-formed UTF-16: it carries an unpaired ` +
+        `surrogate at UTF-16 index ${String(unpairedSurrogateIndex)}.`,
     );
   }
 
@@ -205,6 +213,9 @@ export function assertRegisteredVariantParses(envelope: EventEnvelope, refuser: 
   }
 
   throw new Error(
-    `${refuser} refuses to store an event of type ${JSON.stringify(envelope.type)} that its own registered SessionEventSchema variant rejects: ${describeStrictLayerIssues(parsed.error.issues)}. Storing it would write a row that fails the strict layer on the way back out, permanently unreadable as anything but a stub.`,
+    `${refuser} refuses to store an event of type ${JSON.stringify(envelope.type)} that its ` +
+      `own registered SessionEventSchema variant rejects: ` +
+      `${describeStrictLayerIssues(parsed.error.issues)}. Storing it would write a row that ` +
+      `fails the strict layer on the way back out, permanently unreadable as anything but a stub.`,
   );
 }

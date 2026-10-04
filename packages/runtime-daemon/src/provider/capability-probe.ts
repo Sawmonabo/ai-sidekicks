@@ -90,7 +90,8 @@ export class CapabilityProbeNegativeControlError extends CapabilityProbeError {
 
   constructor(driverName: ProviderName, probeName: string) {
     super(
-      `capability probe negative control '${probeName}' was answered by driver '${driverName}'; refusing to report capabilities from a channel that does not refuse`,
+      `capability probe negative control '${probeName}' was answered by driver '${driverName}` +
+        `'; refusing to report capabilities from a channel that does not refuse`,
     );
     this.name = "CapabilityProbeNegativeControlError";
     this.driverName = driverName;

@@ -33,7 +33,8 @@ export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, Workflo
   .object({
     definitionName: z.string().min(1).describe("The workflow's name."),
     scope: WorkflowDefinitionScopeSchema.optional().describe(
-      "Where to look. Omitted, the name resolves in this session first, then its project, then shared.",
+      "Where to look. Omitted, the name resolves in this session first, then its project, " +
+        "then shared.",
     ),
   })
   .strict();
@@ -42,7 +43,8 @@ export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, Workflo
 export const WORKFLOW_RUN_TOOL: SessionCallbackTool = {
   name: "workflow_run",
   description:
-    "Start a workflow run in this session by definition name. Resolution is most-specific-first across the session, project, and shared scopes.",
+    "Start a workflow run in this session by definition name. Resolution is " +
+    "most-specific-first across the session, project, and shared scopes.",
   inputSchema: z.toJSONSchema(WorkflowRunToolInputSchema),
 };
 

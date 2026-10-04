@@ -181,7 +181,9 @@ export function pressSubmit(): void {
   const submit = screen.getByRole("button", { name: "Submit answer" });
   if (!(submit instanceof HTMLButtonElement)) {
     throw new Error(
-      `the "Submit answer" role resolved to <${submit.tagName.toLowerCase()}>, which carries no disabled state to read`,
+      `the "Submit answer" role resolved to <` +
+        `${submit.tagName.toLowerCase()}>, which carries no disabled ` +
+        "state to read",
     );
   }
   if (submit.disabled) {

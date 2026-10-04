@@ -19,7 +19,8 @@ export class EntityProjectorRegistry {
     describeWhat: "event kind",
     ownerOf: (claim) => claim.owner,
     duplicateHint:
-      "one fold per event kind — a second projector would make which one runs depend on module import order",
+      "one fold per event kind — a second projector would " +
+      "make which one runs depend on module import order",
   });
 
   /** Claims one event kind. A second claim by a different owner is an error, not a swap. */

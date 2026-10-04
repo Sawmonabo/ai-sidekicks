@@ -90,6 +90,8 @@ export function instantFacet(label: string, value: unknown, memberName: string):
 function unrecorded(memberName: string): EntityFacetValue {
   return {
     form: "unrecorded",
-    detail: `The record the console holds carries no ${memberName}. A member that has not been projected is not a member that is empty.`,
+    detail:
+      `The record the console holds carries no ${memberName}. A member ` +
+      "that has not been projected is not a member that is empty.",
   };
 }

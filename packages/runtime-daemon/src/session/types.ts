@@ -3,7 +3,7 @@
 
 /**
  * One `session_events` row as `SessionService.readEvents` returns it to the projector. The content
- * column is left out. `sequence`, not `monotonicNs`, is the replay key.
+ * column is left out. `sequence`, not `monotonicNs`, is the rebuild key.
  */
 export interface StoredEvent {
   readonly id: string;

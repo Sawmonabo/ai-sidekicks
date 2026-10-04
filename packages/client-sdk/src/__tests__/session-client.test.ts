@@ -31,46 +31,50 @@ function sessionCreated(sequence: number): SessionEvent {
 }
 
 describe("session subscribe reads the daemon's frames", () => {
-  it("yields each change with its own cursor, then ends at a drop mark naming the last cursor seen", async () => {
-    // A daemon that acks `session.subscribe` and the cancel; the frames are pushed by hand below.
-    const daemon = createScriptedDaemon(
-      answerByMethod({
-        "session.subscribe": () => ({ result: { subscriptionId: SUBSCRIPTION_ID } }),
-        [SUBSCRIPTION_CANCEL_METHOD]: () => ({ result: { canceled: true } }),
-      }),
-    );
-    const client = createDaemonSessionClient(new JsonRpcClient(daemon, TEST_CLIENT_OPTIONS));
-    const stream = client.subscribe({ sessionId: SESSION_ID })[Symbol.asyncIterator]();
-    // The generator sends `session.subscribe` on its first pull, so the frames
-    // are pushed only once that pull is pending and the ack has settled.
-    const first = stream.next();
-    await Promise.resolve();
+  it(
+    "yields each change with its own cursor, then " +
+      "ends at a drop mark naming the last cursor seen",
+    async () => {
+      // A daemon that acks `session.subscribe` and the cancel; the frames are pushed by hand below.
+      const daemon = createScriptedDaemon(
+        answerByMethod({
+          "session.subscribe": () => ({ result: { subscriptionId: SUBSCRIPTION_ID } }),
+          [SUBSCRIPTION_CANCEL_METHOD]: () => ({ result: { canceled: true } }),
+        }),
+      );
+      const client = createDaemonSessionClient(new JsonRpcClient(daemon, TEST_CLIENT_OPTIONS));
+      const stream = client.subscribe({ sessionId: SESSION_ID })[Symbol.asyncIterator]();
+      // The generator sends `session.subscribe` on its first pull, so the frames
+      // are pushed only once that pull is pending and the ack has settled.
+      const first = stream.next();
+      await Promise.resolve();
 
-    daemon.deliverInbound(
-      buildSubscriptionNotify(SUBSCRIPTION_ID, {
-        changes: [
-          { cursor: "c-1", event: sessionCreated(1) },
-          { cursor: "c-2", event: sessionCreated(2) },
-        ],
-      }),
-    );
-    daemon.deliverInbound(
-      buildSubscriptionNotify(SUBSCRIPTION_ID, {
-        changes: [{ cursor: "c-9", event: sessionCreated(9) }],
-        dropped: true,
-      }),
-    );
+      daemon.deliverInbound(
+        buildSubscriptionNotify(SUBSCRIPTION_ID, {
+          changes: [
+            { cursor: "c-1", event: sessionCreated(1) },
+            { cursor: "c-2", event: sessionCreated(2) },
+          ],
+        }),
+      );
+      daemon.deliverInbound(
+        buildSubscriptionNotify(SUBSCRIPTION_ID, {
+          changes: [{ cursor: "c-9", event: sessionCreated(9) }],
+          dropped: true,
+        }),
+      );
 
-    expect((await first).value).toStrictEqual({
-      eventId: "c-1" as EventCursor,
-      event: sessionCreated(1),
-    });
-    expect((await stream.next()).value).toStrictEqual({
-      eventId: "c-2" as EventCursor,
-      event: sessionCreated(2),
-    });
-    const ended = stream.next();
-    await expect(ended).rejects.toBeInstanceOf(SessionStreamDroppedError);
-    await expect(ended).rejects.toMatchObject({ lastCursor: "c-2" });
-  });
+      expect((await first).value).toStrictEqual({
+        eventId: "c-1" as EventCursor,
+        event: sessionCreated(1),
+      });
+      expect((await stream.next()).value).toStrictEqual({
+        eventId: "c-2" as EventCursor,
+        event: sessionCreated(2),
+      });
+      const ended = stream.next();
+      await expect(ended).rejects.toBeInstanceOf(SessionStreamDroppedError);
+      await expect(ended).rejects.toMatchObject({ lastCursor: "c-2" });
+    },
+  );
 });

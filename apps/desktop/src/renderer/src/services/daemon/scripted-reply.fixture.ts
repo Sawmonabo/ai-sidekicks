@@ -129,7 +129,8 @@ export async function resolveScriptedReply(
       throw new FixtureBridgeError(
         call,
         "reply-unscripted",
-        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the view render an empty result for a call that would have failed.`,
+        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather ` +
+          `than letting the view render an empty result for a call that would have failed.`,
       );
     case "unanswered":
       throw new FixtureBridgeError(call, settlement.code, settlement.detail);
@@ -158,7 +159,8 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
     throw new FixtureBridgeError(
       method,
       "reply-off-contract",
-      "the scenario scripts a reply this build does not register for that method. Script the registered shape rather than teaching a view a frame the daemon cannot send.",
+      "the scenario scripts a reply this build does not register for that method. Script " +
+        "the registered shape rather than teaching a view a frame the daemon cannot send.",
     );
   }
   return value;
@@ -181,7 +183,9 @@ function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: Scenar
       throw new FixtureBridgeError(
         call,
         "reply-off-contract",
-        `the scenario pushes a ${notice.stream} notice this build does not register for that stream. Script the registered shape rather than teaching a view a frame the daemon cannot send.`,
+        `the scenario pushes a ${notice.stream} notice this build does ` +
+          `not register for that stream. Script the registered shape ` +
+          `rather than teaching a view a frame the daemon cannot send.`,
       );
     }
     return { stream: notice.stream, payload };
@@ -190,7 +194,8 @@ function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: Scenar
     throw new FixtureBridgeError(
       call,
       "reply-backlog-full",
-      "the fixture is already holding as many delayed notices as it takes. Advance the frozen clock to release them.",
+      "the fixture is already holding as many delayed notices " +
+        "as it takes. Advance the frozen clock to release them.",
     );
   }
 }
@@ -200,6 +205,10 @@ function unansweredReplyDetail(
   outcome: "abandoned" | "backlog-full",
 ): string {
   return outcome === "abandoned"
-    ? "the scenario engine was torn down before the frozen clock reached this reply. Advance the engine before disposing it, or drive this view from a scenario that scripts no latency for the call."
-    : `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies and takes no more. Advance the frozen clock to release them; a backlog this size means something is issuing requests without ever moving the scenario forward.`;
+    ? "the scenario engine was torn down before the frozen clock reached " +
+        "this reply. Advance the engine before disposing it, or drive this " +
+        "view from a scenario that scripts no latency for the call."
+    : `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies ` +
+        `and takes no more. Advance the frozen clock to release them; a backlog this size ` +
+        `means something is issuing requests without ever moving the scenario forward.`;
 }

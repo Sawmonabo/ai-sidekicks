@@ -176,38 +176,41 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     );
   }
 
-  it("refuses the second body while the first request is still settling, and keeps it", async () => {
-    const held = heldAnswer();
-    let dismissals = 0;
-    const { container, rerender } = render(
-      <ReopenableHarness
-        formKey="first"
-        answer={held.answer}
-        onDismiss={() => {
-          dismissals += 1;
-        }}
-      />,
-    );
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the first body");
-    await submit(container);
-    // Canceled and reopened while the first request is still in flight.
-    act(() => {
-      rerender(
+  it(
+    "refuses the second body while the first request is still " + "settling, and keeps it",
+    async () => {
+      const held = heldAnswer();
+      let dismissals = 0;
+      const { container, rerender } = render(
         <ReopenableHarness
-          formKey="second"
+          formKey="first"
           answer={held.answer}
           onDismiss={() => {
             dismissals += 1;
           }}
         />,
       );
-    });
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
-    await submit(container);
-    expect(container.textContent).toContain("still settling");
-    expect(bodyValue(container)).toBe("the second body");
-    expect(dismissals).toBe(0);
-  });
+      typeInto(container.querySelector(".meridian-run-composer__body"), "the first body");
+      await submit(container);
+      // Canceled and reopened while the first request is still in flight.
+      act(() => {
+        rerender(
+          <ReopenableHarness
+            formKey="second"
+            answer={held.answer}
+            onDismiss={() => {
+              dismissals += 1;
+            }}
+          />,
+        );
+      });
+      typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
+      await submit(container);
+      expect(container.textContent).toContain("still settling");
+      expect(bodyValue(container)).toBe("the second body");
+      expect(dismissals).toBe(0);
+    },
+  );
 
   it("does not let the first request's settlement close the second form", async () => {
     const held = heldAnswer();

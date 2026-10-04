@@ -225,7 +225,9 @@ export function partitionByRequirement(checks) {
 
 /**
  * @param {Array<object>} checks Raw rollup rows.
- * @returns {{status: "green"|"red"|"pending"|"none", failed: Array<object>, pending: Array<object>, considered: Array<object>, gating: Array<object>, advisory: Array<object>, advisoryFailed: Array<object>, mode: "required-only"|"all-checks"}}
+ * @returns {{status: "green"|"red"|"pending"|"none", failed: Array<object>, pending: Array<object>,
+ *     considered: Array<object>, gating: Array<object>, advisory: Array<object>,
+ *     advisoryFailed: Array<object>, mode: "required-only"|"all-checks"}}
  *   `considered` is every row after dedupe; `gating` is the subset that drives
  *   `status`. `failed` / `pending` are drawn from `gating` alone —
  *   `advisoryFailed` is real signal for the reader but blocks nothing.
@@ -802,7 +804,8 @@ export function deriveCommentSignals(
  * citation test needs the explicit `Boolean(headShaShort)` because
  * `"anything".includes("")` is true and would silently clear every citation.
  *
- * @param {{botReviews: Array<object>, botComments: Array<object>, headSha: string, headShaShort: string, ackAnchorMs: number}} input
+ * @param {{botReviews: Array<object>, botComments: Array<object>, headSha: string,
+ *     headShaShort: string, ackAnchorMs: number}} input
  *   `botReviews` / `botComments` are the bot-filtered sets returned by
  *   `deriveReviewAck` / `deriveCommentSignals`, so the login form has exactly
  *   one authority.
@@ -984,27 +987,42 @@ function firingLegAgeMs(ageMs) {
  * @typedef {object} CodexSignals
  * @property {boolean} isDraft                 PR is a draft (Codex does not auto-review drafts).
  * @property {boolean} isOpen                  PR state is OPEN — not CLOSED, not MERGED.
- * @property {boolean} headUnchanged           HEAD re-read after every probe still matches the snapshot they used.
- * @property {boolean} pushAnchorKnown         A check suite dated the push, so the ack anchor is server-side.
- * @property {boolean} rateLimited             Bot code-review usage-limits comment at or after the freshness anchor.
+ * @property {boolean} headUnchanged           HEAD re-read after every probe still matches the
+ *                                             snapshot they used.
+ * @property {boolean} pushAnchorKnown         A check suite dated the push, so the ack anchor is
+ *                                             server-side.
+ * @property {boolean} rateLimited             Bot code-review usage-limits comment at or after the
+ *                                             freshness anchor.
  * @property {boolean} reviewAcksHead          A bot review names the HEAD sha in its commit_id.
  * @property {boolean} reactionAcksHead        Bot +1 on the PR issue, at or after the ack anchor.
- * @property {boolean} commentAcksHead         Bot comment citing the HEAD sha, or a fresh clean verdict.
- * @property {boolean} commentAcksHeadBySha    That comment ack names the sha itself, so no timestamp binds it.
- * @property {boolean} commentAssertsClean     A bot comment asserts CLEAN, not merely that it read HEAD.
- * @property {boolean} commentReportsFindings  A bot comment carries findings for HEAD in its own body.
- * @property {boolean} staleRunLandedAfterPush A Codex run for an OLDER commit published after the push anchor.
- * @property {boolean} [observationBaselineKnown] The gate's own first sighting of this sha as HEAD is usable as a floor.
- * @property {boolean} [ackPredatesBaseline]  A timestamp-only ack was refused for predating that first sighting.
+ * @property {boolean} commentAcksHead         Bot comment citing the HEAD sha, or a fresh clean
+ *                                             verdict.
+ * @property {boolean} commentAcksHeadBySha    That comment ack names the sha itself, so no
+ *                                             timestamp binds it.
+ * @property {boolean} commentAssertsClean     A bot comment asserts CLEAN, not merely that it read
+ *                                             HEAD.
+ * @property {boolean} commentReportsFindings  A bot comment carries findings for HEAD in its own
+ *                                             body.
+ * @property {boolean} staleRunLandedAfterPush A Codex run for an OLDER commit published after the
+ *                                             push anchor.
+ * @property {boolean} [observationBaselineKnown] The gate's own first sighting of this sha as HEAD
+ *                                                is usable as a floor.
+ * @property {boolean} [ackPredatesBaseline]  A timestamp-only ack was refused for predating that
+ *                                            first sighting.
  * @property {number}  openThreadCount         Bot threads that are unresolved, outdated or not.
- * @property {number}  latestReviewAgeMs       Age of the newest HEAD-matching bot review; Infinity when none, 0 when undatable.
- * @property {boolean} [latestReviewAgeUnknown]   That review exists but carries no usable timestamp.
- * @property {number}  latestCommentAckAgeMs   Age of the newest acking bot comment; Infinity when none, 0 when undatable.
- * @property {boolean} [latestCommentAckAgeUnknown] That comment ack exists but carries no usable timestamp.
+ * @property {number}  latestReviewAgeMs       Age of the newest HEAD-matching bot review; Infinity
+ *                                             when none, 0 when undatable.
+ * @property {boolean} [latestReviewAgeUnknown]   That review exists but carries no usable
+ *                                                timestamp.
+ * @property {number}  latestCommentAckAgeMs   Age of the newest acking bot comment; Infinity when
+ *                                             none, 0 when undatable.
+ * @property {boolean} [latestCommentAckAgeUnknown] That comment ack exists but carries no usable
+ *                                                  timestamp.
  * @property {boolean} [threadWindowTruncated] Review-thread connection did not drain fully.
  * @property {boolean} [checkWindowTruncated]  Check-rollup connection did not drain fully.
  * @property {"green"|"red"|"pending"|"none"} ciStatus
- * @property {"required-only"|"all-checks"} [ciMode] Whether any check on the branch is marked required. Read only under `options.advisory`.
+ * @property {"required-only"|"all-checks"} [ciMode] Whether any check on the branch is marked
+ *                                                   required. Read only under `options.advisory`.
  * @property {string}  [mergeStateStatus]      GitHub's own MergeStateStatus for the PR.
  * @property {number}  [settleWindowMs]
  */
@@ -1015,7 +1033,10 @@ function firingLegAgeMs(ageMs) {
  *   conjunct when no check on the branch is marked required — every check is
  *   then informational, so a red one is read and fixed forward rather than
  *   blocking the merge. It never excuses a check a required check gates.
- * @returns {{verdict: string, ackOfHead: boolean, cleanAssertingAck: boolean, mergeOk: boolean, unsettled: boolean, unsettledAckLeg: "review"|"comment"|null, threadBearingAckAgeMs: number, ackAgeUnknown: boolean, shaBoundAckOfHead: boolean, ackAttributionAmbiguous: boolean, timestampOnlyAckUnvouchable: boolean, signalTruncated: boolean}}
+ * @returns {{verdict: string, ackOfHead: boolean, cleanAssertingAck: boolean, mergeOk: boolean,
+ *     unsettled: boolean, unsettledAckLeg: "review"|"comment"|null, threadBearingAckAgeMs: number,
+ *     ackAgeUnknown: boolean, shaBoundAckOfHead: boolean, ackAttributionAmbiguous: boolean,
+ *     timestampOnlyAckUnvouchable: boolean, signalTruncated: boolean}}
  */
 export function computeVerdict(signals, options = {}) {
   const settleWindowMs = signals.settleWindowMs ?? DEFAULT_SETTLE_WINDOW_MS;

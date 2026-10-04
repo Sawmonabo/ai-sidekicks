@@ -156,20 +156,23 @@ describe("what a settled drop says out loud", () => {
     ]);
   });
 
-  it("negative control: a drag that is not a pane of this pane layout's says nothing at all", () => {
-    // The cases above would also pass over a settlement that announced on every drag end,
-    // including somebody else's draggable and a pane closed while in the air.
-    const layout = threePaneLayout();
-    const { announce, recorded } = recordingAnnounce();
+  it(
+    "negative control: a drag that is not a pane of this pane " + "layout's says nothing at all",
+    () => {
+      // The cases above would also pass over a settlement that announced on every drag end,
+      // including somebody else's draggable and a pane closed while in the air.
+      const layout = threePaneLayout();
+      const { announce, recorded } = recordingAnnounce();
 
-    commitPaneDrop(layout, undefined, { overPaneId: "pane-2", edge: "after" }, announce);
-    commitPaneDrop(layout, "pane-9", { overPaneId: "pane-2", edge: "after" }, announce);
+      commitPaneDrop(layout, undefined, { overPaneId: "pane-2", edge: "after" }, announce);
+      commitPaneDrop(layout, "pane-9", { overPaneId: "pane-2", edge: "after" }, announce);
 
-    expect(recorded).toStrictEqual([]);
-    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
-      "pane-1",
-      "pane-2",
-      "pane-3",
-    ]);
-  });
+      expect(recorded).toStrictEqual([]);
+      expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
+        "pane-1",
+        "pane-2",
+        "pane-3",
+      ]);
+    },
+  );
 });

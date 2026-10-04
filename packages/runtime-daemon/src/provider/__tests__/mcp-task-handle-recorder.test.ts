@@ -177,13 +177,17 @@ describe("McpTaskHandleRecorder", () => {
 });
 
 describe("classifyMcpTaskIdRefusal", () => {
-  it("stops scanning once refusal is inevitable, so a hostile taskId cannot buy a full traversal", () => {
-    // A multi-megabyte handle from a hostile MCP server. The NUL sits past the size bound, so
-    // only a scan that stops at the bound reports handle_too_long; one that walked two million
-    // code units would find the NUL and report handle_contains_nul.
-    const hostileHandle = `${"a".repeat(2_000_000)}${NUL_CODE_UNIT}tail`;
-    expect(classifyMcpTaskIdRefusal(hostileHandle)).toBe("handle_too_long");
-  });
+  it(
+    "stops scanning once refusal is inevitable, so " +
+      "a hostile taskId cannot buy a full traversal",
+    () => {
+      // A multi-megabyte handle from a hostile MCP server. The NUL sits past the size bound, so
+      // only a scan that stops at the bound reports handle_too_long; one that walked two million
+      // code units would find the NUL and report handle_contains_nul.
+      const hostileHandle = `${"a".repeat(2_000_000)}${NUL_CODE_UNIT}tail`;
+      expect(classifyMcpTaskIdRefusal(hostileHandle)).toBe("handle_too_long");
+    },
+  );
 });
 
 describe("storage-failure containment", () => {

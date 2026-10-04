@@ -105,31 +105,34 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
     expect(() => JSON.stringify(out)).not.toThrow();
   });
 
-  it("substitutes <truncated:circular> for self-referencing and mutually referencing objects", () => {
-    type Node = { name: string; self?: Node };
-    const node: Node = { name: "root" };
-    node.self = node;
-    const out = sanitizeFields({ node });
-    expect(out).toEqual({
-      node: { name: "root", self: "<truncated:circular>" },
-    });
-    expect(() => JSON.stringify(out)).not.toThrow();
+  it(
+    "substitutes <truncated:circular> for " + "self-referencing and mutually referencing objects",
+    () => {
+      type Node = { name: string; self?: Node };
+      const node: Node = { name: "root" };
+      node.self = node;
+      const out = sanitizeFields({ node });
+      expect(out).toEqual({
+        node: { name: "root", self: "<truncated:circular>" },
+      });
+      expect(() => JSON.stringify(out)).not.toThrow();
 
-    type A = { kind: "a"; ref?: B };
-    type B = { kind: "b"; ref?: A };
-    const a: A = { kind: "a" };
-    const b: B = { kind: "b", ref: a };
-    a.ref = b;
-    const mutualOut = sanitizeFields({ a });
-    // The walk visits a, then b, then a again, which is the sentinel.
-    expect(mutualOut).toEqual({
-      a: {
-        kind: "a",
-        ref: { kind: "b", ref: "<truncated:circular>" },
-      },
-    });
-    expect(() => JSON.stringify(mutualOut)).not.toThrow();
-  });
+      type A = { kind: "a"; ref?: B };
+      type B = { kind: "b"; ref?: A };
+      const a: A = { kind: "a" };
+      const b: B = { kind: "b", ref: a };
+      a.ref = b;
+      const mutualOut = sanitizeFields({ a });
+      // The walk visits a, then b, then a again, which is the sentinel.
+      expect(mutualOut).toEqual({
+        a: {
+          kind: "a",
+          ref: { kind: "b", ref: "<truncated:circular>" },
+        },
+      });
+      expect(() => JSON.stringify(mutualOut)).not.toThrow();
+    },
+  );
 
   it("preserves shared sibling and array references as data, not <truncated:circular>", () => {
     // Siblings sharing a reference are not a cycle: the detector tracks the current recursion

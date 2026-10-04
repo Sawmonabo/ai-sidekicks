@@ -57,16 +57,19 @@ describe("ClaudeDriver", () => {
     expect(channel?.disposals).toStrictEqual(["session_closed"]);
   });
 
-  it("dispatches a native interrupt to the channel the lifecycle band bound the run to", async () => {
-    const harness = buildHarness();
-    await harness.driver.createSession(buildCreateSessionParams());
-    await harness.driver.startRun(buildStartRunParams());
+  it(
+    "dispatches a native interrupt to the " + "channel the lifecycle band bound the run to",
+    async () => {
+      const harness = buildHarness();
+      await harness.driver.createSession(buildCreateSessionParams());
+      await harness.driver.startRun(buildStartRunParams());
 
-    const result = await harness.driver.applyIntervention(buildInterruptParams());
+      const result = await harness.driver.applyIntervention(buildInterruptParams());
 
-    expect(result).toStrictEqual({ status: "applied" });
-    expect(harness.transport.spawnedChannels[0]?.controlRequests).toStrictEqual([
-      { subtype: "interrupt", cancelQueued: false },
-    ]);
-  });
+      expect(result).toStrictEqual({ status: "applied" });
+      expect(harness.transport.spawnedChannels[0]?.controlRequests).toStrictEqual([
+        { subtype: "interrupt", cancelQueued: false },
+      ]);
+    },
+  );
 });

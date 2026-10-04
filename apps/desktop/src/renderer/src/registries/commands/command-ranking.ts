@@ -3,7 +3,6 @@
 // It is a pure function of a command list, a query and a recents list.
 
 import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
-import { COMMAND_PALETTE_RESULT_CAP } from "./command-palette-caps.js";
 import type { CommandDefinition } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
@@ -131,7 +130,7 @@ export function rankCommandsForQuery(
   }
 
   results.sort(compareCommandSearchResults);
-  return results.slice(0, COMMAND_PALETTE_RESULT_CAP);
+  return results;
 }
 
 /**
@@ -160,5 +159,5 @@ export function rankCommandsForEmptyQuery(
   }
   recentResults.sort((left, right) => (left.recentRank ?? 0) - (right.recentRank ?? 0));
   // `visibleCommands` already arrives in display order; the remainder must not be re-sorted.
-  return [...recentResults, ...remainingResults].slice(0, COMMAND_PALETTE_RESULT_CAP);
+  return [...recentResults, ...remainingResults];
 }

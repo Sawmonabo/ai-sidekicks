@@ -122,7 +122,10 @@ export function formatRoute(route: AppRoute): string {
         : `${pageAddress}/${encodeURIComponent(route.selection)}`;
     }
     case "pane-harness":
-      return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
+      return (
+        `#/pane-harness/${encodeURIComponent(route.paneKind)}` +
+        `/${encodeURIComponent(route.sessionId)}`
+      );
     case "not-found":
       return route.attempted;
   }

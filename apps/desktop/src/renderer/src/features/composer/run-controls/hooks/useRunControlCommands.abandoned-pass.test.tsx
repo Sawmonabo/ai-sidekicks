@@ -58,56 +58,62 @@ function ReaddressableRunCommandContributor(props: {
 }
 
 describe("the run-control palette rows dispatch through the committed render", () => {
-  it("dispatches through the on-screen render's dispatch state after a discarded re-address", async () => {
-    const committed = recordingRunControlDispatch();
-    const abandoned = recordingRunControlDispatch();
-    const readdress: { current: (() => void) | undefined } = { current: undefined };
-    render(
-      <ReaddressableRunCommandContributor
-        committedDispatchState={committed.dispatchState}
-        abandonedDispatchState={abandoned.dispatchState}
-        readdress={readdress}
-      />,
-    );
+  it(
+    "dispatches through the on-screen render's dispatch state after " + "a discarded re-address",
+    async () => {
+      const committed = recordingRunControlDispatch();
+      const abandoned = recordingRunControlDispatch();
+      const readdress: { current: (() => void) | undefined } = { current: undefined };
+      render(
+        <ReaddressableRunCommandContributor
+          committedDispatchState={committed.dispatchState}
+          abandonedDispatchState={abandoned.dispatchState}
+          readdress={readdress}
+        />,
+      );
 
-    await abandonOneRenderPass(() => {
-      readdress.current?.();
-    });
-    commandRegistry.get(PAUSE_COMMAND_ID)?.run();
+      await abandonOneRenderPass(() => {
+        readdress.current?.();
+      });
+      commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
-    // The rows say the same thing in both passes, so the command never changed, only which
-    // dispatch state it would reach.
-    expect(abandoned.calls).toStrictEqual([]);
-    expect(committed.calls).toStrictEqual<readonly RecordedRunControlCall[]>([
-      { verb: "pause", runId: TARGET_RUN, expectedRunVersion: 7 },
-    ]);
-  });
+      // The rows say the same thing in both passes, so the command never changed, only which
+      // dispatch state it would reach.
+      expect(abandoned.calls).toStrictEqual([]);
+      expect(committed.calls).toStrictEqual<readonly RecordedRunControlCall[]>([
+        { verb: "pause", runId: TARGET_RUN, expectedRunVersion: 7 },
+      ]);
+    },
+  );
 
-  it("negative control: a committed re-address DOES move the row onto the new dispatch state", async () => {
-    // Without this the case above would pass over a hook that ignored its input.
-    const committed = recordingRunControlDispatch();
-    const later = recordingRunControlDispatch();
-    const readdress: { current: (() => void) | undefined } = { current: undefined };
-    const { rerender } = render(
-      <ReaddressableRunCommandContributor
-        committedDispatchState={committed.dispatchState}
-        abandonedDispatchState={later.dispatchState}
-        readdress={readdress}
-      />,
-    );
+  it(
+    "negative control: a committed re-address DOES move the row onto " + "the new dispatch state",
+    async () => {
+      // Without this the case above would pass over a hook that ignored its input.
+      const committed = recordingRunControlDispatch();
+      const later = recordingRunControlDispatch();
+      const readdress: { current: (() => void) | undefined } = { current: undefined };
+      const { rerender } = render(
+        <ReaddressableRunCommandContributor
+          committedDispatchState={committed.dispatchState}
+          abandonedDispatchState={later.dispatchState}
+          readdress={readdress}
+        />,
+      );
 
-    // The same re-address, committed rather than abandoned: no suspension, so React keeps the
-    // pass.
-    rerender(
-      <ReaddressableRunCommandContributor
-        committedDispatchState={later.dispatchState}
-        abandonedDispatchState={later.dispatchState}
-        readdress={readdress}
-      />,
-    );
-    commandRegistry.get(PAUSE_COMMAND_ID)?.run();
+      // The same re-address, committed rather than abandoned: no suspension, so React keeps the
+      // pass.
+      rerender(
+        <ReaddressableRunCommandContributor
+          committedDispatchState={later.dispatchState}
+          abandonedDispatchState={later.dispatchState}
+          readdress={readdress}
+        />,
+      );
+      commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
-    expect(committed.calls).toStrictEqual([]);
-    expect(later.calls.map((call) => call.verb)).toStrictEqual(["pause"]);
-  });
+      expect(committed.calls).toStrictEqual([]);
+      expect(later.calls.map((call) => call.verb)).toStrictEqual(["pause"]);
+    },
+  );
 });

@@ -97,7 +97,8 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
     return {
       kind: "dropped",
       reason:
-        "the ask declares more than one question and a single flat choice set carries no question identity, so no answer built from it could satisfy the ask",
+        "the ask declares more than one question and a single flat choice set carries no " +
+        "question identity, so no answer built from it could satisfy the ask",
       declaredCount: questions.length,
     };
   }
@@ -143,7 +144,8 @@ function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReadin
     return {
       kind: "dropped",
       reason:
-        "the elicitation form declares more than one property and a flat choice set carries no property identity, so no answer built from it could satisfy the form",
+        "the elicitation form declares more than one property and a flat choice set carries " +
+        "no property identity, so no answer built from it could satisfy the form",
       declaredCount: propertyNames.length,
     };
   }
@@ -189,7 +191,9 @@ function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionS
   if (candidates.length > CODEX_ASK_OPTION_SET_MAX) {
     return {
       kind: "dropped",
-      reason: `the ask declares more options than the ${CODEX_ASK_OPTION_SET_MAX}-entry cardinality bound admits`,
+      reason:
+        `the ask declares more options than the ${CODEX_ASK_OPTION_SET_MAX}-entry cardinality ` +
+        `bound admits`,
       declaredCount: candidates.length,
     };
   }
@@ -202,7 +206,8 @@ function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionS
       return {
         kind: "dropped",
         reason:
-          "at least one declared option carried an unreadable or out-of-bounds value or label, and a partial set would hide a choice the provider is waiting for",
+          "at least one declared option carried an unreadable or out-of-bounds value or " +
+          "label, and a partial set would hide a choice the provider is waiting for",
         declaredCount: candidates.length,
       };
     }

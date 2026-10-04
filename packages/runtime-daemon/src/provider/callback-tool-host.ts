@@ -275,7 +275,8 @@ export class CallbackToolHost {
     if (superseded !== undefined) {
       this.#recordRegistryReplacement(
         sessionId,
-        "a second spawn installed a callback-tool registry for a session that still had one installed; the superseded installation no longer dispatches or releases",
+        "a second spawn installed a callback-tool registry for a session that still had one " +
+          "installed; the superseded installation no longer dispatches or releases",
         superseded.token,
         token,
         toolsByName.size,
@@ -307,7 +308,8 @@ export class CallbackToolHost {
     // Recorded like an install, so the person's view of the live installation stays current.
     this.#recordRegistryReplacement(
       sessionId,
-      "a failed spawn rolled its callback-tool registry back; the installation it had superseded is live again and the failed one no longer dispatches or releases",
+      "a failed spawn rolled its callback-tool registry back; the installation it had " +
+        "superseded is live again and the failed one no longer dispatches or releases",
       registryToken,
       predecessor.token,
       predecessor.toolsByName.size,
@@ -347,7 +349,8 @@ export class CallbackToolHost {
       kind: "callback_tool_registry_release_ignored",
       rawWireType: null,
       dispositionReason:
-        "a superseded spawn's teardown ran after its callback-tool registry had been replaced; leaving the live installation in place",
+        "a superseded spawn's teardown ran after its callback-tool registry had been " +
+        "replaced; leaving the live installation in place",
       details: {
         sessionId,
         releasingInstallation: releasingToken.installation,
@@ -409,7 +412,8 @@ export class CallbackToolHost {
         "denied",
         "denied-no-seam",
         "callback_tool_seam_absent",
-        "no approval evaluation seam is registered; refusing rather than completing without adjudication",
+        "no approval evaluation seam is registered; refusing rather than completing without " +
+          "adjudication",
       );
     }
 
@@ -422,7 +426,8 @@ export class CallbackToolHost {
         "failed",
         "failed-superseded-binding",
         "callback_tool_invocation_refused",
-        "invocation was raised against a callback-tool registry a later spawn has superseded; refusing rather than adjudicating it against the live spawn's registry",
+        "invocation was raised against a callback-tool registry a later spawn has " +
+          "superseded; refusing rather than adjudicating it against the live spawn's registry",
       );
     }
     const tool = installed?.toolsByName.get(invocation.toolName);
@@ -466,7 +471,8 @@ export class CallbackToolHost {
         "denied",
         "denied-no-seam",
         "callback_tool_seam_absent",
-        `the approval evaluation seam threw before adjudicating; refusing rather than completing without adjudication (${describeExecutorFailure(cause)})`,
+        `the approval evaluation seam threw before adjudicating; refusing rather than ` +
+          `completing without adjudication (${describeExecutorFailure(cause)})`,
       );
     }
     if (outcome.decision === "deny") {
@@ -596,7 +602,10 @@ export function describeArgumentRefusal(
   if (declaredType !== undefined && declaredType !== "object") {
     // The contract's `Record<string, unknown>` arguments cannot satisfy a non-object schema, so
     // such a tool is uninvocable through this path by construction.
-    return `registered callback tool declares a non-object input schema (${String(declaredType)}), which this invocation shape cannot satisfy`;
+    return (
+      `registered callback tool declares a non-object input schema (${String(declaredType)}), ` +
+      `which this invocation shape cannot satisfy`
+    );
   }
   const declaredRequired = tool.inputSchema["required"];
   if (!Array.isArray(declaredRequired)) {
@@ -610,7 +619,10 @@ export function describeArgumentRefusal(
   if (missingProperties.length === 0) {
     return null;
   }
-  return `invocation omits required argument(s) declared by the registered input schema: ${missingProperties.join(", ")}`;
+  return (
+    `invocation omits required argument(s) declared by the registered input schema: ` +
+    `${missingProperties.join(", ")}`
+  );
 }
 
 /**

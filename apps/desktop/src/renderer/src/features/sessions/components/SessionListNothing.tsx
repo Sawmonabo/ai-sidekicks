@@ -8,7 +8,9 @@ import { type ReactNode } from "react";
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
-/** What stands in for an empty list: a read in flight, a failed read, or a served list with no rows. */
+/**
+ * What stands in for an empty list: a read in flight, a failed read, or a served list with no rows.
+ */
 export function SessionListNothing(props: SessionListNothingProps): React.JSX.Element {
   const { directory } = props;
   if (directory.status === "reading") {

@@ -148,7 +148,10 @@ export class DiagnosticCapture {
         severity: "warning",
         source: CAPTURE_SOURCE,
         kind: "unreadable-probe-set-full",
-        detail: `the unreadable-probe set is full at ${String(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount)} names, so "${probe}" and every probe refused after it go unrecorded.`,
+        detail:
+          `the unreadable-probe set is full at ` +
+          `${String(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount)} names, ` +
+          `so "${probe}" and every probe refused after it go unrecorded.`,
       });
       return;
     }

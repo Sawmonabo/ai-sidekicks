@@ -92,18 +92,21 @@ export function getCodexCapabilities(
   // A foreign driver's reading is a daemon wiring fault, so it is a plain `Error`.
   if (reading.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(
-      `getCodexCapabilities: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+      `getCodexCapabilities: refusing a spawned-version reading taken from driver '` +
+        `${reading.driverName}'`,
     );
   }
   if (detection.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(
-      `getCodexCapabilities: refusing a detection reading taken from driver '${detection.driverName}'`,
+      `getCodexCapabilities: refusing a detection reading taken from driver '` +
+        `${detection.driverName}'`,
     );
   }
   // Comparing recorded paths catches a `PATH` change or installer swap between the two reads.
   if (detection.boundExecutablePath !== reading.resolvedExecutablePath) {
     throw new Error(
-      "getCodexCapabilities: refusing a detection reading bound to a different executable than the version reading",
+      "getCodexCapabilities: refusing a detection reading bound to a different executable " +
+        "than the version reading",
     );
   }
   const cliVersion: DriverCliVersionReport = reading.report;
@@ -130,7 +133,8 @@ export async function readCodexCapabilityDetection(
 ): Promise<CapabilityDetectionReading> {
   if (reading.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(
-      `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+      `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '` +
+        `${reading.driverName}'`,
     );
   }
   const detection = await readCapabilityDetection({

@@ -92,7 +92,8 @@ export class ClaudeCompactionDispatch {
       rawWireType: null,
       dispositionReason:
         observed.terminal === "wait_expired"
-          ? "the declared compaction bound elapsed with no typed compaction frame; a later boundary still projects"
+          ? "the declared compaction bound elapsed with no typed compaction frame; a later " +
+            "boundary still projects"
           : "the runtime binding was lost while a compaction wait was armed",
       details: { sessionId, terminal: observed.terminal },
     });

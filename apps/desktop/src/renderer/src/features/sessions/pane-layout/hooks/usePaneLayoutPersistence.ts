@@ -78,7 +78,8 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
           onSaveRefused(
             refusePaneLayoutSave(
               "layout-save-failed",
-              "This window's pane arrangement could not be saved. It is still on screen, and it will be saved again on the next change.",
+              "This window's pane arrangement could not be saved. It is still " +
+                "on screen, and it will be saved again on the next change.",
             ),
             partition,
           );

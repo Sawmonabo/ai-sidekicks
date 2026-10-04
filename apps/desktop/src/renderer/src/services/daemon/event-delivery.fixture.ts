@@ -19,7 +19,7 @@ export interface ScenarioSubscribeOptions {
    * does this; a narrowed run stream and the relay are live, and replaying into one would hand
    * a subscriber transitions it did not open a subscription for.
    */
-  readonly replayDeliveredPrefix?: boolean;
+  readonly resendDeliveredEvents?: boolean;
 }
 
 /** The fan-out of a scenario's beats, and the log of what has been delivered. */
@@ -27,18 +27,18 @@ export class ScenarioDelivery {
   // The emitter delivers to a snapshot of sinks, so a pane that unsubscribes mid-beat cannot make
   // a sibling miss it, and a throwing sink does not silence the others.
   readonly #beats = new Emitter<readonly ProjectedSessionEvent[]>("scenario beat");
-  // The record a late subscriber is replayed.
+  // The record a late subscriber is resent.
   readonly #log = new ScenarioSessionLog();
 
   /**
-   * Attach a beat sink, replaying the delivered prefix first when asked. Idempotent unsubscribe.
+   * Attach a beat sink, resending the delivered events first when asked. Idempotent unsubscribe.
    *
    * The prefix is delivered synchronously, in log order, before the sink is registered; nothing
    * can advance the clock in between, so no beat is seen twice or missed.
-   * `replayDeliveredPrefix` arrives already ANDed with the engine's liveness.
+   * `resendDeliveredEvents` arrives already ANDed with the engine's liveness.
    */
-  public subscribeToBeats(sink: ScenarioSink, replayDeliveredPrefix: boolean): Unsubscribe {
-    if (replayDeliveredPrefix && this.#log.deliveredCount > 0) {
+  public subscribeToBeats(sink: ScenarioSink, resendDeliveredEvents: boolean): Unsubscribe {
+    if (resendDeliveredEvents && this.#log.deliveredCount > 0) {
       sink(this.deliveredEvents());
     }
     return this.#beats.subscribe(sink);

@@ -62,12 +62,12 @@ import {
 import { normalizeWorkspaceLastError } from "./workspace-last-error.js";
 
 /**
- * The session-existence predicate a bind checks first (`SessionService.replay` satisfies it; `null`
- * means no such session). A `replay` that throws (a corrupt event chain) propagates unchanged,
+ * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies it; `null`
+ * means no such session). A `rebuildSession` that throws (a corrupt event chain) propagates unchanged,
  * since a 404 would send the person to recreate a session that exists.
  */
 export interface SessionExistenceReader {
-  replay(sessionId: string): unknown;
+  rebuildSession(sessionId: string): unknown;
 }
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
@@ -264,7 +264,7 @@ export class WorkspaceService {
    * read or write, when `sessionId` names no session.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
-    if (this.#sessions.replay(input.sessionId) === null) {
+    if (this.#sessions.rebuildSession(input.sessionId) === null) {
       throw new SessionNotFoundError(`session ${input.sessionId} does not exist`, {
         sessionId: input.sessionId,
       });

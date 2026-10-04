@@ -93,25 +93,29 @@ function paramsOf(envelope: OutboundEnvelope | undefined): unknown {
 // The degraded envelope on the client-facing path
 
 describe("driver.applyIntervention — degraded fallback across the SDK seam", () => {
-  it("resolves a steer against a no-native-steer driver as degraded with its fallbackAction intact", async () => {
-    const degradedAnswer = { status: "degraded", fallbackAction: QUEUE_AND_INTERRUPT };
-    const { client, daemon } = buildDriverClient(
-      scriptResult(METHOD_APPLY_INTERVENTION, degradedAnswer),
-    );
+  it(
+    "resolves a steer against a no-native-steer " +
+      "driver as degraded with its fallbackAction intact",
+    async () => {
+      const degradedAnswer = { status: "degraded", fallbackAction: QUEUE_AND_INTERRUPT };
+      const { client, daemon } = buildDriverClient(
+        scriptResult(METHOD_APPLY_INTERVENTION, degradedAnswer),
+      );
 
-    const result = await client.applyIntervention(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
+      const result = await client.applyIntervention(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
 
-    // Compared whole: asserting only `status` would pass against an SDK that dropped
-    // `fallbackAction`, the only part of a degraded answer a caller can act on.
-    expect(result).toStrictEqual(degradedAnswer);
-    expect(result.status).toBe("degraded");
-    expect(result.fallbackAction).toBe(QUEUE_AND_INTERRUPT);
+      // Compared whole: asserting only `status` would pass against an SDK that dropped
+      // `fallbackAction`, the only part of a degraded answer a caller can act on.
+      expect(result).toStrictEqual(degradedAnswer);
+      expect(result.status).toBe("degraded");
+      expect(result.fallbackAction).toBe(QUEUE_AND_INTERRUPT);
 
-    // The steer arm goes out unaltered.
-    expect(daemon.sentEnvelopes.length).toBe(1);
-    expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_APPLY_INTERVENTION);
-    expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
-  });
+      // The steer arm goes out unaltered.
+      expect(daemon.sentEnvelopes.length).toBe(1);
+      expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_APPLY_INTERVENTION);
+      expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
+    },
+  );
 });
 
 // The stream is narrowed to driver events. The daemon filters the same set before buffering, so
@@ -178,16 +182,20 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
     await expect(subscription.next()).resolves.toEqual(buildDriverEvent());
   });
 
-  it("rejects a subscribeEvents call whose runId is not a canonical id, synchronously and before the wire", () => {
-    const { client, daemon } = buildDriverClient({});
+  it(
+    "rejects a subscribeEvents call whose runId is not " +
+      "a canonical id, synchronously and before the wire",
+    () => {
+      const { client, daemon } = buildDriverClient({});
 
-    // The handle is returned synchronously, so the failure must throw here, on the call that
-    // caused it, rather than surface at a later `next()`.
-    expect(() => client.subscribeEvents({ runId: "not-a-uuid" as RunId })).toThrow(
-      JsonRpcSchemaError,
-    );
-    expect(daemon.sentEnvelopes.length).toBe(0);
-  });
+      // The handle is returned synchronously, so the failure must throw here, on the call that
+      // caused it, rather than surface at a later `next()`.
+      expect(() => client.subscribeEvents({ runId: "not-a-uuid" as RunId })).toThrow(
+        JsonRpcSchemaError,
+      );
+      expect(daemon.sentEnvelopes.length).toBe(0);
+    },
+  );
 
   it("ENDS the subscription when the daemon pushes a schema-valid NON-driver event", async () => {
     const nonDriverEvent = buildNonDriverEvent();
@@ -223,28 +231,31 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
 // A daemon refusal reaches the caller typed
 
 describe("driver.* — a refusal surfaces as its registered code", () => {
-  it("surfaces driver.capability_unsupported on compactContext as the typed remote refusal", async () => {
-    // The static gate's refusal must stay a remote error; `{ status: 'refused' }` would claim the
-    // caller was adjudicated when the driver simply lacks the capability.
-    const { client } = buildDriverClient({
-      [METHOD_COMPACT_CONTEXT]: () => ({
-        error: {
-          code: JsonRpcErrorCode.InvalidRequest,
-          message: "Requested capability is not supported by the driver",
-          data: { type: "driver.capability_unsupported" },
-        },
-      }),
-    });
+  it(
+    "surfaces driver.capability_unsupported on " + "compactContext as the typed remote refusal",
+    async () => {
+      // The static gate's refusal must stay a remote error; `{ status: 'refused' }` would claim the
+      // caller was adjudicated when the driver simply lacks the capability.
+      const { client } = buildDriverClient({
+        [METHOD_COMPACT_CONTEXT]: () => ({
+          error: {
+            code: JsonRpcErrorCode.InvalidRequest,
+            message: "Requested capability is not supported by the driver",
+            data: { type: "driver.capability_unsupported" },
+          },
+        }),
+      });
 
-    let caught: unknown = null;
-    try {
-      await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
-    if (caught instanceof JsonRpcRemoteError) {
-      expect(caught.data?.type).toBe("driver.capability_unsupported");
-    }
-  });
+      let caught: unknown = null;
+      try {
+        await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+      if (caught instanceof JsonRpcRemoteError) {
+        expect(caught.data?.type).toBe("driver.capability_unsupported");
+      }
+    },
+  );
 });

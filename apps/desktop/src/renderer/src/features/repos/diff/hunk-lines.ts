@@ -88,7 +88,9 @@ function lineKindOf(prefixedLine: string): DiffLineKind {
     severity: "warning",
     source: HUNK_LINES_SOURCE,
     kind: "unknown-hunk-prefix",
-    detail: `a hunk body line carried the prefix ${JSON.stringify(prefix)}; drawn as an unchanged line`,
+    detail:
+      `a hunk body line carried the prefix ${JSON.stringify(prefix)}; ` +
+      "drawn as an unchanged line",
   });
   return "context";
 }

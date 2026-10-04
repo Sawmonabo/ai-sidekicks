@@ -116,27 +116,31 @@ async function take<T>(iter: AsyncIterable<T>, count: number): Promise<T[]> {
 // `session.subscribe` request and reserve a daemon-side subscription entry.
 
 describe("daemon subscribe with a pre-aborted signal does not call client.subscribe", () => {
-  it("daemon transport: when options.signal is already aborted, no wire envelope is sent and the async iterable yields zero values", async () => {
-    // No scripted `session.subscribe`: a leaked request would fail on the unscripted path, and the
-    // empty `sentEnvelopes` assertion catches it first.
-    const harness = buildDaemonHarness({});
-    const sdk = createDaemonSessionClient(harness.client);
-    // The spy calls through, so the pre-abort `return` in `daemonSubscribe` is what prevents the
-    // wire side effect; the spy checks `client.subscribe` was never reached.
-    const subscribeSpy = vi.spyOn(harness.client, "subscribe");
+  it(
+    "daemon transport: when options.signal is already aborted, no " +
+      "wire envelope is sent and the async iterable yields zero values",
+    async () => {
+      // No scripted `session.subscribe`: a leaked request would fail on the unscripted path, and
+      // the empty `sentEnvelopes` assertion catches it first.
+      const harness = buildDaemonHarness({});
+      const sdk = createDaemonSessionClient(harness.client);
+      // The spy calls through, so the pre-abort `return` in `daemonSubscribe` is what prevents the
+      // wire side effect; the spy checks `client.subscribe` was never reached.
+      const subscribeSpy = vi.spyOn(harness.client, "subscribe");
 
-    const ac = new AbortController();
-    ac.abort();
+      const ac = new AbortController();
+      ac.abort();
 
-    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+      const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
 
-    // The generator returned at the pre-abort check before producing anything.
-    expect(events).toEqual([]);
-    // No server-side subscription handle was reserved.
-    expect(subscribeSpy).not.toHaveBeenCalled();
-    // No request reached the transport.
-    expect(harness.transport.sentEnvelopes).toEqual([]);
-  });
+      // The generator returned at the pre-abort check before producing anything.
+      expect(events).toEqual([]);
+      // No server-side subscription handle was reserved.
+      expect(subscribeSpy).not.toHaveBeenCalled();
+      // No request reached the transport.
+      expect(harness.transport.sentEnvelopes).toEqual([]);
+    },
+  );
 });
 
 // Replay order and resume
@@ -214,61 +218,66 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
 // signal from inside its body.
 
 describe("daemon subscribe re-checks AbortSignal after attaching abort listener", () => {
-  it("daemon transport: when signal aborts during client.subscribe() (after pre-check, before listener attach), the post-listener re-check fires subscription.cancel() and the iterable yields zero values", async () => {
-    // No scripted subscribe: the mocked `client.subscribe` replaces the wire path; the harness
-    // only supplies a real `JsonRpcClient` to spy on.
-    const harness = buildDaemonHarness({});
-    const sdk = createDaemonSessionClient(harness.client);
+  it(
+    "daemon transport: when signal aborts during client.subscribe() " +
+      "(after pre-check, before listener attach), the post-listener re-check " +
+      "fires subscription.cancel() and the iterable yields zero values",
+    async () => {
+      // No scripted subscribe: the mocked `client.subscribe` replaces the wire path; the harness
+      // only supplies a real `JsonRpcClient` to spy on.
+      const harness = buildDaemonHarness({});
+      const sdk = createDaemonSessionClient(harness.client);
 
-    const ac = new AbortController();
+      const ac = new AbortController();
 
-    // The fake's `next()` parks until `cancel()` and then settles as ended, as a real subscription
-    // does after a cancel, so a wrong yield before the cancel shows as a hung test. `cancelSpy`
-    // must be called by the re-check after the listener attach, not by the loop's `return()`: the
-    // re-check returns before the loop is entered.
-    let isCanceled = false;
-    const parkedReads: Array<() => void> = [];
-    const readUntilCanceled = (): Promise<void> =>
-      isCanceled ? Promise.resolve() : new Promise<void>((settle) => parkedReads.push(settle));
-    const cancelSpy = vi.fn((): Promise<void> => {
-      isCanceled = true;
-      for (const settle of parkedReads.splice(0)) settle();
-      return Promise.resolve();
-    });
-    const fakeSubscription = {
-      subscriptionId: "fake-sub-id",
-      cancel: cancelSpy,
-      next: async (): Promise<undefined> => {
-        await readUntilCanceled();
-        return undefined;
-      },
-      [Symbol.asyncIterator](): AsyncIterator<SessionEvent> {
-        return {
-          next: async (): Promise<IteratorResult<SessionEvent>> => {
-            await readUntilCanceled();
-            return { value: undefined, done: true };
-          },
-          return: (): Promise<IteratorResult<SessionEvent>> =>
-            Promise.resolve({ value: undefined, done: true }),
-        };
-      },
-    };
-    const subscribeSpy = vi
-      .spyOn(harness.client, "subscribe")
-      .mockImplementation(((): typeof fakeSubscription => {
-        // The generator has passed the pre-abort check and no listener is attached yet, so this
-        // abort event is missed and only the re-check can catch it.
-        ac.abort();
-        return fakeSubscription;
-      }) as unknown as typeof harness.client.subscribe);
+      // The fake's `next()` parks until `cancel()` and then settles as ended, as a real
+      // subscription does after a cancel, so a wrong yield before the cancel shows as a hung test.
+      // `cancelSpy` must be called by the re-check after the listener attach, not by the loop's
+      // `return()`: the re-check returns before the loop is entered.
+      let isCanceled = false;
+      const parkedReads: Array<() => void> = [];
+      const readUntilCanceled = (): Promise<void> =>
+        isCanceled ? Promise.resolve() : new Promise<void>((settle) => parkedReads.push(settle));
+      const cancelSpy = vi.fn((): Promise<void> => {
+        isCanceled = true;
+        for (const settle of parkedReads.splice(0)) settle();
+        return Promise.resolve();
+      });
+      const fakeSubscription = {
+        subscriptionId: "fake-sub-id",
+        cancel: cancelSpy,
+        next: async (): Promise<undefined> => {
+          await readUntilCanceled();
+          return undefined;
+        },
+        [Symbol.asyncIterator](): AsyncIterator<SessionEvent> {
+          return {
+            next: async (): Promise<IteratorResult<SessionEvent>> => {
+              await readUntilCanceled();
+              return { value: undefined, done: true };
+            },
+            return: (): Promise<IteratorResult<SessionEvent>> =>
+              Promise.resolve({ value: undefined, done: true }),
+          };
+        },
+      };
+      const subscribeSpy = vi
+        .spyOn(harness.client, "subscribe")
+        .mockImplementation(((): typeof fakeSubscription => {
+          // The generator has passed the pre-abort check and no listener is attached yet, so this
+          // abort event is missed and only the re-check can catch it.
+          ac.abort();
+          return fakeSubscription;
+        }) as unknown as typeof harness.client.subscribe);
 
-    const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+      const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
 
-    // The generator returned from the re-check before its loop.
-    expect(events).toEqual([]);
-    // One call shows the pre-abort check was passed and the race window reached.
-    expect(subscribeSpy).toHaveBeenCalledTimes(1);
-    // Without the re-check, cancel is never called and the daemon's subscription stays live.
-    expect(cancelSpy).toHaveBeenCalled();
-  });
+      // The generator returned from the re-check before its loop.
+      expect(events).toEqual([]);
+      // One call shows the pre-abort check was passed and the race window reached.
+      expect(subscribeSpy).toHaveBeenCalledTimes(1);
+      // Without the re-check, cancel is never called and the daemon's subscription stays live.
+      expect(cancelSpy).toHaveBeenCalled();
+    },
+  );
 });

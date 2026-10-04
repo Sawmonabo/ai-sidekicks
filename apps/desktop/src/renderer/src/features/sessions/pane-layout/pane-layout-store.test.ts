@@ -122,20 +122,23 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
 });
 
 describe("PaneLayoutStore — adopting what the panel group settled on", () => {
-  it("takes the group's percentages as the pane layout's widths, still summing to the total", () => {
-    const layout = twoPaneLayout();
-    layout.open({ kind: "terminal" });
-    const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
+  it(
+    "takes the group's percentages as the pane layout's widths, " + "still summing to the total",
+    () => {
+      const layout = twoPaneLayout();
+      layout.open({ kind: "terminal" });
+      const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
 
-    layout.applyLayout(
-      { [paneIds[0] ?? ""]: 50, [paneIds[1] ?? ""]: 30, [paneIds[2] ?? ""]: 20 },
-      0,
-    );
+      layout.applyLayout(
+        { [paneIds[0] ?? ""]: 50, [paneIds[1] ?? ""]: 30, [paneIds[2] ?? ""]: 20 },
+        0,
+      );
 
-    const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
-    expect(after).toStrictEqual([500, 300, 200]);
-    expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
-  });
+      const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
+      expect(after).toStrictEqual([500, 300, 200]);
+      expect(after.reduce((sum, size) => sum + size, 0)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
+    },
+  );
 
   it("clamps a width below the floor IN THE STORE, whatever the DOM reported", () => {
     // The subject is the persisted value: a width below the floor would be saved and restored

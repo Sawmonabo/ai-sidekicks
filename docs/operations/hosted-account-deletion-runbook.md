@@ -72,11 +72,11 @@ The deletion is complete when **all** of the following hold:
 ## Related Specs
 
 - [Spec-020 — Data Retention, Export And Deletion](../specs/020-data-retention-and-gdpr.md) — §Erasure Paths (Path 2), §PII Data Map, §Ordering And Atomicity.
-- [Spec-016 — Identity and User State](../specs/016-identity-and-user-state.md) — the hosted account, its devices and its sign-ins.
+- [Spec-016 — Hosted Account and Identity](../specs/016-hosted-account-and-identity.md) — the hosted account, its devices and its sign-ins.
 
 ## Related Plans
 
-- [Plan-015 — Identity and User State](../plans/015-identity-and-user-state.md) — `account.delete`, which this procedure performs by hand, and the token denylist.
+- [Plan-015 — Hosted Account and Identity](../plans/015-hosted-account-and-identity.md) — `account.delete`, which this procedure performs by hand, and the token denylist.
 - [Plan-019 — Data Retention, Export And Deletion](../plans/019-data-retention-and-gdpr.md) — the Path-2 closure `account.delete` covers (CP-019-3) and the `ON DELETE SET NULL` severance (D-019-3).
 
 ## Who Runs It And Where To Report

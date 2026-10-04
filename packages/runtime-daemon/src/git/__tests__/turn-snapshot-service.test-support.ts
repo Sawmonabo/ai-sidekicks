@@ -62,7 +62,9 @@ interface FixtureGitOptions {
   readonly stdin?: string;
 }
 
-/** One real git repository under the fixture root, driven under the hermetic fixture environment. */
+/**
+ * One real git repository under the fixture root, driven under the hermetic fixture environment.
+ */
 export class FixtureRepository {
   readonly root: string;
   readonly #environment: NodeJS.ProcessEnv;

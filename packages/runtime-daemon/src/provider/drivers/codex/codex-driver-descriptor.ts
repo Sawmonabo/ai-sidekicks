@@ -20,45 +20,57 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Thread resumption is delivered through the thread lifecycle rather than through a single client-request method the wire reference establishes, so the method enumeration cannot decide it in either direction.",
+      "Thread resumption is delivered through the thread lifecycle rather than through a " +
+      "single client-request method the wire reference establishes, so the method " +
+      "enumeration cannot decide it in either direction.",
   },
   steer: {
     detectionSource: "probed",
     probe: {
       probeNames: ["turn/steer"],
       decisiveness:
-        "The flag asserts native mid-turn steering exists on the wire, and `turn/steer` is precisely the method its consumers call. The method takes the turn identity the driver already holds, so acceptance leaves no parameter-level fact unestablished — the failure mode that makes the sibling `rollback` entry static.",
+        "The flag asserts native mid-turn steering exists on the wire, and `turn/steer` is " +
+        "precisely the method its consumers call. The method takes the turn identity the " +
+        "driver already holds, so acceptance leaves no parameter-level fact unestablished " +
+        "— the failure mode that makes the sibling `rollback` entry static.",
     },
   },
   interactive_requests: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "The provider RAISES these requests; they are server-to-client frames and appear in no client-request enumeration, so the one zero-turn channel cannot observe them.",
+      "The provider RAISES these requests; they are server-to-client frames and appear in no " +
+      "client-request enumeration, so the one zero-turn channel cannot observe them.",
   },
   mcp: {
     detectionSource: "static",
     failingConjuncts: ["zero-turn", "non-mutating"],
     rationale:
-      "The flag asserts only that the provider can invoke MCP server tools, and the sole direct probe of that is invoking one — which consumes a turn and performs the tool's own effect. It resolves from the matrix.",
+      "The flag asserts only that the provider can invoke MCP server tools, and the sole " +
+      "direct probe of that is invoking one — which consumes a turn and performs the " +
+      "tool's own effect. It resolves from the matrix.",
   },
   tool_calls: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Tool invocations are surfaced as server-to-client items; the client-request enumeration says nothing about the shape of the frames the provider emits.",
+      "Tool invocations are surfaced as server-to-client items; the client-request " +
+      "enumeration says nothing about the shape of the frames the provider emits.",
   },
   reasoning_stream: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "A stream-output property. No client-request method names it, so the method enumeration cannot decide it in either direction.",
+      "A stream-output property. No client-request method names it, so the method " +
+      "enumeration cannot decide it in either direction.",
   },
   model_mutation: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Delivered as per-turn overrides on `turn/start`. Acceptance of `turn/start` establishes the method, never that this build's turn parameters carry the override — the same parameter-level gap the `rollback` entry names.",
+      "Delivered as per-turn overrides on `turn/start`. Acceptance of `turn/start` " +
+      "establishes the method, never that this build's turn parameters carry the override " +
+      "— the same parameter-level gap the `rollback` entry names.",
   },
   structured_output: {
     detectionSource: "static",
@@ -70,7 +82,17 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "The enumeration establishes that `thread/fork` is accepted, not that `ThreadForkParams.lastTurnId` is present — the wire reference verifies that field at its pin, not at every older build the driver may admit. The flag resolves from the matrix until a parameter-level probe exists, and the gap is closed at INVOCATION instead: a build that accepts the method and then refuses the boundary field is classified at `CodexLifecycleManager.forkConversation`'s fork dispatch as `driver.capability_unsupported`, rather than surfacing as an opaque provider fault the caller would have to read a deserializer message to understand. That classification covers the refusing build only — one that instead IGNORES an unrecognized boundary field forks the whole thread and is answered by that same leg's turn-ledger check, which is a diagnostic and not a refusal.",
+      "The enumeration establishes that `thread/fork` is accepted, not that " +
+      "`ThreadForkParams.lastTurnId` is present — the wire reference verifies that field " +
+      "at its pin, not at every older build the driver may admit. The flag resolves from the " +
+      "matrix until a parameter-level probe exists, and the gap is closed at INVOCATION " +
+      "instead: a build that accepts the method and then refuses the boundary field is " +
+      "classified at `CodexLifecycleManager.forkConversation`'s fork dispatch as " +
+      "`driver.capability_unsupported`, rather than surfacing as an opaque provider fault " +
+      "the caller would have to read a deserializer message to understand. That " +
+      "classification covers the refusing build only — one that instead IGNORES an " +
+      "unrecognized boundary field forks the whole thread and is answered by that same leg's " +
+      "turn-ledger check, which is a diagnostic and not a refusal.",
   },
   session_fork: {
     detectionSource: "static",
@@ -85,27 +107,38 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     probe: {
       probeNames: ["thread/goal/set", "thread/goal/clear"],
       decisiveness:
-        "The flag asserts durable per-thread goal operations exist on the wire, and these are the two methods its consumers call — the driver's `setSessionGoal` and `clearSessionGoal` legs. Both take the thread identity the driver already holds, so method acceptance is decisive at the consumed granularity; probing only the setter would leave a build that accepts goals it cannot clear reported as fully capable.",
+        "The flag asserts durable per-thread goal operations exist on the wire, and these " +
+        "are the two methods its consumers call — the driver's `setSessionGoal` and " +
+        "`clearSessionGoal` legs. Both take the thread identity the driver already holds, so " +
+        "method acceptance is decisive at the consumed granularity; probing only the setter " +
+        "would leave a build that accepts goals it cannot clear reported as fully capable.",
     },
   },
   callback_tools: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Delivered as the daemon's per-session MCP url entry, never as a thread's dynamic tools. The capability is the daemon's to deliver, so no provider answer decides it.",
+      "Delivered as the daemon's per-session MCP url entry, never as a thread's dynamic " +
+      "tools. The capability is the daemon's to deliver, so no provider answer decides it.",
   },
   subagents: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Peer agents are spawned from WITHIN a turn; the wire reference establishes no client-request method for them, so the enumeration cannot decide it in either direction.",
+      "Peer agents are spawned from WITHIN a turn; the wire reference establishes no " +
+      "client-request method for them, so the enumeration cannot decide it in either direction.",
   },
   context_compaction: {
     detectionSource: "probed",
     probe: {
       probeNames: ["thread/compact/start"],
       decisiveness:
-        "The flag asserts that user-triggered compaction exists on the wire, and this is precisely the method its consumer — the driver's `compactContext` leg — calls. Unlike the sibling `rollback` entry, acceptance leaves NO parameter-level fact unestablished: the method's whole parameter set is the thread identity the driver already holds, so a build that accepts the method accepts every argument this driver will ever send it.",
+        "The flag asserts that user-triggered compaction exists on the wire, and this is " +
+        "precisely the method its consumer — the driver's `compactContext` leg — calls. " +
+        "Unlike the sibling `rollback` entry, acceptance leaves NO parameter-level fact " +
+        "unestablished: the method's whole parameter set is the thread identity the driver " +
+        "already holds, so a build that accepts the method accepts every argument this " +
+        "driver will ever send it.",
     },
   },
   provider_commands: {
@@ -113,14 +146,27 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     probe: {
       probeNames: ["skills/list"],
       decisiveness:
-        "The flag asserts that the provider publishes an enumerable command and skill surface, and this is the method the driver's `listProviderCommands` leg reads it through. Every parameter it takes is OPTIONAL, so — as with the compaction entry above — method acceptance is decisive at the granularity the flag is consumed at rather than leaving a required argument unprobed.",
+        "The flag asserts that the provider publishes an enumerable command and skill " +
+        "surface, and this is the method the driver's `listProviderCommands` leg reads it " +
+        "through. Every parameter it takes is OPTIONAL, so — as with the compaction entry " +
+        "above — method acceptance is decisive at the granularity the flag is consumed at " +
+        "rather than leaving a required argument unprobed.",
     },
   },
   output_speed: {
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different conjunct from the sibling Claude entry. This driver DOES have a zero-turn channel bearing on the axis: the model catalog read, which carries a per-model service-tier list. It still cannot decide the flag, because a service tier is three free-form strings and reading one of them as an output-SPEED tier is a semantic judgment rather than a decidable read. The `false` rests on the two conjuncts the axis itself requires — no statically declarable level vocabulary and no declared-state read — and deliberately NOT on a census of the method root, which bounds availability from below and not above.",
+      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The " +
+      "failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different " +
+      "conjunct from the sibling Claude entry. This driver DOES have a zero-turn channel " +
+      "bearing on the axis: the model catalog read, which carries a per-model service-tier " +
+      "list. It still cannot decide the flag, because a service tier is three free-form " +
+      "strings and reading one of them as an output-SPEED tier is a semantic judgment rather " +
+      "than a decidable read. The `false` rests on the two conjuncts the axis itself " +
+      "requires — no statically declarable level vocabulary and no declared-state read — " +
+      "and deliberately NOT on a census of the method root, which bounds availability from " +
+      "below and not above.",
   },
 });
 
@@ -192,7 +238,8 @@ function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnsw
 function readCodexReportedVersion(payload: unknown, clientName: string): ReportedVersionReading {
   if (clientName === "" || clientName.includes("/") || /\s/.test(clientName)) {
     throw new Error(
-      "Codex version extraction requires a daemon-supplied clientInfo.name carrying no '/' and no whitespace",
+      "Codex version extraction requires a daemon-supplied clientInfo.name carrying no '/' " +
+        "and no whitespace",
     );
   }
   const userAgent = isPlainObject(payload) ? payload["userAgent"] : undefined;

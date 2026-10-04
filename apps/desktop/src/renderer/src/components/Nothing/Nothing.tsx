@@ -113,7 +113,9 @@ const SKELETON_BAR_WIDTHS: readonly string[] = ["38%", "82%", "61%"];
 export function Nothing(props: NothingProps): React.JSX.Element {
   const traits = NOTHING_KIND_TRAITS[props.kind];
   const placement = props.placement ?? traits.defaultPlacement;
-  const className = `meridian-nothing ${SHAPE_MODIFIER_BY_PLACEMENT[placement]} meridian-nothing--${props.kind}`;
+  const className =
+    `meridian-nothing ${SHAPE_MODIFIER_BY_PLACEMENT[placement]} ` +
+    `meridian-nothing--${props.kind}`;
   return placement === "inline"
     ? renderBadge(props, traits, className)
     : renderBlock(props, traits, className);

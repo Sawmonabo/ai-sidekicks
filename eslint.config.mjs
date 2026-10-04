@@ -13,7 +13,11 @@ import tseslint from "typescript-eslint";
 const DAEMON_RANDOM_UUID_PROPERTY = {
   property: "randomUUID",
   message:
-    "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), which the contracts package's ID-format rule requires. An id that is genuinely an ephemeral token — no row and no event stores it — earns an entry in the exemption block beside this one, reviewed on the diff that adds it.",
+    "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids " +
+    "must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts), " +
+    "which the contracts package's ID-format rule requires. An id that is " +
+    "genuinely an ephemeral token — no row and no event stores it — earns an entry " +
+    "in the exemption block beside this one, reviewed on the diff that adds it.",
 };
 
 /**
@@ -25,13 +29,17 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
     name: "node:crypto",
     importNames: ["randomUUID"],
     message:
-      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). node:crypto's other exports are unrestricted.",
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). " +
+      "node:crypto's other exports are unrestricted.",
   },
   {
     name: "crypto",
     importNames: ["randomUUID"],
     message:
-      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). Use the `node:` prefix for the other builtins.",
+      "crypto.randomUUID() emits UUID v4. Daemon persisted-row ids and " +
+      "event ids must mint through mintUuidV7 (packages/runtime-daemon/src/ids/uuid-v7.ts). " +
+      "Use the `node:` prefix for the other builtins.",
   },
 ];
 
@@ -42,14 +50,17 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
 export const ENUM_DECLARATION = {
   selector: "TSEnumDeclaration",
   message:
-    "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
+    "Do not use TypeScript enums in application or domain code. Use a string-literal " +
+    "union, an `as const` object with its derived union, or a discriminated union. An " +
+    "enum an external contract requires stays at that boundary and is translated there.",
 };
 
 /** The `export *` ban, exported so a package config restates it beside the enum ban. */
 export const EXPORT_ALL_DECLARATION = {
   selector: "ExportAllDeclaration",
   message:
-    "No `export *`. Name each export, so a module's public surface is written where it is published and a symbol added to the source module is not exported by accident.",
+    "No `export *`. Name each export, so a module's public surface is written where it " +
+    "is published and a symbol added to the source module is not exported by accident.",
 };
 
 /*
@@ -273,7 +284,10 @@ const repositoryConfig = defineConfig(
         },
         {
           ignoreMiddleExtensions: true,
-          errorMessage: `"{{ target }}" breaks the renderer's file names: a component or page is PascalCase, a hook useThing, any other module kebab-case, and a test keeps its subject's name; see ${NAMING_RULES_SOURCE}`,
+          errorMessage:
+            `"{{ target }}" breaks the renderer's file names: a component or ` +
+            `page is PascalCase, a hook useThing, any other module kebab-case, ` +
+            `and a test keeps its subject's name; see ${NAMING_RULES_SOURCE}`,
         },
       ],
       "check-file/folder-naming-convention": [
@@ -285,7 +299,10 @@ const repositoryConfig = defineConfig(
           "layout/*/": "PASCAL_CASE",
         },
         {
-          errorMessage: `Folder "{{ target }}" breaks the renderer's folder names: a shared component or group owner directly under components/ or layout/ is PascalCase, every other folder kebab-case; see ${NAMING_RULES_SOURCE}`,
+          errorMessage:
+            `Folder "{{ target }}" breaks the renderer's folder names: a shared ` +
+            `component or group owner directly under components/ or layout/ is ` +
+            `PascalCase, every other folder kebab-case; see ${NAMING_RULES_SOURCE}`,
         },
       ],
     },
@@ -394,17 +411,21 @@ const repositoryConfig = defineConfig(
         {
           selector: 'ImportDeclaration[source.value="./event.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — importing ./event.js from it closes an import cycle, which can leave a module-scope schema undefined with no error.",
+            "event-core.ts is the acyclic leaf of the contracts module " +
+            "graph — importing ./event.js from it closes an import cycle, " +
+            "which can leave a module-scope schema undefined with no error.",
         },
         {
           selector: 'ImportExpression[source.value="./event.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — a dynamic import of ./event.js closes the cycle just as the static form does.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — a " +
+            "dynamic import of ./event.js closes the cycle just as the static form does.",
         },
         {
           selector: 'ExportNamedDeclaration[source.value="./event.js"]',
           message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
+            "event-core.ts is the acyclic leaf of the contracts module graph — " +
+            "re-exporting from ./event.js closes the cycle exactly as importing it does.",
         },
       ],
     },
@@ -438,7 +459,9 @@ const repositoryConfig = defineConfig(
             {
               regex: "(?:^|/)drivers/",
               message:
-                "A provider's driver folder is imported only by the provider-driver descriptor registry; shared daemon code reads a provider through the registry and names none.",
+                "A provider's driver folder is imported only by the " +
+                "provider-driver descriptor registry; shared daemon code " +
+                "reads a provider through the registry and names none.",
             },
           ],
         },
@@ -502,7 +525,10 @@ const repositoryConfig = defineConfig(
             {
               regex: "^(?!@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*$).*$",
               message:
-                "The read-side projectors are pure: @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The read-side projectors are pure: @ai-sidekicks/contracts is " +
+                "the only import they may carry, because any other specifier " +
+                "can reach I/O transitively. Widen this allow-list in " +
+                "eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
@@ -517,7 +543,7 @@ const repositoryConfig = defineConfig(
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
-    files: ["packages/runtime-daemon/src/provider/transcript/hand-over-brief.ts"],
+    files: ["packages/runtime-daemon/src/provider/hand-over/hand-over-brief.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -525,9 +551,15 @@ const repositoryConfig = defineConfig(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|" +
+                "\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
               message:
-                "The brief projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The brief projection floor is pure: it folds an already-read " +
+                "canonical projection into a turn and persists nothing, so its " +
+                "imports are the three this allow-list names and nothing else " +
+                "— a sibling that reaches the database or the filesystem pulls " +
+                "I/O into the fold behind it. Widen this allow-list in " +
+                "eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
@@ -551,12 +583,16 @@ const repositoryConfig = defineConfig(
         {
           name: "Date",
           message:
-            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — it reports the " +
+            "expiry fields its caller handed it and derives no expiry of " +
+            "its own. Compute the instant in the caller and pass it in.",
         },
         {
           name: "performance",
           message:
-            "worktree-projector.ts reads no clock — it reports the expiry fields its caller handed it and derives no expiry of its own. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — it reports the " +
+            "expiry fields its caller handed it and derives no expiry of " +
+            "its own. Compute the instant in the caller and pass it in.",
         },
       ],
       "no-restricted-properties": [
@@ -566,13 +602,17 @@ const repositoryConfig = defineConfig(
           object: "globalThis",
           property: "Date",
           message:
-            "worktree-projector.ts reads no clock — reaching `Date` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — reaching `Date` " +
+            "through the global object is the same read the identifier ban " +
+            "refuses. Compute the instant in the caller and pass it in.",
         },
         {
           object: "globalThis",
           property: "performance",
           message:
-            "worktree-projector.ts reads no clock — reaching `performance` through the global object is the same read the identifier ban refuses. Compute the instant in the caller and pass it in.",
+            "worktree-projector.ts reads no clock — reaching `performance` " +
+            "through the global object is the same read the identifier " +
+            "ban refuses. Compute the instant in the caller and pass it in.",
         },
       ],
     },

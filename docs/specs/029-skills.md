@@ -226,7 +226,7 @@ Described here; the shapes belong to [Plan-026](../plans/026-skills.md).
 
 - **The console's own record per folder** holds exactly two fields — availability and icon — keyed to the folder, on every origin but a plugin's. When the folder is renamed or deleted outside the console, the record stays, marked orphaned with the last path the folder was known at.
 - **The session pack** is composed per provider at launch from every skill available to that provider and is handed over through the provider's own loading path, namespaced. It is not a copy into a provider's tree. The session pack and the live refresh are the daemon's own work with the providers; no screen calls them.
-- **The composer reads this registry.** The `/` and `$` list's Skills group is a read of `skill.list`, the same entries this screen lists, name for name and line for line — one registry with two readers, never two registries. A skill not available to the current target is drawn grayed beside the rest, with a tooltip naming the provider that has it. Codex's own `skills/list` is read only for what Codex loaded: a skill Codex failed to load stays listed and grayed, with its load error as the reason, matched to its row by its `SKILL.md` path.
+- **The composer reads this registry.** The `/` and `$` list's Skills group is a read of `skill.list`, the same entries this screen lists, name for name and line for line — one registry with two readers, never two registries. A skill only the other provider can run is left out of the list; the Skills page still lists both providers. Codex's own `skills/list` is read only for what Codex loaded: a skill Codex failed to load stays listed and grayed, with its load error as the reason, matched to its row by its `SKILL.md` path.
 
 ## State And Data Implications
 
@@ -307,7 +307,7 @@ Described here; the shapes belong to [Plan-026](../plans/026-skills.md).
 - [ ] Editing the name of a folder of the console's own renames the folder; a name another of its own holds in the same place is refused under the name field as `skill.name_taken`, naming that folder, and nothing is renamed.
 - [ ] The daemon serves the skill operations, and a write to a plugin's skill or a refused path answers with its typed refusal and changes nothing.
 - [ ] A save in one window, and a folder changed on disk, reach the list and the composer's Skills group in every open window without a re-read.
-- [ ] The composer's Skills group draws a skill not available to the current target grayed, with a tooltip naming the provider that has it, and a skill Codex failed to load stays listed and grayed with its load error as the reason.
+- [ ] The composer's Skills group leaves out a skill only the other provider can run, and a skill Codex failed to load stays listed and grayed with its load error as the reason.
 
 ## Open Questions
 

@@ -90,11 +90,37 @@
   color: var(--meridian-text-faint);
 }
 
+/*
+ * The scroller of the windowed list. No top padding: row offsets count from the scroller's top
+ * edge, so a padded top would put every scrolled-to row a padding's height off. The first heading
+ * carries that space instead.
+ */
 .command-palette__list {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--meridian-space-2) 0;
+  padding-bottom: var(--meridian-space-2);
+}
+
+/* Holds the whole list's height; its rows are placed at their own offsets inside it. */
+.command-palette__rows {
+  position: relative;
+}
+
+/* A category's drawn run. Its rows are placed against the list, so the group takes no space. */
+.command-palette__group {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.command-palette__group-label,
+.command-palette__item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .command-palette__group-label {
@@ -103,6 +129,11 @@
   font-size: var(--meridian-text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+/* The first heading takes the space the list's top padding would have given. */
+.command-palette__group-label[data-index="0"] {
+  padding-top: calc(var(--meridian-space-2) * 2);
 }
 
 .command-palette__item {

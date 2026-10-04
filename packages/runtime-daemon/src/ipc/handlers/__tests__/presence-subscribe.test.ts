@@ -88,52 +88,60 @@ async function nextCheckPhase(): Promise<void> {
 }
 
 describe("presence.subscribe — push slice round-trip + wire-frame emission", () => {
-  it("dispatches subscribe; returns `{subscriptionId}`; a pushed update routes as a `$/subscription/notify` frame validated against MachinePresenceSchema", async () => {
-    const presence = setupPresence();
-    const transportId = 42;
-    const subscriptionId = await presence.subscribe(transportId);
+  it(
+    "dispatches subscribe; returns `{subscriptionId}`; a pushed update routes as a " +
+      "`$/subscription/notify` frame validated against MachinePresenceSchema",
+    async () => {
+      const presence = setupPresence();
+      const transportId = 42;
+      const subscriptionId = await presence.subscribe(transportId);
 
-    expect(subscriptionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
-    expect(presence.subscribeToPresence).toHaveBeenCalledTimes(1);
+      expect(subscriptionId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+      expect(presence.subscribeToPresence).toHaveBeenCalledTimes(1);
 
-    // Nothing is pushed before the response is written.
-    await nextCheckPhase();
-    expect(presence.send).not.toHaveBeenCalled();
+      // Nothing is pushed before the response is written.
+      await nextCheckPhase();
+      expect(presence.send).not.toHaveBeenCalled();
 
-    const update = buildMachinePresence();
-    presence.pushUpdate(update);
+      const update = buildMachinePresence();
+      presence.pushUpdate(update);
 
-    expect(presence.send).toHaveBeenCalledExactlyOnceWith(transportId, {
-      jsonrpc: JSONRPC_VERSION,
-      method: SUBSCRIPTION_NOTIFY_METHOD,
-      params: { subscriptionId, value: update },
-    });
-  });
+      expect(presence.send).toHaveBeenCalledExactlyOnceWith(transportId, {
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_NOTIFY_METHOD,
+        params: { subscriptionId, value: update },
+      });
+    },
+  );
 
-  it("buffers updates fired synchronously during setup and flushes them AFTER the init response (wire-ordering invariant)", async () => {
-    // The source fires an update during setup. The handler holds it until after the response,
-    // or the client would receive a notify for an id it does not know yet and drop it.
-    const syncUpdate = buildMachinePresence();
-    const presence = setupPresence({
-      beforeReturn: (onUpdate) => {
-        onUpdate(syncUpdate);
-      },
-    });
-    const subscriptionId = await presence.subscribe(7);
+  it(
+    "buffers updates fired synchronously during setup and flushes them AFTER the init response " +
+      "(wire-ordering invariant)",
+    async () => {
+      // The source fires an update during setup. The handler holds it until after the response,
+      // or the client would receive a notify for an id it does not know yet and drop it.
+      const syncUpdate = buildMachinePresence();
+      const presence = setupPresence({
+        beforeReturn: (onUpdate) => {
+          onUpdate(syncUpdate);
+        },
+      });
+      const subscriptionId = await presence.subscribe(7);
 
-    // The update is still held.
-    expect(presence.send).not.toHaveBeenCalled();
+      // The update is still held.
+      expect(presence.send).not.toHaveBeenCalled();
 
-    // The held update is sent on the next `setImmediate`.
-    await nextCheckPhase();
-    expect(presence.send).toHaveBeenCalledExactlyOnceWith(7, {
-      jsonrpc: JSONRPC_VERSION,
-      method: SUBSCRIPTION_NOTIFY_METHOD,
-      params: { subscriptionId, value: syncUpdate },
-    });
-  });
+      // The held update is sent on the next `setImmediate`.
+      await nextCheckPhase();
+      expect(presence.send).toHaveBeenCalledExactlyOnceWith(7, {
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_NOTIFY_METHOD,
+        params: { subscriptionId, value: syncUpdate },
+      });
+    },
+  );
 });
 
 describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
@@ -156,71 +164,87 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
     );
   }
 
-  it("replay-flush: a malformed update in the replay buffer is caught; subscription canceled; daemon survives", async () => {
-    // A bad update fired during setup is held, then fails validation when the `setImmediate`
-    // flush sends it. Without a catch that throw would be uncaught and stop the daemon; with it,
-    // the subscription is canceled and the failure logged.
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const presence = setupPresence({
-      beforeReturn: (onUpdate) => {
-        onUpdate(MALFORMED_PRESENCE);
+  it(
+    "replay-flush: a malformed update in the replay buffer is caught; subscription canceled; " +
+      "daemon survives",
+    async () => {
+      // A bad update fired during setup is held, then fails validation when the `setImmediate`
+      // flush sends it. Without a catch that throw would be uncaught and stop the daemon; with it,
+      // the subscription is canceled and the failure logged.
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const presence = setupPresence({
+        beforeReturn: (onUpdate) => {
+          onUpdate(MALFORMED_PRESENCE);
+        },
+      });
+      const subscriptionId = await presence.subscribe(7);
+      await nextCheckPhase();
+
+      // The subscription is already canceled, so canceling it again finds nothing.
+      expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
+      expect(presence.send).not.toHaveBeenCalled();
+      expectCanceledWithLog(consoleErrorSpy, "replay", subscriptionId);
+    },
+  );
+
+  it(
+    "live-tail: a malformed update after replay drain is caught; subscription canceled; daemon " +
+      "survives",
+    async () => {
+      // A bad update pushed after the first flush takes the live path. Without a catch, the
+      // validation throw would escape the source's call as an uncaught exception.
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const presence = setupPresence();
+      const subscriptionId = await presence.subscribe(7);
+      await nextCheckPhase();
+
+      // `not.toThrow` makes a missing catch fail this test instead of aborting the suite.
+      expect(() => {
+        presence.pushUpdate(MALFORMED_PRESENCE);
+      }).not.toThrow();
+
+      expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
+      expect(presence.send).not.toHaveBeenCalled();
+      expectCanceledWithLog(consoleErrorSpy, "live-tail", subscriptionId);
+    },
+  );
+});
+
+describe(
+  "presence.subscribe — wires upstream unsubscribe via sub.onCancel (the streaming-leak " +
+    "invariant)",
+  () => {
+    it(
+      "wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream " +
+        "unsubscribe",
+      async () => {
+        // Without the handler's `sub.onCancel(unsubscribe)`, the subscription would be removed but
+        // the presence source's watcher would leak.
+        const presence = setupPresence();
+        const transportId = 13;
+        const subscriptionId = await presence.subscribe(transportId);
+        await nextCheckPhase();
+        expect(presence.unsubscribe).not.toHaveBeenCalled();
+
+        // The cancel handler checks that the subscription belongs to the calling transport.
+        await expect(
+          presence.registry.dispatch("$/subscription/cancel", { subscriptionId }, { transportId }),
+        ).resolves.toStrictEqual({ canceled: true });
+        expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
       },
+    );
+
+    it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
+      // A closed connection calls `cleanupTransport`; the test calls it directly.
+      const presence = setupPresence();
+      const transportId = 21;
+      await presence.subscribe(transportId);
+      await nextCheckPhase();
+      expect(presence.unsubscribe).not.toHaveBeenCalled();
+
+      presence.primitive.cleanupTransport(transportId);
+
+      expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
     });
-    const subscriptionId = await presence.subscribe(7);
-    await nextCheckPhase();
-
-    // The subscription is already canceled, so canceling it again finds nothing.
-    expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
-    expect(presence.send).not.toHaveBeenCalled();
-    expectCanceledWithLog(consoleErrorSpy, "replay", subscriptionId);
-  });
-
-  it("live-tail: a malformed update after replay drain is caught; subscription canceled; daemon survives", async () => {
-    // A bad update pushed after the first flush takes the live path. Without a catch, the
-    // validation throw would escape the source's call as an uncaught exception.
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const presence = setupPresence();
-    const subscriptionId = await presence.subscribe(7);
-    await nextCheckPhase();
-
-    // `not.toThrow` makes a missing catch fail this test instead of aborting the suite.
-    expect(() => {
-      presence.pushUpdate(MALFORMED_PRESENCE);
-    }).not.toThrow();
-
-    expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
-    expect(presence.send).not.toHaveBeenCalled();
-    expectCanceledWithLog(consoleErrorSpy, "live-tail", subscriptionId);
-  });
-});
-
-describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (the streaming-leak invariant)", () => {
-  it("wire-cancel (`$/subscription/cancel` from the same transport) fires the upstream unsubscribe", async () => {
-    // Without the handler's `sub.onCancel(unsubscribe)`, the subscription would be removed but
-    // the presence source's watcher would leak.
-    const presence = setupPresence();
-    const transportId = 13;
-    const subscriptionId = await presence.subscribe(transportId);
-    await nextCheckPhase();
-    expect(presence.unsubscribe).not.toHaveBeenCalled();
-
-    // The cancel handler checks that the subscription belongs to the calling transport.
-    await expect(
-      presence.registry.dispatch("$/subscription/cancel", { subscriptionId }, { transportId }),
-    ).resolves.toStrictEqual({ canceled: true });
-    expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  it("transport-disconnect (`cleanupTransport`) fires the upstream unsubscribe", async () => {
-    // A closed connection calls `cleanupTransport`; the test calls it directly.
-    const presence = setupPresence();
-    const transportId = 21;
-    await presence.subscribe(transportId);
-    await nextCheckPhase();
-    expect(presence.unsubscribe).not.toHaveBeenCalled();
-
-    presence.primitive.cleanupTransport(transportId);
-
-    expect(presence.unsubscribe).toHaveBeenCalledTimes(1);
-  });
-});
+  },
+);

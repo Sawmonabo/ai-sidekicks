@@ -154,7 +154,8 @@ const EVENT_DISPOSITION_RECORD = {
   user_input_resolved: {
     disposition: "discard",
     reason:
-      "the answer is recorded as the person's own user.message turn by the call that answered the question; its delivery to the provider is kept in the daemon's log only",
+      "the answer is recorded as the person's own user.message turn by the call that " +
+      "answered the question; its delivery to the provider is kept in the daemon's log only",
   },
   // The provider's retry-or-edit choice on a refused turn that names a fallback model. Its answer,
   // `run.refusal_choice_resolved`, is appended by the daemon when it answers and is no kind.
@@ -228,12 +229,14 @@ const EVENT_DISPOSITION_RECORD = {
   content_block_start: {
     disposition: "discard",
     reason:
-      "streaming-structural envelope boundary; the wrapped text_delta kind carries the durable content — no separate transcript or persistence capability",
+      "streaming-structural envelope boundary; the wrapped text_delta kind carries the " +
+      "durable content — no separate transcript or persistence capability",
   },
   content_block_stop: {
     disposition: "discard",
     reason:
-      "paired streaming envelope boundary; same streaming-structural reason as content_block_start — the wrapped text_delta kind carries the durable content",
+      "paired streaming envelope boundary; same streaming-structural reason as " +
+      "content_block_start — the wrapped text_delta kind carries the durable content",
   },
   // Background and subagent.
   // Richer sibling completion; never replaces the tool-lifecycle
@@ -276,7 +279,10 @@ const EVENT_DISPOSITION_RECORD = {
   user_text: {
     disposition: "correlate",
     reason:
-      "a wire echo of a message the app sent: it confirms delivery and folds into that message's user.message row via correlation_id, adding no persisted type; until user.message has a payload variant, the echo routes to the normalizers' diagnostic branch",
+      "a wire echo of a message the app sent: it confirms delivery and folds into that " +
+      "message's user.message row via correlation_id, adding no persisted type; until " +
+      "user.message has a payload variant, the echo routes to the normalizers' diagnostic " +
+      "branch",
   },
   // Heavy, persisted: the payload goes to SQLite and light metadata to the client.
   diff: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },

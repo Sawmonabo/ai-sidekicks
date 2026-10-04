@@ -91,7 +91,7 @@ We will use OS-local IPC for client-to-daemon communication on the machine itsel
 ### Related Specs
 
 - [Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md)
-- [Identity And User State](../specs/016-identity-and-user-state.md)
+- [Hosted Account And Identity](../specs/016-hosted-account-and-identity.md)
 - [Remote Control](../specs/027-remote-control.md)
 
 ### Related ADRs

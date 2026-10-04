@@ -43,7 +43,8 @@ export class DraftStore {
   public constructor(options: DraftStoreOptions) {
     if (!Number.isInteger(options.maximumDraftCount) || options.maximumDraftCount < 1) {
       throw new RangeError(
-        `DraftStore needs room for at least one draft, and was given ${String(options.maximumDraftCount)}.`,
+        `DraftStore needs room for at least one draft, and ` +
+          `was given ${String(options.maximumDraftCount)}.`,
       );
     }
     this.#now = options.now ?? (() => Date.now());

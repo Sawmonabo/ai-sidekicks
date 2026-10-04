@@ -105,7 +105,8 @@ export class ClaudeSpawnLegComposer {
         kind: "callback_tool_registry_withheld",
         rawWireType: null,
         dispositionReason:
-          "no callback-tool dispatcher is bound for this spawn, so no invocation could be answered; the registry is withheld rather than offered unanswerable",
+          "no callback-tool dispatcher is bound for this spawn, so no invocation could be " +
+          "answered; the registry is withheld rather than offered unanswerable",
         details: {
           sessionId: params.sessionId,
           reason: "no-dispatcher-bound",
@@ -176,7 +177,9 @@ export function assertClaudeSpawnBoundRealization(
       throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
         sessionId: live.sessionId,
         runId: params.runId,
-        detail: `The run declares execution posture ${runPosture.mode}, but the Claude session was spawned with none.`,
+        detail:
+          `The run declares execution posture ${runPosture.mode}, but the Claude session was ` +
+          `spawned with none.`,
       });
     }
     const divergentAxis = findPostureDivergence(runPosture, spawnPosture);
@@ -203,7 +206,9 @@ export function assertClaudeSpawnBoundRealization(
       throw new ClaudeSessionUnavailableError("output_schema_mismatch", {
         sessionId: live.sessionId,
         runId: params.runId,
-        detail: `Run schema digest ${runOutputSchemaDigest.slice(0, 16)}, session schema digest ${spawnOutputSchemaDigest.slice(0, 16)}.`,
+        detail:
+          `Run schema digest ${runOutputSchemaDigest.slice(0, 16)}, session schema digest ` +
+          `${spawnOutputSchemaDigest.slice(0, 16)}.`,
       });
     }
   }

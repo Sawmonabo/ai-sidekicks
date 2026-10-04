@@ -1,9 +1,11 @@
 // The refusal is never suppressed, and the handoff never becomes an act.
 
+import type { ProviderAccountId, ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { refuse } from "@renderer/lib/refusal.js";
+import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 import { AccountPlaneRefusal } from "./AccountPlaneRefusal.js";
 
 afterEach(() => {
@@ -12,14 +14,14 @@ afterEach(() => {
 
 function renderRefusal(
   code: string,
-  currentSection?: Parameters<typeof AccountPlaneRefusal>[0]["currentSection"],
+  carriedRemedy?: ProviderRemedy,
 ): { readonly container: HTMLElement; readonly openPage: ReturnType<typeof vi.fn> } {
   const openPage = vi.fn();
   const { container } = render(
     <AccountPlaneRefusal
       refusal={refuse("provider-account", code, "The daemon's own sentence, unchanged.")}
+      carriedRemedy={carriedRemedy}
       openPage={openPage}
-      currentSection={currentSection}
     />,
   );
   return { container, openPage };
@@ -43,5 +45,18 @@ describe("an account-plane refusal on a console screen", () => {
     expect(actions).toHaveLength(1);
     actions[0]?.click();
     expect(openPage.mock.calls).toStrictEqual([["providers"]]);
+  });
+
+  it("offers a refused account move the remedy that account carries, and none without it", () => {
+    const tokenAccount = renderRefusal("provideraccount.not_authenticated", {
+      kind: "paste_token",
+      accountId: "pa-0001" as ProviderAccountId,
+    });
+    const tokenText = tokenAccount.container.textContent ?? "";
+    expect(tokenText).toContain(ACCOUNT_PLANE_HANDOFF_SENTENCES.paste_token);
+    expect(tokenText).not.toContain(ACCOUNT_PLANE_HANDOFF_SENTENCES.sign_in);
+    cleanup();
+    const uncarried = renderRefusal("provideraccount.not_authenticated");
+    expect(uncarried.container.querySelector(".meridian-account-handoff")).toBeNull();
   });
 });

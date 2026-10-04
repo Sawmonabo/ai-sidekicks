@@ -197,7 +197,8 @@ async function queueFirstTurn(
       queued: false,
       refusal: refuseNewSessionDraft(
         "first-turn-missing",
-        "The session was created, but nothing was said yet — type the first message and press Send again.",
+        "The session was created, but nothing was said yet — type the " +
+          "first message and press Send again.",
       ),
     };
   }

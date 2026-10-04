@@ -300,7 +300,9 @@ const WAITING_FOR_INPUT_SCRIPT: readonly ScriptEntry[] = [
       sessionId: SESSION_ID,
       agentId: AGENT_IMPLEMENTER,
       goal: {
-        text: "Land the rate-limit wiring behind the enforcement legs, then close the backlog items it names.",
+        text:
+          "Land the rate-limit wiring behind the enforcement " +
+          "legs, then close the backlog items it names.",
       },
       status: "active",
     },
@@ -312,7 +314,8 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   id: "waiting-for-input",
   label: "Awaiting a reply",
   purpose:
-    "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
+    "A session whose newest run is blocked on a person's next message — the " +
+    "state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({

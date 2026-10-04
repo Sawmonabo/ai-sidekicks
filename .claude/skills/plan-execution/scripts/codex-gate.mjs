@@ -13,7 +13,8 @@
  *   1. findings     — review object whose .commit_id is HEAD, with open threads
  *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
  *   3. clean        — "Didn't find any major issues" comment, same freshness bind
- *   4. rate-limited — fresh bot comment matching /usage limits for code reviews/ (NON-ack; stop polling)
+ *   4. rate-limited — fresh bot comment matching /usage limits for code reviews/
+ *                     (NON-ack; stop polling)
  *
  * The ack anchor is the latest of three floors: this gate's own first sighting of
  * the sha as this PR's HEAD (lib/observation-baseline.mjs), the earliest check
@@ -45,7 +46,8 @@
  * see that module's header for why a live probe cannot test them.
  *
  * Prints a human block, then a machine-readable final line:
- *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...> merge_state=<...> merge_ok=<0|1> head_sha=<40-hex>
+ *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...>
+ *     merge_state=<...> merge_ok=<0|1> head_sha=<40-hex>
  *
  * `head_sha` names the commit every other field on that line was measured
  * against. Pass it to `gh pr merge --match-head-commit` so the merge refuses a
@@ -198,7 +200,8 @@ const headCommit = ghJson([
 const headCommittedAtMs = new Date(headCommit?.date ?? Number.NaN).getTime();
 if (!Number.isFinite(headCommittedAtMs)) {
   fail(
-    `could not read the HEAD commit timestamp for ${headShaShort} (got ${JSON.stringify(headCommit?.date)})`,
+    `could not read the HEAD commit timestamp for ` +
+      `${headShaShort} (got ${JSON.stringify(headCommit?.date)})`,
   );
 }
 const headCommittedAt = new Date(headCommittedAtMs);
@@ -557,13 +560,19 @@ const mergeStateAllows = mergeStateAllowsMerge(mergeStateStatus);
 // `no_ack_yet` with nothing on screen to explain it.
 function describeAckAnchor() {
   if (observationBaselineKnown && ackAnchorMs === baselineObservedAtMs) {
-    return `this gate's FIRST SIGHTING of the sha as HEAD${baselineFirstObservation ? ", recorded just now" : ""}`;
+    return (
+      `this gate's FIRST SIGHTING of the sha as ` +
+      `HEAD${baselineFirstObservation ? ", recorded just now" : ""}`
+    );
   }
   if (!pushAnchorKnown) {
     return "commit time — NO check suite dates this sha, so the push time is unknown";
   }
   if (ackAnchorMs === pushObservedAtMs) {
-    return `earliest check suite, ${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`;
+    return (
+      `earliest check suite, ` +
+      `${Math.round((ackAnchorMs - headCommittedAtMs) / 1000)}s after the commit`
+    );
   }
   return "commit time — later than the earliest check suite, so it wins the max";
 }
@@ -574,25 +583,47 @@ const lines = [
   `  repo            ${repository}`,
   `  HEAD            ${headShaShort}  committed ${headCommittedAt.toISOString()}`,
   `  ack anchor      ${new Date(ackAnchorMs).toISOString()}  (${ackAnchorSource})`,
-  `  draft           ${pullRequest.isDraft}   state ${pullRequest.state}   mergeState ${mergeStateStatus}${mergeStateAllows ? "" : "  (BLOCKS MERGE)"}`,
+  `  draft           ${pullRequest.isDraft}   state ${pullRequest.state}   ` +
+    `mergeState ${mergeStateStatus}${mergeStateAllows ? "" : "  (BLOCKS MERGE)"}`,
   "",
   "  ack legs (disjunction — any one is a valid ack of HEAD):",
-  `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "}   (${botReviews.length} bot review(s) total)`,
-  `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "}   (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
-  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   (${botComments.length} bot comment(s): ${shaCitingComments.length} cite the sha, ${freshCleanVerdictComments.length} fresh clean verdict(s), ${otherCommitCleanVerdictComments.length} clean verdict(s) naming ANOTHER commit)`,
-  `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "}   (${cleanVerdictShaComments.length} sha-cited clean verdict(s); citing a sha is not a verdict)`,
-  `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "}   (${findingsShaComments.length} findings summary(ies) naming HEAD, findings in the body not in threads)`,
-  `    ack is BOUND BY SHA         ${shaBoundAckOfHead ? "YES" : "no "}   (a review on HEAD or a comment naming the sha; the +1 and a sha-less clean verdict rest on the anchor alone)`,
-  `    stale-run evidence          ${staleRunLandedAfterPush ? "YES" : "no "}   (${staleReviews.length} review(s) + ${staleCitations.length} citation(s) for a NON-head commit published after the anchor${staleCitedShas.length > 0 ? `: ${staleCitedShas.join(", ")}` : ""})`,
+  `    review .commit_id == HEAD   ${reviewAcksHead ? "YES" : "no "} ` +
+    `  (${botReviews.length} bot review(s) total)`,
+  `    +1 on issue at/after anchor ${reactionAcksHead ? "YES" : "no "} ` +
+    `  (${botThumbsUp.length} bot +1 total, ${freshThumbsUp.length} fresh)`,
+  `    comment acks HEAD           ${commentAcksHead ? "YES" : "no "}   ` +
+    `(${botComments.length} bot comment(s): ${shaCitingComments.length} cite the ` +
+    `sha, ${freshCleanVerdictComments.length} fresh clean verdict(s), ` +
+    `${otherCommitCleanVerdictComments.length} clean verdict(s) naming ANOTHER commit)`,
+  `    ..and that ack says CLEAN   ${commentAssertsClean ? "YES" : "no "} ` +
+    `  (${cleanVerdictShaComments.length} ` +
+    `sha-cited clean verdict(s); citing a sha is not a verdict)`,
+  `    ..or carries FINDINGS       ${commentReportsFindings ? "YES" : "no "} ` +
+    `  (${findingsShaComments.length} findings ` +
+    `summary(ies) naming HEAD, findings in the body not in threads)`,
+  `    ack is BOUND BY SHA         ${shaBoundAckOfHead ? "YES" : "no "} ` +
+    `  (a review on HEAD or a comment naming the sha; ` +
+    `the +1 and a sha-less clean verdict rest on the anchor alone)`,
+  `    stale-run evidence          ${staleRunLandedAfterPush ? "YES" : "no "} ` +
+    `  (${staleReviews.length} review(s) + ${staleCitations.length} ` +
+    `citation(s) for a NON-head commit published after the ` +
+    `anchor${staleCitedShas.length > 0 ? `: ${staleCitedShas.join(", ")}` : ""})`,
   `    first-sighting baseline     ${observationBaselineKnown ? "OK " : "NO "}   ${
     observationBaselineKnown
-      ? `${new Date(baselineObservedAtMs).toISOString()}${baselineFirstObservation ? " (stamped by THIS run)" : ""}`
+      ? `${new Date(baselineObservedAtMs).toISOString()}` +
+        `${baselineFirstObservation ? " (stamped by THIS run)" : ""}`
       : (baselineError ?? "unavailable")
   }${timestampOnlyAckUnvouchable ? "  <- cannot vouch for the current ack" : ""}`,
-  `    acks refused as pre-baseline ${ackPredatesBaseline ? "YES" : "no "}  (${preBaselineReactions.length} +1(s), ${preBaselineCleanComments.length} sha-less clean verdict(s) older than that sighting)`,
+  `    acks refused as pre-baseline ${ackPredatesBaseline ? "YES" : "no "} ` +
+    ` (${preBaselineReactions.length} +1(s), ${preBaselineCleanComments.length} ` +
+    `sha-less clean verdict(s) older than that sighting)`,
   "",
-  `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} outdated, counted anyway) of ${threadTotal} total thread(s)`,
-  `  CI                ${ciStatus}  (${gatingChecks.length} of ${dedupedChecks.length} check(s) gate the merge [${ciMode}], ${failedChecks.length} failed, ${pendingChecks.length} pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
+  `  unresolved bot threads  ${unresolvedBotThreads.length}  (${outdatedUnresolvedCount} ` +
+    `outdated, counted anyway) of ${threadTotal} total thread(s)`,
+  `  CI                ${ciStatus}  (${gatingChecks.length} of ` +
+    `${dedupedChecks.length} check(s) gate the merge [${ciMode}], ` +
+    `${failedChecks.length} failed, ${pendingChecks.length} ` +
+    `pending${supersededCount > 0 ? `, ${supersededCount} superseded run(s) ignored` : ""})`,
 ];
 
 if (ciMode === "all-checks" && dedupedChecks.length > 0) {
@@ -618,12 +649,15 @@ if (!pushAnchorKnown) {
 }
 if (threadWindowTruncated) {
   lines.push(
-    `  !! review-thread connection truncated [${threadDrain.truncationReason}]: ${describeTruncation(threadDrain)} — the unresolved count is a floor, not a total. NOT mergeable.`,
+    `  !! review-thread connection truncated ` +
+      `[${threadDrain.truncationReason}]: ${describeTruncation(threadDrain)} — the ` +
+      `unresolved count is a floor, not a total. NOT mergeable.`,
   );
 }
 if (checkWindowTruncated) {
   lines.push(
-    `  !! check-rollup connection truncated [${rollupDrain.truncationReason}]: ${describeTruncation(rollupDrain)} — CI status is unverified. NOT mergeable.`,
+    `  !! check-rollup connection truncated [${rollupDrain.truncationReason}]: ` +
+      `${describeTruncation(rollupDrain)} — CI status is unverified. NOT mergeable.`,
   );
 }
 for (const check of failedChecks) {
@@ -631,7 +665,8 @@ for (const check of failedChecks) {
 }
 for (const check of advisoryFailedChecks) {
   lines.push(
-    `  -- advisory check failed (real signal, does not block merge): ${checkName(check)} = ${checkState(check)}`,
+    `  -- advisory check failed (real signal, does not ` +
+      `block merge): ${checkName(check)} = ${checkState(check)}`,
   );
 }
 if (rateLimited) {
@@ -651,7 +686,9 @@ if (verdict === "no_ack_yet") {
 // immediately, because nothing is in flight for HEAD.
 if (verdict === "no_ack_yet" && otherCommitCleanVerdictComments.length > 0) {
   lines.push(
-    `     NOTE: ${otherCommitCleanVerdictComments.length} clean verdict(s) ARE on this PR, each naming a DIFFERENT commit${staleCitedShas.length > 0 ? ` (${staleCitedShas.join(", ")})` : ""} —`,
+    `     NOTE: ${otherCommitCleanVerdictComments.length} clean ` +
+      `verdict(s) ARE on this PR, each naming a DIFFERENT ` +
+      `commit${staleCitedShas.length > 0 ? ` (${staleCitedShas.join(", ")})` : ""} —`,
   );
   lines.push(
     "     the tail of a run for the previous head, not a verdict on this one. Re-trigger now.",
@@ -665,7 +702,8 @@ if (verdict === "signal_truncated") {
 }
 if (verdict === "ack_unsettled" && !ackAgeUnknown) {
   lines.push(
-    `  !! ${unsettledAckLeg} ack of HEAD is ${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
+    `  !! ${unsettledAckLeg} ack of HEAD is ` +
+      `${Math.round(threadBearingAckAgeMs / 1000)}s old with 0 visible threads —`,
   );
   lines.push(
     "     cannot distinguish 'clean' from 'threads not yet materialized'. Re-poll; do NOT merge.",
@@ -677,7 +715,8 @@ if (verdict === "ack_unsettled" && !ackAgeUnknown) {
 // holds it because an ack it cannot date is one it cannot rule out as brand new.
 if (verdict === "ack_unsettled" && ackAgeUnknown) {
   lines.push(
-    `  !! the ${unsettledAckLeg} ack of HEAD carries NO usable timestamp, so its age is unknown and`,
+    `  !! the ${unsettledAckLeg} ack of HEAD carries ` +
+      `NO usable timestamp, so its age is unknown and`,
   );
   lines.push(
     "     the settle window can never expire on it. Re-polling will not clear this. Comment",
@@ -688,7 +727,8 @@ if (verdict === "ack_unsettled" && ackAgeUnknown) {
 }
 if (verdict === "ack_findings_no_threads") {
   lines.push(
-    `  !! Codex filed findings for HEAD in ${findingsShaComments.length} comment body(ies), with 0 review threads.`,
+    `  !! Codex filed findings for HEAD in ${findingsShaComments.length} ` +
+      `comment body(ies), with 0 review threads.`,
   );
   lines.push(
     "     There is nothing to resolve, so require-conversation-resolution will NOT block this",
@@ -699,16 +739,21 @@ if (verdict === "ack_findings_no_threads") {
 }
 if (verdict === "ack_unattributable") {
   lines.push(
-    `  !! the only ack of HEAD is TIMESTAMP-bound (+1 and/or a sha-less clean verdict), and a Codex run`,
+    `  !! the only ack of HEAD is TIMESTAMP-bound (+1 ` +
+      `and/or a sha-less clean verdict), and a Codex run`,
   );
   lines.push(
-    `     for an OLDER commit published AFTER this push (${staleReviews.length} review(s), ${staleCitations.length} citation(s)${staleCitedShas.length > 0 ? ` naming ${staleCitedShas.join(", ")}` : ""}).`,
+    `     for an OLDER commit published AFTER this push (${staleReviews.length} ` +
+      `review(s), ${staleCitations.length} ` +
+      `citation(s)${staleCitedShas.length > 0 ? ` naming ${staleCitedShas.join(", ")}` : ""}).`,
   );
   lines.push(
-    "     That ack cannot be told apart from the older run's tail, so it is not a verdict on HEAD and",
+    "     That ack cannot be told apart from the older " +
+      "run's tail, so it is not a verdict on HEAD and",
   );
   lines.push(
-    "     the settle window is not what is missing. A pass for THIS commit cites the sha — re-poll for",
+    "     the settle window is not what is missing. A " +
+      "pass for THIS commit cites the sha — re-poll for",
   );
   lines.push("     that, and comment '@codex review' if it does not arrive. Do NOT merge.");
 }
@@ -718,12 +763,15 @@ if (verdict === "ack_baseline_unavailable") {
   );
   lines.push(`     it against: ${baselineError ?? "the first-sighting baseline is unavailable"}`);
   lines.push(
-    `     Nothing is wrong with the ack — the gap is in this gate's own state at ${baselinePath}.`,
+    `     Nothing is wrong with the ack — the gap is in this gate's own state at ` +
+      `${baselinePath}.`,
   );
   lines.push(
     baselineWritable
-      ? "     Delete that file and re-run: the next poll re-stamps it and the ack is judged normally."
-      : "     Fix the path's permissions (or free the disk) and re-run. Re-polling alone will NOT clear this.",
+      ? "     Delete that file and re-run: the next poll " +
+          "re-stamps it and the ack is judged normally."
+      : "     Fix the path's permissions (or free the disk) " +
+          "and re-run. Re-polling alone will NOT clear this.",
   );
   lines.push(
     "     A sha-bound verdict needs no baseline at all, so '@codex review' also clears it.",
@@ -734,10 +782,12 @@ if (verdict === "ack_predates_baseline") {
     `  !! Codex HAS acked, and this gate refused the ack: ${preBaselineReactions.length} +1(s) and`,
   );
   lines.push(
-    `     ${preBaselineCleanComments.length} sha-less clean verdict(s) predate this gate's first sighting of ${headShaShort} as HEAD`,
+    `     ${preBaselineCleanComments.length} sha-less clean verdict(s) ` +
+      `predate this gate's first sighting of ${headShaShort} as HEAD`,
   );
   lines.push(
-    `     (${new Date(baselineObservedAtMs).toISOString()}). Neither carries a sha, so nothing else binds them to THIS commit —`,
+    `     (${new Date(baselineObservedAtMs).toISOString()}). Neither ` +
+      `carries a sha, so nothing else binds them to THIS commit —`,
   );
   lines.push(
     "     and an ack that landed before the gate ever saw this head cannot be told from one for a",
@@ -761,15 +811,18 @@ if (verdict === "ack_without_verdict") {
 }
 if (verdict === "head_moved") {
   lines.push(
-    `  !! HEAD moved mid-probe: ${headShaShort} -> ${headShaAtFinish.slice(0, 10)}. Every signal above`,
+    `  !! HEAD moved mid-probe: ${headShaShort} -> ` +
+      `${headShaAtFinish.slice(0, 10)}. Every signal above`,
   );
   lines.push(
-    "     describes the OLD commit, so none of it decides anything. Re-run the gate on the new head.",
+    "     describes the OLD commit, so none of it " +
+      "decides anything. Re-run the gate on the new head.",
   );
 }
 if (!isOpen) {
   lines.push(
-    `  !! PR state is ${pullRequest.state}, not OPEN — there is nothing left to merge, so merge_ok is 0`,
+    `  !! PR state is ${pullRequest.state}, not OPEN ` +
+      `— there is nothing left to merge, so merge_ok is 0`,
   );
   lines.push("     regardless of the review verdict.");
 }
@@ -778,10 +831,12 @@ if (!isOpen) {
 // a phantom blocker when the real answer is "it already merged".
 if (verdict === "ack_clean" && isOpen && !mergeStateAllows) {
   lines.push(
-    `  !! Codex is clean but GitHub reports mergeStateStatus=${mergeStateStatus} — a merge requirement is unmet`,
+    `  !! Codex is clean but GitHub reports ` +
+      `mergeStateStatus=${mergeStateStatus} — a merge requirement is unmet`,
   );
   lines.push(
-    "     (a required check with no rollup row, an unresolved human conversation, or a stale base).",
+    "     (a required check with no rollup row, an " +
+      "unresolved human conversation, or a stale base).",
   );
 }
 
@@ -792,7 +847,9 @@ lines.push("");
 // merger does. Feed it to `gh pr merge --match-head-commit` so the merge refuses
 // a head that moved between this print and the call.
 lines.push(
-  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} merge_ok=${mergeOk ? 1 : 0} advisory=${advisory ? 1 : 0} head_sha=${headSha}`,
+  `GATE verdict=${verdict} ack=${ackOfHead ? 1 : 0} unresolved=${unresolvedBotThreads.length} ` +
+    `ci=${ciStatus} state=${pullRequest.state} merge_state=${mergeStateStatus} ` +
+    `merge_ok=${mergeOk ? 1 : 0} advisory=${advisory ? 1 : 0} head_sha=${headSha}`,
 );
 
 process.stdout.write(`${lines.join("\n")}\n`);

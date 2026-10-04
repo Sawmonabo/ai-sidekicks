@@ -293,153 +293,167 @@ describe("canonical transcript fold", () => {
 // Private reasoning
 
 describe("transform pipeline — private reasoning never leaves", () => {
-  it("strips private reasoning by its disclosure and answers the call whose result went with it", () => {
-    const transformed = transformTranscript(
-      foldLog([
-        { kind: "user", text: "run the tests" },
-        {
-          kind: "reasoning",
-          blocks: [
-            privateBlock("block-private-1"),
-            // A strip keyed on the kind name would keep this block.
-            {
-              blockId: "block-private-2",
-              reasoningKind: "redacted_thinking",
-              disclosure: "private",
-              text: "opaque",
-            },
-          ],
-        },
-        {
-          kind: "call",
-          toolCallId: "call-1",
-          toolName: "inspect",
-          argumentsJson: '{"suite":"unit"}',
-        },
-        {
-          kind: "result",
-          toolCallId: "call-1",
-          text: "42 passed",
-          enclosingReasoningBlockId: "block-private-1",
-        },
-        { kind: "assistant", text: "all green" },
-      ]),
-    );
-
-    // The stand-in sits right after its call: a reader pairs a call with the result that follows.
-    expect(segmentsOf(transformed.turns)).toEqual([
-      { kind: "text", position: 1, text: "run the tests" },
-      toolCall(3, "call-1", '{"suite":"unit"}'),
-      repairedResult(3, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
-      { kind: "text", position: 5, text: "all green" },
-    ]);
-    expect(transformed.declaredLosses).toEqual([
-      "provider_private_reasoning",
-      "tool_call_history_repaired",
-    ]);
-  });
-
-  it("withholds a tool result whose enclosure is private or cannot be known, and declares why", () => {
-    const user: LogRow = { kind: "user", text: "run the tests" };
-    const call: LogRow = {
-      kind: "call",
-      toolCallId: "call-1",
-      toolName: "inspect",
-      argumentsJson: "{}",
-    };
-    const keyedResult = (blockId: string): LogRow => ({
-      kind: "result",
-      toolCallId: "call-1",
-      text: "42 passed",
-      enclosingReasoningBlockId: blockId,
-    });
-    const unkeyedResult = (blockId: string): LogRow => ({
-      kind: "result",
-      text: "42 passed",
-      enclosingReasoningBlockId: blockId,
-    });
-
-    const cases: readonly {
-      readonly name: string;
-      readonly rows: readonly LogRow[];
-      readonly boundary?: number;
-      readonly declaredLosses: readonly string[];
-    }[] = [
-      {
-        name: "a keyed result whose turn's reasoning could not be read",
-        rows: [user, { kind: "reasoning" }, call, keyedResult("block-private-1")],
-        declaredLosses: ["tool_call_history_repaired", "turn_content_unavailable"],
-      },
-      {
-        // A fold that stopped at the bound would never meet the block that withholds the answer.
-        name: "a keyed result inside the bound, its private block logged past it",
-        rows: [
-          user,
-          call,
-          keyedResult("block-private-1"),
-          { kind: "reasoning", blocks: [privateBlock("block-private-1")] },
-        ],
-        boundary: 3,
-        declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
-      },
-      {
-        name: "a keyed result past the bound, its private block inside it",
-        rows: [
-          user,
-          { kind: "reasoning", blocks: [privateBlock("block-private-1")] },
-          call,
-          keyedResult("block-private-1"),
-        ],
-        boundary: 3,
-        declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
-      },
-      {
-        // Last write wins would let the later summary overwrite the private stamp.
-        name: "a keyed result citing one block id carried twice under disagreeing disclosures",
-        rows: [
-          user,
-          call,
-          keyedResult("block-1"),
-          { kind: "reasoning", blocks: [privateBlock("block-1")] },
-          { kind: "reasoning", blocks: [summaryBlock("block-1")] },
-        ],
-        boundary: 3,
-        declaredLosses: ["tool_call_history_repaired", "turn_content_unavailable"],
-      },
-      {
-        name: "an unkeyed answer inside a private block",
-        rows: [
-          { kind: "reasoning", blocks: [privateBlock("block-1")] },
-          unkeyedResult("block-1"),
+  it(
+    "strips private reasoning by its disclosure " +
+      "and answers the call whose result went with it",
+    () => {
+      const transformed = transformTranscript(
+        foldLog([
+          { kind: "user", text: "run the tests" },
+          {
+            kind: "reasoning",
+            blocks: [
+              privateBlock("block-private-1"),
+              // A strip keyed on the kind name would keep this block.
+              {
+                blockId: "block-private-2",
+                reasoningKind: "redacted_thinking",
+                disclosure: "private",
+                text: "opaque",
+              },
+            ],
+          },
+          {
+            kind: "call",
+            toolCallId: "call-1",
+            toolName: "inspect",
+            argumentsJson: '{"suite":"unit"}',
+          },
+          {
+            kind: "result",
+            toolCallId: "call-1",
+            text: "42 passed",
+            enclosingReasoningBlockId: "block-private-1",
+          },
           { kind: "assistant", text: "all green" },
-        ],
-        declaredLosses: ["provider_private_reasoning"],
-      },
-      {
-        name: "an unkeyed answer logged before its private block, the bound between them",
-        rows: [unkeyedResult("block-1"), { kind: "reasoning", blocks: [privateBlock("block-1")] }],
-        boundary: 1,
-        declaredLosses: ["provider_private_reasoning"],
-      },
-      {
-        // Its own turn cannot tell the citation's disclosure, so unknown fails closed.
-        name: "an unkeyed answer citing a block only an earlier turn carries",
-        rows: [
-          { kind: "reasoning", blocks: [summaryBlock("block-1")] },
-          { kind: "turn-start" },
-          unkeyedResult("block-1"),
-        ],
-        declaredLosses: ["turn_content_unavailable"],
-      },
-    ];
+        ]),
+      );
 
-    for (const enclosureCase of cases) {
-      const transformed = transformTranscript(foldLog(enclosureCase.rows, enclosureCase.boundary));
-      expect(everyTextIn(transformed), enclosureCase.name).not.toContain("42 passed");
-      expect(everyTextIn(transformed), enclosureCase.name).not.toContain("internal deliberation");
-      expect(transformed.declaredLosses, enclosureCase.name).toEqual(enclosureCase.declaredLosses);
-    }
-  });
+      // The stand-in sits right after its call: a reader pairs a call with the result that follows.
+      expect(segmentsOf(transformed.turns)).toEqual([
+        { kind: "text", position: 1, text: "run the tests" },
+        toolCall(3, "call-1", '{"suite":"unit"}'),
+        repairedResult(3, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
+        { kind: "text", position: 5, text: "all green" },
+      ]);
+      expect(transformed.declaredLosses).toEqual([
+        "provider_private_reasoning",
+        "tool_call_history_repaired",
+      ]);
+    },
+  );
+
+  it(
+    "withholds a tool result whose enclosure is " + "private or cannot be known, and declares why",
+    () => {
+      const user: LogRow = { kind: "user", text: "run the tests" };
+      const call: LogRow = {
+        kind: "call",
+        toolCallId: "call-1",
+        toolName: "inspect",
+        argumentsJson: "{}",
+      };
+      const keyedResult = (blockId: string): LogRow => ({
+        kind: "result",
+        toolCallId: "call-1",
+        text: "42 passed",
+        enclosingReasoningBlockId: blockId,
+      });
+      const unkeyedResult = (blockId: string): LogRow => ({
+        kind: "result",
+        text: "42 passed",
+        enclosingReasoningBlockId: blockId,
+      });
+
+      const cases: readonly {
+        readonly name: string;
+        readonly rows: readonly LogRow[];
+        readonly boundary?: number;
+        readonly declaredLosses: readonly string[];
+      }[] = [
+        {
+          name: "a keyed result whose turn's reasoning could not be read",
+          rows: [user, { kind: "reasoning" }, call, keyedResult("block-private-1")],
+          declaredLosses: ["tool_call_history_repaired", "turn_content_unavailable"],
+        },
+        {
+          // A fold that stopped at the bound would never meet the block that withholds the answer.
+          name: "a keyed result inside the bound, its private block logged past it",
+          rows: [
+            user,
+            call,
+            keyedResult("block-private-1"),
+            { kind: "reasoning", blocks: [privateBlock("block-private-1")] },
+          ],
+          boundary: 3,
+          declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+        },
+        {
+          name: "a keyed result past the bound, its private block inside it",
+          rows: [
+            user,
+            { kind: "reasoning", blocks: [privateBlock("block-private-1")] },
+            call,
+            keyedResult("block-private-1"),
+          ],
+          boundary: 3,
+          declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+        },
+        {
+          // Last write wins would let the later summary overwrite the private stamp.
+          name: "a keyed result citing one block id carried twice under disagreeing disclosures",
+          rows: [
+            user,
+            call,
+            keyedResult("block-1"),
+            { kind: "reasoning", blocks: [privateBlock("block-1")] },
+            { kind: "reasoning", blocks: [summaryBlock("block-1")] },
+          ],
+          boundary: 3,
+          declaredLosses: ["tool_call_history_repaired", "turn_content_unavailable"],
+        },
+        {
+          name: "an unkeyed answer inside a private block",
+          rows: [
+            { kind: "reasoning", blocks: [privateBlock("block-1")] },
+            unkeyedResult("block-1"),
+            { kind: "assistant", text: "all green" },
+          ],
+          declaredLosses: ["provider_private_reasoning"],
+        },
+        {
+          name: "an unkeyed answer logged before its private block, the bound between them",
+          rows: [
+            unkeyedResult("block-1"),
+            { kind: "reasoning", blocks: [privateBlock("block-1")] },
+          ],
+          boundary: 1,
+          declaredLosses: ["provider_private_reasoning"],
+        },
+        {
+          // Its own turn cannot tell the citation's disclosure, so unknown fails closed.
+          name: "an unkeyed answer citing a block only an earlier turn carries",
+          rows: [
+            { kind: "reasoning", blocks: [summaryBlock("block-1")] },
+            { kind: "turn-start" },
+            unkeyedResult("block-1"),
+          ],
+          declaredLosses: ["turn_content_unavailable"],
+        },
+      ];
+
+      for (const enclosureCase of cases) {
+        const transformed = transformTranscript(
+          foldLog(enclosureCase.rows, enclosureCase.boundary),
+        );
+        expect(everyTextIn(transformed), enclosureCase.name).not.toContain("42 passed");
+        expect(everyTextIn(transformed), enclosureCase.name).not.toContain("internal deliberation");
+        expect(transformed.declaredLosses, enclosureCase.name).toEqual(
+          enclosureCase.declaredLosses,
+        );
+      }
+    },
+  );
 });
 
 // Pairing
@@ -468,7 +482,9 @@ describe("transform pipeline — every carried call has exactly one answer, afte
     };
   }
 
-  /** Every call identifier is distinct and has exactly one answer after it; no answer is orphaned. */
+  /**
+   * Every call identifier is distinct and has exactly one answer after it; no answer is orphaned.
+   */
   function expectOneAnswerPerDistinctCall(transformed: TransformedTranscript, name: string): void {
     const segments = segmentsOf(transformed.turns);
     const callIds = segments.flatMap((segment) =>
@@ -614,82 +630,86 @@ describe("transform pipeline — every carried call has exactly one answer, afte
 // The bound
 
 describe("transform pipeline — a bounded export carries nothing logged past the bound", () => {
-  it("cuts inside a turn, and bounds before the repair so an admitted call is answered in bound", () => {
-    const cases: readonly {
-      readonly name: string;
-      readonly rows: readonly LogRow[];
-      readonly boundary: number;
-      /** How many turns the whole log folds to, so a case cannot pass on a split it never had. */
-      readonly unboundedTurnCount: number;
-      readonly segments: readonly CanonicalTranscriptSegment[];
-      readonly declaredLosses: readonly string[];
-    }[] = [
-      {
-        name: "whole turns past the bound",
-        rows: [
-          { kind: "user", text: "first question" },
-          { kind: "assistant", text: "first answer" },
-          { kind: "user", text: "second question" },
-          { kind: "assistant", text: "second answer" },
-        ],
-        boundary: 2,
-        unboundedTurnCount: 4,
-        segments: [
-          { kind: "text", position: 1, text: "first question" },
-          { kind: "text", position: 2, text: "first answer" },
-        ],
-        declaredLosses: [],
-      },
-      {
-        // A bound read off the turn's own position would keep the turn whole.
-        name: "content a turn coalesced from past the bound",
-        rows: [
-          { kind: "assistant", text: "the suite is green" },
-          { kind: "result", text: "the leaked follow-up" },
-        ],
-        boundary: 1,
-        unboundedTurnCount: 1,
-        segments: [{ kind: "text", position: 1, text: "the suite is green" }],
-        declaredLosses: [],
-      },
-      {
-        name: "a call whose answer arrives in the next turn",
-        rows: [
-          { kind: "call", toolCallId: "call-1", toolName: "inspect", argumentsJson: "{}" },
-          { kind: "turn-start" },
-          { kind: "result", toolCallId: "call-1", text: "the file contents" },
-        ],
-        boundary: 1,
-        unboundedTurnCount: 2,
-        segments: [
-          toolCall(1, "call-1"),
-          repairedResult(1, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
-        ],
-        declaredLosses: ["tool_call_history_repaired"],
-      },
-      {
-        name: "a call and its answer coalesced into one turn",
-        rows: [
-          { kind: "call", toolCallId: "call-1", toolName: "inspect", argumentsJson: "{}" },
-          { kind: "result", toolCallId: "call-1", text: "the file contents" },
-        ],
-        boundary: 1,
-        unboundedTurnCount: 1,
-        segments: [
-          toolCall(1, "call-1"),
-          repairedResult(1, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
-        ],
-        declaredLosses: ["tool_call_history_repaired"],
-      },
-    ];
+  it(
+    "cuts inside a turn, and bounds before the " +
+      "repair so an admitted call is answered in bound",
+    () => {
+      const cases: readonly {
+        readonly name: string;
+        readonly rows: readonly LogRow[];
+        readonly boundary: number;
+        /** How many turns the whole log folds to, so a case cannot pass on a split it never had. */
+        readonly unboundedTurnCount: number;
+        readonly segments: readonly CanonicalTranscriptSegment[];
+        readonly declaredLosses: readonly string[];
+      }[] = [
+        {
+          name: "whole turns past the bound",
+          rows: [
+            { kind: "user", text: "first question" },
+            { kind: "assistant", text: "first answer" },
+            { kind: "user", text: "second question" },
+            { kind: "assistant", text: "second answer" },
+          ],
+          boundary: 2,
+          unboundedTurnCount: 4,
+          segments: [
+            { kind: "text", position: 1, text: "first question" },
+            { kind: "text", position: 2, text: "first answer" },
+          ],
+          declaredLosses: [],
+        },
+        {
+          // A bound read off the turn's own position would keep the turn whole.
+          name: "content a turn coalesced from past the bound",
+          rows: [
+            { kind: "assistant", text: "the suite is green" },
+            { kind: "result", text: "the leaked follow-up" },
+          ],
+          boundary: 1,
+          unboundedTurnCount: 1,
+          segments: [{ kind: "text", position: 1, text: "the suite is green" }],
+          declaredLosses: [],
+        },
+        {
+          name: "a call whose answer arrives in the next turn",
+          rows: [
+            { kind: "call", toolCallId: "call-1", toolName: "inspect", argumentsJson: "{}" },
+            { kind: "turn-start" },
+            { kind: "result", toolCallId: "call-1", text: "the file contents" },
+          ],
+          boundary: 1,
+          unboundedTurnCount: 2,
+          segments: [
+            toolCall(1, "call-1"),
+            repairedResult(1, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
+          ],
+          declaredLosses: ["tool_call_history_repaired"],
+        },
+        {
+          name: "a call and its answer coalesced into one turn",
+          rows: [
+            { kind: "call", toolCallId: "call-1", toolName: "inspect", argumentsJson: "{}" },
+            { kind: "result", toolCallId: "call-1", text: "the file contents" },
+          ],
+          boundary: 1,
+          unboundedTurnCount: 1,
+          segments: [
+            toolCall(1, "call-1"),
+            repairedResult(1, "call-1", SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT),
+          ],
+          declaredLosses: ["tool_call_history_repaired"],
+        },
+      ];
 
-    for (const boundCase of cases) {
-      expect(foldLog(boundCase.rows).turns, boundCase.name).toHaveLength(
-        boundCase.unboundedTurnCount,
-      );
-      const bounded = transformTranscript(foldLog(boundCase.rows, boundCase.boundary));
-      expect(segmentsOf(bounded.turns), boundCase.name).toEqual(boundCase.segments);
-      expect(bounded.declaredLosses, boundCase.name).toEqual(boundCase.declaredLosses);
-    }
-  });
+      for (const boundCase of cases) {
+        expect(foldLog(boundCase.rows).turns, boundCase.name).toHaveLength(
+          boundCase.unboundedTurnCount,
+        );
+        const bounded = transformTranscript(foldLog(boundCase.rows, boundCase.boundary));
+        expect(segmentsOf(bounded.turns), boundCase.name).toEqual(boundCase.segments);
+        expect(bounded.declaredLosses, boundCase.name).toEqual(boundCase.declaredLosses);
+      }
+    },
+  );
 });

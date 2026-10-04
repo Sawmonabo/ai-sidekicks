@@ -58,7 +58,7 @@ export interface MountInventoryCalls {
  * Every session event kind that can change what this list says.
  *
  * The `workspace.*` lifecycle kinds change which mounts the workspace list names; a run
- * ending re-probes the worktree it executed in, so health moves at those three run kinds.
+ * ending re-probes the worktree it executed in, so health moves at those four run kinds.
  * A run beginning changes neither axis. Typed as the contract's own census, so a kind the
  * daemon never sends fails to compile.
  */
@@ -70,6 +70,7 @@ const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
   "run.completed",
   "run.failed",
   "run.interrupted",
+  "run.stopped",
 ];
 
 /** What one inventory read answers. */

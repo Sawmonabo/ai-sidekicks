@@ -63,7 +63,9 @@ export function realizeClaudeSubagentPolicy(
     }
     withheld.push({
       name: definition.name,
-      reason: `permission mode "${permissionMode}" bypasses the daemon permission prompt, so this subagent's tool calls could not be held at the daemon boundary`,
+      reason:
+        `permission mode "${permissionMode}" bypasses the daemon permission prompt, so this ` +
+        `subagent's tool calls could not be held at the daemon boundary`,
     });
   }
   return {
@@ -184,7 +186,9 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
   #composeDisposedError(subagentId: string): ClaudeSessionUnavailableError {
     return new ClaudeSessionUnavailableError("no_live_session", {
       sessionId: this.#sessionId,
-      detail: `Subagent ${subagentId} was waiting for a concurrency slot when the session was disposed.`,
+      detail:
+        `Subagent ${subagentId} was waiting for a ` +
+        `concurrency slot when the session was disposed.`,
     });
   }
 
@@ -202,7 +206,8 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
       kind: "subagent_concurrency_breach",
       rawWireType: null,
       dispositionReason:
-        "more subagents were observed alive than the declared concurrency cap admits; the cap is enforced at the tool-call boundary and never fails a run",
+        "more subagents were observed alive than the declared concurrency cap admits; the " +
+        "cap is enforced at the tool-call boundary and never fails a run",
       details: {
         sessionId: this.#sessionId,
         maxConcurrent: this.#maxConcurrent,

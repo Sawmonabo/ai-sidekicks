@@ -8,10 +8,6 @@ import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
 import type { SubagentPolicy } from "../../../provider-driver.js";
 import {
-  PermanentStructuralRefusalError,
-  type UserTurnReadbackReader,
-} from "../../../transcript/failure-mapping.js";
-import {
   CodexDriverConfigError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
@@ -66,40 +62,43 @@ function startRun(
 const SIGKILLED = [{ sessionId: "pty-session-1", signal: "SIGKILL" }];
 
 describe("Codex turn posture", () => {
-  it("refuses every posture field a caller declares, and any turn member it cannot realize", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
+  it(
+    "refuses every posture field a caller " + "declares, and any turn member it cannot realize",
+    async () => {
+      const harness = createHarness();
+      await createdSession(harness);
 
-    for (const field of [
-      "cwd",
-      "sandboxPolicy",
-      "permissions",
-      "permissionProfile",
-      "approvalPolicy",
-      "approvalsReviewer",
-    ]) {
-      await expect(
-        harness.driver.startRun({
-          runId: RUN_ID,
-          agentConfig: { sessionId: SESSION_ID, input: "review the diff", [field]: "anything" },
-        }),
-      ).rejects.toBeInstanceOf(CodexDriverConfigError);
-    }
-    // Refused before the wire, not filtered on it.
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+      for (const field of [
+        "cwd",
+        "sandboxPolicy",
+        "permissions",
+        "permissionProfile",
+        "approvalPolicy",
+        "approvalsReviewer",
+      ]) {
+        await expect(
+          harness.driver.startRun({
+            runId: RUN_ID,
+            agentConfig: { sessionId: SESSION_ID, input: "review the diff", [field]: "anything" },
+          }),
+        ).rejects.toBeInstanceOf(CodexDriverConfigError);
+      }
+      // Refused before the wire, not filtered on it.
+      expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
 
-    // The guard every turn composer calls: an unrealized member, the pair the provider accepts
-    // with no documented precedence, and the member the provider build refuses.
-    for (const members of [
-      { permissions: "profile-id" },
-      { sandboxPolicy: { mode: "workspace-write" }, permissions: "profile-id" },
-      { permissionProfile: "profile-id" },
-    ]) {
-      expect(() => assertRealizedTurnPostureMembers({ threadId: THREAD_ID, ...members })).toThrow(
-        CodexDriverConfigError,
-      );
-    }
-  });
+      // The guard every turn composer calls: an unrealized member, the pair the provider accepts
+      // with no documented precedence, and the member the provider build refuses.
+      for (const members of [
+        { permissions: "profile-id" },
+        { sandboxPolicy: { mode: "workspace-write" }, permissions: "profile-id" },
+        { permissionProfile: "profile-id" },
+      ]) {
+        expect(() => assertRealizedTurnPostureMembers({ threadId: THREAD_ID, ...members })).toThrow(
+          CodexDriverConfigError,
+        );
+      }
+    },
+  );
 
   it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
     // The origin is minted at the boundary; the exempt one would deliver command-shaped words
@@ -146,7 +145,7 @@ describe("Codex ambiguous turn/start", () => {
   ] as const)(
     "kills the child, sends nothing again and frees the slot when turn/start %s",
     async (_label, answer, errorClass) => {
-      // The readback is unbound, so the target cannot be read and the turn may have landed.
+      // With no clean answer the turn may have landed.
       const harness = await liveSession();
       harness.server.uniqueSpawnSessionIds = true;
       if (answer !== undefined) {
@@ -168,93 +167,20 @@ describe("Codex ambiguous turn/start", () => {
     },
   );
 
-  /** Answers a fixed user-turn count, recording how many starts the wire held when asked. */
-  function countingReadback(
-    userOriginatedTurns: number,
-    turnStartFramesAtRead: number[],
-    readHarness: () => ManagerHarness,
-  ): UserTurnReadbackReader {
-    return () => {
-      turnStartFramesAtRead.push(readHarness().server.framesForMethod("turn/start").length);
-      return Promise.resolve({ kind: "counted" as const, userOriginatedTurns });
-    };
-  }
-
-  it("settles a start the readback proves landed as delivered, and never re-sends it", async () => {
-    const framesAtRead: number[] = [];
-    const harness: ManagerHarness = await liveSession({
-      userTurnReadback: countingReadback(1, framesAtRead, () => harness),
-    });
-    harness.server.uniqueSpawnSessionIds = true;
-
-    const failure = captureRejection(startRun(harness));
-    harness.scheduler.fireAll();
-    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
-
-    // Read once, before anything else reached the wire.
-    expect(framesAtRead).toEqual([1]);
-    // The landed turn is unaddressable, so the session is disposed and a re-dispatch cannot put a
-    // second copy on the wire.
-    expect(harness.server.killedSessions).toEqual(SIGKILLED);
-    expect(await captureRejection(startRun(harness))).toBeInstanceOf(Error);
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-  });
-
-  it("clears a start the readback proves never landed for a retry on the same process", async () => {
-    const framesAtRead: number[] = [];
-    const harness: ManagerHarness = await liveSession({
-      userTurnReadback: countingReadback(0, framesAtRead, () => harness),
-    });
-
-    const failure = captureRejection(startRun(harness));
-    harness.scheduler.fireAll();
-    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
-
-    expect(framesAtRead).toEqual([1]);
-    expect(harness.server.killedSessions).toEqual([]);
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await startRun(harness);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
-    expect(harness.server.spawnRequests).toHaveLength(1);
-  });
-
-  /** A `turn/start` refusal carrying the provider's typed `CodexErrorInfo` member. */
-  function typedRefusal(codexErrorInfo: string): Record<string, unknown> {
-    return {
-      error: {
-        code: -32600,
-        // Says "history" on purpose, so a classifier that read prose would pass for the wrong reason.
-        message: "Invalid request: the thread history is not acceptable",
-        data: { codexErrorInfo },
-      },
-    };
-  }
-
-  it("calls a provider that types the history unacceptable exactly once and condemns the binding", async () => {
-    // A retry ladder over a poisoned history spends one request per rung for the same refusal.
+  it("keeps the session when the provider answers turn/start with a refusal", async () => {
+    // The refusal proves the turn never started, so there is nothing to kill.
     const harness = await liveSession();
-    harness.server.on("turn/start", () => typedRefusal("badRequest"));
-
-    const outcome = await captureRejection(startRun(harness));
-
-    expect(outcome).toBeInstanceOf(PermanentStructuralRefusalError);
-    expect((outcome as PermanentStructuralRefusalError).providerSessionId).toBe(THREAD_ID);
-    expect((outcome as PermanentStructuralRefusalError).freshSessionRequired).toBe(true);
-    expect(harness.server.killedSessions).toEqual(SIGKILLED);
-    expect(await captureRejection(startRun(harness))).toBeInstanceOf(Error);
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-  });
-
-  it("does not condemn a typed refusal that names something other than the history", async () => {
-    // A context ceiling is not a poisoned history; the next turn may not meet it.
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => typedRefusal("contextWindowExceeded"));
+    harness.server.on("turn/start", () => ({
+      error: { code: -32600, message: "Invalid request" },
+    }));
 
     const outcome = await captureRejection(startRun(harness));
 
     expect(outcome).toBeInstanceOf(CodexProviderRequestError);
-    expect(outcome).not.toBeInstanceOf(PermanentStructuralRefusalError);
     expect(harness.server.killedSessions).toEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await startRun(harness);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 });
 
@@ -308,54 +234,66 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 
-  it("trips when the swallowed turn terminates in the same read chunk as its start response", async () => {
-    // The chunk is drained before `startRun` resumes, so the terminal settles a turn no frame is
-    // correlated with yet; a memory holding only turn ids would report the swallow as completed.
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => ({
-      result: { turn: { id: TURN_ID } },
-      trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
-    }));
+  it(
+    "trips when the swallowed turn terminates " + "in the same read chunk as its start response",
+    async () => {
+      // The chunk is drained before `startRun` resumes, so the terminal settles a turn no frame is
+      // correlated with yet; a memory holding only turn ids would report the swallow as completed.
+      const harness = await liveSession();
+      harness.server.on("turn/start", () => ({
+        result: { turn: { id: TURN_ID } },
+        trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
+      }));
 
-    await startRun(harness, "/status please", { frameOrigin: "human_text" });
+      await startRun(harness, "/status please", { frameOrigin: "human_text" });
 
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
+      expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
+      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    },
+  );
 
-  it("does not trip a real turn that settles in the same chunk with an unloaded item list", async () => {
-    // A false trip condemns a healthy session. The in-flight item is the evidence.
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => ({
-      result: { turn: { id: TURN_ID } },
-      trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
-    }));
+  it(
+    "does not trip a real turn that settles in " + "the same chunk with an unloaded item list",
+    async () => {
+      // A false trip condemns a healthy session. The in-flight item is the evidence.
+      const harness = await liveSession();
+      harness.server.on("turn/start", () => ({
+        result: { turn: { id: TURN_ID } },
+        trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
+      }));
 
-    await startRun(harness, "review the diff", { frameOrigin: "human_text" });
+      await startRun(harness, "review the diff", { frameOrigin: "human_text" });
 
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
+      expect(harness.textNeutralizationFailures).toStrictEqual([]);
+      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    },
+  );
 
-  it("condemns the binding a trip was seen on, and admits a fresh spawn under the same session id", async () => {
-    const harness = await runningTurn({ input: "/status please", frameOrigin: "human_text" });
-    harness.server.uniqueSpawnSessionIds = true;
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await Promise.resolve();
+  it(
+    "condemns the binding a trip was seen on, and " +
+      "admits a fresh spawn under the same session id",
+    async () => {
+      const harness = await runningTurn({ input: "/status please", frameOrigin: "human_text" });
+      harness.server.uniqueSpawnSessionIds = true;
+      harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+      await Promise.resolve();
 
-    // A run-keyed quarantine would hand the next run back to the process that swallowed the
-    // user's words; this one is refused before the provider is asked anything.
-    const writtenAfterTrip = harness.server.writtenLines.length;
-    await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
-    expect(harness.server.writtenLines).toHaveLength(writtenAfterTrip);
+      // A run-keyed quarantine would hand the next run back to the process that swallowed the
+      // user's words; this one is refused before the provider is asked anything.
+      const writtenAfterTrip = harness.server.writtenLines.length;
+      await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).rejects.toThrow(
+        TextNeutralizationRefusedError,
+      );
+      expect(harness.server.writtenLines).toHaveLength(writtenAfterTrip);
 
-    // The quarantine names the binding, not the id, so recovery on a fresh process runs.
-    await drainMicrotasks();
-    await harness.manager.createSession(CREATE_PARAMS);
-    await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).resolves.toBeUndefined();
-  });
+      // The quarantine names the binding, not the id, so recovery on a fresh process runs.
+      await drainMicrotasks();
+      await harness.manager.createSession(CREATE_PARAMS);
+      await expect(
+        startRun(harness, "carry on", { runId: SECOND_RUN_ID }),
+      ).resolves.toBeUndefined();
+    },
+  );
 
   it("keeps the frame of a steer that timed out after its bytes were written", async () => {
     // The provider may have intercepted the command-shaped message and be heading for a zero-turn
@@ -452,22 +390,25 @@ describe("Codex rewind and re-realization", () => {
     ).resolves.toStrictEqual(APPLIED);
   });
 
-  it("refuses a position that names no recorded boundary rather than forking the whole thread", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
+  it(
+    "refuses a position that names no recorded " + "boundary rather than forking the whole thread",
+    async () => {
+      const harness = createHarness();
+      await createdSession(harness);
 
-    const result = await harness.driver.forkConversation({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-      position: 0,
-    });
+      const result = await harness.driver.forkConversation({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        position: 0,
+      });
 
-    expect(result).toStrictEqual({
-      status: "degraded",
-      fallbackAction: "rewind-target-not-a-recorded-boundary",
-    });
-    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
-  });
+      expect(result).toStrictEqual({
+        status: "degraded",
+        fallbackAction: "rewind-target-not-a-recorded-boundary",
+      });
+      expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
+    },
+  );
 
   it.each([
     "Invalid request: missing field `lastTurnId`",

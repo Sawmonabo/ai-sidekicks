@@ -204,7 +204,8 @@ function parseProjection(draft: WorktreeStatusReadResponseDraft): WorktreeStatus
   } catch (error) {
     throw new Error(
       "Worktree status-read projection produced a value the WorktreeStatusReadResponse shape " +
-        "refuses. A row that cannot be projected fails the read at the projection that produced it; the " +
+        "refuses. A row that cannot be projected fails the read at the projection that " +
+        "produced it; the " +
         "cause names the array, the record index, and the field.",
       { cause: error },
     );

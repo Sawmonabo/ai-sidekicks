@@ -100,29 +100,35 @@ describe("artifact payload — fetching is an act", () => {
     expect(container.querySelector(".meridian-artifact-payload__preview")).toBeNull();
   });
 
-  it("holds the fetch control while one is outstanding, and gives it back when it settles", async () => {
-    // A payload is bounded only by the ingest cap, so a second press before the first settles
-    // would download the same bytes twice; the arm the reading is on holds the control.
-    const readCall = handAnsweredCall<ArtifactReadResponse>();
-    const artifactRead = vi.fn(readCall.invoke);
-    const subject = artifactPayloadSubject(
-      artifactOperations({ listArtifacts: async () => LISTED_ONE_ROW, readArtifact: artifactRead }),
-    );
-    const { getByRole } = renderArtifactPayloadSection(subject);
-    await readThrough(subject.clock);
-    const control = getByRole("button", { name: "Fetch payload" });
-    fireEvent.click(control);
-    await settleAct();
+  it(
+    "holds the fetch control while one is outstanding, and gives it " + "back when it settles",
+    async () => {
+      // A payload is bounded only by the ingest cap, so a second press before the first settles
+      // would download the same bytes twice; the arm the reading is on holds the control.
+      const readCall = handAnsweredCall<ArtifactReadResponse>();
+      const artifactRead = vi.fn(readCall.invoke);
+      const subject = artifactPayloadSubject(
+        artifactOperations({
+          listArtifacts: async () => LISTED_ONE_ROW,
+          readArtifact: artifactRead,
+        }),
+      );
+      const { getByRole } = renderArtifactPayloadSection(subject);
+      await readThrough(subject.clock);
+      const control = getByRole("button", { name: "Fetch payload" });
+      fireEvent.click(control);
+      await settleAct();
 
-    expect(control).toHaveProperty("disabled", true);
-    fireEvent.click(control);
-    await settleAct();
-    expect(artifactRead).toHaveBeenCalledTimes(1);
+      expect(control).toHaveProperty("disabled", true);
+      fireEvent.click(control);
+      await settleAct();
+      expect(artifactRead).toHaveBeenCalledTimes(1);
 
-    readCall.open(deferredRead("published"));
-    await settleAct();
-    expect(control).toHaveProperty("disabled", false);
-  });
+      readCall.open(deferredRead("published"));
+      await settleAct();
+      expect(control).toHaveProperty("disabled", false);
+    },
+  );
 });
 
 describe("artifact payload — the reader is stamped to its subject", () => {

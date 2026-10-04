@@ -82,7 +82,8 @@ describe("RuntimePage — the two controls", () => {
     fireEvent.click(getButton(container, "Stop"));
     expect(ledger.calls).toStrictEqual([]);
     expect(container.textContent).toContain(
-      "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
+      "Stop the background service? Work in flight stops, and nothing " +
+        "new starts until it is running again.",
     );
   });
 

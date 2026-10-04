@@ -44,10 +44,12 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
   output_schema_mismatch:
     "The run's output schema differs from the schema the Claude session was spawned with.",
   output_schema_unbound:
-    "The run requires schema-constrained output but the Claude session was spawned without a schema.",
+    "The run requires schema-constrained output but the Claude session was spawned without a " +
+    "schema.",
   // `unusable`: one source arrived malformed. `ambiguous`: two well-formed sources disagree.
   provider_account_unusable:
-    "The request named a provider account that is present but empty; an account was meant to be bound and none was.",
+    "The request named a provider account that is present but empty; an account was meant to " +
+    "be bound and none was.",
   provider_account_ambiguous:
     "Two resolvers name different provider accounts for this Claude session.",
 };

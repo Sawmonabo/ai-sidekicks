@@ -12,11 +12,15 @@ describe("run groups — collapse state never folds the live run group", () => {
   const live = findRunGroup(groupRowsByRun(mixedWindow()), "run-a");
   const terminal = findRunGroup(groupRowsByRun(mixedWindow()), "run-b");
 
-  it("reports the live run group open and the terminal run group folded, before anything is clicked", () => {
-    const state = new RunGroupFoldState();
-    expect(state.isOpen(live)).toBe(true);
-    expect(state.isOpen(terminal)).toBe(false);
-  });
+  it(
+    "reports the live run group open and the terminal run group " +
+      "folded, before anything is clicked",
+    () => {
+      const state = new RunGroupFoldState();
+      expect(state.isOpen(live)).toBe(true);
+      expect(state.isOpen(terminal)).toBe(false);
+    },
+  );
 
   it("closing the live run group changes nothing", () => {
     // Without the live arm answering first, `close` would remove it from the open set and

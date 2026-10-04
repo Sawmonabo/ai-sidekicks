@@ -127,42 +127,48 @@ describe("readiness and its remedy union", () => {
     ).toBe(true);
   });
 
-  it("binds each readiness state to the one remedy its state calls for", () => {
-    // Each state calls for one kind of remedy; a `no_account` entry carrying `sign_in` would
-    // disclose a credential-home path for a resolution that reached no account.
+  it("binds each readiness state to the remedies its state calls for", () => {
+    // A `no_account` entry carrying `sign_in` would disclose a credential-home path for a
+    // resolution that reached no account, and an `indeterminate` one carrying `sign_in` would walk
+    // a person through a sign-in over a passing fault.
     const signIn = {
       kind: "sign_in",
       accountId: ACCOUNT_ID,
       signInInvocation: "claude setup-token",
       credentialHomePath: "/var/lib/sidekicks/homes/acct",
     };
+    const pasteToken = { kind: "paste_token", accountId: ACCOUNT_ID };
+    const lookAgain = { kind: "look_again", accountId: ACCOUNT_ID };
     const register = { kind: "register", provider: "claude" };
     const chooseDefault = { kind: "choose_default", candidateAccountIds: [ACCOUNT_ID] };
+    const remedies = [signIn, pasteToken, lookAgain, register, chooseDefault];
     // `resolvedAccountId` is present only on the three states that resolved an account.
-    const legal: ReadonlyArray<readonly [string, unknown, boolean]> = [
-      ["reauth_required", signIn, true],
-      ["home_missing", signIn, true],
-      ["indeterminate", signIn, true],
-      ["no_account", register, false],
-      ["no_default", chooseDefault, false],
+    const legal: ReadonlyArray<readonly [string, readonly unknown[], boolean]> = [
+      ["reauth_required", [signIn, pasteToken], true],
+      ["home_missing", [signIn], true],
+      ["indeterminate", [lookAgain], true],
+      ["no_account", [register], false],
+      ["no_default", [chooseDefault], false],
     ];
-    for (const [state, remedy, resolved] of legal) {
-      expect(
-        ProviderReadinessSchema.safeParse({
-          provider: "claude",
-          state,
-          ...(resolved ? { resolvedAccountId: ACCOUNT_ID } : {}),
-          remedy,
-        }).success,
-        `\`${state}\` refused its own remedy`,
-      ).toBe(true);
+    for (const [state, allowed, resolved] of legal) {
+      for (const remedy of allowed) {
+        expect(
+          ProviderReadinessSchema.safeParse({
+            provider: "claude",
+            state,
+            ...(resolved ? { resolvedAccountId: ACCOUNT_ID } : {}),
+            remedy,
+          }).success,
+          `\`${state}\` refused its own remedy`,
+        ).toBe(true);
+      }
     }
     // Every other pairing is refused. Each case supplies `resolvedAccountId` and asserts the
     // issue path, so the refusal comes from the kind mismatch, not the account-agreement rule
     // below.
-    for (const [state, expected] of legal) {
-      for (const remedy of [signIn, register, chooseDefault]) {
-        if (remedy === expected) {
+    for (const [state, allowed] of legal) {
+      for (const remedy of remedies) {
+        if (allowed.includes(remedy)) {
           continue;
         }
         const parsed = ProviderReadinessSchema.safeParse({
@@ -203,7 +209,7 @@ describe("readiness and its remedy union", () => {
     ).toBe(false);
   });
 
-  it("binds the sign-in remedy's account to the entry that resolved it", () => {
+  it("binds an account-naming remedy's account to the entry that resolved it", () => {
     const signInFor = (accountId: string): unknown => ({
       kind: "sign_in",
       accountId,
@@ -237,6 +243,22 @@ describe("readiness and its remedy union", () => {
         remedy: signInFor(ACCOUNT_ID),
       }).success,
     ).toBe(true);
+    // The token and look-again remedies name an account too, under the same rule.
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "indeterminate",
+        resolvedAccountId: ACCOUNT_ID,
+        remedy: { kind: "look_again", accountId: OTHER_ACCOUNT_ID },
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "reauth_required",
+        remedy: { kind: "paste_token", accountId: ACCOUNT_ID },
+      }).success,
+    ).toBe(false);
   });
 });
 

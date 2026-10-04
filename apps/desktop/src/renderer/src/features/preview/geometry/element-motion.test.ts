@@ -73,37 +73,40 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
     detach();
   });
 
-  it("samples a fixed-size sibling's motion, which carries the element without containing it", () => {
-    // A rail collapsing beside the pane is neither an ancestor nor a descendant and reports no
-    // resize, so a containment test would have left the rectangle unread for the whole animation.
-    installFakeResizeObserver();
-    const clock = new ManualClock();
-    const { ancestor, element } = attachedPair();
-    const sibling = document.createElement("div");
-    ancestor.append(sibling);
-    const motion = movingAnimation();
-    withAnimations(element, []);
-    withAnimations(ancestor, []);
-    const onMove = vi.fn();
+  it(
+    "samples a fixed-size sibling's motion, which carries the " + "element without containing it",
+    () => {
+      // A rail collapsing beside the pane is neither an ancestor nor a descendant and reports no
+      // resize, so a containment test would have left the rectangle unread for the whole animation.
+      installFakeResizeObserver();
+      const clock = new ManualClock();
+      const { ancestor, element } = attachedPair();
+      const sibling = document.createElement("div");
+      ancestor.append(sibling);
+      const motion = movingAnimation();
+      withAnimations(element, []);
+      withAnimations(ancestor, []);
+      const onMove = vi.fn();
 
-    const detach = observeElementPosition({ element, clock, onMove });
-    expect(clock.pendingFrameCount).toBe(0);
+      const detach = observeElementPosition({ element, clock, onMove });
+      expect(clock.pendingFrameCount).toBe(0);
 
-    withDocumentAnimations([motion.animation]);
-    sibling.dispatchEvent(new Event("transitionrun", { bubbles: true }));
-    expect(clock.pendingFrameCount).toBe(1);
+      withDocumentAnimations([motion.animation]);
+      sibling.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+      expect(clock.pendingFrameCount).toBe(1);
 
-    clock.runFrame();
-    expect(onMove).toHaveBeenCalledTimes(1);
-    // Still animating, so the next frame is armed.
-    expect(clock.pendingFrameCount).toBe(1);
+      clock.runFrame();
+      expect(onMove).toHaveBeenCalledTimes(1);
+      // Still animating, so the next frame is armed.
+      expect(clock.pendingFrameCount).toBe(1);
 
-    motion.settle();
-    clock.runFrame();
-    expect(onMove).toHaveBeenCalledTimes(2);
-    expect(clock.pendingFrameCount).toBe(0);
-    detach();
-  });
+      motion.settle();
+      clock.runFrame();
+      expect(onMove).toHaveBeenCalledTimes(2);
+      expect(clock.pendingFrameCount).toBe(0);
+      detach();
+    },
+  );
 
   it("reports a fixed-size sibling resized in one step, which animates nothing", async () => {
     // A width written straight onto a sibling fires no `transitionrun` or `animationstart`, and
@@ -211,16 +214,20 @@ describe("observeElementPosition — the sources that reach it", () => {
     detach();
   });
 
-  it("reports an auto-sized sibling growing, which moves the element and resizes none of its boxes", () => {
-    const resizeObserver = installFakeResizeObserver();
-    const { element, sibling } = attachedNeighborhood();
-    const onMove = vi.fn();
+  it(
+    "reports an auto-sized sibling growing, which moves the element " +
+      "and resizes none of its boxes",
+    () => {
+      const resizeObserver = installFakeResizeObserver();
+      const { element, sibling } = attachedNeighborhood();
+      const onMove = vi.fn();
 
-    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
-    // A rewritten text node or nested insertion changes the sibling's box, and no ancestor's.
-    resizeObserver.deliverFor(sibling);
+      const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+      // A rewritten text node or nested insertion changes the sibling's box, and no ancestor's.
+      resizeObserver.deliverFor(sibling);
 
-    expect(onMove).toHaveBeenCalledTimes(1);
-    detach();
-  });
+      expect(onMove).toHaveBeenCalledTimes(1);
+      detach();
+    },
+  );
 });

@@ -162,41 +162,45 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
     expect(emptyOptionSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
   });
 
-  it("drops a MIXED-FIELD form: one single-select beside any sibling answers the form for neither", () => {
-    // Eligibility is the total form shape, not the enum count. A form's answer is one object keyed
-    // by property name and `ProviderAskOption` carries no property identity, so a flat set can
-    // stand in for it only where the form has exactly one property. Counting only enum-bearing
-    // properties would make the commonest real elicitation look answerable, and every pick would
-    // omit a field the provider awaits.
-    const requiredSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        required: ["pick", "reason"],
-        properties: {
-          pick: { type: "string", enum: ["a", "b"] },
-          reason: { type: "string" },
+  it(
+    "drops a MIXED-FIELD form: one single-select " +
+      "beside any sibling answers the form for neither",
+    () => {
+      // Eligibility is the total form shape, not the enum count. A form's answer is one object
+      // keyed by property name and `ProviderAskOption` carries no property identity, so a flat set
+      // can stand in for it only where the form has exactly one property. Counting only
+      // enum-bearing properties would make the commonest real elicitation look answerable, and
+      // every pick would omit a field the provider awaits.
+      const requiredSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
+        mode: "form",
+        requestedSchema: {
+          type: "object",
+          required: ["pick", "reason"],
+          properties: {
+            pick: { type: "string", enum: ["a", "b"] },
+            reason: { type: "string" },
+          },
         },
-      },
-    });
-    // The form's property count is what explains the drop.
-    expect(requiredSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+      });
+      // The form's property count is what explains the drop.
+      expect(requiredSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
 
-    // Requiredness is deliberately not consulted: an optional sibling is equally unanswerable by a
-    // value with no field name, so refining on `required` would reopen the defect.
-    const optionalSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        required: ["pick"],
-        properties: {
-          pick: { type: "string", enum: ["a", "b"] },
-          note: { type: "string" },
+      // Requiredness is deliberately not consulted: an optional sibling is equally unanswerable by
+      // a value with no field name, so refining on `required` would reopen the defect.
+      const optionalSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
+        mode: "form",
+        requestedSchema: {
+          type: "object",
+          required: ["pick"],
+          properties: {
+            pick: { type: "string", enum: ["a", "b"] },
+            note: { type: "string" },
+          },
         },
-      },
-    });
-    expect(optionalSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
+      });
+      expect(optionalSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+    },
+  );
 
   it("drops an over-large set rather than truncating it", () => {
     const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
@@ -290,39 +294,42 @@ describe("Codex ask normalization at the session seam", () => {
     expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
   });
 
-  it("drops an over-large choice set with a diagnostic while the ask STILL normalizes", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { harness, ask } = await askHarness(recorded);
+  it(
+    "drops an over-large choice set with a " + "diagnostic while the ask STILL normalizes",
+    async () => {
+      const recorded: CodexSessionServerRequest[] = [];
+      const { harness, ask } = await askHarness(recorded);
 
-    await ask("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
+      await ask("mcpServer/elicitation/request", {
+        threadId: THREAD_ID,
+        turnId: null,
+        serverName: "files",
+        mode: "form",
+        message: "choose",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            pick: {
+              type: "string",
+              enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
+            },
           },
         },
-      },
-    });
+      });
 
-    // The ask still reaches the daemon: refusing to normalize it because its options did not parse
-    // would hang a turn over a decoration; the free-text arm is unconditional.
-    expect(recorded).toHaveLength(1);
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
-    const drops = harness.driverDiagnostics.recentRecordsOfKind(
-      "interactive_request_option_set_dropped",
-    );
-    expect(drops).toHaveLength(1);
-    expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
-    expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
-    expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
-  });
+      // The ask still reaches the daemon: refusing to normalize it because its options did not
+      // parse would hang a turn over a decoration; the free-text arm is unconditional.
+      expect(recorded).toHaveLength(1);
+      expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
+      const drops = harness.driverDiagnostics.recentRecordsOfKind(
+        "interactive_request_option_set_dropped",
+      );
+      expect(drops).toHaveLength(1);
+      expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
+      expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
+      expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
+    },
+  );
 
   it("omits the key entirely when the ask publishes no choice set", async () => {
     const recorded: CodexSessionServerRequest[] = [];

@@ -28,7 +28,8 @@ export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
   label: "First run",
   purpose:
-    "A freshly installed app with one session being provisioned and no history — the state the empty-state design is pinned against.",
+    "A freshly installed app with one session being provisioned and no " +
+    "history — the state the empty-state design is pinned against.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({

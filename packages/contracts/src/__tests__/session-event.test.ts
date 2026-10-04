@@ -325,6 +325,21 @@ const BODY_BEARING_VARIANTS = [
 ] as const;
 
 describe("SessionEventSchema — body-bearing assistant / tool variants", () => {
+  it("files an assistant row under a run unless it is a voice call's answer", () => {
+    const event = buildAssistantMessageEvent();
+    const { runId: _runId, ...outsideAnyRun } = event.payload;
+    const withPayload = (payload: Record<string, unknown>) => ({ ...event, payload });
+    expect(
+      SessionEventSchema.safeParse(withPayload({ ...outsideAnyRun, origin: "voice" })).success,
+    ).toBe(true);
+    // An answer with no run and no voice mark has lost its run; a voice answer filed under a
+    // run would draw outside the spoken exchange it belongs to.
+    expect(SessionEventSchema.safeParse(withPayload(outsideAnyRun)).success).toBe(false);
+    expect(
+      SessionEventSchema.safeParse(withPayload({ ...event.payload, origin: "voice" })).success,
+    ).toBe(false);
+  });
+
   it.each(BODY_BEARING_VARIANTS)("round-trips %s through JSON without loss", (_type, build) => {
     const event = build();
     const parsed = SessionEventSchema.safeParse(JSON.parse(JSON.stringify(event)));

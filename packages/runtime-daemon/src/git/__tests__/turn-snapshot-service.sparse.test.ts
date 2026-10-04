@@ -163,75 +163,89 @@ describe("TurnSnapshotService in sparse execution roots", () => {
     MULTI_SEQUENCE_CASE_TIMEOUT_MS,
   );
 
-  it("keeps staged out-of-cone content and names untracked and intent-to-add paths in the trailer", async () => {
-    const { repository } = fixture;
-    repository.write("cone-in/kept.txt", "in cone\n");
-    repository.write("cone-out/tracked.txt", "base content\n");
-    await repository.git(["add", "-A"]);
-    await repository.git(["commit", "-q", "-m", "sparse fixture"]);
-    // Staged before the cone narrowed: the live index differs from `HEAD` there, so a seed from the
-    // base would record the base's blob.
-    repository.write("cone-out/tracked.txt", "staged out-of-cone content\n");
-    await repository.git(["add", "--sparse", "cone-out/tracked.txt"]);
-    await repository.git(["sparse-checkout", "set", "cone-in"]);
-    // The two shapes the tree cannot hold, created after the cone narrowed.
-    repository.write("cone-out/untracked.txt", "untracked out of cone\n");
-    repository.write("cone-out/intent.txt", "intent-to-add out of cone\n");
-    await repository.git(["add", "-N", "--sparse", "cone-out/intent.txt"]);
+  it(
+    "keeps staged out-of-cone content and names " +
+      "untracked and intent-to-add paths in the trailer",
+    async () => {
+      const { repository } = fixture;
+      repository.write("cone-in/kept.txt", "in cone\n");
+      repository.write("cone-out/tracked.txt", "base content\n");
+      await repository.git(["add", "-A"]);
+      await repository.git(["commit", "-q", "-m", "sparse fixture"]);
+      // Staged before the cone narrowed: the live index differs from `HEAD` there, so a seed from
+      // the base would record the base's blob.
+      repository.write("cone-out/tracked.txt", "staged out-of-cone content\n");
+      await repository.git(["add", "--sparse", "cone-out/tracked.txt"]);
+      await repository.git(["sparse-checkout", "set", "cone-in"]);
+      // The two shapes the tree cannot hold, created after the cone narrowed.
+      repository.write("cone-out/untracked.txt", "untracked out of cone\n");
+      repository.write("cone-out/intent.txt", "intent-to-add out of cone\n");
+      await repository.git(["add", "-N", "--sparse", "cone-out/intent.txt"]);
 
-    const captured = await fixture.captureTurn(fixture.buildService());
+      const captured = await fixture.captureTurn(fixture.buildService());
 
-    await fixture.expectPorcelainEquivalent(repository, captured);
-    expect(
-      await repository.git(["cat-file", "blob", `${captured.snapshotCommit}:cone-out/tracked.txt`]),
-    ).toBe("staged out-of-cone content");
-    // Exactly the paths a restore would otherwise delete; the tracked one has a copy in the tree.
-    expect(await readTrailer(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toEqual([
-      "cone-out/intent.txt",
-      "cone-out/untracked.txt",
-    ]);
-  });
+      await fixture.expectPorcelainEquivalent(repository, captured);
+      expect(
+        await repository.git([
+          "cat-file",
+          "blob",
+          `${captured.snapshotCommit}:cone-out/tracked.txt`,
+        ]),
+      ).toBe("staged out-of-cone content");
+      // Exactly the paths a restore would otherwise delete; the tracked one has a copy in the tree.
+      expect(await readTrailer(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toEqual([
+        "cone-out/intent.txt",
+        "cone-out/untracked.txt",
+      ]);
+    },
+  );
 
-  it("records boundary paths byte-exactly: multibyte, a non-descended directory, and bytes that decode alike", async () => {
-    const { repository } = fixture;
-    // `core.quotepath` C-quotes non-ASCII names in porcelain output; only `-z` listings carry them
-    // verbatim. A CJK name, because APFS would normalize an accented one to NFD.
-    await repository.git(["config", "core.quotepath", "true"]);
-    await commitConeFixture({ "cone-in/kept.txt": "in cone\n" });
-    repository.write("cone-out/日本語.txt", "multibyte out of cone\n");
-    // An untracked embedded repository is one listing entry with a trailing slash, which a
-    // restore reads as a whole subtree to keep.
-    await createEmbeddedRepository(repository, "cone-out/nested");
-    // Two injected names that share no bytes but both decode to U+FFFD: a subtraction keyed on
-    // decoded strings would think the tree already holds the candidate. APFS refuses non-UTF-8
-    // names, so the seam is the only way in.
-    const invalidCandidate = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xff])]);
-    const invalidTreePath = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xfe])]);
-    const nul = Buffer.from([0]);
-    const injectingRunner: GitRunner = async (argv, options) => {
-      const result = await runGitWithExecFile(argv, options);
-      const lsFilesIndex: number = argv.indexOf("ls-files");
-      if (
-        lsFilesIndex !== -1 &&
-        argv.slice(lsFilesIndex + 1).join(" ") === "-co --exclude-per-directory=.gitignore -z"
-      ) {
-        return { ...result, stdout: Buffer.concat([result.stdout, invalidCandidate, nul]) };
-      }
-      if (argv.includes("ls-tree") && argv.includes("--name-only")) {
-        return { ...result, stdout: Buffer.concat([result.stdout, invalidTreePath, nul]) };
-      }
-      return result;
-    };
+  it(
+    "records boundary paths byte-exactly: multibyte, a non-descended directory, and bytes that " +
+      "decode alike",
+    async () => {
+      const { repository } = fixture;
+      // `core.quotepath` C-quotes non-ASCII names in porcelain output; only `-z` listings carry
+      // them verbatim. A CJK name, because APFS would normalize an accented one to NFD.
+      await repository.git(["config", "core.quotepath", "true"]);
+      await commitConeFixture({ "cone-in/kept.txt": "in cone\n" });
+      repository.write("cone-out/日本語.txt", "multibyte out of cone\n");
+      // An untracked embedded repository is one listing entry with a trailing slash, which a
+      // restore reads as a whole subtree to keep.
+      await createEmbeddedRepository(repository, "cone-out/nested");
+      // Two injected names that share no bytes but both decode to U+FFFD: a subtraction keyed on
+      // decoded strings would think the tree already holds the candidate. APFS refuses non-UTF-8
+      // names, so the seam is the only way in.
+      const invalidCandidate = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xff])]);
+      const invalidTreePath = Buffer.concat([Buffer.from("cone-out/"), Buffer.from([0xfe])]);
+      const nul = Buffer.from([0]);
+      const injectingRunner: GitRunner = async (argv, options) => {
+        const result = await runGitWithExecFile(argv, options);
+        const lsFilesIndex: number = argv.indexOf("ls-files");
+        if (
+          lsFilesIndex !== -1 &&
+          argv.slice(lsFilesIndex + 1).join(" ") === "-co --exclude-per-directory=.gitignore -z"
+        ) {
+          return { ...result, stdout: Buffer.concat([result.stdout, invalidCandidate, nul]) };
+        }
+        if (argv.includes("ls-tree") && argv.includes("--name-only")) {
+          return { ...result, stdout: Buffer.concat([result.stdout, invalidTreePath, nul]) };
+        }
+        return result;
+      };
 
-    const captured = await fixture.captureTurn(fixture.buildService({ git: injectingRunner }));
+      const captured = await fixture.captureTurn(fixture.buildService({ git: injectingRunner }));
 
-    expect(await readTrailerBytes(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toEqual([
-      Buffer.from("cone-out/nested/"),
-      Buffer.from("cone-out/日本語.txt", "utf8"),
-      invalidCandidate,
-    ]);
-    await fixture.expectPorcelainEquivalent(repository, captured);
-  });
+      expect(await readTrailerBytes(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toEqual(
+        [
+          Buffer.from("cone-out/nested/"),
+          Buffer.from("cone-out/日本語.txt", "utf8"),
+          invalidCandidate,
+        ],
+      );
+      await fixture.expectPorcelainEquivalent(repository, captured);
+    },
+  );
 
   it("passes the commit message on stdin, never on the argv", async () => {
     // Windows caps a command line at 32767 characters and the boundary trailer is unbounded. An
@@ -247,23 +261,27 @@ describe("TurnSnapshotService in sparse execution roots", () => {
     expect(commitTree?.some((element) => element.includes("turn-boundary snapshot"))).toBe(false);
   });
 
-  it("keeps a root whose sparse bit is off on the full pipeline, a stale rules file notwithstanding", async () => {
-    const { repository } = fixture;
-    // `sparse-checkout disable` clears the bit and leaves the patterns file; the worktree is whole,
-    // so partitioning it would drop real content into the trailer.
-    await commitConeFixture({
-      "cone-in/kept.txt": "in cone\n",
-      "cone-out/excluded.txt": "out of cone\n",
-    });
-    await repository.git(["sparse-checkout", "disable"]);
-    const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
-    expect(existsSync(join(gitDirectory, "info", "sparse-checkout"))).toBe(true);
+  it(
+    "keeps a root whose sparse bit is off on the full pipeline, a stale rules file " +
+      "notwithstanding",
+    async () => {
+      const { repository } = fixture;
+      // `sparse-checkout disable` clears the bit and leaves the patterns file; the worktree is
+      // whole, so partitioning it would drop real content into the trailer.
+      await commitConeFixture({
+        "cone-in/kept.txt": "in cone\n",
+        "cone-out/excluded.txt": "out of cone\n",
+      });
+      await repository.git(["sparse-checkout", "disable"]);
+      const gitDirectory: string = await repository.git(["rev-parse", "--absolute-git-dir"]);
+      expect(existsSync(join(gitDirectory, "info", "sparse-checkout"))).toBe(true);
 
-    const captured = await fixture.captureTurn(fixture.buildService());
+      const captured = await fixture.captureTurn(fixture.buildService());
 
-    expect(await readTrailer(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toBeNull();
-    await fixture.expectPorcelainEquivalent(repository, captured);
-  });
+      expect(await readTrailer(repository, captured.snapshotCommit, BOUNDARY_TRAILER)).toBeNull();
+      await fixture.expectPorcelainEquivalent(repository, captured);
+    },
+  );
 
   // A capture that cannot partition the root faithfully refuses; a partial snapshot would restore
   // with a hole in it.

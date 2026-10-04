@@ -67,7 +67,9 @@ function invalid(detail: string): PersistenceRefusal {
 function notIdentifier(where: string, value: string): PersistenceRefusal {
   return refusePersistence(
     "value-not-identifier-shaped",
-    `${where} holds a string that is not identifier-shaped (${String(value.length)} chars). UI state carries identifiers; user- and machine-authored content has no durable home in the renderer.`,
+    `${where} holds a string that is not identifier-shaped ` +
+      `(${String(value.length)} chars). UI state carries identifiers; user- ` +
+      `and machine-authored content has no durable home in the renderer.`,
   );
 }
 
@@ -223,7 +225,8 @@ export function validatePersistedValue(
   if (!isPersistedValueClass(valueClass)) {
     return refusePersistence(
       "value-class-unknown",
-      `"${valueClass}" is not one of the ${String(PERSISTED_VALUE_CLASSES.length)} UI-state value classes (${PERSISTED_VALUE_CLASSES.join(", ")})`,
+      `"${valueClass}" is not one of the ${String(PERSISTED_VALUE_CLASSES.length)} ` +
+        `UI-state value classes (${PERSISTED_VALUE_CLASSES.join(", ")})`,
     );
   }
   const shapeRefusal = SHAPE_VALIDATORS[valueClass](value);
@@ -277,7 +280,9 @@ export function validatePersistedAddress(
     if (!isSingleNameIdentifierShaped(value)) {
       return refusePersistence(
         "address-not-identifier-shaped",
-        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; user- and machine-authored content has no durable home in the renderer.`,
+        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ` +
+          `ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an ` +
+          `identifier; user- and machine-authored content has no durable home in the renderer.`,
       );
     }
   }

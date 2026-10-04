@@ -1,9 +1,9 @@
 // Claude half of the driver normalize boundary, mirroring `../codex/event-normalizer.ts`: a pure,
 // total mapping from a pinned stream-json or control-channel frame kind to its event category.
 //
-// Rows come from the version-pinned Claude wire census (recorded at `2.1.251`; vectors in `__fixtures__/`,
-// so a re-pin fails a test). A row that names a normalized kind takes its category and event type
-// from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
+// Rows come from the version-pinned Claude wire census (recorded at `2.1.251`; vectors in
+// `__fixtures__/`, so a re-pin fails a test). A row that names a normalized kind takes its category
+// and event type from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //
 // Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
 // the `assistant` / `user` message frames (no authless probe records their shape), the subagent
@@ -231,7 +231,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/hook_started",
     channel: "stream",
     reason:
-      "hook-lifecycle progress; hook execution is daemon-internal orchestration, not a capability the transcript or audit log records",
+      "hook-lifecycle progress; hook execution is daemon-internal orchestration, not a " +
+      "capability the transcript or audit log records",
   },
   "system/hook_progress": {
     disposition: "not-evented",
@@ -250,14 +251,17 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/notification",
     channel: "stream",
     reason:
-      "distinct from the `notification` kind, which Codex feeds; the user-facing-notice capability is already carried there — this Claude system subtype is redundant transport noise",
+      "distinct from the `notification` kind, which Codex feeds; the user-facing-notice " +
+      "capability is already carried there — this Claude system subtype is redundant " +
+      "transport noise",
   },
   "system/files_persisted": {
     disposition: "not-evented",
     frameKind: "system/files_persisted",
     channel: "stream",
     reason:
-      "file-write summary; the adopted `diff` / `command_output` kinds plus `artifact_publication` already carry the file-change capability",
+      "file-write summary; the adopted `diff` / `command_output` kinds plus " +
+      "`artifact_publication` already carry the file-change capability",
   },
   "system/tool_use_summary": {
     disposition: "not-evented",
@@ -270,21 +274,24 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/memory_recall",
     channel: "stream",
     reason:
-      "provider-internal memory-retrieval signal; no capability the transcript or audit log records",
+      "provider-internal memory-retrieval signal; no capability the transcript or audit log " +
+      "records",
   },
   "system/local_command_output": {
     disposition: "not-evented",
     frameKind: "system/local_command_output",
     channel: "stream",
     reason:
-      "superseded by the adopted `command_output` kind; the local variant carries no additional capability",
+      "superseded by the adopted `command_output` kind; the local variant carries no " +
+      "additional capability",
   },
   "system/task_progress": {
     disposition: "not-evented",
     frameKind: "system/task_progress",
     channel: "stream",
     reason:
-      "intra-task progress; the adopted `task_create` / `task_update` kinds and `todo_update` snapshots carry the durable task state",
+      "intra-task progress; the adopted `task_create` / `task_update` kinds and " +
+      "`todo_update` snapshots carry the durable task state",
   },
 
   // A `result` frame does not end the read loop (trailing events can follow), so the loop reads
@@ -342,21 +349,29 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/request_user_dialog",
     channel: "control-request",
     reason:
-      "a host-rendered dialog, sent only for a kind the host declared at `initialize`; the CLI fails closed on any other. The daemon's two kinds are `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as `run.refusal_choice_requested` and `run.usage_credits_choice_requested`, and neither arrives until the driver declares them. `auto_mode_server_fallback` stays undeclared, its words reaching the working line as a provider warning, and `auto_mode_outside_reads` never reaches a headless host",
+      "a host-rendered dialog, sent only for a kind the host declared at `initialize`; the " +
+      "CLI fails closed on any other. The daemon's two kinds are `refusal_fallback_prompt` " +
+      "and `fable_overage_consent_prompt`, recorded as `run.refusal_choice_requested` and " +
+      "`run.usage_credits_choice_requested`, and neither arrives until the driver declares " +
+      "them. `auto_mode_server_fallback` stays undeclared, its words reaching the working " +
+      "line as a provider warning, and `auto_mode_outside_reads` never reaches a headless host",
   },
   "control_request/hook_callback": {
     disposition: "not-evented",
     frameKind: "control_request/hook_callback",
     channel: "control-request",
     reason:
-      "hook family, disposed `discard`: hook-lifecycle, daemon-internal orchestration, not a capability the transcript or audit log records",
+      "hook family, disposed `discard`: hook-lifecycle, daemon-internal orchestration, not a " +
+      "capability the transcript or audit log records",
   },
   "control_request/mcp_message": {
     disposition: "not-evented",
     frameKind: "control_request/mcp_message",
     channel: "control-request",
     reason:
-      "MCP transport passthrough between the CLI and a configured server; the daemon's own MCP governance surface events its decisions (`mcp.*`), so relaying the transport frame would double-record events the daemon already audits",
+      "MCP transport passthrough between the CLI and a configured server; the daemon's own " +
+      "MCP governance surface events its decisions (`mcp.*`), so relaying the transport " +
+      "frame would double-record events the daemon already audits",
   },
   // Absent from the census, but the CLI answers it; in the union because it dispatches, and
   // not-evented because the daemon sends it.
@@ -365,49 +380,61 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/mcp_set_servers",
     channel: "control-request",
     reason:
-      "daemon-originated live server-set reconcile; the driver's control dispatcher owns the round trip and the resulting server-set change is already evented by the daemon's MCP governance surface",
+      "daemon-originated live server-set reconcile; the driver's control dispatcher owns the " +
+      "round trip and the resulting server-set change is already evented by the daemon's MCP " +
+      "governance surface",
   },
   "control_request/interrupt": {
     disposition: "not-evented",
     frameKind: "control_request/interrupt",
     channel: "control-request",
     reason:
-      "daemon-originated control request; the intervention that caused it is already evented by the daemon's intervention surface, and the driver's control dispatcher owns the request/response round trip",
+      "daemon-originated control request; the intervention that caused it is already evented " +
+      "by the daemon's intervention surface, and the driver's control dispatcher owns the " +
+      "request/response round trip",
   },
   "control_request/set_permission_mode": {
     disposition: "not-evented",
     frameKind: "control_request/set_permission_mode",
     channel: "control-request",
     reason:
-      "daemon-originated control request; execution posture is daemon-owned and evented when the daemon applies it, so relaying the request would double-record a mutation the daemon authored",
+      "daemon-originated control request; execution posture is daemon-owned and evented when " +
+      "the daemon applies it, so relaying the request would double-record a mutation the " +
+      "daemon authored",
   },
   "control_request/set_model": {
     disposition: "not-evented",
     frameKind: "control_request/set_model",
     channel: "control-request",
     reason:
-      "daemon-originated control request; the agent-configuration change it carries is evented by the daemon that applied it, not by the wire frame that requested it",
+      "daemon-originated control request; the agent-configuration change it carries is " +
+      "evented by the daemon that applied it, not by the wire frame that requested it",
   },
   "control_request/get_usage": {
     disposition: "not-evented",
     frameKind: "control_request/get_usage",
     channel: "control-request",
     reason:
-      "daemon-originated read of the experimental usage surface; its ANSWER is what carries telemetry, and the push carrier `system/rate_limit_event` is the preferred source where both are available",
+      "daemon-originated read of the experimental usage surface; its ANSWER is what carries " +
+      "telemetry, and the push carrier `system/rate_limit_event` is the preferred source " +
+      "where both are available",
   },
   "control_request/get_context_usage": {
     disposition: "not-evented",
     frameKind: "control_request/get_context_usage",
     channel: "control-request",
     reason:
-      "daemon-originated read; the request carries no observation, and the context-window telemetry its answer yields reaches the transcript through the driver's own usage emission",
+      "daemon-originated read; the request carries no observation, and the context-window " +
+      "telemetry its answer yields reaches the transcript through the driver's own usage " +
+      "emission",
   },
   "control_request/get_session_cost": {
     disposition: "not-evented",
     frameKind: "control_request/get_session_cost",
     channel: "control-request",
     reason:
-      "daemon-originated read; cost reaches the transcript through the driver's `usage.cost_update` emission, never through the request that polled for it",
+      "daemon-originated read; cost reaches the transcript through the driver's " +
+      "`usage.cost_update` emission, never through the request that polled for it",
   },
   "control_request/list_models": {
     disposition: "not-evented",
@@ -421,21 +448,26 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_request/get_binary_version",
     channel: "control-request",
     reason:
-      "daemon-originated version read; the reported CLI version is persisted on the binding record at the driver write seam, not evented",
+      "daemon-originated version read; the reported CLI version is persisted on the binding " +
+      "record at the driver write seam, not evented",
   },
   "control_request/apply_flag_settings": {
     disposition: "not-evented",
     frameKind: "control_request/apply_flag_settings",
     channel: "control-request",
     reason:
-      "daemon-originated settings push; the daemon authored the settings and its typed refusal is classified by the control dispatcher, so neither half is a provider observation",
+      "daemon-originated settings push; the daemon authored the settings and its typed " +
+      "refusal is classified by the control dispatcher, so neither half is a provider " +
+      "observation",
   },
   "control_request/rewind_files": {
     disposition: "not-evented",
     frameKind: "control_request/rewind_files",
     channel: "control-request",
     reason:
-      "daemon-originated file-side rewind; the rollback that drove it is evented by the daemon's intervention surface, and a cloud-hosted session refuses this subtype outright, which is a dispatcher classification rather than a transcript row",
+      "daemon-originated file-side rewind; the rollback that drove it is evented by the " +
+      "daemon's intervention surface, and a cloud-hosted session refuses this subtype " +
+      "outright, which is a dispatcher classification rather than a transcript row",
   },
 
   // Control channel, CLI -> daemon, answering a daemon-originated request. The census records the
@@ -445,14 +477,18 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "control_response/success",
     channel: "control-response",
     reason:
-      "answer to a daemon-originated control request, correlated by `request_id`; the control dispatcher resolves the pending call and whatever the answer authorizes is evented by the surface that acted on it",
+      "answer to a daemon-originated control request, correlated by `request_id`; the " +
+      "control dispatcher resolves the pending call and whatever the answer authorizes is " +
+      "evented by the surface that acted on it",
   },
   "control_response/error": {
     disposition: "not-evented",
     frameKind: "control_response/error",
     channel: "control-response",
     reason:
-      "typed control-channel refusal, correlated by `request_id`; every control request is feature-detected at call time by classifying this arm, which makes it a capability signal for the dispatcher rather than a transcript row",
+      "typed control-channel refusal, correlated by `request_id`; every control request is " +
+      "feature-detected at call time by classifying this arm, which makes it a capability " +
+      "signal for the dispatcher rather than a transcript row",
   },
 } as const satisfies Record<ClaudeWireFrameKind, ClaudeFrameNormalizationTableRow>;
 
@@ -541,7 +577,8 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "unmapped_wire_kind",
       rawWireType: frameKind,
       dispositionReason:
-        "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic default branch, never silently dropped and never forced into an envelope",
+        "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic " +
+        "default branch, never silently dropped and never forced into an envelope",
       details: {},
     };
     diagnostics.emit(record);
@@ -556,7 +593,9 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: frameKind,
       dispositionReason:
-        "normalized kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
+        "normalized kind whose target SessionEventType has no registered SessionEventSchema " +
+        "payload variant; envelope construction is forbidden without one, so the frame " +
+        "routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);

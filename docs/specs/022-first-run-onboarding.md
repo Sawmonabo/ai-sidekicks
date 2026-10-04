@@ -8,7 +8,7 @@
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md), [Spec-021: Desktop App And Renderer](./021-desktop-app-and-renderer.md), [Spec-025: Provider Accounts And Credential Homes](./025-provider-accounts-and-credential-homes.md), [Spec-027: Remote Control](./027-remote-control.md) |
-| **Implementation Plan** | Built by the plans that own its pieces: [Plan-005](../plans/005-local-ipc-and-daemon-control.md) (the background service's start and its place on WSL 2, `sidekicks relay repin`), [Plan-020](../plans/020-desktop-app-and-renderer.md) (the first-launch cover, the sessions list's empty state, `Keep crash reports`), [Plan-023](../plans/023-provider-accounts-and-credential-homes.md) (Settings › Providers), [Plan-015](../plans/015-identity-and-user-state.md) (`sidekicks sign-in`) and [Plan-025](../plans/025-remote-control.md) Phase 3 (the relay key pin) |
+| **Implementation Plan** | Built by the plans that own its pieces: [Plan-005](../plans/005-local-ipc-and-daemon-control.md) (the background service's start and its place on WSL 2, `sidekicks relay repin`), [Plan-020](../plans/020-desktop-app-and-renderer.md) (the first-launch cover, the sessions list's empty state, `Keep crash reports`), [Plan-023](../plans/023-provider-accounts-and-credential-homes.md) (Settings › Providers), [Plan-015](../plans/015-hosted-account-and-identity.md) (`sidekicks sign-in`) and [Plan-025](../plans/025-remote-control.md) Phase 3 (the relay key pin) |
 
 ## Purpose
 
@@ -29,7 +29,7 @@ Out of scope (see Non-Goals):
 
 - Installers and package managers.
 - The provider-account registry, readiness, sign-in and install ([Spec-025](./025-provider-accounts-and-credential-homes.md)).
-- The hosted account's sign-in ([Spec-016](./016-identity-and-user-state.md)).
+- The hosted account's sign-in ([Spec-016](./016-hosted-account-and-identity.md)).
 - Deploying a relay ([ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md), [Spec-023](./023-self-host-secure-defaults.md)) and linking devices to it ([Spec-027](./027-remote-control.md)).
 
 ## Non-Goals
@@ -49,7 +49,7 @@ Out of scope (see Non-Goals):
 - [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) — the person's own relay, on Workers in their own Cloudflare account or under Compose on their own server, and the relay key pin (§First-Run UX).
 - [Spec-005: Session Event Taxonomy And Audit Log](./005-session-event-taxonomy-and-audit-log.md) — where the relay's refusal event is registered.
 - [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) — the background service's start, `sidekicks daemon status`, and the command-line verbs.
-- [Spec-016: Identity And User State](./016-identity-and-user-state.md) — the hosted account's device-code sign-in.
+- [Spec-016: Hosted Account And Identity](./016-hosted-account-and-identity.md) — the hosted account's device-code sign-in.
 - [Spec-021: Desktop App And Renderer](./021-desktop-app-and-renderer.md) — the desktop app's first-launch cover and the sessions list.
 - [Spec-025: Provider Accounts And Credential Homes](./025-provider-accounts-and-credential-homes.md) — provider install, registration, readiness and sign-in, all drawn on Settings › Providers.
 - [Spec-027: Remote Control](./027-remote-control.md) — linking devices through the relay, and the relay's refusals.
@@ -68,7 +68,7 @@ Out of scope (see Non-Goals):
 ### Where setup lives
 
 - **Providers.** A provider is installed, its accounts registered and signed in on Settings › Providers, and nowhere else: a provider whose command is not installed reads `Not installed on this machine.` with `Install`, which runs the provider's own documented installer, and an account that is not signed in names the one remedy that applies to it. The mechanism — the registry, readiness, the sign-in — is [Spec-025](./025-provider-accounts-and-credential-homes.md)'s; this spec adds no step in front of it. A run a provider cannot start is refused with its remedy ([Spec-025 §Fallback Behavior](./025-provider-accounts-and-credential-homes.md#fallback-behavior)); the session itself is always created.
-- **The hosted account.** Only Remote Control needs it, and nothing asks for it at first run. The command line signs the machine in with `sidekicks sign-in`, a device-code flow ([Spec-016 §Required Behavior](./016-identity-and-user-state.md#required-behavior)).
+- **The hosted account.** Only Remote Control needs it, and nothing asks for it at first run. The command line signs the machine in with `sidekicks sign-in`, a device-code flow ([Spec-016 §Required Behavior](./016-hosted-account-and-identity.md#required-behavior)).
 - **The relay.** The machine reaches the person's own relay once they have deployed one and linked it ([Spec-027](./027-remote-control.md)); until then every session runs on the machine alone.
 - **The command line.** Every `sidekicks` command works on first use, with no setup command before it.
 
@@ -158,7 +158,7 @@ None.
 | --- | --- |
 | [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md) | The person's own relay and the relay key pin. |
 | [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md) | The service's start and the command-line verbs. |
-| [Spec-016: Identity And User State](./016-identity-and-user-state.md) | The hosted account's device-code sign-in. |
+| [Spec-016: Hosted Account And Identity](./016-hosted-account-and-identity.md) | The hosted account's device-code sign-in. |
 | [Spec-021: Desktop App And Renderer](./021-desktop-app-and-renderer.md) | The first-launch cover and the sessions list. |
 | [Spec-025: Provider Accounts And Credential Homes](./025-provider-accounts-and-credential-homes.md) | Provider install, registration, readiness and sign-in. |
 | [Spec-027: Remote Control](./027-remote-control.md) | Linking through the relay; the relay's refusals; the machine-key pin. |

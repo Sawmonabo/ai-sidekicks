@@ -1,10 +1,11 @@
 // Which app screen closes an account-plane refusal, and which action it offers.
 //
 // A refusal can arrive anywhere (a run refused at admission, a registry read refused on a
-// settings page, a quota reading that never landed). This router decides where and which of
-// three actions, and composes no remedy: the remedy's content is the daemon's, travels on
-// `providerAccount.list`'s readiness entry, and is display-only here. The action is a navigation
-// to the settings section where the act lives; nothing runs a sign-in or re-derives admission.
+// settings page, a quota reading that never landed). This router decides where and which
+// action, and composes no remedy: the remedy's content is the daemon's, travels on
+// `providerAccount.list`'s readiness entry or, for a refused account move, on the refusal itself,
+// and is display-only here. The action is a navigation to the settings section where the act
+// lives; nothing runs a sign-in or re-derives admission.
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
 // error here. A code with no remedy is a real answer: three of the ten are refusals no app act
@@ -37,10 +38,19 @@ export const ACCOUNT_PLANE_REFUSAL_CODES = [
 /** One registered account-plane refusal. Derived from the tuple, never restated. */
 export type AccountPlaneRefusalCode = (typeof ACCOUNT_PLANE_REFUSAL_CODES)[number];
 
-/** Where the act that closes a refusal lives, and which of the three acts it is. */
+/** Where the act that closes a refusal lives, and which act it is. */
 export interface AccountPlaneHandoff {
   readonly section: SettingsPageId;
   readonly remedyKind: ProviderRemedy["kind"];
+}
+
+/** A route whose act is the one the refusal's own data names, since only that account knows it. */
+const CARRIED_BY_REFUSAL = "carried_by_refusal";
+
+/** One row of the router: a fixed act, or the act the refusal carries. */
+interface AccountPlaneHandoffRoute {
+  readonly section: SettingsPageId;
+  readonly remedyKind: ProviderRemedy["kind"] | typeof CARRIED_BY_REFUSAL;
 }
 
 /**
@@ -50,7 +60,7 @@ export interface AccountPlaneHandoff {
  * deciding whether it routes anywhere.
  */
 const ACCOUNT_PLANE_HANDOFFS: Readonly<
-  Record<AccountPlaneRefusalCode, AccountPlaneHandoff | null>
+  Record<AccountPlaneRefusalCode, AccountPlaneHandoffRoute | null>
 > = {
   // Nothing is registered for the provider, so the act is registration.
   "provideraccount.not_registered": { section: "providers", remedyKind: "register" },
@@ -63,8 +73,10 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // An account resolved and its home is unusable; `sign_in` is the arm the readiness projection
   // puts on `home_missing` and the one that names a home.
   "provideraccount.credential_home_unavailable": { section: "providers", remedyKind: "sign_in" },
-  // Pre-spawn validation did not report authenticated, including `indeterminate`.
-  "provideraccount.not_authenticated": { section: "providers", remedyKind: "sign_in" },
+  // A current-account move named an account whose login is gone; an undecided read never
+  // raises it. The refusal carries that account's own remedy: the provider's sign-in, or a fresh
+  // token on a token or API-key account.
+  "provideraccount.not_authenticated": { section: "providers", remedyKind: CARRIED_BY_REFUSAL },
   // A brokered sign-in is already running; the act is on the flow on the same page.
   "provideraccount.signin_in_flight": { section: "providers", remedyKind: "sign_in" },
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
@@ -88,8 +100,21 @@ export function isAccountPlaneRefusalCode(code: string): code is AccountPlaneRef
  * Where a refusal is answered, or `undefined` when no console act answers it.
  *
  * Takes a bare `string` because a refusal carries a wire value, and a narrowed parameter would
- * push the same `includes` test to every call site.
+ * push the same `includes` test to every call site. `carriedRemedy` is the remedy the refusal's
+ * own data named; a code routed by it answers `undefined` without one.
  */
-export function accountPlaneHandoffFor(code: string): AccountPlaneHandoff | undefined {
-  return isAccountPlaneRefusalCode(code) ? (ACCOUNT_PLANE_HANDOFFS[code] ?? undefined) : undefined;
+export function accountPlaneHandoffFor(
+  code: string,
+  carriedRemedy?: ProviderRemedy,
+): AccountPlaneHandoff | undefined {
+  const route = isAccountPlaneRefusalCode(code) ? ACCOUNT_PLANE_HANDOFFS[code] : null;
+  if (route === null) {
+    return undefined;
+  }
+  if (route.remedyKind !== CARRIED_BY_REFUSAL) {
+    return { section: route.section, remedyKind: route.remedyKind };
+  }
+  return carriedRemedy === undefined
+    ? undefined
+    : { section: route.section, remedyKind: carriedRemedy.kind };
 }

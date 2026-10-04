@@ -66,7 +66,9 @@ export class ProviderSpawnEnvNameMatchMismatchError extends Error {
 
   constructor(hostEnvNameMatch: SpawnEnvNameMatch, policyEnvNameMatch: SpawnEnvNameMatch) {
     super(
-      `credential policy declares '${policyEnvNameMatch}' environment-name matching but this host uses '${hostEnvNameMatch}'; refusing to compose a child environment under semantics the policy was not authored for`,
+      `credential policy declares '${policyEnvNameMatch}' environment-name matching but this ` +
+        `host uses '${hostEnvNameMatch}'; refusing to compose a child environment under ` +
+        `semantics the policy was not authored for`,
     );
     this.name = "ProviderSpawnEnvNameMatchMismatchError";
     this.hostEnvNameMatch = hostEnvNameMatch;

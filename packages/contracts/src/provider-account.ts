@@ -364,7 +364,10 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
         // Pathed at the timestamp: a stored state implies a stored time, so the timestamp is
         // the member that went missing.
         path: ["healthObservedAt"],
-        message: `\`healthState: "${account.healthState}"\` is the outcome of an observation, so \`healthObservedAt\` cannot be null; only \`indeterminate\` is reachable unobserved`,
+        message:
+          `\`healthState: "${account.healthState}"\` is the outcome ` +
+          `of an observation, so \`healthObservedAt\` cannot ` +
+          `be null; only \`indeterminate\` is reachable unobserved`,
       });
     }
   });
@@ -394,13 +397,59 @@ export interface ProviderSignInRemedy {
 }
 
 /**
- * The next step shown for a readiness state that is not `authenticated`. Three states map to
- * `sign_in`, so a client renders off `kind`, not `state`.
+ * Remedy for `reauth_required` on a token or API-key account: it cannot refresh itself, so the
+ * person mints a fresh token at the provider and pastes it; never a sign-in, retry or refresh.
+ */
+export interface ProviderPasteTokenRemedy {
+  kind: "paste_token";
+  accountId: ProviderAccountId;
+}
+
+/**
+ * Remedy for `indeterminate`: nothing wrong can be seen, so the next read may settle it and
+ * `providerAccount.probe` asks again. Never a sign-in.
+ */
+export interface ProviderLookAgainRemedy {
+  kind: "look_again";
+  accountId: ProviderAccountId;
+}
+
+/**
+ * The next step shown for a readiness state that is not `authenticated`. `reauth_required` takes
+ * `sign_in` or, on a token or API-key account, `paste_token`, so a client renders off `kind`,
+ * not `state`.
  */
 export type ProviderRemedy =
   | ProviderRegisterRemedy
   | ProviderChooseDefaultRemedy
-  | ProviderSignInRemedy;
+  | ProviderSignInRemedy
+  | ProviderPasteTokenRemedy
+  | ProviderLookAgainRemedy;
+
+// The two arms an account whose login is gone takes, kept apart so its own parser and the full
+// remedy parser are built from one declaration of each.
+const signInRemedySchema = z
+  .object({
+    kind: z.literal("sign_in"),
+    accountId: ProviderAccountIdSchema,
+    signInInvocation: wireFreeFormString(
+      PROVIDER_SIGN_IN_INVOCATION_MAX_LEN,
+      "ProviderSignInRemedy.signInInvocation",
+    ),
+    // Absoluteness is not checked here: a `startsWith("/")` test would refuse Windows
+    // paths (`C:\Users\...\.claude`). The daemon checks the rules that need a filesystem.
+    credentialHomePath: wireFreeFormString(
+      FILE_PATH_MAX_LEN,
+      "ProviderSignInRemedy.credentialHomePath",
+    ),
+  })
+  .strict();
+const pasteTokenRemedySchema = z
+  .object({
+    kind: z.literal("paste_token"),
+    accountId: ProviderAccountIdSchema,
+  })
+  .strict();
 
 /** Parses a {@link ProviderRemedy}, discriminated on `kind`. */
 export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z.discriminatedUnion(
@@ -420,24 +469,28 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
         candidateAccountIds: z.array(ProviderAccountIdSchema).min(1),
       })
       .strict(),
+    signInRemedySchema,
+    pasteTokenRemedySchema,
     z
       .object({
-        kind: z.literal("sign_in"),
+        kind: z.literal("look_again"),
         accountId: ProviderAccountIdSchema,
-        signInInvocation: wireFreeFormString(
-          PROVIDER_SIGN_IN_INVOCATION_MAX_LEN,
-          "ProviderSignInRemedy.signInInvocation",
-        ),
-        // Absoluteness is not checked here: a `startsWith("/")` test would refuse Windows
-        // paths (`C:\Users\...\.claude`). The daemon checks the rules that need a filesystem.
-        credentialHomePath: wireFreeFormString(
-          FILE_PATH_MAX_LEN,
-          "ProviderSignInRemedy.credentialHomePath",
-        ),
       })
       .strict(),
   ],
 );
+
+/**
+ * The remedy of one account whose login is gone: the provider's own sign-in, or, on a token or
+ * API-key account, a freshly minted token pasted in.
+ */
+export type ProviderLoginExpiredRemedy = ProviderSignInRemedy | ProviderPasteTokenRemedy;
+
+/** Parses a {@link ProviderLoginExpiredRemedy}, discriminated on `kind`. */
+export const ProviderLoginExpiredRemedySchema: z.ZodType<
+  ProviderLoginExpiredRemedy,
+  ProviderLoginExpiredRemedy
+> = z.discriminatedUnion("kind", [signInRemedySchema, pasteTokenRemedySchema]);
 
 /** One provider's readiness to start a run, with the remedy when it is not ready. */
 export interface ProviderReadiness {
@@ -460,19 +513,21 @@ export interface ProviderReadiness {
 }
 
 /**
- * The remedy kind each readiness state calls for: register with nothing registered, choose a
- * default when none is set, and the provider's own sign-in for the resolved account's home.
- * A total record, so a new state without a remedy fails to compile.
+ * The remedy kinds each readiness state allows: register with nothing registered, choose a
+ * default when none is set, the provider's own sign-in for a lost login or a missing home, a
+ * fresh pasted token for a token or API-key account's lost login, and a look again when the
+ * read could not decide. A total record, so a new state without a remedy fails to compile.
  */
-const REMEDY_KIND_FOR_READINESS_STATE: Readonly<
-  Record<ProviderReadinessState, ProviderRemedy["kind"] | null>
+const REMEDY_KINDS_FOR_READINESS_STATE: Readonly<
+  Record<ProviderReadinessState, readonly ProviderRemedy["kind"][] | null>
 > = {
   authenticated: null,
-  reauth_required: "sign_in",
-  home_missing: "sign_in",
-  indeterminate: "sign_in",
-  no_account: "register",
-  no_default: "choose_default",
+  // The entry carries no sign-in mode, so which of the two applies is the producer's call.
+  reauth_required: ["sign_in", "paste_token"],
+  home_missing: ["sign_in"],
+  indeterminate: ["look_again"],
+  no_account: ["register"],
+  no_default: ["choose_default"],
 };
 
 /** Parses a {@link ProviderReadiness}; the remedy kind and its account must match the state. */
@@ -490,28 +545,34 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     if (remedy === undefined) {
       return;
     }
-    const expectedKind = REMEDY_KIND_FOR_READINESS_STATE[entry.state];
-    if (remedy.kind !== expectedKind) {
+    const allowedKinds = REMEDY_KINDS_FOR_READINESS_STATE[entry.state];
+    if (allowedKinds === null || !allowedKinds.includes(remedy.kind)) {
       context.addIssue({
         code: "custom",
         path: ["remedy", "kind"],
         message:
-          expectedKind === null
-            ? `\`state: "${entry.state}"\` needs no action, so it carries no remedy; \`${remedy.kind}\` would disclose a next step for an account that is already usable`
-            : `\`state: "${entry.state}"\` calls for the \`${expectedKind}\` remedy, not \`${remedy.kind}\``,
+          allowedKinds === null
+            ? `\`state: "${entry.state}"\` needs no action, so it ` +
+              `carries no remedy; \`${remedy.kind}\` would disclose ` +
+              `a next step for an account that is already usable`
+            : `\`state: "${entry.state}"\` calls for the ` +
+              `${allowedKinds.map((kind) => `\`${kind}\``).join(" or ")} ` +
+              `remedy, not \`${remedy.kind}\``,
       });
       return;
     }
-    // A `sign_in` remedy must name the entry's own resolved account; otherwise the person is
-    // pointed at one account's home to fix another's, or at a home no entry owns.
-    if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
+    // A remedy that names an account must name the entry's own resolved account; otherwise the
+    // person is pointed at one account to fix another's, or at an account no entry resolved.
+    if ("accountId" in remedy && remedy.accountId !== entry.resolvedAccountId) {
       context.addIssue({
         code: "custom",
         path: ["remedy", "accountId"],
         message:
           entry.resolvedAccountId === undefined
-            ? "a `sign_in` remedy names a credential home, so its entry must carry the `resolvedAccountId` that home belongs to"
-            : "the `sign_in` remedy's `accountId` must be the entry's own `resolvedAccountId`",
+            ? `a \`${remedy.kind}\` remedy names an account, so its ` +
+              `entry must carry the \`resolvedAccountId\` it belongs to`
+            : `the \`${remedy.kind}\` remedy's \`accountId\` ` +
+              `must be the entry's own \`resolvedAccountId\``,
       });
     }
   });
@@ -717,7 +778,9 @@ export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotific
             code: "custom",
             path: ["window", "accountId"],
             message:
-              "usage_window_updated carries a reading for a different account than the notification routes to; window.accountId must equal the notification's accountId.",
+              "usage_window_updated carries a reading for a different " +
+              "account than the notification routes to; " +
+              "window.accountId must equal the notification's accountId.",
           });
         }
       }),

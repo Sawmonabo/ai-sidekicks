@@ -33,7 +33,8 @@ const SCHEME_OPTIONS: readonly SchemeOption[] = [
     preference: SYSTEM_SCHEME_PREFERENCE,
     label: "Follow this machine",
     description:
-      "Paints whichever scheme the operating system is in, and keeps following it when that changes.",
+      "Paints whichever scheme the operating system is in, and keeps " +
+      "following it when that changes.",
   },
   {
     preference: "light",
@@ -96,7 +97,10 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
             kind="error"
             placement="inline"
             title="This window is carrying a scheme this app does not define."
-            detail="No option is shown as current, because none of them is. Choosing one below replaces it."
+            detail={
+              "No option is shown as current, because none of them is. " +
+              "Choosing one below replaces it."
+            }
           />
         ) : null}
       </section>

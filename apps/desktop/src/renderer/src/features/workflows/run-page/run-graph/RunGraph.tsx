@@ -33,9 +33,13 @@ export interface RunGraphProps {
  */
 const TOPOLOGY_ABSENCE_CAPTIONS: Readonly<Record<PhaseTopologyAbsence, string>> = {
   "not-supplied":
-    "Dependencies unavailable — this run's definition has not been read here, so the phases are shown in the order the run reports them and nothing is connected.",
+    "Dependencies unavailable — this run's definition has not been " +
+    "read here, so the phases are shown in the order the run reports " +
+    "them and nothing is connected.",
   "not-drawable":
-    "Dependencies unavailable — the definition that was read does not declare a topology this run can be drawn from, so the phases are shown in the order the run reports them.",
+    "Dependencies unavailable — the definition that was read does " +
+    "not declare a topology this run can be drawn from, so the " +
+    "phases are shown in the order the run reports them.",
 };
 
 /** One run's phase sequence, read-only, drawn once its renderer arrives. */
@@ -103,7 +107,12 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
  * Names the ids rather than counting them: the ids say which producer to look at.
  */
 function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
-  return `More than one phase arrived under the same identifier: ${repeatedPhaseIds.join(", ")}. Every phase on the canvas is keyed by its identifier, so drawing this run would have shown fewer phases than it has.`;
+  return (
+    "More than one phase arrived under the same identifier: " +
+    `${repeatedPhaseIds.join(", ")}. Every phase on the canvas is ` +
+    "keyed by its identifier, so drawing this run would have shown " +
+    "fewer phases than it has."
+  );
 }
 
 /**

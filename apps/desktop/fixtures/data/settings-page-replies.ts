@@ -109,7 +109,7 @@ const WORK_ACCOUNT: ProviderAccount = {
   memoryImport: null,
 };
 
-/** An account nothing has observed yet. */
+/** An account whose credential home was absent when last observed. */
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
   provider: "codex",
@@ -117,8 +117,8 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
   credentialGeneration: 1,
   billingMode: "metered",
   isDefault: true,
-  healthState: "indeterminate",
-  healthObservedAt: null,
+  healthState: "home_missing",
+  healthObservedAt: OBSERVED_AT,
   observedAuthMode: null,
   loggedInAt: null,
   expectedReloginAtEstimate: null,
@@ -164,8 +164,9 @@ const ACCOUNT_REGISTRY: ProviderAccountListResponse = {
     },
     {
       provider: "codex",
-      state: "indeterminate",
+      state: "home_missing",
       resolvedAccountId: PERSONAL_ACCOUNT_ID,
+      observedAt: OBSERVED_AT,
       remedy: {
         kind: "sign_in",
         accountId: PERSONAL_ACCOUNT_ID,
@@ -362,6 +363,9 @@ function answerAccountRegistration(
       displayLabel,
       billingMode,
       isDefault: false,
+      // Nothing has observed an account registered a moment ago.
+      healthState: "indeterminate",
+      healthObservedAt: null,
     },
   };
 }

@@ -34,7 +34,10 @@ export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] })
         kind="empty"
         placement="inline"
         title="No quota reading has been stored for this account."
-        detail="A reading is recorded when a run spends against the account or when a probe asks for one."
+        detail={
+          "A reading is recorded when a run spends against the account or " +
+          "when a probe asks for one."
+        }
       />
     );
   }

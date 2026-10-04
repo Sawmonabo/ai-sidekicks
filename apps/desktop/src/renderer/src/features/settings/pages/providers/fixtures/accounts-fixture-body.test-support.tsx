@@ -47,7 +47,7 @@ const WORK_ACCOUNT: ProviderAccount = {
   memoryImport: null,
 };
 
-/** An account nothing has ever observed. */
+/** An account whose credential home was absent when last observed. */
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
   provider: "codex",
@@ -55,8 +55,8 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
   credentialGeneration: 1,
   billingMode: "metered",
   isDefault: true,
-  healthState: "indeterminate",
-  healthObservedAt: null,
+  healthState: "home_missing",
+  healthObservedAt: "2026-01-01T07:00:00.000Z",
   observedAuthMode: null,
   loggedInAt: null,
   expectedReloginAtEstimate: null,
@@ -102,8 +102,9 @@ const READINESS: readonly ProviderReadiness[] = [
   },
   {
     provider: "codex",
-    state: "indeterminate",
+    state: "home_missing",
     resolvedAccountId: PERSONAL_ACCOUNT_ID,
+    observedAt: "2026-01-01T07:00:00.000Z",
     remedy: {
       kind: "sign_in",
       accountId: PERSONAL_ACCOUNT_ID,
@@ -162,10 +163,10 @@ export function mountAccountsPage(options: {
   return { container };
 }
 
-/** Every start-sign-in control the readiness list is currently offering. */
+/** Every `Sign in` control the readiness list is currently offering. */
 export function startControls(container: HTMLElement): HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>("button")].filter((button) =>
-    /start sign-in/iu.test(button.textContent ?? ""),
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (button) => button.textContent === "Sign in",
   );
 }
 

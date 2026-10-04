@@ -53,7 +53,10 @@ export function boundLoadFailureReason(reason: string): string {
  */
 export function buildLoadFailureUrl(reason: string): string {
   const bounded = boundLoadFailureReason(reason);
-  return `${RENDERER_ORIGIN}${LOAD_FAILURE_PATH}?${LOAD_FAILURE_REASON_PARAMETER}=${encodeURIComponent(bounded)}`;
+  return (
+    `${RENDERER_ORIGIN}${LOAD_FAILURE_PATH}?` +
+    `${LOAD_FAILURE_REASON_PARAMETER}=${encodeURIComponent(bounded)}`
+  );
 }
 
 /**

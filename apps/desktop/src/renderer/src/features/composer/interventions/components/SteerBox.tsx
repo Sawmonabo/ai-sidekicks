@@ -183,7 +183,10 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       <div className="meridian-run-composer__actions">
         <button
           type="submit"
-          className="meridian-run-composer__confirm meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          className={
+            "meridian-run-composer__confirm meridian-action-button " +
+            "meridian-action-button--small meridian-action-button--raised"
+          }
           disabled={isConfirmLatched}
           aria-busy={isSending}
         >
@@ -191,7 +194,10 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         </button>
         <button
           type="button"
-          className="meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          className={
+            "meridian-action-button meridian-action-button--small " +
+            "meridian-action-button--raised"
+          }
           onClick={onDismiss}
         >
           Cancel

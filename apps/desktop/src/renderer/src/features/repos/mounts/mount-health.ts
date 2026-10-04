@@ -33,7 +33,9 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisPrese
     // No further question can be put to a root that cannot be probed. Not softened to
     // "temporarily unavailable": precedence between failing verdicts is the daemon's.
     sentence:
-      "The root could not be probed, so nothing further can be asked of it. Binds and runs on this mount refuse until it is reachable again.",
+      "The root could not be probed, so nothing further can be asked " +
+      "of it. Binds and runs on this mount refuse until it is " +
+      "reachable again.",
   },
   identity_mismatch: {
     tone: "failure",
@@ -41,7 +43,10 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisPrese
     // a different repository. The sentence says the refusal is permanent for this row and names
     // the recovery, since a user reads the card before pressing anything.
     sentence:
-      "The root is reachable but is no longer the repository this mount was attached as. Binds and runs on this mount refuse permanently; re-attaching the path mints a new mount and leaves this row as history.",
+      "The root is reachable but is no longer the repository this " +
+      "mount was attached as. Binds and runs on this mount refuse " +
+      "permanently; re-attaching the path mints a new mount and leaves " +
+      "this row as history.",
   },
 };
 
@@ -55,7 +60,8 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisPresentation>
     tone: "neutral",
     // Terminal: there is no `detached -> attached` transition.
     sentence:
-      "Detached is where a mount ends. Attaching the same path again mints a new mount; this row stays as history.",
+      "Detached is where a mount ends. Attaching the same path again " +
+      "mints a new mount; this row stays as history.",
   },
   archived: {
     tone: "neutral",

@@ -48,43 +48,49 @@ function dialogPicking(filePaths: readonly string[]): OpenDialogHost {
 }
 
 describe("the open dialog", () => {
-  it("answers each picked file as a token, its name and its size, and keeps the path in main", async () => {
-    const picked = path.join(folder, "notes.md");
-    await writeFile(picked, "twelve bytes", "utf8");
-    const refs = new FilePathRefs();
-    const owner = page(1);
+  it(
+    "answers each picked file as a token, its " + "name and its size, and keeps the path in main",
+    async () => {
+      const picked = path.join(folder, "notes.md");
+      await writeFile(picked, "twelve bytes", "utf8");
+      const refs = new FilePathRefs();
+      const owner = page(1);
 
-    const result = await showFileDialog(dialogPicking([picked]), refs, owner, {
-      purpose: "attachFiles",
-    });
+      const result = await showFileDialog(dialogPicking([picked]), refs, owner, {
+        purpose: "attachFiles",
+      });
 
-    expect(result.refs).toHaveLength(1);
-    const [file] = result.refs;
-    expect(file?.name).toBe("notes.md");
-    expect(file?.sizeBytes).toBe(12);
-    expect(JSON.stringify(result)).not.toContain(folder);
-    expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
-  });
+      expect(result.refs).toHaveLength(1);
+      const [file] = result.refs;
+      expect(file?.name).toBe("notes.md");
+      expect(file?.sizeBytes).toBe(12);
+      expect(JSON.stringify(result)).not.toContain(folder);
+      expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
+    },
+  );
 
-  it("answers a picked folder as one token and keeps its path in main, or null on cancel", async () => {
-    const refs = new FilePathRefs();
-    const owner = page(1);
+  it(
+    "answers a picked folder as one token and " + "keeps its path in main, or null on cancel",
+    async () => {
+      const refs = new FilePathRefs();
+      const owner = page(1);
 
-    const ref = await showOpenDialog(dialogPicking([folder]), refs, owner, {
-      purpose: "pickFolder",
-    });
+      const ref = await showOpenDialog(dialogPicking([folder]), refs, owner, {
+        purpose: "pickFolder",
+      });
 
-    expect(typeof ref).toBe("string");
-    expect(ref).not.toContain(folder);
-    expect(typeof ref === "string" ? refs.pathOf(owner, ref) : undefined).toBe(folder);
+      expect(typeof ref).toBe("string");
+      expect(ref).not.toContain(folder);
+      expect(typeof ref === "string" ? refs.pathOf(owner, ref) : undefined).toBe(folder);
 
-    const canceled: OpenDialogHost = {
-      showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
-    };
-    await expect(
-      showOpenDialog(canceled, refs, owner, { purpose: "pickFolder" }),
-    ).resolves.toBeNull();
-  });
+      const canceled: OpenDialogHost = {
+        showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
+      };
+      await expect(
+        showOpenDialog(canceled, refs, owner, { purpose: "pickFolder" }),
+      ).resolves.toBeNull();
+    },
+  );
 
   it("refuses a purpose it does not know before showing anything", async () => {
     const host = dialogPicking([]);
@@ -94,20 +100,23 @@ describe("the open dialog", () => {
     expect(host.showOpenDialog).not.toHaveBeenCalled();
   });
 
-  it("forgets a page's tokens when the page goes, and never answers one page another's", async () => {
-    const picked = path.join(folder, "a.txt");
-    await writeFile(picked, "a", "utf8");
-    const refs = new FilePathRefs();
-    const owner = page(1);
-    const [file] = (
-      await showFileDialog(dialogPicking([picked]), refs, owner, { purpose: "importFile" })
-    ).refs;
-    if (file === undefined) {
-      throw new Error("the dialog picked nothing");
-    }
+  it(
+    "forgets a page's tokens when the page " + "goes, and never answers one page another's",
+    async () => {
+      const picked = path.join(folder, "a.txt");
+      await writeFile(picked, "a", "utf8");
+      const refs = new FilePathRefs();
+      const owner = page(1);
+      const [file] = (
+        await showFileDialog(dialogPicking([picked]), refs, owner, { purpose: "importFile" })
+      ).refs;
+      if (file === undefined) {
+        throw new Error("the dialog picked nothing");
+      }
 
-    expect(refs.pathOf(page(2), file.ref)).toBeUndefined();
-    owner.destroy();
-    expect(refs.pathOf(owner, file.ref)).toBeUndefined();
-  });
+      expect(refs.pathOf(page(2), file.ref)).toBeUndefined();
+      owner.destroy();
+      expect(refs.pathOf(owner, file.ref)).toBeUndefined();
+    },
+  );
 });

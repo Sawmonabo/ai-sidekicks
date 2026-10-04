@@ -248,7 +248,8 @@ function deleteAlreadyRunning(isTheSameRecord: boolean): Refusal {
     AGENT_LIBRARY_REFUSAL_ORIGIN,
     "delete-already-running",
     isTheSameRecord
-      ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."
+      ? "This sidekick is already being deleted. It is asked once, and " +
+          "the row changes when the registry answers."
       : "Another sidekick is being deleted. Wait for that one to settle, then press Delete again.",
   );
 }

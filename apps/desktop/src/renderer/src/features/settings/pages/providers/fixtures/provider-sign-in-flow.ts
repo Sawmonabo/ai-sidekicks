@@ -50,8 +50,10 @@ export const IDLE_PROVIDER_SIGN_IN_FLOW: ProviderSignInFlowState = { kind: "idle
  * Its own sentence: this ending is neither a cancellation nor a reply to a call. The
  * report comes from the provider and is not a claim the account is authenticated.
  */
-export const PROVIDER_SIGN_IN_ENDED_BY_REGISTRY =
-  "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
+export const PROVIDER_SIGN_IN_ENDED_BY_REGISTRY: string =
+  "This machine reports the provider's sign-in finished. That is " +
+  "not a claim the account is authenticated — the registry is " +
+  "being read again to see what became of it.";
 
 /**
  * Whether the daemon is running a flow of this window's making, per kind.
@@ -152,8 +154,11 @@ export async function cancelProviderSignIn(
     kind: "ended",
     because:
       reply.status === "canceled"
-        ? "The sign-in was canceled. Nothing about this account has changed until the registry is read again."
-        : "There was no sign-in left to cancel — it had already finished or expired. Read the registry again to see what became of the account.",
+        ? "The sign-in was canceled. Nothing about this account has " +
+          "changed until the registry is read again."
+        : "There was no sign-in left to cancel — it had already finished " +
+          "or expired. Read the registry again to see what became of the " +
+          "account.",
   };
 }
 
@@ -197,7 +202,9 @@ export function readRegistrationFields(typed: {
       refusal: refuse(
         TOKEN_REGISTRATION_REFUSAL_ORIGIN,
         "registration-label-blank",
-        "Give the account a label with at least one visible character — spaces alone are not a name anything can be found by. Nothing was sent, and the token field still holds what you typed.",
+        "Give the account a label with at least one visible character — " +
+          "spaces alone are not a name anything can be found by. Nothing " +
+          "was sent, and the token field still holds what you typed.",
       ),
     };
   }

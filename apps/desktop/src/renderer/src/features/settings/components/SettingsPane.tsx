@@ -37,7 +37,10 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
           kind="error"
           placement="block"
           title="That settings address does not name a section."
-          detail={`Nothing in settings is called “${props.attempted}”. The rail on the left lists every section this app has.`}
+          detail={
+            `Nothing in settings is called “${props.attempted}”. The rail on ` +
+            "the left lists every section this app has."
+          }
         />
       );
     }

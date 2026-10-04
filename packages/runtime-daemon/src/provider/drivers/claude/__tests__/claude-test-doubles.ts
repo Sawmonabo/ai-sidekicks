@@ -75,8 +75,6 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   disposeFailure: Error | undefined = undefined;
   /** Every `sendUserText` call, failures included; `sentTextFrames` holds only written frames. */
   sendUserTextAttempts = 0;
-  /** Called at the top of every `sendUserText` with the 1-based attempt number. */
-  onSendUserTextAttempt: ((attemptNumber: number) => void) | undefined = undefined;
 
   constructor(providerSessionId: string) {
     this.providerSessionId = providerSessionId;
@@ -98,7 +96,6 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
 
   async sendUserText(frame: OutboundTextFrame): Promise<ClaudeUserTextWriteAttempt> {
     this.sendUserTextAttempts += 1;
-    this.onSendUserTextAttempt?.(this.sendUserTextAttempts);
     if (this.sendUserTextRejection !== undefined) {
       throw this.sendUserTextRejection;
     }
@@ -248,7 +245,8 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     )) {
       if (mandatedEnvironment.find((pair) => pair[0] === name)?.[1] !== value) {
         throw new Error(
-          `A Claude child was started without the mandated ${name}=${value}, which the transport obligations forbid.`,
+          `A Claude child was started without the mandated ${name}=${value}, which the ` +
+            `transport obligations forbid.`,
         );
       }
     }

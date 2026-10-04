@@ -112,7 +112,7 @@ export async function runFixtureGit(
   return result.stdout;
 }
 
-/** Seeds a session's log so `SessionService.replay` returns a snapshot for it. */
+/** Seeds a session's log so `SessionService.rebuildSession` returns a snapshot for it. */
 export function seedSession(database: Database, sessionId: SessionId): void {
   insertStoredEvent(database, {
     id: `evt-${sessionId}`,
@@ -223,7 +223,7 @@ export function requireWorkspaceRow(database: Database, workspaceId: string): St
 
 /**
  * The session's event types in sequence order, without the seeded `session.created` anchor, which
- * exists only because `replay` refuses a log that does not start with it.
+ * exists only because `rebuildSession` refuses a log that does not start with it.
  */
 export function readLifecycleEventTypes(database: Database, sessionId: string): readonly string[] {
   return readLifecycleEnvelopes(database, sessionId).map((row) => row.type);

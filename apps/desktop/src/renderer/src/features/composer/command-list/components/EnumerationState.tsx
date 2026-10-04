@@ -27,7 +27,10 @@ export function EnumerationState(props: {
           <Nothing
             kind="not-checked"
             title="No sidekick is addressed, so no provider was asked"
-            detail="Focus a sidekick's pane to see the commands and skills its bound provider publishes."
+            detail={
+              "Focus a sidekick's pane to see the commands and skills its " +
+              "bound provider publishes."
+            }
           />
         </div>
       );
@@ -50,7 +53,12 @@ export function EnumerationState(props: {
             <Nothing
               kind="empty"
               title="This run's binding published nothing here"
-              detail="The sidekick answered for the bindings it holds and none of them could be attributed to the run this composer is addressed to, so no provider entry is offered — another binding's commands are never shown under this one."
+              detail={
+                "The sidekick answered for the bindings it holds and none of " +
+                "them could be attributed to the run this composer is addressed " +
+                "to, so no provider entry is offered — another binding's " +
+                "commands are never shown under this one."
+              }
             />
           </div>
         );

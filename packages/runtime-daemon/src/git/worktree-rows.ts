@@ -86,7 +86,8 @@ export function assertSingleWorktreeRowChanged(
 ): void {
   if (result.changes !== 1) {
     throw new Error(
-      `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before the write committed`,
+      `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before ` +
+        `the write committed`,
     );
   }
 }

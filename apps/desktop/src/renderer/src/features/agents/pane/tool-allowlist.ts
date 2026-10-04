@@ -56,7 +56,8 @@ export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
   "not-reported": {
     reading: "Not reported",
     lineSentence:
-      "This sidekick was not started from a saved definition, so the sidekick list does not say what it may reach.",
+      "This sidekick was not started from a saved definition, so the " +
+      "sidekick list does not say what it may reach.",
     weight: "absent",
   },
   // Muted: nobody restricted this agent, and the provider's own set is what it spawned with.
@@ -85,7 +86,9 @@ export function namedToolAllowlistSentence(toolNames: readonly string[]): string
   }
   const restriction = `Restricted to the ${formatCount(toolNames.length)} tools`;
   return toolNames.length > TOOL_ALLOWLIST_NAMED_CAP
-    ? `${restriction}; the first ${formatCount(TOOL_ALLOWLIST_NAMED_CAP)} are named in the resolved configuration below.`
+    ? `${restriction}; the first ` +
+        `${formatCount(TOOL_ALLOWLIST_NAMED_CAP)} are named in the ` +
+        "resolved configuration below."
     : `${restriction}, named in the resolved configuration below.`;
 }
 

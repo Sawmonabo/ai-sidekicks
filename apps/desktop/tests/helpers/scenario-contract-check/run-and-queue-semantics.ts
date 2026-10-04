@@ -142,7 +142,8 @@ function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undef
   return (
     `the registered "${beat.event.kind}" payload rejects this beat, and no narrowed stream ` +
     "projects this kind — so nothing downstream would refuse it either, and a view would " +
-    `read a run built out of half a payload: ${parsed.error.issues.map(describeSchemaIssue).join("; ")}.`
+    `read a run built out of half a payload: ` +
+    `${parsed.error.issues.map(describeSchemaIssue).join("; ")}.`
   );
 }
 

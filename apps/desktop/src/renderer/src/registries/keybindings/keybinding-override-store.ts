@@ -138,7 +138,8 @@ export class KeybindingOverrideStore {
       if (round.isCurrent && this.#keyboardMap === keyboardMap) {
         this.#readRefusal = refuseKeyboardMap(
           "keyboard-map-unread",
-          "The keyboard map on this machine could not be read, so this window uses the chords the app ships with until it is opened again.",
+          "The keyboard map on this machine could not be read, so this window " +
+            "uses the chords the app ships with until it is opened again.",
         );
         this.#publish();
       }

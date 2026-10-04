@@ -66,7 +66,8 @@ export const ENDURANCE_LAUNCH_OPTIONS: LaunchAppOptions = enduranceLaunchOptions
 export const CONCURRENT_STREAMING_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /** The hash route of the concurrent-streaming session. */
-export const CONCURRENT_STREAMING_SESSION_ROUTE: string = `#/session/${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
+export const CONCURRENT_STREAMING_SESSION_ROUTE: string =
+  `#/session/` + `${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
 
 /** The hash route of the settings destination. */
 export const SETTINGS_ROUTE: string = "#/settings";
@@ -274,7 +275,8 @@ export async function expectConcurrentStreamingSessionCarriesContent(
   );
   expect(
     appliedEventCount,
-    `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
+    `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, ` +
+      `so nothing can be shown about where the workload's events went`,
   ).not.toBeNull();
   expect(
     Number(appliedEventCount),

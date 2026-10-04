@@ -183,7 +183,8 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     if (cleanupOutcome.settlement !== "closed") {
       console.error(
         `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
-          `${String(cleanupOutcome.waitedMs)} ms of the ${String(cleanupOutcome.budgetMs)} ms it was given`,
+          `${String(cleanupOutcome.waitedMs)} ms of the ` +
+          `${String(cleanupOutcome.budgetMs)} ms it was given`,
       );
     }
     const failure = cleanupFailure(cleanupOutcome);

@@ -103,36 +103,39 @@ describe("push-driven read — no swallowed failure", () => {
     });
   });
 
-  it("settles failed with the thrower's own words when subscribe throws synchronously", async () => {
-    const clock = new ManualClock();
-    const read = vi.fn(async () => "value");
-    // The installed stub preload bridge throws exactly this way from every daemon method.
-    const model = new PushDrivenRead<string>({
-      clock,
-      origin: "presence-list",
-      read,
-      subscribe: () => {
-        throw new Error("daemon.subscribe is not available in this build");
-      },
-    });
-
-    model.start();
-    clock.advance(5000);
-    await settle();
-
-    expect(model.state).toStrictEqual({
-      kind: "failed",
-      refusal: {
-        code: "subscribe-failed",
-        detail: "daemon.subscribe is not available in this build",
+  it(
+    "settles failed with the thrower's own " + "words when subscribe throws synchronously",
+    async () => {
+      const clock = new ManualClock();
+      const read = vi.fn(async () => "value");
+      // The installed stub preload bridge throws exactly this way from every daemon method.
+      const model = new PushDrivenRead<string>({
+        clock,
         origin: "presence-list",
-      },
-    });
-    // No read behind a subscription that never opened, and no timer armed for one.
-    expect(read).not.toHaveBeenCalled();
-    expect(model.isSubscribed).toBe(false);
-    expect(clock.pendingCount).toBe(0);
-  });
+        read,
+        subscribe: () => {
+          throw new Error("daemon.subscribe is not available in this build");
+        },
+      });
+
+      model.start();
+      clock.advance(5000);
+      await settle();
+
+      expect(model.state).toStrictEqual({
+        kind: "failed",
+        refusal: {
+          code: "subscribe-failed",
+          detail: "daemon.subscribe is not available in this build",
+          origin: "presence-list",
+        },
+      });
+      // No read behind a subscription that never opened, and no timer armed for one.
+      expect(read).not.toHaveBeenCalled();
+      expect(model.isSubscribed).toBe(false);
+      expect(clock.pendingCount).toBe(0);
+    },
+  );
 });
 
 describe("push-driven read — a refused open is not the end of the read", () => {

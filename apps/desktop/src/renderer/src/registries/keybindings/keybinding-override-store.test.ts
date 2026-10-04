@@ -182,29 +182,32 @@ describe("what one window wrote, the next one reads", () => {
     ]);
   });
 
-  it("skips an override for an act that no longer exists, and leaves it out of the next write", async () => {
-    // Two stored entries name acts this window lacks: one rebound, one left unbound.
-    const keyboardMap = new MemoryKeyboardMap({
-      "frame.goToSessions": "$mod+9",
-      "retired.openTranscript": "$mod+8",
-      "retired.closeTranscript": null,
-    });
+  it(
+    "skips an override for an act that no longer " + "exists, and leaves it out of the next write",
+    async () => {
+      // Two stored entries name acts this window lacks: one rebound, one left unbound.
+      const keyboardMap = new MemoryKeyboardMap({
+        "frame.goToSessions": "$mod+9",
+        "retired.openTranscript": "$mod+8",
+        "retired.closeTranscript": null,
+      });
 
-    const reader = overrideStore();
-    await reader.hydrateFrom(keyboardMap);
-    expect(reader.overrides).toStrictEqual({ "frame.goToSessions": "$mod+9" });
-    expect(reader.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
-      "frame.goToSessions",
-      "frame.goToWorkflows",
-    ]);
-    expect(reader.hydrationRefusals).toHaveLength(0);
+      const reader = overrideStore();
+      await reader.hydrateFrom(keyboardMap);
+      expect(reader.overrides).toStrictEqual({ "frame.goToSessions": "$mod+9" });
+      expect(reader.snapshot.bindings.map((binding) => binding.commandId)).toStrictEqual([
+        "frame.goToSessions",
+        "frame.goToWorkflows",
+      ]);
+      expect(reader.hydrationRefusals).toHaveLength(0);
 
-    await reader.bind("frame.goToWorkflows", "$mod+7");
-    expect(keyboardMap.stored).toStrictEqual({
-      "frame.goToSessions": "$mod+9",
-      "frame.goToWorkflows": "$mod+7",
-    });
-  });
+      await reader.bind("frame.goToWorkflows", "$mod+7");
+      expect(keyboardMap.stored).toStrictEqual({
+        "frame.goToSessions": "$mod+9",
+        "frame.goToWorkflows": "$mod+7",
+      });
+    },
+  );
 
   it("keeps the newer hydration's overrides when the older one answers last", async () => {
     // A replaced bridge's read keeps running; answering last it must not install its stale map.

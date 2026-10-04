@@ -102,18 +102,21 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
 });
 
 describe("a read that failed is not a record that was never written", () => {
-  it("answers `failed` where the record is unreachable and `absent` where it is not there", async () => {
-    const adapter = new ReadFailurePersistenceAdapter();
-    const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
-    expect((await store.write("session-1", "expansion", "expansion", ["run-01"])).outcome).toBe(
-      "written",
-    );
+  it(
+    "answers `failed` where the record is " + "unreachable and `absent` where it is not there",
+    async () => {
+      const adapter = new ReadFailurePersistenceAdapter();
+      const store = new UiStateStore({ adapter, clock: new ManualClock(1_000) });
+      expect((await store.write("session-1", "expansion", "expansion", ["run-01"])).outcome).toBe(
+        "written",
+      );
 
-    // The record is there and the adapter cannot say so: one answer for "unreachable",
-    // another for "not there".
-    expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("failed");
-    adapter.stopFailingReads();
-    expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("present");
-    expect((await store.readOutcome("session-1", "never-written")).outcome).toBe("absent");
-  });
+      // The record is there and the adapter cannot say so: one answer for "unreachable",
+      // another for "not there".
+      expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("failed");
+      adapter.stopFailingReads();
+      expect((await store.readOutcome("session-1", "expansion")).outcome).toBe("present");
+      expect((await store.readOutcome("session-1", "never-written")).outcome).toBe("absent");
+    },
+  );
 });

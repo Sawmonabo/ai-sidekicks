@@ -70,47 +70,23 @@ function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
 }
 
 describe("auto-update suppression in the spawned child", () => {
-  it("carries the opt-out into the version handshake's own child, over the inherited value", async () => {
-    // The handshake spawn is a driver-spawned child too; a build that auto-updated during its
-    // own version handshake would falsify that reading.
-    const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
-    const handshake = new RecordingHandshake({
-      [executable]: { version: "2.1.245", buildTime: "2026-08-25T04:00:18Z" },
-    });
-    await readSpawnedProviderVersion({
-      driverName: "claude",
-      requestedCommand: executable,
-      handshake: handshake.run,
-      baseEnv: [
-        ["PATH", "/usr/bin"],
-        ["DISABLE_AUTOUPDATER", "0"],
-      ],
-      resolver: {
-        isExecutableFile: () => Promise.resolve(true),
-        realpath: (candidate) => Promise.resolve(candidate),
-        platform: "darwin",
-      },
-    });
-
-    expect(handshake.requests).toHaveLength(1);
-    expect(handshake.requests[0]?.environment["DISABLE_AUTOUPDATER"]).toBe("1");
-    expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
-    // Everything else passes through untouched.
-    expect(handshake.requests[0]?.environment["PATH"]).toBe("/usr/bin");
-  });
-
-  it("builds the handshake's environment from the spawn's base alone, never the daemon's own", async () => {
-    // The daemon's environment can hold credentials and developer config a session spawn never
-    // passes on; the handshake child must not see them either.
-    vi.stubEnv("SIDEKICKS_DAEMON_ONLY_VARIABLE", "daemon-value");
-    try {
+  it(
+    "carries the opt-out into the version " + "handshake's own child, over the inherited value",
+    async () => {
+      // The handshake spawn is a driver-spawned child too; a build that auto-updated during its
+      // own version handshake would falsify that reading.
       const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
-      const handshake = new RecordingHandshake({ [executable]: { version: "2.1.245" } });
+      const handshake = new RecordingHandshake({
+        [executable]: { version: "2.1.245", buildTime: "2026-08-25T04:00:18Z" },
+      });
       await readSpawnedProviderVersion({
         driverName: "claude",
         requestedCommand: executable,
         handshake: handshake.run,
-        baseEnv: [["PATH", "/usr/bin"]],
+        baseEnv: [
+          ["PATH", "/usr/bin"],
+          ["DISABLE_AUTOUPDATER", "0"],
+        ],
         resolver: {
           isExecutableFile: () => Promise.resolve(true),
           realpath: (candidate) => Promise.resolve(candidate),
@@ -118,14 +94,44 @@ describe("auto-update suppression in the spawned child", () => {
         },
       });
 
-      expect(handshake.requests[0]?.environment).toStrictEqual({
-        PATH: "/usr/bin",
-        ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
-      });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
+      expect(handshake.requests).toHaveLength(1);
+      expect(handshake.requests[0]?.environment["DISABLE_AUTOUPDATER"]).toBe("1");
+      expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
+      // Everything else passes through untouched.
+      expect(handshake.requests[0]?.environment["PATH"]).toBe("/usr/bin");
+    },
+  );
+
+  it(
+    "builds the handshake's environment from the " + "spawn's base alone, never the daemon's own",
+    async () => {
+      // The daemon's environment can hold credentials and developer config a session spawn never
+      // passes on; the handshake child must not see them either.
+      vi.stubEnv("SIDEKICKS_DAEMON_ONLY_VARIABLE", "daemon-value");
+      try {
+        const executable = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
+        const handshake = new RecordingHandshake({ [executable]: { version: "2.1.245" } });
+        await readSpawnedProviderVersion({
+          driverName: "claude",
+          requestedCommand: executable,
+          handshake: handshake.run,
+          baseEnv: [["PATH", "/usr/bin"]],
+          resolver: {
+            isExecutableFile: () => Promise.resolve(true),
+            realpath: (candidate) => Promise.resolve(candidate),
+            platform: "darwin",
+          },
+        });
+
+        expect(handshake.requests[0]?.environment).toStrictEqual({
+          PATH: "/usr/bin",
+          ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
+        });
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 });
 
 describe("provider executable resolution", () => {
@@ -174,27 +180,30 @@ describe("provider executable resolution", () => {
       expect(buildPath.endsWith(join("builds", "2.1.245", "claude"))).toBe(true);
     });
 
-    it("finds a BARE command along the spawn's PATH, never the daemon's, and dereferences it", async () => {
-      // The launcher's folder is on the spawn's base alone, so a search of the daemon's own PATH
-      // finds nothing, and a read that found another build would describe one never spawned.
-      const { binDirectory, launcherPath } = await makeLauncherFixture();
-      const dereferenced = await resolveProviderExecutable("claude", launcherPath, []);
-      const handshake = new RecordingHandshake({
-        [dereferenced.resolvedExecutablePath]: { version: "2.1.245" },
-      });
+    it(
+      "finds a BARE command along the spawn's " + "PATH, never the daemon's, and dereferences it",
+      async () => {
+        // The launcher's folder is on the spawn's base alone, so a search of the daemon's own PATH
+        // finds nothing, and a read that found another build would describe one never spawned.
+        const { binDirectory, launcherPath } = await makeLauncherFixture();
+        const dereferenced = await resolveProviderExecutable("claude", launcherPath, []);
+        const handshake = new RecordingHandshake({
+          [dereferenced.resolvedExecutablePath]: { version: "2.1.245" },
+        });
 
-      const reading = await readSpawnedProviderVersion({
-        driverName: "claude",
-        requestedCommand: "claude",
-        handshake: handshake.run,
-        baseEnv: [["PATH", binDirectory]],
-      });
+        const reading = await readSpawnedProviderVersion({
+          driverName: "claude",
+          requestedCommand: "claude",
+          handshake: handshake.run,
+          baseEnv: [["PATH", binDirectory]],
+        });
 
-      expect(reading.resolvedExecutablePath).toBe(dereferenced.resolvedExecutablePath);
-      expect(reading.resolvedExecutablePath.endsWith(join("builds", "2.1.245", "claude"))).toBe(
-        true,
-      );
-    });
+        expect(reading.resolvedExecutablePath).toBe(dereferenced.resolvedExecutablePath);
+        expect(reading.resolvedExecutablePath.endsWith(join("builds", "2.1.245", "claude"))).toBe(
+          true,
+        );
+      },
+    );
 
     it("RECORDS THE SPAWNED BUILD'S VERSION WHEN THE LAUNCHER NAMES ANOTHER ONE", async () => {
       // Launcher drift: the transport answers `2.1.245` for the dereferenced build and `2.1.198`

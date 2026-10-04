@@ -260,13 +260,15 @@ function runCommandLine(argv, { stderr = process.stderr } = {}) {
       staleAfterMs: optionalInteger(options, "staleAfterMs", DEFAULT_STALE_AFTER_MS),
       onWaitStart: (holder) => {
         stderr.write(
-          `lefthook: another worktree is mid-commit — waiting for it to finish (${describeHolder(holder)}).\n`,
+          `lefthook: another worktree is mid-commit — waiting ` +
+            `for it to finish (${describeHolder(holder)}).\n`,
         );
       },
     });
     if (result.acquired) return 0;
     stderr.write(
-      `lefthook: timed out waiting for ${basename(lockPath)}; held by ${describeHolder(result.holder)}.\n` +
+      `lefthook: timed out waiting for ${basename(lockPath)}; held by ` +
+        `${describeHolder(result.holder)}.\n` +
         `lefthook: refusing the commit rather than sharing lefthook's unstaged-changes backup.\n` +
         `lefthook: if that process is gone, delete ${lockPath} and retry.\n`,
     );

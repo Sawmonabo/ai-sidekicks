@@ -210,7 +210,9 @@ export class RevealEngine {
       this.#reportDiagnostic({
         kind: "transition-failed",
         laneId: failures.join(", "),
-        detail: `${String(failures.length)} lanes were quarantined after their reveal transition threw; the remaining lanes finished the frame`,
+        detail:
+          `${String(failures.length)} lanes were quarantined after their ` +
+          "reveal transition threw; the remaining lanes finished the frame",
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });

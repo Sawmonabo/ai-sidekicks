@@ -68,29 +68,33 @@ describe("getCapabilities()", () => {
 });
 
 describe("refreshDeclaration()", () => {
-  it("re-reads the version on each refresh, so a CLI upgrade reaches the sink under this driver", async () => {
-    const versions: DriverCliVersionReport[] = [
-      { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
-      { rawVersion: "2.1.246", parsedVersion: "2.1.246" },
-    ];
-    let call = 0;
-    const reporter = makeReporter(() => {
-      const version = versions[Math.min(call, versions.length - 1)];
-      call += 1;
-      return Promise.resolve(version as DriverCliVersionReport);
-    });
-    const sink = new RecordingDeclarationSink();
+  it(
+    "re-reads the version on each refresh, so a " +
+      "CLI upgrade reaches the sink under this driver",
+    async () => {
+      const versions: DriverCliVersionReport[] = [
+        { rawVersion: "2.1.245", parsedVersion: "2.1.245" },
+        { rawVersion: "2.1.246", parsedVersion: "2.1.246" },
+      ];
+      let call = 0;
+      const reporter = makeReporter(() => {
+        const version = versions[Math.min(call, versions.length - 1)];
+        call += 1;
+        return Promise.resolve(version as DriverCliVersionReport);
+      });
+      const sink = new RecordingDeclarationSink();
 
-    await reporter.refreshDeclaration(sink);
-    await reporter.refreshDeclaration(sink);
+      await reporter.refreshDeclaration(sink);
+      await reporter.refreshDeclaration(sink);
 
-    expect(sink.calls.map((call) => call.driverName)).toStrictEqual([
-      CLAUDE_DRIVER_NAME,
-      CLAUDE_DRIVER_NAME,
-    ]);
-    expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe("2.1.245");
-    expect(sink.calls[1]?.result.cliVersion.parsedVersion).toBe("2.1.246");
-  });
+      expect(sink.calls.map((call) => call.driverName)).toStrictEqual([
+        CLAUDE_DRIVER_NAME,
+        CLAUDE_DRIVER_NAME,
+      ]);
+      expect(sink.calls[0]?.result.cliVersion.parsedVersion).toBe("2.1.245");
+      expect(sink.calls[1]?.result.cliVersion.parsedVersion).toBe("2.1.246");
+    },
+  );
 });
 
 describe("Claude composition is bound to the spawned build", () => {
@@ -248,52 +252,57 @@ const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Obj
 });
 
 describe("Claude model catalog", () => {
-  it("reads the recorded reply into eleven models by resolvedModel, with names, effort and fast mode", () => {
-    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+  it(
+    "reads the recorded reply into eleven models by resolvedModel, with names, effort and fast " +
+      "mode",
+    () => {
+      const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
 
-    // Twelve wire rows, eleven models: `default` and `opus` resolve to one.
-    expect(models.map((model) => model.id)).toEqual([
-      "claude-opus-5-5",
-      "claude-fable-5-1",
-      "claude-sonnet-5-5",
-      "claude-haiku-4-5-20251001",
-      "claude-sonnet-5",
-      "claude-opus-5",
-      "claude-fable-5",
-      "claude-opus-4-8",
-      "claude-opus-4-7",
-      "claude-opus-4-6",
-      "claude-sonnet-4-6",
-    ]);
-    // Alias values never become ids: a provider switch validates its model against this list,
-    // and an alias like `sonnet` or `default` can move underneath the user who chose it.
-    for (const aliasValue of ["default", "opus", "fable", "sonnet", "haiku"]) {
-      expect(models.map((model) => model.id)).not.toContain(aliasValue);
-    }
+      // Twelve wire rows, eleven models: `default` and `opus` resolve to one.
+      expect(models.map((model) => model.id)).toEqual([
+        "claude-opus-5-5",
+        "claude-fable-5-1",
+        "claude-sonnet-5-5",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-fable-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+      ]);
+      // Alias values never become ids: a provider switch validates its model against this list,
+      // and an alias like `sonnet` or `default` can move underneath the user who chose it.
+      for (const aliasValue of ["default", "opus", "fable", "sonnet", "haiku"]) {
+        expect(models.map((model) => model.id)).not.toContain(aliasValue);
+      }
 
-    // Not "Default (recommended)": that names the current default and would re-label whichever
-    // model is promoted next.
-    expect(models.find((model) => model.id === "claude-opus-5-5")?.name).toBe("Opus 5.5");
+      // Not "Default (recommended)": that names the current default and would re-label whichever
+      // model is promoted next.
+      expect(models.find((model) => model.id === "claude-opus-5-5")?.name).toBe("Opus 5.5");
 
-    // Levels are read from the build, not from a fixed vocabulary: `xhigh` is on some rows only.
-    const levelsFor = (id: string): string[] | undefined =>
-      models.find((model) => model.id === id)?.effortLevels;
-    expect(levelsFor("claude-opus-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    expect(levelsFor("claude-opus-4-6")).toEqual(["low", "medium", "high", "max"]);
+      // Levels are read from the build, not from a fixed vocabulary: `xhigh` is on some rows only.
+      const levelsFor = (id: string): string[] | undefined =>
+        models.find((model) => model.id === id)?.effortLevels;
+      expect(levelsFor("claude-opus-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      expect(levelsFor("claude-opus-4-6")).toEqual(["low", "medium", "high", "max"]);
 
-    // Absent, not empty: absence means "no effort selection"; an empty array would claim an axis.
-    const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
-    expect(haiku).toBeDefined();
-    expect(haiku && "effortLevels" in haiku).toBe(false);
-    expect(haiku?.effortLevels).toBeUndefined();
+      // Absent, not empty: absence means "no effort selection"; an empty array would claim an axis.
+      const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
+      expect(haiku).toBeDefined();
+      expect(haiku && "effortLevels" in haiku).toBe(false);
+      expect(haiku?.effortLevels).toBeUndefined();
 
-    // Only rows carrying `supportsFastMode: true` publish a fast mode; a row with no flag has none.
-    expect(models.filter((model) => model.fast).map((model) => model.id)).toEqual([
-      "claude-opus-5-5",
-      "claude-opus-5",
-      "claude-opus-4-8",
-    ]);
-  });
+      // Only rows carrying `supportsFastMode: true` publish a fast mode; a row with no flag has
+      // none.
+      expect(models.filter((model) => model.fast).map((model) => model.id)).toEqual([
+        "claude-opus-5-5",
+        "claude-opus-5",
+        "claude-opus-4-8",
+      ]);
+    },
+  );
 
   it("prefers the naming row whichever order it arrives in", () => {
     const pointerLast = {

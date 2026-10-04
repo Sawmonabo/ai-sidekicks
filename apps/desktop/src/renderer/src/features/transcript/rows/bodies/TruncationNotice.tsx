@@ -48,7 +48,8 @@ export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Elemen
   const measurement =
     props.preTruncationLength === undefined
       ? `Truncated when recorded. Shown: ${storedBytes.text}; the original size was not recorded.`
-      : `Truncated when recorded: ${storedBytes.text} of ${formatByteQuantity(props.preTruncationLength).text}.`;
+      : `Truncated when recorded: ${storedBytes.text} of ` +
+        `${formatByteQuantity(props.preTruncationLength).text}.`;
 
   return (
     <Nothing

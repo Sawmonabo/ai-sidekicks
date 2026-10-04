@@ -40,23 +40,26 @@ interface IdentityProps {
 }
 
 describe("the terminal device identity", () => {
-  it("reverts to not-loaded for a different session, then reads that session's device", async () => {
-    const held = heldRead();
-    const bridge = terminalFixtureBridge();
-    const { result, rerender } = renderHook(
-      (props: IdentityProps) =>
-        useTerminalDeviceIdentity(bridge, props.sessionId, held.readDeviceIdentity),
-      { initialProps: { sessionId: "session-one" } },
-    );
-    await held.answer(0, "device-one");
-    expect(result.current).toStrictEqual({ status: "read", deviceId: "device-one" });
+  it(
+    "reverts to not-loaded for a different session, then reads that " + "session's device",
+    async () => {
+      const held = heldRead();
+      const bridge = terminalFixtureBridge();
+      const { result, rerender } = renderHook(
+        (props: IdentityProps) =>
+          useTerminalDeviceIdentity(bridge, props.sessionId, held.readDeviceIdentity),
+        { initialProps: { sessionId: "session-one" } },
+      );
+      await held.answer(0, "device-one");
+      expect(result.current).toStrictEqual({ status: "read", deviceId: "device-one" });
 
-    rerender({ sessionId: "session-another" });
-    expect(result.current).toStrictEqual({ status: "not-loaded" });
+      rerender({ sessionId: "session-another" });
+      expect(result.current).toStrictEqual({ status: "not-loaded" });
 
-    await held.answer(1, "device-another");
-    expect(result.current).toStrictEqual({ status: "read", deviceId: "device-another" });
-  });
+      await held.answer(1, "device-another");
+      expect(result.current).toStrictEqual({ status: "read", deviceId: "device-another" });
+    },
+  );
 
   it("writes nothing when the read for the session it left lands late", async () => {
     const held = heldRead();

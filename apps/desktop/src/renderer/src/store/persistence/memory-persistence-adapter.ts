@@ -51,7 +51,10 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
 
   public describe(): string {
     const reason = PERSISTENCE_UNAVAILABLE_DESCRIPTIONS[this.unavailableReason];
-    return `Preferences are held in memory for this window only and will not survive a restart. ${reason}`;
+    return (
+      `Preferences are held in memory for this window ` +
+      `only and will not survive a restart. ${reason}`
+    );
   }
 
   public read(partition: string, key: string): Promise<StoredRecord | undefined> {
@@ -76,7 +79,8 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           new PersistenceAdapterError(
             refusePersistence(
               "quota-exceeded",
-              `writing ${record.valueClass}/${record.key} would take the in-memory store past its ${String(this.#capacityBytes)}-byte ceiling`,
+              `writing ${record.valueClass}/${record.key} would take the in-memory ` +
+                `store past its ${String(this.#capacityBytes)}-byte ceiling`,
             ),
           ),
         );

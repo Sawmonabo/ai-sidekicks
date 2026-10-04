@@ -82,30 +82,34 @@ afterEach(() => {
 });
 
 describe("NodePtyHost.shutdown — drain", () => {
-  it("is idempotent and re-entrant — a second shutdown() call returns the same in-flight Promise", async () => {
-    await ctx.host.spawn(SAMPLE_SPAWN);
+  it(
+    "is idempotent and re-entrant — a second " +
+      "shutdown() call returns the same in-flight Promise",
+    async () => {
+      await ctx.host.spawn(SAMPLE_SPAWN);
 
-    const firstPromise = ctx.host.shutdown({
-      perSessionTimeoutMs: 2_000,
-      hostTimeoutMs: 2_000,
-    });
-    const secondPromise = ctx.host.shutdown({
-      perSessionTimeoutMs: 2_000,
-      hostTimeoutMs: 2_000,
-    });
+      const firstPromise = ctx.host.shutdown({
+        perSessionTimeoutMs: 2_000,
+        hostTimeoutMs: 2_000,
+      });
+      const secondPromise = ctx.host.shutdown({
+        perSessionTimeoutMs: 2_000,
+        hostTimeoutMs: 2_000,
+      });
 
-    // The second call returns the same in-flight Promise (like `inflightSpawn` in
-    // `RustSidecarPtyHost`).
-    expect(secondPromise).toBe(firstPromise);
+      // The second call returns the same in-flight Promise (like `inflightSpawn` in
+      // `RustSidecarPtyHost`).
+      expect(secondPromise).toBe(firstPromise);
 
-    await Promise.resolve();
-    await Promise.resolve();
-    ctx.spawnedChildren[0]!.triggerExit(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      ctx.spawnedChildren[0]!.triggerExit(0);
 
-    const firstResult = await firstPromise;
-    const secondResult = await secondPromise;
-    expect(secondResult).toBe(firstResult);
-  });
+      const firstResult = await firstPromise;
+      const secondResult = await secondPromise;
+      expect(secondResult).toBe(firstResult);
+    },
+  );
 
   it("excludes already-exited sessions from both counters at shutdown entry", async () => {
     const spawnResp = await ctx.host.spawn(SAMPLE_SPAWN);
@@ -254,70 +258,74 @@ describe("NodePtyHost.shutdown — drain", () => {
 // `perSessionTimeoutMs`, and the session must count as forced, not drained.
 
 describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
-  it("counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires before perSessionTimeoutMs", async () => {
-    // The drain waiter carries "forced" from the synthetic exit that `invokeTaskkill` emits.
-    const winSpawn = makeFakeChild(70000);
-    const winPtySpawn: Mock<NodePtySpawnFn> = vi
-      .fn<NodePtySpawnFn>()
-      .mockReturnValue(winSpawn.child);
-    // This CTRL_BREAK_EVENT sender does nothing (the child ignores it), so only the 2 s
-    // escalation timer can resolve the drain.
-    const winGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi.fn();
-    const winTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
-      .fn<(pid: number) => Promise<TaskkillResult>>()
-      .mockResolvedValue({ exitCode: 0 });
-    const winExitRecorder: Mock<
-      (sessionId: string, exitCode: number, signalCode?: number) => void
-    > = vi.fn();
+  it(
+    "counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires " +
+      "before perSessionTimeoutMs",
+    async () => {
+      // The drain waiter carries "forced" from the synthetic exit that `invokeTaskkill` emits.
+      const winSpawn = makeFakeChild(70000);
+      const winPtySpawn: Mock<NodePtySpawnFn> = vi
+        .fn<NodePtySpawnFn>()
+        .mockReturnValue(winSpawn.child);
+      // This CTRL_BREAK_EVENT sender does nothing (the child ignores it), so only the 2 s
+      // escalation timer can resolve the drain.
+      const winGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi.fn();
+      const winTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
+        .fn<(pid: number) => Promise<TaskkillResult>>()
+        .mockResolvedValue({ exitCode: 0 });
+      const winExitRecorder: Mock<
+        (sessionId: string, exitCode: number, signalCode?: number) => void
+      > = vi.fn();
 
-    const winHost = new NodePtyHost({
-      platform: "win32",
-      ptySpawn: winPtySpawn,
-      generateConsoleCtrlEvent: winGCCE,
-      spawnTaskkill: winTaskkill,
-    });
-    winHost.setOnExit(winExitRecorder);
+      const winHost = new NodePtyHost({
+        platform: "win32",
+        ptySpawn: winPtySpawn,
+        generateConsoleCtrlEvent: winGCCE,
+        spawnTaskkill: winTaskkill,
+      });
+      winHost.setOnExit(winExitRecorder);
 
-    await winHost.spawn(SAMPLE_SPAWN);
+      await winHost.spawn(SAMPLE_SPAWN);
 
-    // 5 s exceeds the 2 s escalation timer in `killOnWindows`, so taskkill runs before the
-    // per-session timeout; a shorter timeout would take the SIGKILL path instead.
-    const drainPromise = winHost.shutdown({
-      perSessionTimeoutMs: 5_000,
-      hostTimeoutMs: 10_000,
-    });
+      // 5 s exceeds the 2 s escalation timer in `killOnWindows`, so taskkill runs before the
+      // per-session timeout; a shorter timeout would take the SIGKILL path instead.
+      const drainPromise = winHost.shutdown({
+        perSessionTimeoutMs: 5_000,
+        hostTimeoutMs: 10_000,
+      });
 
-    // Let `kill()` return so `killOnWindows` arms the 2 s timer.
-    await Promise.resolve();
-    await Promise.resolve();
+      // Let `kill()` return so `killOnWindows` arms the 2 s timer.
+      await Promise.resolve();
+      await Promise.resolve();
 
-    // Before the 2 s budget: CTRL_BREAK_EVENT was sent and taskkill was not.
-    expect(winGCCE).toHaveBeenCalledTimes(1);
-    expect(winGCCE).toHaveBeenCalledWith(1, 70000);
-    expect(winTaskkill).not.toHaveBeenCalled();
+      // Before the 2 s budget: CTRL_BREAK_EVENT was sent and taskkill was not.
+      expect(winGCCE).toHaveBeenCalledTimes(1);
+      expect(winGCCE).toHaveBeenCalledWith(1, 70000);
+      expect(winTaskkill).not.toHaveBeenCalled();
 
-    // At 2 s the timer runs taskkill, which emits the synthetic exit and resolves the drain
-    // waiter with "forced".
-    await vi.advanceTimersByTimeAsync(2_001);
-    await Promise.resolve();
-    await Promise.resolve();
+      // At 2 s the timer runs taskkill, which emits the synthetic exit and resolves the drain
+      // waiter with "forced".
+      await vi.advanceTimersByTimeAsync(2_001);
+      await Promise.resolve();
+      await Promise.resolve();
 
-    const result = await drainPromise;
+      const result = await drainPromise;
 
-    // Counted as forced, not drained.
-    expect(result.sessionsDrained).toBe(0);
-    expect(result.sessionsForcedKilled).toBe(1);
+      // Counted as forced, not drained.
+      expect(result.sessionsDrained).toBe(0);
+      expect(result.sessionsForcedKilled).toBe(1);
 
-    // taskkill must have run; otherwise a bug that only swapped the counters would pass.
-    expect(winTaskkill).toHaveBeenCalledTimes(1);
-    expect(winTaskkill).toHaveBeenCalledWith(70000);
+      // taskkill must have run; otherwise a bug that only swapped the counters would pass.
+      expect(winTaskkill).toHaveBeenCalledTimes(1);
+      expect(winTaskkill).toHaveBeenCalledWith(70000);
 
-    // The synthetic exit fired exactly once.
-    expect(winExitRecorder).toHaveBeenCalledTimes(1);
-    expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 1);
+      // The synthetic exit fired exactly once.
+      expect(winExitRecorder).toHaveBeenCalledTimes(1);
+      expect(winExitRecorder).toHaveBeenCalledWith(expect.any(String), 1);
 
-    // In-process backend: host fields stay vacuous.
-    expect(result.sidecarExitedCleanly).toBe(true);
-    expect(result.taskkillEscalated).toBe(false);
-  });
+      // In-process backend: host fields stay vacuous.
+      expect(result.sidecarExitedCleanly).toBe(true);
+      expect(result.taskkillEscalated).toBe(false);
+    },
+  );
 });

@@ -33,7 +33,7 @@ const WRITABLE_CONFIG_MEMBER_SCHEMAS = {
   toolMemoryCapBytes: SizeBytesSchema.nullable(),
   packageCacheLimitBytes: SizeBytesSchema.nullable(),
   recordTraces: z.boolean(),
-  recordReplayLog: z.boolean(),
+  recordProviderMessages: z.boolean(),
 };
 
 /** The settings a person changes, one per press. */
@@ -56,23 +56,23 @@ export interface DaemonConfigSettings {
   packageCacheLimitBytes: number | null;
   /** `Record traces`. */
   recordTraces: boolean;
-  /** `Record an event-replay log`. */
-  recordReplayLog: boolean;
+  /** `Record raw provider messages`. */
+  recordProviderMessages: boolean;
 }
 
 /** The settings, and the two facts the page draws beside them. */
 export interface DaemonConfig extends DaemonConfigSettings {
   /** Whether this operating system lets the service enforce the memory cap. */
   toolMemoryCapEnforceable: boolean;
-  /** The file the event-replay log is written to. */
-  replayLogPath: string;
+  /** The folder raw provider messages are written to. */
+  providerMessagesPath: string;
 }
 /** Parses a {@link DaemonConfig}. */
 export const DaemonConfigSchema: z.ZodType<DaemonConfig> = z
   .object({
     ...WRITABLE_CONFIG_MEMBER_SCHEMAS,
     toolMemoryCapEnforceable: z.boolean(),
-    replayLogPath: z.string().min(1).max(FILE_PATH_MAX_LEN),
+    providerMessagesPath: z.string().min(1).max(FILE_PATH_MAX_LEN),
   })
   .strict();
 

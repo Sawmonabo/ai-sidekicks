@@ -513,7 +513,9 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run groups, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    "A live session with four agents streaming at once — interleaved turns on four run " +
+    "groups, an approval landing mid-stream while the other three carry on, the cost " +
+    "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
   beats: composeScriptBeats({

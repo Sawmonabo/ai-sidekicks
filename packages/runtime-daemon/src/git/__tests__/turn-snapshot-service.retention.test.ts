@@ -145,30 +145,33 @@ function buildRetentionService(overrides: ServiceOverrides = {}): TurnSnapshotSe
 }
 
 describe("TurnSnapshotService retention prune", () => {
-  it("deletes only the named run's refs: branches, a symref's target and a sibling run survive", async () => {
-    const { repository } = fixture;
-    const service = buildRetentionService();
-    fixture.applyTurnEffects();
-    const first = await fixture.captureTurn(service, { epoch: 0, turnOrdinal: 1 });
-    const second = await fixture.captureTurn(service, { epoch: 1, turnOrdinal: 2 });
-    const sibling = await fixture.captureTurn(service, { runId: SIBLING_RUN_ID });
-    await repository.git(["branch", "release/1.0"]);
-    // A well-formed in-namespace name pointing at the checked-out branch. The listing resolves it
-    // to the branch's object id, so only `--no-deref` keeps the delete off the branch.
-    const plantedRef = `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-9`;
-    await repository.git(["symbolic-ref", plantedRef, "refs/heads/main"]);
-    const headsBefore: string = await repository.refListing("refs/heads/");
-    insertBaseRunExecutionContext();
+  it(
+    "deletes only the named run's refs: branches, " + "a symref's target and a sibling run survive",
+    async () => {
+      const { repository } = fixture;
+      const service = buildRetentionService();
+      fixture.applyTurnEffects();
+      const first = await fixture.captureTurn(service, { epoch: 0, turnOrdinal: 1 });
+      const second = await fixture.captureTurn(service, { epoch: 1, turnOrdinal: 2 });
+      const sibling = await fixture.captureTurn(service, { runId: SIBLING_RUN_ID });
+      await repository.git(["branch", "release/1.0"]);
+      // A well-formed in-namespace name pointing at the checked-out branch. The listing resolves it
+      // to the branch's object id, so only `--no-deref` keeps the delete off the branch.
+      const plantedRef = `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-9`;
+      await repository.git(["symbolic-ref", plantedRef, "refs/heads/main"]);
+      const headsBefore: string = await repository.refListing("refs/heads/");
+      insertBaseRunExecutionContext();
 
-    const pruned = await service.pruneSnapshotsForRun(RUN_ID);
+      const pruned = await service.pruneSnapshotsForRun(RUN_ID);
 
-    expect(pruned.skipped).toBeNull();
-    expect([...pruned.deletedRefs].sort()).toEqual([first.ref, second.ref, plantedRef].sort());
-    expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
-    expect(await repository.refListing("refs/sidekicks/")).toBe(
-      `${sibling.snapshotCommit} ${sibling.ref}`,
-    );
-  });
+      expect(pruned.skipped).toBeNull();
+      expect([...pruned.deletedRefs].sort()).toEqual([first.ref, second.ref, plantedRef].sort());
+      expect(await repository.refListing("refs/heads/")).toBe(headsBefore);
+      expect(await repository.refListing("refs/sidekicks/")).toBe(
+        `${sibling.snapshotCommit} ${sibling.ref}`,
+      );
+    },
+  );
 
   it("refuses a namespace-escaping run id before any git call", async () => {
     const { repository } = fixture;
@@ -230,44 +233,47 @@ describe("TurnSnapshotService retention prune", () => {
     expect(await repository.refListing()).toBe(refsBefore);
   });
 
-  it("prunes a removed worktree's refs through git_common_dir and skips a removed repository", async () => {
-    const { repository } = fixture;
-    const service = buildRetentionService();
-    const worktree = await fixture.addLinkedWorktree("linked-worktree", "feature/run");
-    // Read as the context records it, so the fixture cannot agree with the service by accident.
-    const recordedCommonDirectory: string = await worktree.git([
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-common-dir",
-    ]);
-    const captured = await fixture.captureTurn(service, { executionRoot: worktree.root });
-    insertRunExecutionContext({
-      runId: RUN_ID,
-      executionRoot: worktree.root,
-      gitCommonDir: recordedCommonDirectory,
-    });
-    // The worktree is retired and removed while its refs remain in the shared store; a prune
-    // through the execution root would find nothing and leak them.
-    rmSync(worktree.root, { recursive: true, force: true });
-    await repository.git(["worktree", "prune"]);
-    expect(existsSync(worktree.root)).toBe(false);
-    // A repository that is gone entirely skips the run instead of failing the sweep.
-    const removedRepositoryRoot: string = join(fixture.fixtureRoot, "removed-repo");
-    insertRunExecutionContext({
-      runId: SIBLING_RUN_ID,
-      executionRoot: removedRepositoryRoot,
-      gitCommonDir: join(removedRepositoryRoot, ".git"),
-    });
+  it(
+    "prunes a removed worktree's refs through " + "git_common_dir and skips a removed repository",
+    async () => {
+      const { repository } = fixture;
+      const service = buildRetentionService();
+      const worktree = await fixture.addLinkedWorktree("linked-worktree", "feature/run");
+      // Read as the context records it, so the fixture cannot agree with the service by accident.
+      const recordedCommonDirectory: string = await worktree.git([
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+      ]);
+      const captured = await fixture.captureTurn(service, { executionRoot: worktree.root });
+      insertRunExecutionContext({
+        runId: RUN_ID,
+        executionRoot: worktree.root,
+        gitCommonDir: recordedCommonDirectory,
+      });
+      // The worktree is retired and removed while its refs remain in the shared store; a prune
+      // through the execution root would find nothing and leak them.
+      rmSync(worktree.root, { recursive: true, force: true });
+      await repository.git(["worktree", "prune"]);
+      expect(existsSync(worktree.root)).toBe(false);
+      // A repository that is gone entirely skips the run instead of failing the sweep.
+      const removedRepositoryRoot: string = join(fixture.fixtureRoot, "removed-repo");
+      insertRunExecutionContext({
+        runId: SIBLING_RUN_ID,
+        executionRoot: removedRepositoryRoot,
+        gitCommonDir: join(removedRepositoryRoot, ".git"),
+      });
 
-    expect(await service.pruneSnapshotsForRun(RUN_ID)).toEqual({
-      runId: RUN_ID,
-      deletedRefs: [captured.ref],
-      skipped: null,
-    });
-    expect(await repository.refListing("refs/sidekicks/")).toBe("");
-    expect(await service.pruneSnapshotsForRun(SIBLING_RUN_ID)).toMatchObject({
-      deletedRefs: [],
-      skipped: { runId: SIBLING_RUN_ID, reason: "git-dir-absent" },
-    });
-  });
+      expect(await service.pruneSnapshotsForRun(RUN_ID)).toEqual({
+        runId: RUN_ID,
+        deletedRefs: [captured.ref],
+        skipped: null,
+      });
+      expect(await repository.refListing("refs/sidekicks/")).toBe("");
+      expect(await service.pruneSnapshotsForRun(SIBLING_RUN_ID)).toMatchObject({
+        deletedRefs: [],
+        skipped: { runId: SIBLING_RUN_ID, reason: "git-dir-absent" },
+      });
+    },
+  );
 });

@@ -128,34 +128,37 @@ function bannerRows(container: HTMLElement): readonly HTMLElement[] {
 }
 
 describe("SessionScreen — the pane layout's save failure", () => {
-  it("draws one plain banner under the header and sends each failure's code to the capture", async () => {
-    const { store, adapter } = await storeWithSavedLayouts();
-    const { container } = render(
-      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
-    );
-    await awaitRestoredPaneLayout(container);
-    const readSaveFailures = captureSaveFailures();
+  it(
+    "draws one plain banner under the header and sends each " + "failure's code to the capture",
+    async () => {
+      const { store, adapter } = await storeWithSavedLayouts();
+      const { container } = render(
+        workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
+      );
+      await awaitRestoredPaneLayout(container);
+      const readSaveFailures = captureSaveFailures();
 
-    adapter.mode = "reject";
-    await commitArrangement(container);
-    await commitArrangement(container);
-    adapter.mode = "refuse";
-    await commitArrangement(container);
+      adapter.mode = "reject";
+      await commitArrangement(container);
+      await commitArrangement(container);
+      adapter.mode = "refuse";
+      await commitArrangement(container);
 
-    const rows = bannerRows(container);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.textContent).toBe(BANNER_TEXT);
-    expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
-    expect(readSaveFailures()).toStrictEqual([
-      `session ${SESSION_ID}: layout-save-failed`,
-      `session ${SESSION_ID}: layout-save-failed`,
-      `session ${SESSION_ID}: adapter-unavailable`,
-    ]);
+      const rows = bannerRows(container);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.textContent).toBe(BANNER_TEXT);
+      expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
+      expect(readSaveFailures()).toStrictEqual([
+        `session ${SESSION_ID}: layout-save-failed`,
+        `session ${SESSION_ID}: layout-save-failed`,
+        `session ${SESSION_ID}: adapter-unavailable`,
+      ]);
 
-    rows[0]?.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]')?.click();
-    await crossMacrotaskBoundary();
-    expect(bannerRows(container)).toHaveLength(0);
-  });
+      rows[0]?.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]')?.click();
+      await crossMacrotaskBoundary();
+      expect(bannerRows(container)).toHaveLength(0);
+    },
+  );
 });
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {

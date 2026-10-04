@@ -32,7 +32,7 @@ export interface LifecycleEventLog {
 /** Dependencies of a lifecycle emitter; every member but `sessionEvents` has a default. */
 export interface LifecycleEventEmitterDeps {
   readonly sessionEvents: LifecycleEventLog;
-  /** Source for `monotonic_ns` (in-daemon ordering only; replay orders by `sequence`). */
+  /** Source for `monotonic_ns` (in-daemon ordering only; a rebuild orders by `sequence`). */
   readonly monotonicNow?: () => bigint;
   /** Source for `occurredAt` (ISO 8601). */
   readonly now?: () => string;

@@ -71,9 +71,15 @@ export function formatWhenClause(node: WhenClauseNode): string {
         : `!(${operand})`;
     }
     case "and":
-      return `${formatWhenClauseOperand(node.left, "and")} && ${formatWhenClauseOperand(node.right, "and")}`;
+      return (
+        `${formatWhenClauseOperand(node.left, "and")} && ` +
+        `${formatWhenClauseOperand(node.right, "and")}`
+      );
     case "or":
-      return `${formatWhenClauseOperand(node.left, "or")} || ${formatWhenClauseOperand(node.right, "or")}`;
+      return (
+        `${formatWhenClauseOperand(node.left, "or")} || ` +
+        `${formatWhenClauseOperand(node.right, "or")}`
+      );
   }
 }
 

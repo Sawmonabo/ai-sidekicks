@@ -45,36 +45,39 @@ function StagedAttachmentsProbe(props: {
   return <span>{String(binding.snapshot.entries.length)}</span>;
 }
 
-describe("useStagedAttachments — a disposed staged list is re-minted on the replayed setup", () => {
-  it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
-    // StrictMode runs the cleanup and then the setup again on the same instance. The cleanup
-    // terminally disposed the ingest client, so files chosen afterwards would reach a client
-    // whose `attach` returns at once, silently.
-    const port = new ScriptedIngestPort();
-    const fixture = bridgeOnClock("composer");
-    let binding: StagedAttachmentsBinding | undefined;
-    render(
-      <StrictMode>
-        {underWindow(
-          fixture,
-          <StagedAttachmentsProbe
-            bridge={fixture.bridge}
-            port={port.asPort()}
-            onBinding={(taken) => {
-              binding = taken;
-            }}
-          />,
-        )}
-      </StrictMode>,
-    );
+describe(
+  "useStagedAttachments — a disposed staged list is re-minted on " + "the replayed setup",
+  () => {
+    it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
+      // StrictMode runs the cleanup and then the setup again on the same instance. The cleanup
+      // terminally disposed the ingest client, so files chosen afterwards would reach a client
+      // whose `attach` returns at once, silently.
+      const port = new ScriptedIngestPort();
+      const fixture = bridgeOnClock("composer");
+      let binding: StagedAttachmentsBinding | undefined;
+      render(
+        <StrictMode>
+          {underWindow(
+            fixture,
+            <StagedAttachmentsProbe
+              bridge={fixture.bridge}
+              port={port.asPort()}
+              onBinding={(taken) => {
+                binding = taken;
+              }}
+            />,
+          )}
+        </StrictMode>,
+      );
 
-    await act(async () => {
-      binding?.attachFiles([pickedFile(300)]);
-      await crossMacrotaskBoundary();
+      await act(async () => {
+        binding?.attachFiles([pickedFile(300)]);
+        await crossMacrotaskBoundary();
+      });
+
+      expect(port.initCalls).toHaveLength(1);
+      expect(port.chunkCalls).toHaveLength(1);
+      expect(binding?.snapshot.entries[0]?.state).toBe("complete");
     });
-
-    expect(port.initCalls).toHaveLength(1);
-    expect(port.chunkCalls).toHaveLength(1);
-    expect(binding?.snapshot.entries[0]?.state).toBe("complete");
-  });
-});
+  },
+);

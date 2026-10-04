@@ -175,7 +175,10 @@ export class StreamingPrimitive {
         if (!parsed.success) {
           throw new StreamingValidationError(
             subscriptionId,
-            `LocalSubscriptionProducer.next: value validation failed for subscriptionId ${JSON.stringify(subscriptionId)} (programmer error — the producer returned a value that does not match the registered valueSchema; daemon refuses to emit malformed data on the wire)`,
+            `LocalSubscriptionProducer.next: value validation failed for subscriptionId ` +
+              `${JSON.stringify(subscriptionId)} (programmer error — the producer returned a ` +
+              `value that does not match the registered valueSchema; daemon refuses to emit ` +
+              `malformed data on the wire)`,
             parsed.error.issues,
           );
         }
@@ -253,7 +256,8 @@ export class StreamingPrimitive {
       } catch (error) {
         // The connection is gone, so no caller is left to receive it; the siblings still release.
         console.error(
-          `[streaming] cancel handlers failed for subscriptionId=${subscriptionId} on a closed transport`,
+          `[streaming] cancel handlers failed for subscriptionId=${subscriptionId} on a ` +
+            `closed transport`,
           error,
         );
       }

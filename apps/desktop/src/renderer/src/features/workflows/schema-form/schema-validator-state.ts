@@ -40,7 +40,9 @@ export const COMPILING_VALIDATOR: SchemaValidatorState = { status: "compiling" }
 export const CHECKER_UNAVAILABLE: SettledSchemaValidator = {
   status: "checker-unavailable",
   detail:
-    "Nothing typed here is checked against this phase's schema. The answer can still be sent, and the run itself decides whether it is admissible.",
+    "Nothing typed here is checked against this phase's schema. The " +
+    "answer can still be sent, and the run itself decides whether it " +
+    "is admissible.",
 };
 
 /**
@@ -60,7 +62,9 @@ const UNCHECKABLE_SCHEMA_FALLBACK: SchemaFallback = {
   cause: "schema-uncheckable",
   memberPath: [],
   detail:
-    "This phase's schema could not be compiled here, so the answer is given as JSON rather than in controls that could check nothing you type.",
+    "This phase's schema could not be compiled here, so the answer " +
+    "is given as JSON rather than in controls that could check " +
+    "nothing you type.",
 };
 
 /**
@@ -71,7 +75,9 @@ const UNAVAILABLE_CHECKER_FALLBACK: SchemaFallback = {
   cause: "checker-unavailable",
   memberPath: [],
   detail:
-    "The part of this window that checks an answer against a schema did not load, so the controls that would have relied on it are not drawn and the answer is given as JSON.",
+    "The part of this window that checks an answer against a schema " +
+    "did not load, so the controls that would have relied on it are " +
+    "not drawn and the answer is given as JSON.",
 };
 
 /**

@@ -167,27 +167,30 @@ describe("EventLogService — the plain branch parses what it stores", () => {
     },
   };
 
-  it("refuses a REGISTERED type whose payload its own variant rejects, before writing", async () => {
-    // A refusal after the INSERT would leave the row behind; one after sequencing would push the
-    // next append to 1.
-    const { service } = buildService();
-    const rejected = makeEnvelope({
-      type: "session.created",
-      payload: { note: "not the registered shape" },
-    });
+  it(
+    "refuses a REGISTERED type whose payload " + "its own variant rejects, before writing",
+    async () => {
+      // A refusal after the INSERT would leave the row behind; one after sequencing would push the
+      // next append to 1.
+      const { service } = buildService();
+      const rejected = makeEnvelope({
+        type: "session.created",
+        payload: { note: "not the registered shape" },
+      });
 
-    await expect(service.append(rejected)).rejects.toThrow(
-      /EventLogService\.append refuses to store an event of type "session\.created"/,
-    );
-    // The refusal names the offending members, so the caller can fix the payload.
-    await expect(service.append(rejected)).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
+      await expect(service.append(rejected)).rejects.toThrow(
+        /EventLogService\.append refuses to store an event of type "session\.created"/,
+      );
+      // The refusal names the offending members, so the caller can fix the payload.
+      await expect(service.append(rejected)).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
 
-    expect(readRawRows(SESSION)).toHaveLength(0);
-    const readmitted = await service.append(
-      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
-    );
-    expect(readmitted.sequence).toBe(0);
-  });
+      expect(readRawRows(SESSION)).toHaveLength(0);
+      const readmitted = await service.append(
+        makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
+      );
+      expect(readmitted.sequence).toBe(0);
+    },
+  );
 });
 
 // ----------------------------------------------------------------------------
@@ -253,17 +256,20 @@ describe("EventLogService — the append lock", () => {
     );
   });
 
-  it("reuses an existing hold rather than deadlocking on it (owner-scoped reentrancy)", async () => {
-    // Producers read and decide under the lock, then append inside the same hold; a non-reentrant
-    // mutex would deadlock here.
-    const { service } = buildService();
+  it(
+    "reuses an existing hold rather than " + "deadlocking on it (owner-scoped reentrancy)",
+    async () => {
+      // Producers read and decide under the lock, then append inside the same hold; a non-reentrant
+      // mutex would deadlock here.
+      const { service } = buildService();
 
-    const receipt = await withSessionAppendLock(SESSION, async () => {
-      return service.append(makeEnvelope());
-    });
+      const receipt = await withSessionAppendLock(SESSION, async () => {
+        return service.append(makeEnvelope());
+      });
 
-    expect(receipt.sequence).toBe(0);
-  });
+      expect(receipt.sequence).toBe(0);
+    },
+  );
 
   it("does not let one session's hold block another session's append", async () => {
     const { service } = buildService();
@@ -364,25 +370,30 @@ describe("EventLogService — the append lock", () => {
     expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
 
-  it("rolls the whole transaction back when the prelude throws, consuming no sequence", async () => {
-    const { service } = buildService();
-    database.exec("CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)");
-    await service.append(makeEnvelope());
+  it(
+    "rolls the whole transaction back when " + "the prelude throws, consuming no sequence",
+    async () => {
+      const { service } = buildService();
+      database.exec(
+        "CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)",
+      );
+      await service.append(makeEnvelope());
 
-    await expect(
-      service.append(makeEnvelope(), {
-        transactionalPrelude: () => {
-          database.prepare("INSERT INTO prelude_probe VALUES (?, ?)").run("doomed", 1);
-          throw new Error("producer detected divergent decision-time state");
-        },
-      }),
-    ).rejects.toThrow(/divergent/);
+      await expect(
+        service.append(makeEnvelope(), {
+          transactionalPrelude: () => {
+            database.prepare("INSERT INTO prelude_probe VALUES (?, ?)").run("doomed", 1);
+            throw new Error("producer detected divergent decision-time state");
+          },
+        }),
+      ).rejects.toThrow(/divergent/);
 
-    // Neither half landed, and the next append re-derives its sequence from the durable head row.
-    expect(database.prepare("SELECT COUNT(*) AS c FROM prelude_probe").get()).toEqual({ c: 0 });
-    expect(readRawRows(SESSION)).toHaveLength(1);
-    await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
-  });
+      // Neither half landed, and the next append re-derives its sequence from the durable head row.
+      expect(database.prepare("SELECT COUNT(*) AS c FROM prelude_probe").get()).toEqual({ c: 0 });
+      expect(readRawRows(SESSION)).toHaveLength(1);
+      await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
+    },
+  );
 });
 
 // ----------------------------------------------------------------------------
@@ -419,21 +430,24 @@ describe("EventLogService — terminal-key backstop", () => {
     ).resolves.toMatchObject({ sequence: 1 });
   });
 
-  it("lets a NON-terminal run_lifecycle duplicate through — the index is terminal-scoped", async () => {
-    // `run_lifecycle` also carries non-terminal types; an index guarding the whole category would
-    // refuse the ordinary progression events.
-    const { service } = buildService();
-    const runKey = { runId: "run-1", runVersion: 1 };
+  it(
+    "lets a NON-terminal run_lifecycle duplicate " + "through — the index is terminal-scoped",
+    async () => {
+      // `run_lifecycle` also carries non-terminal types; an index guarding the whole category would
+      // refuse the ordinary progression events.
+      const { service } = buildService();
+      const runKey = { runId: "run-1", runVersion: 1 };
 
-    await service.append(
-      makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
-    );
-    await expect(
-      service.append(
+      await service.append(
         makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
-      ),
-    ).resolves.toMatchObject({ sequence: 1 });
-  });
+      );
+      await expect(
+        service.append(
+          makeEnvelope({ category: "run_lifecycle", type: "run.running", payload: runKey }),
+        ),
+      ).resolves.toMatchObject({ sequence: 1 });
+    },
+  );
 
   it("refuses a terminal event whose run key is missing or the wrong storage class", async () => {
     // SQLite treats NULLs as distinct in a UNIQUE index, so a terminal row with no `$.runId`
@@ -459,24 +473,27 @@ describe("EventLogService — terminal-key backstop", () => {
     expect(readRawRows(SESSION)).toHaveLength(0);
   });
 
-  it("refuses an UPDATE that promotes a committed non-terminal row into a terminal one", async () => {
-    // The INSERT trigger cannot see this: a row outside the partial index's predicate is UPDATEd
-    // into it. Terminal rows are INSERT-only.
-    const { service } = buildService();
-    const receipt = await service.append(
-      makeEnvelope({
-        category: "run_lifecycle",
-        type: "run.running",
-        payload: { runId: "run-1", runVersion: 1 },
-      }),
-    );
+  it(
+    "refuses an UPDATE that promotes a committed " + "non-terminal row into a terminal one",
+    async () => {
+      // The INSERT trigger cannot see this: a row outside the partial index's predicate is UPDATEd
+      // into it. Terminal rows are INSERT-only.
+      const { service } = buildService();
+      const receipt = await service.append(
+        makeEnvelope({
+          category: "run_lifecycle",
+          type: "run.running",
+          payload: { runId: "run-1", runVersion: 1 },
+        }),
+      );
 
-    expect(() =>
-      database
-        .prepare("UPDATE session_events SET category = ?, type = ? WHERE id = ?")
-        .run("run_lifecycle", "run.completed", receipt.id),
-    ).toThrow(/cannot be promoted to terminal/);
-  });
+      expect(() =>
+        database
+          .prepare("UPDATE session_events SET category = ?, type = ? WHERE id = ?")
+          .run("run_lifecycle", "run.completed", receipt.id),
+      ).toThrow(/cannot be promoted to terminal/);
+    },
+  );
 
   it("refuses an UPDATE that moves or drops a committed terminal row's run key", async () => {
     const { service } = buildService();

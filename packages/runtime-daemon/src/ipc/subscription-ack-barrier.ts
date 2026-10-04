@@ -84,7 +84,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
     } catch (err) {
       cancelAfterDetachedFailure(
         producer,
-        `[${methodName}] ${failureKind} event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
+        `[${methodName}] ${failureKind} event validation/emission failed for subscriptionId=` +
+          `${producer.subscriptionId}; subscription canceled`,
         err,
       );
     }
@@ -115,7 +116,8 @@ export function createSubscriptionAckBarrier<EmissionType>(
         } catch (err) {
           cancelAfterDetachedFailure(
             producer,
-            `[${methodName}] replay event validation/emission failed for subscriptionId=${producer.subscriptionId}; subscription canceled`,
+            `[${methodName}] replay event validation/emission failed for subscriptionId=` +
+              `${producer.subscriptionId}; subscription canceled`,
             err,
           );
         }

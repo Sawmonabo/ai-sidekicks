@@ -1,7 +1,8 @@
 // Guards on the daemon's provider-driver seam that a driver could otherwise break: a failed resume
 // carries no binding, the recovery condition is a closed vocabulary, the usage-limit cause is a
-// separate axis, and the daemon stamps an MCP status's leg. Runtime guards are proven by `.safeParse()`; type guards by `@ts-expect-error`,
-// which fails as unused (TS2578) if the guarded shape loosens.
+// separate axis, and the daemon stamps an MCP status's leg. Runtime guards are proven by
+// `.safeParse()`; type guards by `@ts-expect-error`, which fails as unused (TS2578) if the guarded
+// shape loosens.
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider-driver-recovery";
 import { describe, expect, it } from "vitest";
 

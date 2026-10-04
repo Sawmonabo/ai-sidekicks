@@ -83,8 +83,10 @@ export function emitCapabilityDetectionDiagnostics(
       rawWireType: withdrawal.probeName,
       dispositionReason:
         withdrawal.disposition === "unknown-name"
-          ? "probe channel refused the wire name itself, so this build does not carry the surface the flag declares; flag withdrawn from the declaration"
-          : "probe answer could not be classified, and an unclassifiable answer is never read as availability; flag withdrawn fail-closed",
+          ? "probe channel refused the wire name itself, so this build does not carry the " +
+            "surface the flag declares; flag withdrawn from the declaration"
+          : "probe answer could not be classified, and an unclassifiable answer is never read " +
+            "as availability; flag withdrawn fail-closed",
       details: {
         flag: withdrawal.flag,
         probeName: withdrawal.probeName,
@@ -218,7 +220,8 @@ export class CapabilityRefresher {
       kind: "capability_refresh_failed",
       rawWireType: null,
       dispositionReason: timedOut
-        ? "capability read exceeded the refresher's liveness backstop; abandoned until the next trigger"
+        ? "capability read exceeded the refresher's liveness backstop; abandoned until the " +
+          "next trigger"
         : "capability read rejected; reported, and read again on the next trigger",
       details: { leg, timedOut, code: code ?? null, message },
     });

@@ -46,7 +46,10 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
           kind="empty"
           placement="inline"
           title="This run did not report what this phase asks for."
-          detail="The phase is waiting on a person and its question has not reached this window, so there is nothing to answer here yet."
+          detail={
+            "The phase is waiting on a person and its question has not " +
+            "reached this window, so there is nothing to answer here yet."
+          }
         />
       ) : rootRefusal !== undefined ? (
         // A root that is not a set of named values cannot be carried by a submission, so the
@@ -58,7 +61,10 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
           <div className="meridian-schema-answer__act">
             <button
               type="submit"
-              className="meridian-schema-answer__submit meridian-action-button meridian-action-button--regular"
+              className={
+                "meridian-schema-answer__submit meridian-action-button " +
+                "meridian-action-button--regular"
+              }
               disabled={isAwaitingVerdict}
             >
               {SUBMIT_LABEL}

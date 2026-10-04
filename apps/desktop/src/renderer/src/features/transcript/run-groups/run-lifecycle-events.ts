@@ -13,7 +13,12 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
  * `run.rolled_back` is absent because a rewind is not a terminal: the run continues from the
  * boundary. It is in {@link RUN_REOPENING_EVENT_TYPES}, where it clears a terminal.
  */
-export const RUN_TERMINAL_EVENT_TYPES = ["run.completed", "run.failed", "run.interrupted"] as const;
+export const RUN_TERMINAL_EVENT_TYPES = [
+  "run.completed",
+  "run.failed",
+  "run.interrupted",
+  "run.stopped",
+] as const;
 
 /** One terminal event type. Derived from the tuple, never restated. */
 export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];

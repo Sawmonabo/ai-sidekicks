@@ -50,7 +50,10 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
         kind="empty"
         placement="block"
         title="Nothing is waiting."
-        detail="The queue is empty. A message sent while a run is working lands here and is delivered in the order it arrived."
+        detail={
+          "The queue is empty. A message sent while a run is working lands " +
+          "here and is delivered in the order it arrived."
+        }
       />
     );
   }

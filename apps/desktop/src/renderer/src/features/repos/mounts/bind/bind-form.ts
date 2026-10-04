@@ -79,7 +79,9 @@ function bindVerdictFor(
   if (form.directory.length > FILE_PATH_MAX_LEN) {
     return {
       status: "incomplete",
-      because: `That directory is ${String(form.directory.length)} characters. The wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
+      because:
+        `That directory is ${String(form.directory.length)} characters. ` +
+        `The wire accepts ${String(FILE_PATH_MAX_LEN)}.`,
     };
   }
   switch (selection.status) {

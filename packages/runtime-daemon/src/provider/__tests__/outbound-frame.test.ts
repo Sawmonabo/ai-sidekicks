@@ -37,18 +37,21 @@ const NO_BREAK_SPACE = String.fromCodePoint(0x00a0);
 const IDEOGRAPHIC_SPACE = String.fromCodePoint(0x3000);
 
 describe("command-shaped text predicate", () => {
-  it("treats a leading slash as command-shaped after exactly the six ASCII whitespace bytes", () => {
-    // No command-name list is consulted: the measured interception happens on the leading byte,
-    // upstream of any name lookup, so avoiding real command names does not dodge it.
-    expect(isCommandShapedText("/status")).toBe(true);
-    expect(isCommandShapedText("/zzqnotarealcommand and some prose")).toBe(true);
-    expect(isCommandShapedText("/foo:bar")).toBe(true);
-    expect(isCommandShapedText("/etc/hosts is the file I mean")).toBe(true);
-    for (const lead of ASCII_WHITESPACE_LEADS) {
-      expect(isCommandShapedText(lead + "/status")).toBe(true);
-    }
-    expect(isCommandShapedText("  \t\r\n/status")).toBe(true);
-  });
+  it(
+    "treats a leading slash as command-shaped " + "after exactly the six ASCII whitespace bytes",
+    () => {
+      // No command-name list is consulted: the measured interception happens on the leading byte,
+      // upstream of any name lookup, so avoiding real command names does not dodge it.
+      expect(isCommandShapedText("/status")).toBe(true);
+      expect(isCommandShapedText("/zzqnotarealcommand and some prose")).toBe(true);
+      expect(isCommandShapedText("/foo:bar")).toBe(true);
+      expect(isCommandShapedText("/etc/hosts is the file I mean")).toBe(true);
+      for (const lead of ASCII_WHITESPACE_LEADS) {
+        expect(isCommandShapedText(lead + "/status")).toBe(true);
+      }
+      expect(isCommandShapedText("  \t\r\n/status")).toBe(true);
+    },
+  );
 
   it("does not treat a mid-text slash or a non-ASCII whitespace lead as command-shaped", () => {
     // A predicate that matched anywhere would silently corrupt every message that mentions a path.
@@ -72,21 +75,25 @@ describe("outbound text frame writer", () => {
     });
   }
 
-  it("prepends exactly one newline under the emulated grade and never mutates the author's bytes", () => {
-    const authored = "/status please";
-    const frame = writer("emulated").compose({ text: authored, origin: "human_text" });
+  it(
+    "prepends exactly one newline under the emulated " +
+      "grade and never mutates the author's bytes",
+    () => {
+      const authored = "/status please";
+      const frame = writer("emulated").compose({ text: authored, origin: "human_text" });
 
-    // Asserted as bytes: a boolean would not notice a second newline, an added space, a
-    // zero-width character or a reordering.
-    expect([...frame.wireText]).toStrictEqual(["\n", ...[..."/status please"]]);
-    expect(frame.wireText).toBe(OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL + "/status please");
-    expect(frame.wireText.length).toBe("/status please".length + 1);
-    expect(frame.neutralized).toBe(true);
-    // The sentinel is transport-only: `authoredText` is what the daemon persists and replays.
-    expect(frame.authoredText).toBe(authored);
-    expect(frame.authoredText.startsWith("\n")).toBe(false);
-    expect(frame.authoredText).not.toBe(frame.wireText);
-  });
+      // Asserted as bytes: a boolean would not notice a second newline, an added space, a
+      // zero-width character or a reordering.
+      expect([...frame.wireText]).toStrictEqual(["\n", ...[..."/status please"]]);
+      expect(frame.wireText).toBe(OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL + "/status please");
+      expect(frame.wireText.length).toBe("/status please".length + 1);
+      expect(frame.neutralized).toBe(true);
+      // The sentinel is transport-only: `authoredText` is what the daemon persists and replays.
+      expect(frame.authoredText).toBe(authored);
+      expect(frame.authoredText.startsWith("\n")).toBe(false);
+      expect(frame.authoredText).not.toBe(frame.wireText);
+    },
+  );
 
   it("emits the author's bytes unchanged under the native grade", () => {
     // The grade is a behavioral input; both drivers default to `emulated`, so this arm is driven

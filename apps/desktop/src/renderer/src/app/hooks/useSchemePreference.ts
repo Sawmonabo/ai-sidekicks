@@ -73,6 +73,7 @@ function describeUnsavedScheme(refusal: Refusal): Refusal {
   return refuse(
     refusal.origin,
     refusal.code,
-    `The color scheme applies to this window but could not be saved, so a reload will not bring it back. ${refusal.detail}`,
+    `The color scheme applies to this window but could not be ` +
+      `saved, so a reload will not bring it back. ${refusal.detail}`,
   );
 }

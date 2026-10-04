@@ -45,7 +45,13 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
         kind="not-checked"
         placement="block"
         title="The bound driver's capability flags have not been read."
-        detail="Whether this session's sidekicks can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
+        detail={
+          "Whether this session's sidekicks can reach a tool the " +
+          "background service hosts at all is a flag on the driver, and " +
+          "this build has not read one. Nothing is reported here until it " +
+          "has, because an empty list under a heading would report a " +
+          "registry that exists and holds nothing."
+        }
       />
     );
   }

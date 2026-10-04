@@ -13,7 +13,8 @@
 # ancestor holds; otherwise it would wait on a live pid until the timeout.
 if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-}" ]; then
   __lefthook_worktree_lock_root="$(git rev-parse --show-toplevel 2>/dev/null)"
-  __lefthook_worktree_lock_script="${__lefthook_worktree_lock_root}/tools/lefthook-worktree-lock.mjs"
+  __lefthook_worktree_lock_script="${__lefthook_worktree_lock_root}"\
+"/tools/lefthook-worktree-lock.mjs"
 
   if ! command -v node >/dev/null 2>&1; then
     # Fail closed: without the lock the commit would share lefthook's backup with other worktrees,
@@ -24,7 +25,8 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
   fi
 
   if [ ! -f "$__lefthook_worktree_lock_script" ]; then
-    echo "lefthook: missing $__lefthook_worktree_lock_script — cannot serialize the pre-commit backup." >&2
+    echo "lefthook: missing $__lefthook_worktree_lock_script —" \
+      "cannot serialize the pre-commit backup." >&2
     exit 1
   fi
 
@@ -44,7 +46,8 @@ if [ "${0##*/}" = "pre-commit" ] && [ -z "${LEFTHOOK_WORKTREE_BACKUP_LOCK_HELD:-
 
   # Exit with the status captured on entry so releasing never rewrites the hook's verdict. Each
   # signal trap exits, which runs the EXIT trap, the one place the lock is released.
-  trap '__lefthook_worktree_lock_status=$?; __lefthook_worktree_lock_release; exit $__lefthook_worktree_lock_status' EXIT
+  trap '__lefthook_worktree_lock_status=$?; __lefthook_worktree_lock_release; '\
+'exit $__lefthook_worktree_lock_status' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
