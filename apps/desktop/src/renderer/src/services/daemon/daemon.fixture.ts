@@ -9,7 +9,7 @@ import type {
   DaemonParams,
   DaemonResult,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/daemon-methods";
 import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";

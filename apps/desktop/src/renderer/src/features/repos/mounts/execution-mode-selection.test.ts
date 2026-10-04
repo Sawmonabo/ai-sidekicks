@@ -2,7 +2,7 @@
 // `RepoMountsReader.requestModeSelection`, the one seam a view has, with the daemon's mode
 // select parked so a case can observe the window between a press and its answer.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";

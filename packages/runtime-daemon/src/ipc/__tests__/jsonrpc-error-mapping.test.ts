@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "../domain-error.js";

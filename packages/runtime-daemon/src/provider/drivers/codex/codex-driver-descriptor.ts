@@ -1,6 +1,6 @@
 // Codex's static facts: what the daemon reads about it before any session exists.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 import semver from "semver";
 
 import type { DriverCapabilityDetectionTable, ProbeAnswer } from "../../capability-probe.js";

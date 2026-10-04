@@ -5,7 +5,7 @@
 import { useCallback, useEffect } from "react";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
+import { useSessionScopedActController } from "@renderer/features/repos/acts/hooks/useActController.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   ExecutionRootPrepareController,

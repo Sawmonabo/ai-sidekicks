@@ -5,7 +5,7 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts";
+import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
 
 import {
   UNSENT_ANSWER_DELIVERY,

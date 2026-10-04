@@ -1,7 +1,8 @@
 // The callback-tool host wired to recording sinks, shared by the host's tests and the Codex ask
 // responder's tests.
 
-import type { RunId, SessionCallbackTool, SessionId } from "@ai-sidekicks/contracts";
+import type { RunId, SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import {
   bindCallbackToolsForSpawn,

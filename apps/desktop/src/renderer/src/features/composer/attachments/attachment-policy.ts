@@ -3,7 +3,7 @@
 // lives here beside the disposition so a code's classification and its explanation cannot drift
 // apart. Imports nothing from the other attachment modules.
 
-import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts";
+import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts/artifacts/operations";
 
 /**
  * What a refusal means for the next act. Every ingest call is retry-safe (a replayed chunk or

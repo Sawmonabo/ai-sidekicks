@@ -333,7 +333,11 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
   ],
 );
 
-/** The event an undo settles with, whatever it managed to do. */
+/**
+ * The event an undo settles with, whatever it managed to do.
+ *
+ * @consumedBy the daemon's undo, which settles with this event
+ */
 export const SESSION_RESTORE_FINISHED_EVENT = "session.restore_finished" as const;
 
 /**
@@ -374,7 +378,11 @@ export interface SessionRestoreMethodDescriptors {
   >;
 }
 
-/** The undo methods, each with its schemas. */
+/**
+ * The undo methods, each with its schemas.
+ *
+ * @consumedBy the daemon's undo and resend handlers
+ */
 export const SESSION_RESTORE_METHOD_DESCRIPTORS: SessionRestoreMethodDescriptors =
   defineMethodDescriptors({
     "session.restorePreview": {

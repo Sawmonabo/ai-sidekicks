@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { NotificationEntry } from "./NotificationEntry.js";
 
 /** One group's entries as one list. */

@@ -7,20 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ApplyInterventionParams,
-  JsonRpcNotification,
-  JsonRpcRequest,
-  UserId,
-  RunId,
-  SessionEvent,
-  SessionId,
-} from "@ai-sidekicks/contracts";
-import {
-  JsonRpcErrorCode,
-  SessionEventSchema,
-  SUBSCRIPTION_CANCEL_METHOD,
-} from "@ai-sidekicks/contracts";
+import type { ApplyInterventionParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event";
+import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import type { DriverClient } from "../provider-client.js";
 import { createDaemonProviderClient } from "../provider-client.js";

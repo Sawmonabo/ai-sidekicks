@@ -1,6 +1,6 @@
 import type { Database, Statement } from "better-sqlite3";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 

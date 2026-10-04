@@ -28,7 +28,7 @@ import {
   type ApplyInterventionParams,
   type DriverInterventionResult,
   type RunId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import { STEER_FALLBACK_ACTION } from "../../provider-driver.js";
 import { ClaudeSessionUnavailableError } from "./session-errors.js";

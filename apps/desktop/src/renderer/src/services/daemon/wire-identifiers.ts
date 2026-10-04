@@ -4,16 +4,10 @@
 // `read*` functions, which return the value or `undefined`. They mint no refusal: whether an
 // unreadable id is a refusal, a dropped row or a skipped chip is the caller's decision.
 
-import {
-  RunIdSchema,
-  RunStateSchema,
-  SessionIdSchema,
-  WorkspaceIdSchema,
-  type RunId,
-  type RunState,
-  type SessionId,
-  type WorkspaceId,
-} from "@ai-sidekicks/contracts";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider-driver";
+import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts/run-state";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session";
+import { WorkspaceIdSchema, type WorkspaceId } from "@ai-sidekicks/contracts/repo";
 
 /** The session identifier the wire admits, or `undefined` where it admits none. */
 export function readSessionId(value: string): SessionId | undefined {

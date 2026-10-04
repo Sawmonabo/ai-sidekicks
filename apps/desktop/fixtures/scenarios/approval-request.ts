@@ -13,16 +13,14 @@
 // Ids are UUIDs, as the contracts' branded ids require, and a short readable id would render
 // narrower than a real one in a fixture that is measured.
 
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent-definition";
 import {
-  AgentIdSchema,
   UserIdSchema,
-  RunIdSchema,
   SessionIdSchema,
-  type AgentId,
   type UserId,
-  type RunId,
   type SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/session";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider-driver";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

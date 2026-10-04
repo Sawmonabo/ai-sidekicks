@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,

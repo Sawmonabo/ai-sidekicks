@@ -2,7 +2,7 @@
 // from the palette, and what a row does when chosen. A row enters the revoke confirmation and
 // never reaches the wire, so it is no weaker path to a two-step, irreversible act.
 
-import type { RememberedRule } from "@ai-sidekicks/contracts";
+import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 
 /** The owner these rows are contributed under; one live set at a time. */
 export const REVOKE_RULE_COMMAND_OWNER = "inspector-rules";

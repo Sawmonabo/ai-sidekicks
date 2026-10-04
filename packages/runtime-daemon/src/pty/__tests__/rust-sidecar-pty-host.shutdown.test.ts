@@ -8,36 +8,16 @@ import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
 import {
-  type FakeSidecarChild,
   flushMicrotasks,
   frameEnvelope,
   makeFakeSidecarChild,
   parseFramesFromStdin,
+  spawnAnsweredSession,
   spawnReturning,
 } from "./pty-host.test-support.js";
 
 // Distinctive, so a taskkill assertion names the sidecar's pid.
 const SIDECAR_PID = 67890;
-
-/** Spawns one session and resolves its `SpawnResponse` through the fake. */
-async function spawnOneSession(
-  host: RustSidecarPtyHost,
-  fake: FakeSidecarChild,
-  sessionId: string,
-): Promise<void> {
-  const spawnPromise = host.spawn({
-    kind: "spawn_request",
-    command: "/bin/sh",
-    args: ["-c", "sleep 10"],
-    env: [],
-    cwd: "/tmp",
-    rows: 24,
-    cols: 80,
-  });
-  await flushMicrotasks();
-  fake.writeStdout(frameEnvelope({ kind: "spawn_response", session_id: sessionId }));
-  await spawnPromise;
-}
 
 describe("RustSidecarPtyHost.shutdown — drain", () => {
   it("counts a session that emits ExitCodeNotification within the per-session budget under sessionsDrained", async () => {
@@ -49,7 +29,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
     const onExit = vi.fn();
     host.setOnExit(onExit);
 
-    await spawnOneSession(host, fake, "s-0");
+    await spawnAnsweredSession(host, () => fake, "s-0");
 
     const drainPromise = host.shutdown({
       perSessionTimeoutMs: 2_000,
@@ -109,7 +89,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         spawn: spawnReturning(fake),
       });
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 2_000,
@@ -174,7 +154,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         platform: "linux",
       });
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 2_000,
@@ -229,7 +209,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         spawnTaskkill: mockTaskkill,
       });
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 2_000,
@@ -294,7 +274,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         spawnTaskkill: neverSettlingTaskkill,
       });
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 2_000,
@@ -347,7 +327,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       const onExit = vi.fn();
       host.setOnExit(onExit);
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 2_000,
@@ -402,7 +382,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       const onExit = vi.fn();
       host.setOnExit(onExit);
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 50,
@@ -485,7 +465,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       const onExit = vi.fn();
       host.setOnExit(onExit);
 
-      await spawnOneSession(host, fake, "s-0");
+      await spawnAnsweredSession(host, () => fake, "s-0");
 
       const drainPromise = host.shutdown({
         perSessionTimeoutMs: 50,
@@ -535,7 +515,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       spawn: spawnReturning(fake),
     });
 
-    await spawnOneSession(host, fake, "s-0");
+    await spawnAnsweredSession(host, () => fake, "s-0");
 
     const drainPromise = host.shutdown({
       perSessionTimeoutMs: 2_000,
@@ -634,7 +614,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       spawn: spawnReturning(fake),
     });
 
-    await spawnOneSession(host, fake, "s-0");
+    await spawnAnsweredSession(host, () => fake, "s-0");
 
     const firstPromise = host.shutdown({
       perSessionTimeoutMs: 2_000,

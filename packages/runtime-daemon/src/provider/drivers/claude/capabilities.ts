@@ -9,11 +9,11 @@
  *   only on this live read.
  */
 
-import {
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type ProviderModel,
-} from "@ai-sidekicks/contracts";
+import type {
+  DriverCapabilities,
+  DriverCapabilityFlag,
+  ProviderModel,
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import {
   applyCapabilityDetection,

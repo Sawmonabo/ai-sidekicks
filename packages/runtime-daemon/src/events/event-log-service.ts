@@ -11,7 +11,8 @@
 //   re-checks that state as the prelude's first statement and throws if it moved; an abort
 //   consumes no sequence.
 
-import type { EventEnvelope, SessionId } from "@ai-sidekicks/contracts";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { Database, Statement } from "better-sqlite3";
 
 import { canonicalizeEvent, normalizeOccurredAt } from "./canonicalizer.js";

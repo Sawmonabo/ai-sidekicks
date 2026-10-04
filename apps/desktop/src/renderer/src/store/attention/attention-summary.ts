@@ -5,7 +5,7 @@
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 
 /** One session the projection read could not cover, with the refusal it answered with. */
 export interface RefusedAttentionSession {

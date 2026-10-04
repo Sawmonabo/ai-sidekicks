@@ -2,7 +2,8 @@
 // router, not in it, so the controller, the command zone and the Send button read one
 // declaration.
 
-import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
+import type { InterventionRequestPayload } from "@ai-sidekicks/contracts/run-control";
+import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run-queue";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ComposerSendPath } from "../composer-target.js";

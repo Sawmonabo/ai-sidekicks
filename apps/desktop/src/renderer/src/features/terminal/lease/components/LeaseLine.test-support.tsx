@@ -5,8 +5,8 @@
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../../../fixtures/scenarios/concurrent-streaming.js";
-import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
+import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
 import { THIS_DEVICE_ID } from "../lease-model.test-support.js";
 import type {
   TerminalLeaseCall,

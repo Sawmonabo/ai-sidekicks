@@ -6,7 +6,7 @@
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";

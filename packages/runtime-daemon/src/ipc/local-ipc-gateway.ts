@@ -13,22 +13,21 @@
 
 import * as net from "node:net";
 
+import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
 import type {
-  HandlerContext,
   JsonRpcErrorResponse,
   JsonRpcId,
   JsonRpcMessage,
   JsonRpcResponse,
-  MethodRegistry,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc";
 import {
   ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
   isJsonRpcIdWithinBound,
   JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
   MAX_MESSAGE_BYTES,
-  PROTOCOL_VERSION_REGEX,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc";
+import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { SecureDefaults } from "../bootstrap/secure-defaults.js";

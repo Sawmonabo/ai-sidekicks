@@ -19,7 +19,7 @@
 // Switches and quiet hours are not applied here: the daemon decides whether a moment may raise
 // a banner when it writes the entry, and the main process honors the OS do-not-disturb setting.
 
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { type AnsweredAttentionReading } from "./attention-summary.js";
 
 /**

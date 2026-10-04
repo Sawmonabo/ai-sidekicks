@@ -13,7 +13,7 @@ import type {
   IdempotencyClass,
   McpServerStatus,
   NormalizedProviderToolMetadata,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
 
 import {
   boundMcpServerStatusEmission,

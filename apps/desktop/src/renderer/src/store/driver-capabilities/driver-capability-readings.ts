@@ -3,7 +3,8 @@
 // `services/driver-capabilities/driver-capability-read.ts`); each takes the readout it answers
 // about, and `undefined` is admitted because the read may not have answered yet.
 
-import type { DriverCapabilityFlag, ProviderName } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-readout.js";
 

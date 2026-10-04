@@ -32,7 +32,11 @@ export interface AttachmentIngestInitRequest {
   mediaType?: string | undefined;
   declaredSizeBytes: number;
 }
-/** Parses an {@link AttachmentIngestInitRequest}; an empty `mediaType` is refused. */
+/**
+ * Parses an {@link AttachmentIngestInitRequest}; an empty `mediaType` is refused.
+ *
+ * @consumedBy the daemon's attachment upload, which opens on this request
+ */
 export const AttachmentIngestInitRequestSchema: z.ZodType<
   AttachmentIngestInitRequest,
   AttachmentIngestInitRequest
@@ -56,7 +60,11 @@ export interface AttachmentIngestChunkRequest {
   sequenceNumber: number;
   chunk: string;
 }
-/** Parses an {@link AttachmentIngestChunkRequest}; a chunk over the raw cap is refused. */
+/**
+ * Parses an {@link AttachmentIngestChunkRequest}; a chunk over the raw cap is refused.
+ *
+ * @consumedBy the daemon's attachment upload, which takes each chunk on this request
+ */
 export const AttachmentIngestChunkRequestSchema: z.ZodType<
   AttachmentIngestChunkRequest,
   AttachmentIngestChunkRequest
@@ -77,7 +85,11 @@ export const AttachmentIngestChunkRequestSchema: z.ZodType<
 export interface AttachmentIngestCompleteRequest {
   ingestId: string;
 }
-/** Parses an {@link AttachmentIngestCompleteRequest}. */
+/**
+ * Parses an {@link AttachmentIngestCompleteRequest}.
+ *
+ * @consumedBy the daemon's attachment upload, which completes on this request
+ */
 export const AttachmentIngestCompleteRequestSchema: z.ZodType<
   AttachmentIngestCompleteRequest,
   AttachmentIngestCompleteRequest

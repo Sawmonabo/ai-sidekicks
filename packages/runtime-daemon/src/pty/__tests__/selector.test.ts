@@ -2,7 +2,7 @@
 // both factories are injected, so no real env, console, `node-pty` or sidecar binary is touched
 // and the suite runs on every platform.
 
-import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/error";
 import { describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
@@ -10,7 +10,7 @@ import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
 import type { PtyHost } from "../pty-host.js";
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 /** Stands in for a `NodePtyHost`; the tests assert identity, so the right factory was called. */
 const NODE_PTY_SENTINEL: PtyHost = { kind: "NodePtyHost-mock" } as unknown as PtyHost;

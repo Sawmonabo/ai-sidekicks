@@ -8,7 +8,7 @@
 // golden-vector suite binds it to RFC 8785 Appendix B, Table 1. Its bare errors (`NaN is not
 // allowed`, `Infinity is not allowed`, `Circular reference detected`) can still surface.
 
-import type { EventEnvelope } from "@ai-sidekicks/contracts";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
 import canonicalize from "canonicalize";
 
 const utf8Encoder = new TextEncoder();

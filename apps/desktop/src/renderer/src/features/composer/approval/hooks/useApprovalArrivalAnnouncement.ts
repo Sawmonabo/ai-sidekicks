@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
 import { findApprovalCardAction } from "../components/ApprovalCard.js";
 

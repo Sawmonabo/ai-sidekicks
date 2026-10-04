@@ -4,7 +4,7 @@
 // (no second subscription) and `RefreshScheduler` coalesces them. A new key supersedes the read
 // itself, so nothing here supersedes an in-flight answer. Frames are scoped to one run.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

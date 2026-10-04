@@ -5,11 +5,11 @@
 import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
-  type EventCategory,
-  type RunId,
-  type SessionId,
   type TimelineRow,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/row";
+import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 /** The one session every fixture row belongs to. */
 const FIXTURE_SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;

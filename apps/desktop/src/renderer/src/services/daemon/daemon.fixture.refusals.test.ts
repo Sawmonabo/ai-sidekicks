@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import { callThroughBridge, createFixture } from "@test/helpers/fixture-bridge.js";
 import { type WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
-import type { Scenario } from "../../../../../fixtures/scenario.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario } from "@fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 
 /** The call the refusal case scripts. */
 const REFUSED_CALL = "session.read";

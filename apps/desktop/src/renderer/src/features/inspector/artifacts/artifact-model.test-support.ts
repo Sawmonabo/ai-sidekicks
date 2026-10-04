@@ -1,6 +1,6 @@
 // The served manifest the manifest-row cases read, as the wire hands it over.
 
-import type { ArtifactManifest } from "@ai-sidekicks/contracts";
+import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 
 import { SERVED_SUMMARY } from "@test/helpers/artifact-list-readers.js";
 

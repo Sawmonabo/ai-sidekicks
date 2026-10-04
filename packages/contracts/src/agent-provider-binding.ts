@@ -94,7 +94,11 @@ export type AgentBindingSwitchBoundary = (typeof AGENT_BINDING_SWITCH_BOUNDARIES
  * request open until the switch settles.
  */
 export const AGENT_BINDING_SWITCH_STATUSES = ["pending", "applied", "degraded", "failed"] as const;
-/** One of {@link AGENT_BINDING_SWITCH_STATUSES}. */
+/**
+ * One of {@link AGENT_BINDING_SWITCH_STATUSES}.
+ *
+ * @consumedBy the model picker's provider switch and the working line's `switching to` slot
+ */
 export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[number];
 
 // The switch's intent and its settlement
@@ -195,7 +199,11 @@ const switchOutcomeFields = {
   declaredLosses: z.array(DeclaredLossKindSchema),
 };
 
-/** Parses an {@link AgentBindingSwitchOutcome}. */
+/**
+ * Parses an {@link AgentBindingSwitchOutcome}.
+ *
+ * @consumedBy the daemon's switch of an agent's provider binding
+ */
 export const AgentBindingSwitchOutcomeSchema: z.ZodType<AgentBindingSwitchOutcome> = z
   .object({ ...switchOutcomeFields, continuity: z.enum(AGENT_BINDING_CONTINUITIES) })
   .strict()

@@ -8,7 +8,10 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ProviderImportId, ProviderImportProgress } from "@ai-sidekicks/contracts";
+import type {
+  ProviderImportId,
+  ProviderImportProgress,
+} from "@ai-sidekicks/contracts/provider-import";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
 import type { ImportProgressStream, ImportProgressSubscribeCall } from "./import-progress.js";

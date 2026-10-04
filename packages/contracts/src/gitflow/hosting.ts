@@ -100,7 +100,11 @@ export type ChangeRequestReadDepth = (typeof CHANGE_REQUEST_READ_DEPTHS)[number]
  * signed in, answers for. Nothing is saved either way.
  */
 export const GITFLOW_HOST_INVALID_CODE = "gitflow.host_invalid" as const;
-/** The code string of {@link GITFLOW_HOST_INVALID_CODE}. */
+/**
+ * The code string of {@link GITFLOW_HOST_INVALID_CODE}.
+ *
+ * @consumedBy the handler that returns the `gitflow.host_invalid` error
+ */
 export type GitflowHostInvalidCode = typeof GITFLOW_HOST_INVALID_CODE;
 /** Why a host was refused. */
 export const GITFLOW_HOST_INVALID_REASONS = ["not_a_host_name", "not_answered"] as const;
@@ -110,7 +114,11 @@ export type GitflowHostInvalidReason = (typeof GITFLOW_HOST_INVALID_REASONS)[num
 export interface GitflowHostInvalidDetails {
   reason: GitflowHostInvalidReason;
 }
-/** Wire schema for {@link GitflowHostInvalidDetails}. */
+/**
+ * Wire schema for {@link GitflowHostInvalidDetails}.
+ *
+ * @consumedBy the handler that returns the `gitflow.host_invalid` error
+ */
 export const GitflowHostInvalidDetailsSchema: z.ZodType<GitflowHostInvalidDetails> = z
   .object({ reason: z.enum(GITFLOW_HOST_INVALID_REASONS) })
   .strict();

@@ -13,7 +13,7 @@
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import {
   orderDeclaredLosses,
   segmentContentIsUnavailable,
@@ -80,7 +80,7 @@ export const BRIEF_CONTINUITY_LOSS_JOINER = "+";
  * The exact marker text a brief renders: its key and what that brief dropped. One whitespace-free
  * token, so no reflow splits it; it is the only trace a delivered brief leaves.
  */
-export function renderBriefContinuityMarker(
+function renderBriefContinuityMarker(
   briefIdentityKey: string,
   declaredLosses: readonly DeclaredLossKind[],
 ): string {

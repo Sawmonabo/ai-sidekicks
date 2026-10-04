@@ -48,14 +48,22 @@ const MCP_APPLICATION_GRADE_VALUES = [
  * decision layer at once. Always stated, never silent.
  */
 export type McpApplicationGrade = (typeof MCP_APPLICATION_GRADE_VALUES)[number];
-/** Every {@link McpApplicationGrade}, in the order above. */
+/**
+ * Every {@link McpApplicationGrade}, in the order above.
+ *
+ * @consumedBy the daemon's MCP mutation replies, which say when and where a change takes effect
+ */
 export const MCP_APPLICATION_GRADES: readonly McpApplicationGrade[] = MCP_APPLICATION_GRADE_VALUES;
 
 const MCP_APPROVAL_MODE_VALUES = ["auto", "prompt", "writes", "approve"] as const;
 
 /** The normalized approval vocabulary a tool override may pin. */
 export type McpApprovalMode = (typeof MCP_APPROVAL_MODE_VALUES)[number];
-/** Every {@link McpApprovalMode}. */
+/**
+ * Every {@link McpApprovalMode}.
+ *
+ * @consumedBy the MCP servers page's per-tool control for whether a tool asks before running
+ */
 export const MCP_APPROVAL_MODES: readonly McpApprovalMode[] = MCP_APPROVAL_MODE_VALUES;
 /** Parses an {@link McpApprovalMode}. */
 export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> =

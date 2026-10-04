@@ -5,7 +5,7 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
-import type { McpServerBindingRef, McpServerInventoryEntry } from "@ai-sidekicks/contracts";
+import type { McpServerBindingRef, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";

@@ -16,8 +16,8 @@
 import type {
   ProviderAccountNotification,
   ProviderAccountUsageWindow,
-} from "@ai-sidekicks/contracts";
-import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-account";
+import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts/provider-account";
 import { RealClock } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,

@@ -425,7 +425,11 @@ export const PtyControlChangedPayloadSchema: z.ZodType<PtyControlChangedPayload>
  * device's, which a forced take or close moves.
  */
 export const PTY_CONTROL_HELD_BY_OTHER_CODE = "pty.control_held_by_other" as const;
-/** Type of {@link PTY_CONTROL_HELD_BY_OTHER_CODE}. */
+/**
+ * Type of {@link PTY_CONTROL_HELD_BY_OTHER_CODE}.
+ *
+ * @consumedBy the handler that returns the `pty.control_held_by_other` error
+ */
 export type PtyControlHeldByOtherCode = typeof PTY_CONTROL_HELD_BY_OTHER_CODE;
 /** Details of a `pty.control_held_by_other` refusal: the shell and who holds it. */
 export interface PtyControlHeldByOtherDetails extends TerminalControlHolder {
@@ -444,7 +448,11 @@ export const PtyControlHeldByOtherDetailsSchema: z.ZodType<PtyControlHeldByOther
 
 /** A write to a shell the writing device does not hold; it takes the shell first. */
 export const PTY_CONTROL_NOT_HELD_CODE = "pty.control_not_held" as const;
-/** Type of {@link PTY_CONTROL_NOT_HELD_CODE}. */
+/**
+ * Type of {@link PTY_CONTROL_NOT_HELD_CODE}.
+ *
+ * @consumedBy the handler that returns the `pty.control_not_held` error
+ */
 export type PtyControlNotHeldCode = typeof PTY_CONTROL_NOT_HELD_CODE;
 
 /** The `pty.*` methods, keyed by name. */
@@ -467,7 +475,11 @@ export interface PtyMethodDescriptors {
   readonly "pty.write": MethodDescriptor<"pty.write", PtyWriteRequest, PtyActResponse>;
   readonly "pty.resize": MethodDescriptor<"pty.resize", PtyResizeRequest, PtyActResponse>;
 }
-/** Every `pty.*` method: its name, how it answers, and its shapes. */
+/**
+ * Every `pty.*` method: its name, how it answers, and its shapes.
+ *
+ * @consumedBy the daemon's `pty.*` handlers
+ */
 export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescriptors({
   "pty.list": {
     method: "pty.list",
@@ -535,7 +547,11 @@ export interface TerminalControlMethodDescriptors {
     SessionSetTerminalFlowControlResponse
   >;
 }
-/** The lease take and flow control methods: their names, how each answers, and their shapes. */
+/**
+ * The lease take and flow control methods: their names, how each answers, and their shapes.
+ *
+ * @consumedBy the daemon's terminal take-control and flow-control handlers
+ */
 export const TERMINAL_CONTROL_METHOD_DESCRIPTORS: TerminalControlMethodDescriptors =
   defineMethodDescriptors({
     "session.takeControl": {

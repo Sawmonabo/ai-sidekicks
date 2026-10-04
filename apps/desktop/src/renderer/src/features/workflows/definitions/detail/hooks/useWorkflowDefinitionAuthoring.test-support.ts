@@ -2,9 +2,10 @@
 // drives the real hook; the create is a plain function the case supplies and the host clipboard
 // is the one native seam the export reaches.
 
-// The file form's chunk reads its vocabularies from the contracts package, which compiles from
-// source on first load; importing it here keeps each case's wait about the act, not the compile.
-import "@ai-sidekicks/contracts";
+// The file form's chunk reads its vocabularies from these contracts modules, which compile from
+// source on first load; importing them here keeps each case's wait about the act, not the compile.
+import "@ai-sidekicks/contracts/mcp";
+import "@ai-sidekicks/contracts/provider-account";
 import { act, renderHook } from "@testing-library/react";
 import { expect } from "vitest";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -13,7 +14,10 @@ import type {
   WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { PROBE_SESSION_ID, versionChainEntry } from "../../../workflows-probe.test-support.js";
+import {
+  PROBE_SESSION_ID,
+  versionChainEntry,
+} from "@renderer/features/workflows/workflows-probe.test-support.js";
 import { useWorkflowDefinitionAuthoring } from "./useWorkflowDefinitionAuthoring.js";
 import type { WorkflowDefinitionDetailCalls } from "./useWorkflowDefinitionDetail.js";
 import type { WorkflowDefinitionCreateCall } from "../definition-authoring-runtime.js";

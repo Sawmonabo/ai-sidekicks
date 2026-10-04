@@ -13,19 +13,18 @@ import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_PATCH_READ_METHOD,
-  TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SEARCH_METHOD,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/methods";
+import { TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/timeline/operations";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type {
-  Handler,
-  MethodRegistry,
-  SessionId,
   TimelineMethodName,
   TimelineMethodRequest,
   TimelineMethodResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/methods";
 
 import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content-read.js";
 import { RegistryDispatchError } from "../registry.js";

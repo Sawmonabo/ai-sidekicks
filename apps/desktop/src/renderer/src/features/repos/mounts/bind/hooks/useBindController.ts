@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
 
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { useSessionScopedActController } from "../../../acts/hooks/useActController.js";
+import { useSessionScopedActController } from "@renderer/features/repos/acts/hooks/useActController.js";
 import {
   BindWorkspaceController,
   type BindControllerOptions,

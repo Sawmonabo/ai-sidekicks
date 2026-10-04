@@ -42,7 +42,11 @@ export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneReques
  * Nothing is made. The address goes to git as typed, and git's own transport rules decide it.
  */
 export const REPO_CLONE_REFUSED_CODE = "repo.clone_refused" as const;
-/** The type of {@link REPO_CLONE_REFUSED_CODE}. */
+/**
+ * The type of {@link REPO_CLONE_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `repo.clone_refused` error
+ */
 export type RepoCloneRefusedCode = typeof REPO_CLONE_REFUSED_CODE;
 
 /** Why a clone was refused before it started. */
@@ -56,7 +60,11 @@ export const REPO_CLONE_REFUSED_REASONS: readonly RepoCloneRefusedReason[] = Obj
 export interface RepoCloneRefusedDetails {
   reason: RepoCloneRefusedReason;
 }
-/** Wire schema for {@link RepoCloneRefusedDetails}. */
+/**
+ * Wire schema for {@link RepoCloneRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `repo.clone_refused` error
+ */
 export const RepoCloneRefusedDetailsSchema: z.ZodType<RepoCloneRefusedDetails> = z
   .object({ reason: z.enum(REPO_CLONE_REFUSED_REASONS) })
   .strict();

@@ -126,10 +126,10 @@ The Phase 5 desktop MCP panel views consume daemon state only through the render
 
 ## Implementation Steps
 
-1. **Phase 1 — Contracts + storage.** Author `packages/contracts/src/mcp-governance.ts` (operation + event payload schemas incl. the binding-ref discriminated union, config view, per-leg types, `clientIdempotencyKey`, error consts, grades, facets; `--isolatedDeclarations`-clean); the plan's tables in the daemon's one schema; wire the error codes into the daemon error substrate. Register the `mcp.*` and `session.mcp*` method names + schemas against `MethodRegistry` with `not_implemented` handlers behind a feature gate so the namespace shape ships reviewable before behavior.
+1. **Phase 1 — Contracts + storage.** Author `packages/contracts/src/mcp-governance.ts` (operation + event payload schemas incl. the binding-ref discriminated union, config view, per-leg types, `clientIdempotencyKey`, error consts, grades, facets; `--isolatedDeclarations`-clean); the plan's tables in the daemon's one schema; wire the error codes into the daemon error substrate.
 2. **Phase 2 — Inventory + status observation.** Provider config readers (Claude `~/.claude.json` user + project-keyed `local` scopes + `.mcp.json`; Codex `config/read` with layer attribution incl. project-local rows) resolving scope-qualified bindings; `McpInventoryService.list/get` merging config + status + binding rows + overrides; `McpStatusNormalizer` consuming the Plan-003 `onMcpServerStatus` seam and the Codex status wire, attributing observations to the effective binding; binding-row upsert on first observation; per-leg status retention (`legs[]` + the aggregate rule, `unknown` ranked in the fixed order) keyed by the Plan-003 runtime-binding leg, with leg retirement on runtime-binding close (a terminated session's leg leaves the aggregate); the degraded inventory arm when the binding store is unreachable (`bindingStoreUnavailable: true`, store-dependent fields structurally absent); `mcp.server_status_changed` emission with per-event binding (the path-free audit ref — `provider`, `scope` and `serverName`, never raw `scopeRef`; `origin: 'session_feed'` payloads carrying the observing leg's `bindingId`); the `mcp.subscribe` live-tail fan-out off the append path (registration live before first delivery — the I-005-9 ordering the gap-free subscribe-then-list handshake relies on).
 3. **Phase 3 — Configuration mutation engines.** Claude: the unconditional durable leg (`claude mcp add-json` / `claude mcp remove` at the binding's scope, write-verified before acknowledgment) + the live `setMcpServers` leg selected by its own full-desired-set reconcile rather than by a driver-side probe (a typed refusal on that call selects the `user_config_write` grade and withdraws no capability flag; the CLI-version conjunct is subsumed by the minimum set at the V1 release, while SDK ≥ `0.3.166` + streaming mode remain reachability preconditions) (full-set semantics, per-server error reconciliation) + the enabled overlay and the session-set builder (`--strict-mcp-config`, `mcp_set_servers` at start and after each resume, never `mcp_toggle`); Codex: `config/batchWrite` with `expected_version` on the user file, single silent retry, reload trigger, `mcp.config_write_conflict` on double conflict; the Codex session table, the project-file writer and the `local` emulation; `project` declarations written as typed and `${VAR}` expansion; `mcp.registrySearch`; validation-first ordering (`mcp.config_invalid` strictly pre-commit) with per-leg `liveResults[]` partial-outcome reporting; the two-phase `mcp_mutation_receipts` idempotency layer (`pending` intent committed before the provider leg; finalization + store writes in one transaction; startup reconciliation of crash-window intents — the Plan-012 `command_receipts` precedent; replay) (I-022-2, I-022-3).
-4. **Phase 4 — Overrides.** In-plan effective-binding derivation off the session sets (T28.4.5); the binding store's native-field baseline and the removal revocation of a server's approval rules (T28.4.2); override service with baseline capture/restore on facet materialization and clear (a user's native entries survive a set → clear round-trip), materializing Codex facets in the file that holds the binding at every scope; the binding-keyed tool-metadata resolver overlay (CP-022-2 — the effective `McpServerBindingRef` carried through invocation and recovery resolution); retrofit Phases 2–3 handlers off the feature gate.
+4. **Phase 4 — Overrides.** In-plan effective-binding derivation off the session sets (T28.4.5); the binding store's native-field baseline and the removal revocation of a server's approval rules (T28.4.2); override service with baseline capture/restore on facet materialization and clear (a user's native entries survive a set → clear round-trip), materializing Codex facets in the file that holds the binding at every scope; the binding-keyed tool-metadata resolver overlay (CP-022-2 — the effective `McpServerBindingRef` carried through invocation and recovery resolution); register the mutating handlers over the Phase 3 engines (T28.4.1).
 5. **Phase 5 — Sign-in, the daemon's client and route, and client delivery.** The daemon's own MCP client (T28.5.9) and its fronted route with background long calls (T28.5.10); the sign-in service under ADR-038 — the daemon's own OAuth client, owner-issued clients, the provider-admitted takeover, DPoP, the credential-store custody and the header helper (T28.5.1, T28.5.2), the URL-free `mcp.oauthLogin` receipt representation per I-022-1, completion-event dedup — exactly once per completed sign-in, nothing for abandoned ones (T28.5.3), and `mcp.oauthLogout` (T28.5.11); `mcp.reconnect`; a session's own tool servers (T28.5.12); client-sdk methods, CLI `sidekicks mcp list/add/remove/override/login/watch`, desktop panel hooks (reads + the `mcp.subscribe` stream through the renderer's `services/daemon/` client, CP-022-4); end-to-end acceptance sweep against Spec-024 §Acceptance Criteria.
 
 ## Parallelization Notes
@@ -155,7 +155,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 **Precondition:** Plan-004 Phase 1 merged; Plan-005 Phase 2 merged.
 
-**Goal:** contracts + the plan's tables in the daemon's one schema + registered-but-gated namespace compile, open, and round-trip; schema tests green. Satisfies the storage half of I-022-1; stages CP-022-1/CP-022-3.
+**Goal:** contracts + the plan's tables in the daemon's one schema compile, open, and round-trip; schema tests green. Satisfies the storage half of I-022-1; stages CP-022-1.
 
 #### Tasks
 
@@ -201,14 +201,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Verifies invariant:** I-022-1, I-022-4
   - **Consumes:** the daemon's one schema ← Plan-001 (shipped).
 
-- **T28.1.7 — Register the `mcp.*` and `session.mcp*` methods behind a `not_implemented` feature gate.**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (CREATE)
-  - Register every name + schema against `MethodRegistry.register()` with `not_implemented` handlers behind a feature gate, so the namespace shape ships reviewable before behavior and a mid-sequence pause leaves no half-built surface. Registration only — no substrate file's semantics change (CP-022-3, the CP-005-2 late-namespace pattern).
-  - **Spec coverage:** Spec-024 §Interfaces And Contracts
-  - **Verifies invariant:** none (namespace-shape staging; the handlers open at T28.4.1)
-  - **Consumes:** `MethodRegistry.register()` ← Plan-005-partial, `packages/contracts/src/jsonrpc-registry.ts` (shipped; `METHOD_NAME_FORMAT` admits every `mcp.*` name).
-
-- **T28.1.8 — Schemas for the operations and members the design adds.**
+- **T28.1.7 — Schemas for the operations and members the design adds.**
   - Files: `packages/contracts/src/mcp-governance.ts` (EXTEND)
   - `scope` and `scopeRef` on `mcp.upsertServer` and `mcp.removeServer` for every scope on both providers; `mcp.registrySearch {query, cursor?}` → `{servers, nextCursor?}`, each result carrying its title or name, description, version, whether it runs as a package or at an address, the package's runtime hint and arguments or its remote address, and each environment variable's name, description and required flag, never a value; `mcp.oauthLogout {serverId}` with its `clientIdempotencyKey`; `failedReason: 'commandNotRunnable'` on an entry reading `failed`; `session.mcpServerList {sessionId}` (a live list, each row the server's name, binding, status with its reason, whether it is on for the session, and whether a switch waits for the next turn), `session.mcpServerUpdate {sessionId, serverName, enabled}`, and `session.mcpResourceList {sessionId, serverName}` → `{serverName, resources, complete}`.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts, Spec-024 §A session's own tool servers
@@ -246,7 +239,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** declarations ← T28.2.1 + T28.2.2 (same phase).
 
 - **T28.2.4 — `McpInventoryService.list/get` four-source merge and degraded arm.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-inventory-service.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/mcp/mcp-inventory-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (CREATE — registers `mcp.list` and `mcp.get`)
   - Merge declared config + normalized status + binding row + override rows per binding. `refresh: true` forces a provider round-trip; default serves most-recent observations. On binding-store unreachability serve the `bindingStoreUnavailable: true` arm with store-dependent fields structurally absent, provider-observed fields intact.
   - **Spec coverage:** Spec-024 §Unified Inventory, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-022-1
@@ -299,14 +292,14 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - After the background service moves between Windows and a WSL distribution, the move marks every server whose command or arguments name a program on the side the service left; the inventory keeps such a server as it was and serves it reading `failed` with `failedReason: 'commandNotRunnable'`. A bare command name such as `npx` is looked up on the new side and is not marked. No status is added.
   - **Spec coverage:** Spec-024 §Unified Inventory
   - **Verifies invariant:** none (a read-model member; asserted at T28.5.8 against the AC)
-  - **Consumes:** the move's list of stranded servers ← Plan-005 (the service on WSL 2); the entry schema ← T28.1.8 (Phase 1, merged).
+  - **Consumes:** the move's list of stranded servers ← Plan-005 (the service on WSL 2); the entry schema ← T28.1.7 (Phase 1, merged).
   - **Not built:** the member and its marking.
 
 ### Phase 3 — Configuration mutation engines
 
 **Precondition:** Phase 1 merged.
 
-**Goal:** both mutation engines pass the fixture matrix with honest application grades; conflict refusals surface the right codes; receipts finalize exactly once. Satisfies I-022-2 and the mutation half of I-022-3 (behind the feature gate until Phase 4 opens the handlers).
+**Goal:** both mutation engines pass the fixture matrix with honest application grades; conflict refusals surface the right codes; receipts finalize exactly once. Satisfies I-022-2 and the mutation half of I-022-3 (the engines' handlers register in Phase 4, T28.4.1).
 
 #### Tasks
 
@@ -399,23 +392,23 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - Answer `{query, cursor?}` from the public MCP Registry's `GET /v0/servers?search=<query>&version=latest` with `{servers, nextCursor?}`, mapping each record's package (`runtimeHint`, `runtimeArguments`) or `remotes`, and its environment variables' names, descriptions and required flags, never a value; cache nothing past the call. Budget: one request per search (measured at 1.83 s, answers of 1.3 to 3.3 KB), no background reads.
   - **Spec coverage:** Spec-024 §The MCP servers page, Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (a read)
-  - **Consumes:** the schema ← T28.1.8 (Phase 1, merged).
+  - **Consumes:** the schema ← T28.1.7 (Phase 1, merged).
   - **Not built:** the handler.
 
 ### Phase 4 — Overrides
 
 **Precondition:** Phase 2 merged; Phase 3 merged; Plan-009 Phase 2 merged.
 
-**Goal:** every mutating operation is open off the feature gate; the resolver overlay moves the floor only through an override the person sets; removing a server ends the approval rules over its tools. Satisfies I-022-3, I-022-4, CP-022-2(b).
+**Goal:** the mutating operations Phase 3's engines back are registered and open to every caller; the resolver overlay moves the floor only through an override the person sets; removing a server ends the approval rules over its tools. Satisfies I-022-3, I-022-4, CP-022-2(b).
 
 #### Tasks
 
-- **T28.4.1 — Open the handlers.**
+- **T28.4.1 — Register the mutating handlers.**
   - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND)
-  - Retrofit the Phase 2–3 handlers off the `not_implemented` feature gate. Every non-read operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal, and behaves the same whichever transport carried it ([Spec-027 §Parity by construction](../specs/027-remote-control.md#parity-by-construction)).
+  - Register `mcp.upsertServer`, `mcp.removeServer` and `mcp.setEnabled` against `MethodRegistry.register()` over the Phase 3 engines; each `mcp.*` handler registers in the change that builds it. Every non-read operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal, and behaves the same whichever transport carried it ([Spec-027 §Parity by construction](../specs/027-remote-control.md#parity-by-construction)).
   - **Spec coverage:** Spec-024 §Authorization
   - **Verifies invariant:** I-022-3
-  - **Consumes:** the Phase 2–3 handlers (Phase 3, merged).
+  - **Consumes:** the Phase 3 engines (Phase 3, merged).
 
 - **T28.4.2 — Binding store: the native-field baseline and the removal revocation.**
   - Files: `packages/runtime-daemon/src/mcp/binding-store.ts` (EXTEND)
@@ -425,7 +418,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** binding rows ← T28.2.8 (Phase 2, merged); the binding identity ← T28.4.5 (same phase).
 
 - **T28.4.3 — Override service: baseline restore and materialization at every scope.**
-  - Files: `packages/runtime-daemon/src/mcp/tool-override-service.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/mcp/tool-override-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND — registers `mcp.setToolOverride` and `mcp.clearToolOverride`)
   - `mcp.setToolOverride` / `mcp.clearToolOverride` over the three optional facets. Codex `enabled`/`approvalMode` materialize into native fields in the file that holds the binding — the user file, or a project's `.codex/config.toml` through T28.3.9's edit (grade `user_config_write`); Claude equivalents are `daemon_enforced`; `idempotencyClass` is always `daemon_enforced`. Clearing restores the cleared facet's portions from the baseline; clearing a binding's last facet restores it verbatim and drops it, so a user's own native entries survive a set → clear round-trip.
   - **Spec coverage:** Spec-024 §Tool-Level Overrides
   - **Verifies invariant:** I-022-4
@@ -455,7 +448,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 #### Tasks
 
 - **T28.5.1 — The daemon's own sign-in, its custody, and the header helper.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-sign-in-service.ts` (CREATE) + `packages/runtime-daemon/src/mcp/header-helper-answerer.ts` (CREATE) + `packages/contracts/src/mcp-governance.ts` (EXTEND — the header helper's token request and its reply, which the command-line tool sends and the daemon answers)
+  - Files: `packages/runtime-daemon/src/mcp/mcp-sign-in-service.ts` (CREATE) + `packages/runtime-daemon/src/mcp/header-helper-answerer.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND — registers `mcp.oauthLogin`) + `packages/contracts/src/mcp-governance.ts` (EXTEND — the header helper's token request and its reply, which the command-line tool sends and the daemon answers)
   - `mcp.oauthLogin` starts the daemon's own sign-in over T28.5.9's client: discovery from the server's protected-resource metadata, registration by the server's metadata document or dynamic registration, PKCE, `resource` set to the server's address; a server whose entry names an owner-issued client (Codex's `oauth.client_id` and `oauth.callback_url`) signs in as that client. The client implements `discoveryState` and `saveDiscoveryState`, binding the callback to its authorization server. The reply carries the sign-in page's address; the idempotency receipt persists the acknowledgment with `authorizationUrl` **structurally omitted**, so an identical-key retry replays a URL-free acknowledgment. A new `mcp.oauthLogin` on a server whose sign-in waits ends that wait and starts the next attempt. The refresh token goes into the operating system's credential store under an item the daemon creates, never a file — through `@napi-rs/keyring` 2.1.0, opened with `{linux: {store: "secret-service"}}`, on macOS and Linux, and on Windows, native and WSL alike, through the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE` ([Plan-019](./019-data-retention-and-gdpr.md) `WindowsCredentialStore`, CP-019-5), as every daemon item is, never at a roaming persistence; on Linux with no Secret Service answering it goes into the daemon's one items file, readable only by the person (mode `0600`), never silently; a store that cannot be reached refuses the sign-in — and the daemon renews it itself under its client id, one renewal in flight per server. Each provider process the daemon launches gets a header helper per signed-in server (Codex `http_headers_helper`, Claude Code `headersHelper`) whose command line names the command-line tool by absolute path and carries only a server handle, a session handle and the socket path; the helper asks the daemon over its same-user socket for a current access token and prints the `Authorization` header, and the daemon answers only for a session it launched with that server on. The daemon watches each Claude Code process's stderr for `headersHelper not run` and reports it as a fault on that leg. No token, code, PKCE value or key reaches any egress, CLI stdout and the renderer bridge included.
   - **Tests:** one sign-in lets a Claude Code session and a Codex session reach the server; a rotated access token is renewed by each provider re-running its helper, with no step by the person; a helper asked for a session the daemon did not launch prints nothing; the helper command line carries no credential; the receipt row is URL-free.
   - **Spec coverage:** Spec-024 §OAuth Orchestration
@@ -495,7 +488,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T28.5.6 — CLI `sidekicks mcp` command group.**
   - Files: `apps/cli/src/commands/mcp-list.ts`, `mcp-add.ts`, `mcp-remove.ts`, `mcp-override.ts`, `mcp-login.ts`, `mcp-watch.ts` (all CREATE) + `apps/cli/src/main.ts` (EXTEND — six `.register()` calls)
-  - Subcommands under the Plan-005 registered bin name; `mcp-watch.ts` tails `mcp.subscribe`. There is no sign-out subcommand: the design gives `mcp.oauthLogout` one control, `Sign out of this server` on Settings › MCP servers (T28.5.7, T28.5.11), and names no command-line sign-out. clipanion has no auto-discovery, so each file needs an explicit `.register()` on the `Cli` instance. Honors Plan-005's I-005-12 import isolation (only `@ai-sidekicks/client-sdk` / `@ai-sidekicks/contracts` / `clipanion` / Node built-ins), enforced by `apps/cli/eslint.config.mjs`, which Plan-005 T-005r-3-1 creates. **`mcp-login.ts` prints the daemon-returned authorization URL as the command's own RESULT** — on the result stream `Plan-005 I-005-18` assigns results to, never as a diagnostic — because the URL is what the person must open for the flow to proceed, and a login command that withholds it cannot complete. That is its only destination: it is not logged, not written to any file the CLI owns, and not re-emitted after settlement, and no token, authorization code, or PKCE material reaches either stream at all. The command then settles on the daemon's own completion, never on a timer.
+  - Subcommands under the Plan-005 registered bin name; `mcp-watch.ts` tails `mcp.subscribe`. There is no sign-out subcommand: the design gives `mcp.oauthLogout` one control, `Sign out of this server` on Settings › MCP servers (T28.5.7, T28.5.11), and names no command-line sign-out. clipanion has no auto-discovery, so each file needs an explicit `.register()` on the `Cli` instance. Honors Plan-005's I-005-12 import isolation (only `@ai-sidekicks/client-sdk` / the `@ai-sidekicks/contracts/<module>` subpaths / `clipanion` / Node built-ins), enforced by `apps/cli/eslint.config.mjs`, which Plan-005 T-005r-3-1 creates. **`mcp-login.ts` prints the daemon-returned authorization URL as the command's own RESULT** — on the result stream `Plan-005 I-005-18` assigns results to, never as a diagnostic — because the URL is what the person must open for the flow to proceed, and a login command that withholds it cannot complete. That is its only destination: it is not logged, not written to any file the CLI owns, and not re-emitted after settlement, and no token, authorization code, or PKCE material reaches either stream at all. The command then settles on the daemon's own completion, never on a timer.
   - **Tests:** `mcp-login` writes the authorization URL to the result stream and nothing credential-bearing to either stream, asserted by capturing both; and no second emission of that URL follows the completion.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (client reachability surface)
@@ -558,7 +551,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 ## Rollback Or Fallback
 
 - All the plan's tables are additive and Plan-022-only — rollback of any phase is a revert; no other plan reads or writes them.
-- The `MethodRegistry` feature gate keeps `mcp.*` and `session.mcp*` operations `not_implemented` until their backing phase, so a mid-sequence pause leaves no half-built surface.
+- Each `mcp.*` and `session.mcp*` handler registers in the change that builds it, so a mid-sequence pause leaves no half-built surface.
 - Provider-side state needs no rollback by construction: I-022-2 means the daemon's writes are always provider-valid config the person could have made by hand.
 
 ## Risks And Blockers

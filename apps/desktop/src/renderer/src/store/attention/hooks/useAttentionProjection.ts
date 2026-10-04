@@ -21,7 +21,7 @@ import { useEffect, useMemo } from "react";
 
 import { type Clock } from "@renderer/lib/clock.js";
 import { RefusalError } from "@renderer/lib/refusal.js";
-import { type AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
 import { subscribeToOpenSessions } from "../../session/open-session-signal.js";

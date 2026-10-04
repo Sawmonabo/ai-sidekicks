@@ -5,11 +5,8 @@
 // because every helper returns a `RunStreamProjection` and declaring them in the arms module would
 // close an import cycle.
 
-import type {
-  QueueItemSummary,
-  RunRolledBackEvent,
-  RunStateChangeEvent,
-} from "@ai-sidekicks/contracts";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
+import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run-control";
 import type { ZodType } from "zod";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";

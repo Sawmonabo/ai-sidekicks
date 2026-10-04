@@ -11,13 +11,15 @@
 import type {
   DaemonHello,
   DaemonHelloAck,
+  NegotiationIncompatibleReason,
+} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+import type {
   Handler,
   HandlerContext,
   MethodRegistry,
-  NegotiationIncompatibleReason,
   RegisterOptions,
   ZodType,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-registry";
 import {
   DAEMON_HELLO_METHOD,
   DaemonHelloAckSchema,
@@ -25,7 +27,7 @@ import {
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
 
 /**
  * The protocol versions this daemon speaks, as `YYYY-MM-DD` strings; lexical order is

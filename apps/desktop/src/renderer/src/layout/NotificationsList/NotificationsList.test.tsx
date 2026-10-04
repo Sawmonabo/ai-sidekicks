@@ -3,7 +3,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "@renderer/lib/clock.js";

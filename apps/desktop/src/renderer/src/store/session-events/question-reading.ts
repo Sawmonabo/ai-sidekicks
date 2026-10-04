@@ -9,7 +9,8 @@
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 /** One question record, as much of it as the row's payload carries. */

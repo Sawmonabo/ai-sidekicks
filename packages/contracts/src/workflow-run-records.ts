@@ -563,7 +563,11 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
 
 // Refusals
 
-/** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
+/**
+ * `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`).
+ *
+ * @consumedBy the handler that returns the `workflow.run_not_deletable` error
+ */
 export const WORKFLOW_RUN_NOT_DELETABLE_CODE = "workflow.run_not_deletable" as const;
 
 // The workflow run records method table
@@ -623,7 +627,11 @@ export interface WorkflowRunRecordMethodDescriptors {
   >;
 }
 
-/** The `workflow.*` methods that read, list and keep run records. */
+/**
+ * The `workflow.*` methods that read, list and keep run records.
+ *
+ * @consumedBy the daemon's workflow run record handlers
+ */
 export const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS: WorkflowRunRecordMethodDescriptors =
   defineMethodDescriptors({
     "workflow.runRead": {

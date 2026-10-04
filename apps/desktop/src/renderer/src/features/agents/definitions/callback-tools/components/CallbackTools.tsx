@@ -5,7 +5,7 @@
 
 import "./CallbackTools.css";
 
-import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
 
 import type { DriverCapabilityReading } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

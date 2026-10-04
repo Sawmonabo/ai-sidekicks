@@ -8,11 +8,10 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  WorktreeLifecyclePayloadSchema,
-} from "@ai-sidekicks/contracts";
-import type { SessionEventType, WorktreeState } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import { WorktreeLifecyclePayloadSchema } from "@ai-sidekicks/contracts/worktree";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import type { WorktreeState } from "@ai-sidekicks/contracts/worktree";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import type { UnsequencedEventEnvelope } from "../../events/event-log-service.js";

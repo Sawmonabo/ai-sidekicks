@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowToolBinding } from "@ai-sidekicks/contracts";
+import type { WorkflowToolBinding } from "@ai-sidekicks/contracts/workflow-definition";
 
 import { readToolBindings, toolBindingFileRecords } from "./workflow-definition-file-bindings.js";
 

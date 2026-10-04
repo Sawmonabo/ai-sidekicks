@@ -8,7 +8,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
-import { FIRST_RUN_SCENARIO } from "../../../../../../fixtures/scenarios/first-run.js";
+import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
 
 function fixtureBridge(): PlatformBridge {
   return createFixtureBridge({ scenario: FIRST_RUN_SCENARIO }).bridge;

@@ -293,7 +293,11 @@ export type WorktreeRetireConflictCode = typeof WORKTREE_RETIRE_CONFLICT_CODE;
  * details carry the current risks so the confirm redraws them).
  */
 export const WORKTREE_RETIRE_CONFLICT_REASONS = ["root_busy", "has_changes"] as const;
-/** One of {@link WORKTREE_RETIRE_CONFLICT_REASONS}. */
+/**
+ * One of {@link WORKTREE_RETIRE_CONFLICT_REASONS}.
+ *
+ * @consumedBy the handler that returns the `worktree.retire_conflict` error
+ */
 export type WorktreeRetireConflictReason = (typeof WORKTREE_RETIRE_CONFLICT_REASONS)[number];
 
 /**
@@ -321,7 +325,11 @@ export const WorktreeRemovalRisksSchema: z.ZodType<WorktreeRemovalRisks> = z
 export type WorktreeRetireConflictDetails =
   | { worktreeId: WorktreeId; reason: "root_busy"; holdingWorkspaceId: WorkspaceId }
   | { worktreeId: WorktreeId; reason: "has_changes"; risks: WorktreeRemovalRisks };
-/** Wire schema for {@link WorktreeRetireConflictDetails}. */
+/**
+ * Wire schema for {@link WorktreeRetireConflictDetails}.
+ *
+ * @consumedBy the handler that returns the `worktree.retire_conflict` error
+ */
 export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConflictDetails> =
   z.discriminatedUnion("reason", [
     z

@@ -3,7 +3,7 @@
  * and digests the output schema so a change is noticed.
  */
 
-import { type ExecutionPosture } from "@ai-sidekicks/contracts";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "../../../events/canonicalizer.js";
 

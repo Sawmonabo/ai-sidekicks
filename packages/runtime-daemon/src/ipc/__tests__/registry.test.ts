@@ -4,8 +4,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Handler, HandlerContext } from "@ai-sidekicks/contracts";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 
 import { mapJsonRpcError } from "../jsonrpc-error-mapping.js";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../registry.js";
 
 import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
+import { captureRejection, captureThrow } from "../../__fixtures__/capture-failure.js";
 
 // No transportId, so dispatch runs without a wire boundary or negotiation gate.
 const directCtx: HandlerContext = {};
@@ -31,12 +32,9 @@ describe("schema validates before dispatch", () => {
       passthroughSchema<unknown>(),
       handler,
     );
-    let caught: unknown = null;
-    try {
-      await registry.dispatch("math.sum", { bogus: true }, directCtx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(
+      registry.dispatch("math.sum", { bogus: true }, directCtx),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_params");
@@ -60,12 +58,7 @@ describe("schema validates before dispatch", () => {
       rejectingSchema<unknown>("invalid-result-shape"),
       handler,
     );
-    let caught: unknown = null;
-    try {
-      await registry.dispatch("math.sum", {}, directCtx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(registry.dispatch("math.sum", {}, directCtx));
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
@@ -88,12 +81,7 @@ describe("method-not-found namespace isolation", () => {
       passthroughSchema<unknown>(),
       async () => undefined,
     );
-    let caught: unknown = null;
-    try {
-      await registry.dispatch("not.registered", {}, directCtx);
-    } catch (err) {
-      caught = err;
-    }
+    const caught = await captureRejection(registry.dispatch("not.registered", {}, directCtx));
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("method_not_found");
@@ -116,17 +104,14 @@ describe("duplicate method registration rejected at register-time", () => {
       passthroughSchema<unknown>(),
       async () => undefined,
     );
-    let caught: unknown = null;
-    try {
+    const caught = captureThrow(() =>
       registry.register(
         "math.sum",
         passthroughSchema<unknown>(),
         passthroughSchema<unknown>(),
         async () => undefined,
-      );
-    } catch (err) {
-      caught = err;
-    }
+      ),
+    );
     expect(caught).toBeInstanceOf(RegistryRegistrationError);
     if (caught instanceof RegistryRegistrationError) {
       expect(caught.registryCode).toBe("duplicate_method");

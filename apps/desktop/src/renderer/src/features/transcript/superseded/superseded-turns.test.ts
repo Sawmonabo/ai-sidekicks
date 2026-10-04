@@ -2,7 +2,7 @@
 // run's rows (re-execution reuses ordinals). Neither throws, so each group is asserted from
 // both sides.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";

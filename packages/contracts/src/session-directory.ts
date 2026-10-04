@@ -75,7 +75,12 @@ export const SessionActivitySchema: z.ZodType<SessionActivity> = z.enum([
   "idle",
 ]);
 
-/** How often the daemon republishes a quiet running or waiting session's entry. */
+/**
+ * How often the daemon republishes a quiet running or waiting session's entry.
+ *
+ * @consumedBy the daemon's `session.list` feed, which republishes a quiet running or waiting
+ * session's entry
+ */
 export const SESSION_ACTIVITY_RENEW_INTERVAL_MS = 15_000;
 
 /**

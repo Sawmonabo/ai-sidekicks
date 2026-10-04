@@ -1,16 +1,16 @@
 // The `system/init` declaration each live Claude session made, and what is read from it: the
 // provider's command and skill surface and its output-speed state.
 
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider-driver";
 import {
-  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   ProviderCommandEntrySchema,
   ProviderOutputSpeedStateSchema,
   type ProviderCommandBinding,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
   type ProviderOutputSpeedState,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import type { ClaudeHandshakeDeclaration } from "./session-transport.js";

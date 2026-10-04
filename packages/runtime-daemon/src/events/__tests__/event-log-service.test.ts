@@ -8,10 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-  EventEnvelopeVersionSchema,
-  SessionIdSchema,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/event-declared-variants";
+import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event-envelope";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session";
 
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";

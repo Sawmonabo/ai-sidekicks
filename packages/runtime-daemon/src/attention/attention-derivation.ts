@@ -4,7 +4,8 @@
 // A run's attention follows its current state, so the table is keyed by run state rather than
 // by the event that announced it. A later transition into a state the table does not list is
 // how an item resolves; there is no separate resolution rule.
-import type { AttentionSeverity, AttentionTrigger, RunState } from "@ai-sidekicks/contracts";
+import type { AttentionSeverity, AttentionTrigger } from "@ai-sidekicks/contracts/attention";
+import type { RunState } from "@ai-sidekicks/contracts/run-state";
 
 import { normalizeOccurredAt } from "../events/canonicalizer.js";
 

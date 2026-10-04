@@ -5,23 +5,24 @@ import { describe, expect, it } from "vitest";
 
 import type {
   ChildRunExpandResponse,
-  HandlerContext,
   ReasoningSurfaceReadResponse,
-  RunId,
-  SessionId,
   TimelineReadResponse,
-  TimelineRow,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/operations";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
-  TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/timeline/methods";
+import { TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/timeline/operations";
 
 // Imported through the barrel, the surface callers bind timeline methods from.
 import { registerTimelineMethod } from "../handlers/index.js";
 import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 const TRANSPORT_ID = 7;
 const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
@@ -65,12 +66,9 @@ describe("timeline replies are scoped to the request", () => {
       handler: async () => ({ entries: [foreignRow], hasMore: false }),
     });
 
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
-    } catch (error) {
-      caught = error;
-    }
+    const caught = await captureRejection(
+      registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       // `invalid_result` (maps to `-32603`), not `invalid_params`: the fault is the daemon's.
@@ -98,12 +96,9 @@ describe("timeline replies are scoped to the request", () => {
       handler: async () => ({ ...childRunExpandResponse, runId: OTHER_RUN_ID }),
     });
 
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext);
-    } catch (error) {
-      caught = error;
-    }
+    const caught = await captureRejection(
+      registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
@@ -134,16 +129,9 @@ describe("timeline replies are scoped to the request", () => {
       handler: async () => threeRowPage,
     });
 
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(
-        TIMELINE_READ_METHOD,
-        { sessionId: SESSION_ID, limit: 2 },
-        dispatchContext,
-      );
-    } catch (error) {
-      caught = error;
-    }
+    const caught = await captureRejection(
+      registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID, limit: 2 }, dispatchContext),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
@@ -175,12 +163,9 @@ describe("timeline replies are scoped to the request", () => {
       handler: async () => pageOfSize(TIMELINE_READ_LIMIT_MAX + 1),
     });
 
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext);
-    } catch (error) {
-      caught = error;
-    }
+    const caught = await captureRejection(
+      registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
@@ -227,16 +212,9 @@ describe("timeline replies are scoped to the request", () => {
       handler: async () => emptyAvailable,
     });
 
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(
-        TIMELINE_REASONING_SURFACE_READ_METHOD,
-        { runId: RUN_ID },
-        dispatchContext,
-      );
-    } catch (error) {
-      caught = error;
-    }
+    const caught = await captureRejection(
+      registry.dispatch(TIMELINE_REASONING_SURFACE_READ_METHOD, { runId: RUN_ID }, dispatchContext),
+    );
     expect(caught).toBeInstanceOf(RegistryDispatchError);
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");

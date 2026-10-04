@@ -1,11 +1,11 @@
 // Shared by the workflows suites: the identities, a definition-row factory and the runs the
 // suites read.
 
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow-definition";
 import type {
-  WorkflowDefinitionId,
   WorkflowDefinitionSummary,
   WorkflowVersionChainEntry,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workflow-definition-methods";
 
 import type { WorkflowRunSnapshot } from "@renderer/services/wire-shapes/workflow-projection.js";
 

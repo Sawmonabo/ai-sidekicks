@@ -3,7 +3,7 @@
 // was incomplete, and a coverage gap must not be left out of a counted sentence.
 
 import { describe, expect, it } from "vitest";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { refuse } from "@renderer/lib/refusal.js";
 import {
   AttentionSummary,

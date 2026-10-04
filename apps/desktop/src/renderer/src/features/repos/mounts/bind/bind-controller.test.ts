@@ -7,7 +7,7 @@ import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workspace";
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";

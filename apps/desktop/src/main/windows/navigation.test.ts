@@ -30,7 +30,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { WEB_ADDRESS_SCHEMES } from "@ai-sidekicks/contracts";
+import { WEB_ADDRESS_SCHEMES } from "@ai-sidekicks/contracts/web-address";
 
 import { classifyNavigation, openExternalUrl, type InWindowOrigin } from "./navigation.js";
 

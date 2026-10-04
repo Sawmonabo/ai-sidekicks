@@ -1,7 +1,11 @@
 // What the run-control suites are handed: a run to contribute for, and one recording dispatch
 // state, so every suite driving the palette hook answers "what did it dispatch" the same way.
 
-import type { InterventionRequestResponse, RunControlAck, RunState } from "@ai-sidekicks/contracts";
+import type {
+  InterventionRequestResponse,
+  RunControlAck,
+} from "@ai-sidekicks/contracts/run-control";
+import type { RunState } from "@ai-sidekicks/contracts/run-state";
 
 import { type RunControlCommandRun } from "./contributions/run-control-commands.js";
 import {

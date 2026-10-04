@@ -7,11 +7,9 @@
 // a later computed read may reflect, and the notices it pushes. The detail sentence travels on the
 // settlement because the diagnosis and remedy are properties of what the engine did.
 
-import {
-  MCP_EVENT_METHOD_DESCRIPTORS,
-  PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
-  type ZodType,
-} from "@ai-sidekicks/contracts";
+import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp-event";
+import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 import type { ScenarioNotice, ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
 import { daemonMethodBindingFor } from "./daemon-reply-registry.js";

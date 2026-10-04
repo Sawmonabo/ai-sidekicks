@@ -4,7 +4,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
 
 import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";

@@ -6,7 +6,7 @@
 // `AgentHueAllocator` over the session log, `isSuperseded` ranks against rollback boundaries
 // around the row, and `density` is the list's collapse state.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";

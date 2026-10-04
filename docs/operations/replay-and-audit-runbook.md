@@ -14,7 +14,7 @@ Recover replay and audit projections when session history appears incomplete, st
 ## Detection
 
 - Compare `ReplayReadAfterCursor` results with the latest canonical event sequence for the affected session.
-- Read `RecoveryStatusRead` plus projection lag signals for the affected node or session.
+- Read the `recovery` field on `daemon.status.read` (healthy, replaying, degraded or blocked, with each session's state) plus projection lag signals for the affected node or session.
 - Verify whether missing history is an expected purge (a session removed by `Delete old data` is deleted with its rows), stale projection state, or true canonical-event loss.
 
 ## Preconditions

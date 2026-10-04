@@ -135,7 +135,7 @@ type RunFailureCategory =
   | "refused"; // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-type InterventionType = "steer" | "interrupt" | "cancel" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first three, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
+type InterventionType = "steer" | "interrupt" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first two, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
 type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
 
 type ApprovalCategory =
@@ -336,17 +336,17 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `daemon.configUpdate` | Change one of those settings | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-12 |
 | `daemon.dataErase {}` | `Erase all data`: remove everything the app keeps on this machine, and the app's credential-store items | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-019](../../plans/019-data-retention-and-gdpr.md) T22.2.2 |
 | `daemon.dataExport {destination}` → `{jobId}`; `daemon.dataExportSubscribe {jobId}`, acknowledged with the subscription and emitting `DataExportProgress` (`running {sessionsExported, sessionsTotal}` \| `completed {path, totalBytes}` \| `failed {message}`) | `Export all data`: everything this machine keeps for the person, as a readable folder | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-019](../../plans/019-data-retention-and-gdpr.md) T22.2.1 |
-| `daemon.machineSettingsRead` | Read the machine's settings file; `machineSettings.read()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-9, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
-| `daemon.machineSettingsUpdate {change}` → the file as written | Write a change to the machine's settings file; the service is the file's one writer, and `machineSettings.write(change)` hands the change here | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-9, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
+| `daemon.machineSettingsRead` | Read the machine's settings file; `machineSettings.read()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-8, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
+| `daemon.machineSettingsUpdate {change}` → the file as written | Write a change to the machine's settings file; the service is the file's one writer, and `machineSettings.write(change)` hands the change here | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-8, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
 | `daemon.packageCacheClear {cache: bun \| uv \| all}` | Clear one package cache or both | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.14 |
 | `daemon.packageCacheRead` | Read what each package cache holds: bun's, `uv`'s, and the time each was read | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.14 |
 | `daemon.restart` | Restart the service | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-2, T-005r-1-5, T-005r-1-7 |
 | `daemon.retentionPurge` | `Delete old data` | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-11 |
 | `daemon.retentionRead` | Read the two retention bounds, `Keep sessions for` and `Keep diagnostic logs for`, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-and-gdpr.md#retention-policy) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-11 |
 | `daemon.retentionUpdate` | Change a retention bound | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-11 |
-| `daemon.status.read` | The service's facts: version, start time, processor and memory with the time each was read, and `secretsFile`, the path of the file secrets are kept in, present only on Linux with no Secret Service. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-1, T-005r-1-4, T-005r-1-7 |
+| `daemon.status.read` | The service's facts: version, start time, processor and memory with the time each was read, `recovery` (healthy, replaying, degraded or blocked), and `secretsFile`, the path of the file secrets are kept in, present only on Linux with no Secret Service. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-1, T-005r-1-4, T-005r-1-7 |
 | `daemon.stop` | Stop the service (the confirm counts the Codex sessions typed in a terminal) | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-2, T-005r-1-5, T-005r-1-7 |
-| `daemon.machineSettingsSubscribe` | Each written change to the machine's settings file, the first delivery being the current file; `machineSettings.subscribe()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-9, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
+| `daemon.machineSettingsSubscribe` | Each written change to the machine's settings file, the first delivery being the current file; `machineSettings.subscribe()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-8, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-13 |
 
 ### `device.*`
 
@@ -523,7 +523,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | the session's own question card, `question.asked` carrying the wait's `waitId`, answered by `question.resolve` | Wait-for-chat-reply: the person's answer resumes the step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T3.4 |
-| `question.resolve` | Answer an agent's question | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.11 |
+| `question.resolve` | Answer an agent's question | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.10 |
 
 ### `repo.*`
 
@@ -531,61 +531,61 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | `repo.attach` refused as `repo.folder_unreachable` | A folder picked in another distribution | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
 | `repo.attach` | Attach a project folder (new-session picker, Settings › Projects) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
-| `repo.branchList` | Ordered branch list for both base pickers, with ↑/↓ figures and the tree holding each branch | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.9 |
+| `repo.branchList` | Ordered branch list for both base pickers, with ↑/↓ figures and the tree holding each branch | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.7 |
 | `repo.clone {url, parentFolder?, projectId?}` → `{projectId}`, a finished clone ending with the project in the live `repo.projectList` | Clone a repository from the address or path the person typed, which goes to git as typed; the session is minted at once and the finished folder attaches as `Open folder…` attaches one. Refused before anything is fetched with `repo.clone_refused`, reason `destination_not_empty` | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T2.2, T2.3 |
-| `repo.cloneAnswer {projectId, questionId, answer}` | Answer git's question during a clone: a user name, a password or token, a key's passphrase, or whether to trust a host's key | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
-| `repo.cloneCancel {projectId}` | Cancel a clone | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
-| `repo.cloneFolderRead {}` → `{folder, source: setting \| lastProject \| home}` | Where a clone goes, and where that folder came from | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
-| `repo.cloneSubscribe {projectId}` | The clone card's live state | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
-| `repo.detach` | Delete a project, from Projects' `Delete` or Runtime's `Remove` on the project's folder (sessions and folder stay) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-002](../../specs/002-machine-registration.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.7, T1.2, T2.3 |
+| `repo.cloneAnswer {projectId, questionId, answer}` | Answer git's question during a clone: a user name, a password or token, a key's passphrase, or whether to trust a host's key | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| `repo.cloneCancel {projectId}` | Cancel a clone | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| `repo.cloneFolderRead {}` → `{folder, source: setting \| lastProject \| home}` | Where a clone goes, and where that folder came from | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| `repo.cloneSubscribe {projectId}` | The clone card's live state | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| `repo.detach` | Delete a project, from Projects' `Delete` or Runtime's `Remove` on the project's folder (sessions and folder stay) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-002](../../specs/002-machine-registration.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.5, T1.2, T2.3 |
 | `repo.executionRootPrepare` (+ `carryUncommitted`) | New worktree from a base, optionally carrying uncommitted work | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.3, T1.2, T2.3 |
 | `repo.fileRead` | Read a working-tree file not in the diff, and the lines inside a collapsed gap | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-008](../../plans/008-gitflow-pr-and-diff-attribution.md) T11.3 |
-| `repo.folderList {path?, filter?, showHidden?}` → the folder in view and every entry in it, each with its path, and `more: true` when the filter would narrow more; the service may page the entries or load them incrementally, and no folder is unreachable | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.11 |
-| `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.folderList {path?, filter?, showHidden?}` → the folder in view and every entry in it, each with its path, and `more: true` when the filter would narrow more; the service may page the entries or load them incrementally, and no folder is unreachable | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.9 |
+| `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
 | `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.2 |
 | `repo.mountRead` | One mount's facts: its origin (`attached`, a project's folder; `managed`, a chat's workspace; `worktree`, a worktree the app made, under its project) and what uses it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.2, T1.2, T2.3 |
-| event `repo.mount_health_changed {repoMountId, health}` | A mount's health as the re-probe changes it, on the stream of every session on that mount; with `repo.mountRead`'s health, the session's lost-folder banner | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.12 |
-| `repo.projectArchive` | Archive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectBranchPatternUpdate {projectId, pattern \| null}` | Set or clear a project's own branch-name pattern (`Every project`'s pattern is a key in the machine's settings file, written through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectEnvironmentUpdate` | Save a project's own environment rows (the machine-wide rows go through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectList` | List projects (name, folder, session count) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectList` and `repo.mountList` rows carry `onOtherSideDisk: boolean` | A project or worktree folder on the other side's disk | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.2, T3.9 |
-| `repo.projectReactivate` | Unarchive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectRename` | Rename a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.projectSetupUpdate` | Save a project's worktree setup steps | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
-| `repo.removedWorktreeDelete {removedWorktreeId}` | Delete a kept worktree now | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.11 |
-| `repo.removedWorktreeList {projectId?}` → rows `{removedWorktreeId, projectId, name, branch, headCommit, removedAt, sizeBytes, sizeReadAt}` | The kept worktrees, for Runtime | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.11 |
-| `repo.workingTreeSubscribe` | Tree-staleness signal from the watch on the working folder (watch or slow-tick mode) | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.12 |
+| event `repo.mount_health_changed {repoMountId, health}` | A mount's health as the re-probe changes it, on the stream of every session on that mount; with `repo.mountRead`'s health, the session's lost-folder banner | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.projectArchive` | Archive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectBranchPatternUpdate {projectId, pattern \| null}` | Set or clear a project's own branch-name pattern (`Every project`'s pattern is a key in the machine's settings file, written through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectEnvironmentUpdate` | Save a project's own environment rows (the machine-wide rows go through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectList` | List projects (name, folder, session count) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectList` and `repo.mountList` rows carry `onOtherSideDisk: boolean` | A project or worktree folder on the other side's disk | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.2, T3.7 |
+| `repo.projectReactivate` | Unarchive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectRename` | Rename a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.projectSetupUpdate` | Save a project's worktree setup steps | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
+| `repo.removedWorktreeDelete {removedWorktreeId}` | Delete a kept worktree now | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.9 |
+| `repo.removedWorktreeList {projectId?}` → rows `{removedWorktreeId, projectId, name, branch, headCommit, removedAt, sizeBytes, sizeReadAt}` | The kept worktrees, for Runtime | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.9 |
+| `repo.workingTreeSubscribe` | Tree-staleness signal from the watch on the working folder (watch or slow-tick mode) | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.10 |
 | `repo.workspaceBind` (+ `executionMode`) | Bind a session to its project and where it works — a worktree of its own, or the checkout the project already has — on convert; a new session binds in `session.create`'s own step | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.1, T1.3, T2.4 |
-| `repo.worktreeRestore {removedWorktreeId}` → `{outcome: restored, worktreeId, path, branch, onNewBranch}` or `{outcome: refused, refusal}`, `refusal` being `project_not_attached`, `repository_missing {path}` or `name_taken {name}` | Put a kept worktree back | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.11 |
+| `repo.worktreeRestore {removedWorktreeId}` → `{outcome: restored, worktreeId, path, branch, onNewBranch}` or `{outcome: refused, refusal}`, `refusal` being `project_not_attached`, `repository_missing {path}` or `name_taken {name}` | Put a kept worktree back | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.9 |
 | `repo.worktreeRetire {worktreeId, discard}` | Remove a worktree, from the switcher or from Runtime's `Remove` on an app-made worktree | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.4, T1.2, T2.2 |
-| `repo.worktreeSetupRetry` | Retry setup from the failed step | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.12 |
-| `repo.worktreeSetupSubscribe` | Setup progress per step, surviving leaving the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.12 |
+| `repo.worktreeSetupRetry` | Retry setup from the failed step | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.10 |
+| `repo.worktreeSetupSubscribe` | Setup progress per step, surviving leaving the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.10 |
 | `repo.worktreeStatusRead` (keyed by project) | Worktree switcher list: repo-root row plus each worktree with base, ahead/behind, dirty count, occupying sessions, `countsAsOf`; project-wide | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.4, T1.2, T2.4 |
 
 ### `run.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `run.childInterrupt` {targetRunId, childHandle, expectedRunVersion, clientIdempotencyKey} | Interrupt one named child | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.13 |
-| `run.childPauseSet` {targetRunId, childHandle, paused, expectedRunVersion, clientIdempotencyKey} | Pause one named child, and continue it (the toggle's two presses) | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.13 |
-| `run.childSteer` {targetRunId, childHandle, content, expectedRunVersion, clientIdempotencyKey}; `run.queueList`, `run.subscribeQueue`, `run.queueCancel` and `run.queueReorder` take `childHandle` too | Steer one named child: its box, onto the child's own queue held by the daemon, with pending rows, `Remove`, `Edit` and reorder as the lead's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3, T4.1 |
-| `run.childrenStop` {runId} | Stop every running child at every depth (`Stop all running`, and the child half of `Interrupt everything`, whose lead half is `run.intervene`) | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.13 |
-| `run.intervene` {type: "interrupt"} | `Interrupt` the lead (Escape or the word): pending messages go as the next turn, and a live exchange ends on both sides | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.2, T2.4, T4.1; [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
-| `run.pause` | `Pause` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.4, T4.1 |
-| `run.queueCancel` | Remove a pending message | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3, T4.1 |
-| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; the skills picked from the `/` list, each by its `SKILL.md` path; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
-| `run.queueCreate` with an addressee member `to` | The person writes to another session with `@name` from the composer | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
-| `run.queueList` | The pending messages | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T4.1 |
-| `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.10 |
+| `run.childInterrupt` {targetRunId, childHandle, expectedRunVersion, clientIdempotencyKey} | Interrupt one named child | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.12 |
+| `run.childPauseSet` {targetRunId, childHandle, paused, expectedRunVersion, clientIdempotencyKey} | Pause one named child, and continue it (the toggle's two presses) | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.12 |
+| `run.childSteer` {targetRunId, childHandle, content, expectedRunVersion, clientIdempotencyKey}; `run.queueList`, `run.subscribeQueue`, `run.queueCancel` and `run.queueReorder` take `childHandle` too | Steer one named child: its box, onto the child's own queue held by the daemon, with pending rows, `Remove`, `Edit` and reorder as the lead's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3 |
+| `run.childrenStop` {runId} | Stop every running child at every depth (`Stop all running`, and the child half of `Interrupt everything`, whose lead half is `run.intervene`) | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T3.12 |
+| `run.intervene` {type: "interrupt"} | `Interrupt` the lead (Escape or the word): pending messages go as the next turn, and a live exchange ends on both sides | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.2, T2.4; [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
+| `run.pause` | `Pause` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.3 |
+| `run.queueCancel` | Remove a pending message | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3 |
+| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; the skills picked from the `/` list, each by its `SKILL.md` path; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1 |
+| `run.queueCreate` with an addressee member `to` | The person writes to another session with `@name` from the composer | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1 |
+| `run.queueList` | The pending messages | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1 |
+| `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.9 |
 | `run.recoveryResolve {runId, choice: keep_provider \| undo_to_agreed \| continue_provider \| hand_over}`, event `run.recovery_resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-012](../../plans/012-persistence-recovery-and-replay.md) T15.5 |
 | event `run.recovery_steps_added` {sessionId, runId, count, provider} | After a restart, a part of the provider's own record that the service never wrote down, and that only read, was added to the transcript as the provider recorded it, and the session continued; drawn as one faint row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-012](../../plans/012-persistence-recovery-and-replay.md) T15.5 |
 | `run.refusalChoiceResolve {runId, choice: retry_fallback \| edit_prompt}`, events `run.refusal_choice_requested {sessionId, runId, refusedModel, fallbackModel, sentence?, safetyCategory?, retractedMessageIds?}` and `run.refusal_choice_resolved {sessionId, runId, choice: retry_fallback \| edit_prompt \| canceled, deviceId?}` | Claude Code's retry-or-edit choice when its safety check refuses a turn and names a fallback model: `Edit message` then `Retry on <fallback model>` on the `Refused` row, the run `waiting_for_input` until the first answer; an `Interrupt`, or a message sent while it waits, answers `canceled`, and the retracted messages leave the flow on the answer. A second or late answer is refused with `run.invalid_transition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.38; [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T4.17 |
 | `run.usageCreditsChoiceResolve {runId, choice: switch_default \| consent}`, events `run.usage_credits_choice_requested {sessionId, runId, modelName, overagesEnabled, balanceCents?, currency?, fallbackModel?}` and `run.usage_credits_choice_resolved {sessionId, runId, choice: switch_default \| consent \| interrupted \| unanswered, deviceId?}` | Claude Code's switch-or-credits choice when a Fable turn needs usage credits: `Switch to <model>` and, only while usage credits are on, `Continue on usage credits` on one row under Claude Code's own title, the run `waiting_for_input` until the first answer; an `Interrupt` or an undo interrupts the turn and answers nothing (`interrupted`), and a message sent while it waits is settled by Claude Code itself (`unanswered`). A second or late answer is refused with `run.invalid_transition` (409), and the device that answered second closes its row with no error | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md), [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.42; [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T4.18 |
-| `run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.5, T4.1 |
+| `run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.4 |
 | event `run.safety_buffering_updated` {sessionId, runId, turnId, active, fasterModel?}, relayed live on `run.subscribeState` and never kept | Codex's own sentence in the working line's action words while Codex holds a turn for a safety check; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
-| `run.subscribeQueue` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T4.1 |
-| `run.subscribeState` | The run-state stream: state slot, activity, the row dots | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.3, T4.1 |
+| `run.subscribeQueue` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.10 |
+| `run.subscribeState` | The run-state stream: state slot, activity, the row dots | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.3, T2.10 |
 
 ### `session.*`
 
@@ -595,12 +595,12 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.attachmentAdd` | Stage a file: copied to the daemon at staging time and kept outside the checkout; also stages an MCP resource (Preview's marks chip is `preview.marksSend`'s) | [Spec-001](../../specs/001-session-core.md), [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T14.11 |
 | `session.attachmentCover {attachmentId, boxes: [{x, y, width, height}]}` → the new attachment | Cover part of a staged picture before Send | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T14.10 |
 | `session.attachmentRemove` | Unstage a file with a chip's `×` | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-011](../../plans/011-artifacts-files-and-attachments.md) T14.11 |
-| `session.autoCompactUpdate` | This session's own auto-compact point (slider, `/autocompact`) | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.9 |
+| `session.autoCompactUpdate` | This session's own auto-compact point (slider, `/autocompact`) | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.8 |
 | `session.autoMemoryUpdate` | The `Auto memory` switch | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31; [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-5-4 |
-| event `session.branch_changed` | A branch changed outside the app is written back to the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.12 |
+| event `session.branch_changed` | A branch changed outside the app is written back to the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-worktree-lifecycle-and-execution-modes.md) T3.10 |
 | `session.close`, event `session.closed` | Close a session; its provider process ends with it, and the session sits in the `Archived` group, dimmed, with `Closed` where `Unarchive` would be, readable and searchable until `Delete old data` purges it and counts it in its confirm | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
-| `session.contextSubscribe` | What fills the context: one read feeds the ring and the inspector's section | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.8 |
-| `session.convert` {sessionId, repo path}, event `session.converted` | Convert a chat to a project: attach, copy the files in, skip paths the repo already has, keep the workspace, send the agent a note | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.7; [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| `session.contextSubscribe` | What fills the context: one read feeds the ring and the inspector's section | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.7 |
+| `session.convert` {sessionId, repo path}, event `session.converted` | Convert a chat to a project: attach, copy the files in, skip paths the repo already has, keep the workspace, send the agent a note | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.7; [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.6 |
 | `session.create` with `leadDefinitionId` and **`scratch: true`** → `resolvedConfiguration`; session record member **`scratchForDefinitionId`** | Try it, step 1: start the scratch session (no repo) whose lead is the definition, and get the resolved-binding echo. Reuse the open one if it exists. | [Spec-001](../../specs/001-session-core.md), [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-024](../../plans/024-agent-definitions-and-peer-invocation.md) Phase 3 |
 | A step of `session.create`, and of `session.fork` for a chat, done by the daemon's managed-workspace service | Create the chat's git-initialized managed workspace at `<home>/.ai-sidekicks/workspaces/<session-id>` and register it as a mount with a managed origin | [Spec-001](../../specs/001-session-core.md), [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) |
 | `session.create` | Create a session with the lead's model and effort and, in a project, a `binding` naming the project and where it works (a worktree of its own or the project's checkout, `executionMode`: `provisioned-worktree` or `bound-root`), bound in the same step; a chat's managed workspace is made and registered as a mount in the same step; the created record names the lead | [Spec-001 §Interfaces And Contracts](../../specs/001-session-core.md#interfaces-and-contracts) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
@@ -631,7 +631,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.providerCommandsSubscribe` | The live `/` list: the process's slash commands plus each working server's prompts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.9 |
 | `session.reactivate`, event `session.reactivated` | Unarchive a session; a closed session offers no `Unarchive` | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
 | Field `shape: "chat" \| "project"` on the session record, read through `session.read` and `session.list` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
-| The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
+| The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.6 |
 | `session.read` | One session's facts: title, shape, state, project, worktree, base, elapsed time, ahead count, snapshot count, pending folder move, address, draft and staged files, lead binding | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
 | `session.rename`, event `session.renamed` | Rename a session | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.4 |
 | `session.restart` | Restart a provider process that ended, or restart after a provider update | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.30 |
@@ -668,19 +668,19 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `timeline.bodyRead` {sessionId, rowId} | A row's large body or whole output, read only when its control is pressed | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.5 |
+| `timeline.bodyRead` {sessionId, rowId} | A row's large body or whole output, read only when its control is pressed | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.4 |
 | `timeline.childRunExpand` | A child's rows, fetched on demand, including a finished child's stored record | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T3.1 |
-| `timeline.patchRead` {sessionId, toolCallId} | Every patch a call did not carry, in one read | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.6 |
+| `timeline.patchRead` {sessionId, toolCallId} | Every patch a call did not carry, in one read | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.5 |
 | `timeline.read` | Read the transcript | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T2.4 |
 | `timeline.reasoningSurfaceRead` | The reasoning surface | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T1.3, T3.2 |
-| `timeline.search` | Search one session's unloaded history | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.7 |
+| `timeline.search` | Search one session's unloaded history | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.6 |
 
 ### `turn.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `turn.tasks` (subscription) | The turn's task list | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.10 |
-| `turn.usage` (subscription) | Tokens received this turn | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.10 |
+| `turn.tasks` (subscription) | The turn's task list | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.9 |
+| `turn.usage` (subscription) | Tokens received this turn | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-010](../../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) T3.9 |
 
 ### `voice.*`
 
@@ -1023,8 +1023,7 @@ interface SessionDraftUpdateResponse {
 // and main's relay turns the token into the `path` the daemon copies, so a path reaches the daemon only
 // from the main process or the command line; a pasted picture is a file too, written by main to a
 // temporary file whose token it mints. Each accepted item is validated by the Plan-011 ingest pipeline —
-// a picture is rewritten once when it is staged, and the rewritten copy is the only one kept, shown and
-// sent — and is addressed by its `ArtifactId` from then on, so the original path is never read again,
+// a picture is stored as it came, and that copy is the only one kept, shown and sent — and is addressed by its `ArtifactId` from then on, so the original path is never read again,
 // which is also why a pasted or dropped file stages through this same operation rather than a second one.
 interface SessionAttachmentAddRequest {
   sessionId: SessionId;
@@ -1800,8 +1799,9 @@ interface InterruptRunParams {
 // Behavior): the daemon dedupes on it (replay-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-004 §Tool Metadata). Same field set
-// as the steer / interrupt / cancel arms of the InterventionRequestPayload union below; its fourth arm,
-// `faster_model_retry`, never reaches the driver, because the daemon carries it out. Undo is not
+// as the interrupt arm of the InterventionRequestPayload union below; its `faster_model_retry`
+// arm never reaches the driver, because the daemon carries it out. The `steer` arm here is the queue's
+// delivery of a waiting message through the driver's own steer (Plan-002 T3.8); no client sends one. Undo is not
 // an intervention: it is `session.restore`, whose conversation leg reaches the driver through
 // `rewindConversation` ([Spec-013 §Interfaces And Contracts](../../specs/013-persistence-recovery-and-replay.md#interfaces-and-contracts)).
 type ApplyInterventionParams =
@@ -1818,17 +1818,10 @@ type ApplyInterventionParams =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       payload: InterruptPayload;
-    }
-  | {
-      type: "cancel";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      payload: CancelPayload;
     };
 
-// The ATTACHMENT-CARRIER contract, stated once here and cited from the InterventionRequestPayload
-// `steer` arm in §Plan-002. The element type is ArtifactId — an id into Spec-012's manifest space, never an
+// The ATTACHMENT-CARRIER contract, stated once here and cited from `QueueItemCreateRequest.attachments`
+// (`run.queueCreate`) in §Plan-002. The element type is ArtifactId — an id into Spec-012's manifest space, never an
 // untyped element and never an inline byte payload; caller bytes enter through the
 // boundary-validated ingest paths instead. [Spec-012 §Required Behavior](../../specs/012-artifacts-files-and-attachments.md#required-behavior) states that encoding
 //: an RFC 9562 UUID the daemon mints at manifest creation, carried distinctly from the
@@ -1854,13 +1847,9 @@ interface InterruptPayload {
   reason?: string;
 }
 
-interface CancelPayload {
-  reason?: string;
-}
-
 interface DriverInterventionResult {
   status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
-  fallbackAction?: string; // e.g. 'queue_and_interrupt' for degraded steer
+  fallbackAction?: string; // names the fallback the orchestration layer took, present only on `degraded`
 }
 
 // The conversation FORK: the provider leg of `session.fork`, which mints a new session of the same
@@ -1960,7 +1949,7 @@ type DriverResumeResult =
     };
 
 // Named once, referenced at every carrying surface: REQUIRED form on `DriverResumeResult.failed` above; optional form
-// on `RunStateChangeEvent` and `RecoveryStatusReadResponse.sessions[]` below. `recovery-needed` = generic, the person must
+// on `RunStateChangeEvent` and `DaemonRecoveryStatus.sessions[]` below. `recovery-needed` = generic, the person must
 // reconcile. `reauth-required` = the provider session or credential expired (detected mid-run
 // via the provider's typed auth-failure signals or at resume/probe time); remediation is
 // re-authenticating the provider CLI on the runtime node, after which recovery may retry
@@ -2321,7 +2310,7 @@ interface GetCapabilitiesResult {
   // `driver.listModels`, `driver.listCapabilities`, `driver.interruptRun`,
   // `driver.applyIntervention`, `driver.compactContext` and `driver.listProviderCommands`
   // (`{sessionId, agentId}` → `ProviderCommandListResult`, an agent's `/` list read once),
-  // registered under Plan-005's CP-005-5. Each
+  // registered under Plan-005's CP-005-4. Each
   // reads the driver or acts on an already-existing session, and none establishes, restores, starts,
   // or tears a session down; every other operation above is daemon-internal, and the session's `/`
   // list reaches a client as `session.providerCommandsSubscribe` (§Running-Command Method Registry).
@@ -2622,7 +2611,7 @@ interface EventEnvelope {
 
 // sourceEpoch + sourcePosition — the cross-cutting epoch-attribution payload pair
 // (Plan-004 T1.8, the CP-002-12 registration; Spec-005 §Event Type
-// Enumeration). Stamped TOGETHER at ingestion by Plan-002 T3.11's late-append leg on
+// Enumeration). Stamped TOGETHER at ingestion by Plan-002 T3.10's late-append leg on
 // pre-rollback-epoch rows (the pair from the straggler's per-event operation
 // association — (epoch, turn) recorded at operation open — falling back to the closed
 // delivery generation's always-superseding retained pair; Spec-003 §Required Behavior
@@ -2647,7 +2636,7 @@ interface EventEnvelope {
 // baseline payload contract. Compaction preserves the sourceEpoch + sourcePosition
 // + runId triple, on accepted run.rolled_back boundary rows the
 // runId/runVersion/targetPosition rewind cutoff, and on every run-scoped row its runId
-// ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)), so Plan-002 T3.16's supersede projection keys cross-epoch rows durably even after
+// ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)), so Plan-002 T3.15's supersede projection keys cross-epoch rows durably even after
 // both the boundary and the stale rows compact. Execution-epoch semantics are
 // Spec-003-owned (§Required Behavior + Run State Machine §Invariants): 0 before any
 // rollback, advancing with each accepted run.rolled_back rewind regardless of the
@@ -2744,10 +2733,14 @@ interface EventCompactedPayload {
   removedSessions: Array<{ sessionId: SessionId; fromSeq: number; toSeq: number }>; // each session the deletion removed, with the range of rows it deleted
 }
 
+// The daemon's internal reads of the log (Plan-004 T4.1's `readAfterCursor` and `readWindow`). They are
+// not methods: a screen reads a session's events only through `session.subscribe` (SessionSubscribe,
+// under Plan-001 above).
+
 // EventReadAfterCursor
 interface EventReadAfterCursorRequest {
   sessionId: SessionId;
-  afterCursor?: EventCursor; // absent ≡ start-of-log position -1: full surviving-range read, subscription first-connect parity (Plan-004 T4.1)
+  afterCursor?: EventCursor; // absent ≡ start-of-log position -1: full surviving-range read, the same as a subscription's first connect
   limit?: number; // default 100
 }
 interface EventReadAfterCursorResponse {
@@ -2765,13 +2758,6 @@ interface EventReadWindowRequest {
 interface EventReadWindowResponse {
   events: EventEnvelope[];
 }
-
-// EventSubscription
-interface EventSubscriptionRequest {
-  sessionId: SessionId;
-  afterCursor?: EventCursor; // replay from this point; omit for live-only
-}
-// Response: a stream of EventEnvelope
 ```
 
 ---
@@ -2795,10 +2781,10 @@ interface DaemonHelloAck {
     | "protocol.handshake_already_completed"; // only when incompatible
   serverCapabilities?: string[];
   daemonSupportedProtocols?: string[]; // when incompatible, so the client can pick a version to retry with
-  // The connecting device's own id: the one a terminal lease names as its holder (`holderDeviceId`
-  // on `pty.control_changed`), so a client tells this device holding a shell apart from another
-  // device holding it, and, by `holderRunId`, from an agent's run holding it. Lands with Plan-021
-  // Phase 3B (T-021-3B-3), where the service gains its device identity.
+  // The connecting device's own id (for a local connection, the service's own device id): the one a
+  // terminal lease names as its holder (`holderDeviceId` on `pty.control_changed`), so a client tells
+  // this device holding a shell apart from another device holding it, and, by `holderRunId`, from an
+  // agent's run holding it. Lands with Plan-005 Phase 2B (T-005p-2B-1).
   deviceId: DeviceId;
 }
 
@@ -2827,6 +2813,7 @@ interface DaemonStatusReadResult {
   // Secret Service answers; Settings › Runtime then shows `Secrets are kept in <path>, readable only
   // by you, because no Secret Service is running.` Absent on every other machine.
   secretsFile?: string;
+  recovery: DaemonRecoveryStatus; // healthy, replaying, degraded or blocked, per session (§Plan-012, T15.4)
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block
   // and never a disabled one, in the text output and the machine-readable output alike. Its fields are
   // Remote Control's own relay wire; nothing here is a second reading of it.
@@ -3095,21 +3082,6 @@ interface QueueReorderRequest {
 // `clientIdempotencyKey` defeats duplicate applications of the SAME intent.
 type InterventionRequestPayload =
   | {
-      // The console never sends this arm: the person's steer is always a queue send, `run.queueCreate`.
-      type: "steer";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      content: string;
-      // Same element type and same carrier contract as the driver-boundary `SteerPayload.attachments`
-      // in §Plan-003 above, where the ordering rule, the unresolved-marker rule, and both count bounds
-      // are stated once (CP-011-1). This arm and that payload are the two ends of
-      // one carrier: the daemon maps this list onto that one, so a second statement of the rule here
-      // would be a second source of truth for one delivery contract.
-      attachments?: ArtifactId[];
-      expectedTurnId?: string;
-    }
-  | {
       // The lead's interrupt. `Interrupt everything` is this arm on the lead's run plus `run.childrenStop`
       // on the same run (§Run-Control Method-Name Registry below).
       type: "interrupt";
@@ -3124,13 +3096,6 @@ type InterventionRequestPayload =
       // `Send now` on a waiting message: the interrupt ends the turn and this item goes first, the rest
       // following in order as the next turn's messages. Only with `pending: "nextTurn"`.
       deliverFirst?: QueueItemId;
-    }
-  | {
-      type: "cancel";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      reason?: string;
     }
   | {
       // Codex's retry on the faster model its safety check names (Spec-004 §Required Behavior): the
@@ -3479,7 +3444,7 @@ Both issue legs are `mutation` rather than `query` because each one **writes** �
 
 **What the replies carry, and why the split is where it is.** The authentication-**options** reply carries the `rpId`, the origin, the challenge, and the transaction id. The authentication-**verify** reply carries the verdict and a **freshly issued PASETO access/refresh pair**. The token pair rides the verdict because that is the moment the user is known, and it is issued rather than merely unlocked because a new device holds no refresh token to unwrap — a sign-in that only unlocks a stored one is unreachable exactly on the device that needs it. It is sender-constrained per [ADR-010](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) to the DPoP key the caller proves possession of on the verify request; that proof binds a key and establishes no identity, so it does not make this pair a credentialed one and the `Authentication` column above stays **none**.
 
-**Which DPoP proof, and why the shipped validator cannot serve this route.** [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) defines two proof forms, and this route needs the one the corpus has not implemented. A **token-request** proof ([§5](https://datatracker.ietf.org/doc/html/rfc9449#section-5)) accompanies a request _for_ a token and carries no `ath`, because no access token exists yet. A **resource-request** proof ([§4.3](https://datatracker.ietf.org/doc/html/rfc9449#section-4.3)) accompanies a request that _presents_ one and **requires** `ath`, the hash of that token — which is the form every already-credentialed path in this corpus validates, including the CP-015-7 daemon credential seam. Pointing that validator at `WebAuthnAuthenticationVerify` would reject every legitimate sign-in for a missing `ath`; relaxing the check instead would accept a proof minted for some other request. So the verify leg validates the §5 form on its own terms: `typ` `dpop+jwt`, `htm` and `htu` matching this request's method and URI, `iat` inside the accepted window, a single-use `jti`, an embedded public `jwk` of a permitted algorithm carrying no private parameters, a signature verifying under that `jwk` — and **`ath` required to be absent** rather than merely unchecked, so an oversupplied proof is refused rather than accepted-and-ignored. The issued pair's `cnf.jkt` is the JWK SHA-256 thumbprint of that same key and is computed from the proof, never taken from a separate claim the caller makes; without that the route would hand an unauthenticated caller a bearer pair. A missing, malformed, replayed, or `ath`-bearing proof refuses the whole verification and issues nothing (Plan-015 I-015-11 / T6.3).
+**Which DPoP proof, and why the shipped validator cannot serve this route.** [RFC 9449](https://datatracker.ietf.org/doc/html/rfc9449) defines two proof forms, and this route needs the one the corpus has not implemented. A **token-request** proof ([§5](https://datatracker.ietf.org/doc/html/rfc9449#section-5)) accompanies a request _for_ a token and carries no `ath`, because no access token exists yet. A **resource-request** proof ([§4.3](https://datatracker.ietf.org/doc/html/rfc9449#section-4.3)) accompanies a request that _presents_ one and **requires** `ath`, the hash of that token — which is the form every already-credentialed path in this corpus validates, including the CP-015-7 daemon credential seam. Pointing that validator at `WebAuthnAuthenticationVerify` would reject every legitimate sign-in for a missing `ath`; relaxing the check instead would accept a proof minted for some other request. So the verify leg validates the §5 form on its own terms: `typ` `dpop+jwt`, `htm` and `htu` matching this request's method and URI, `iat` inside the accepted window, a single-use `jti`, an embedded public `jwk` of a permitted algorithm carrying no private parameters, a signature verifying under that `jwk` — and **`ath` required to be absent** rather than merely unchecked, so an oversupplied proof is refused rather than accepted-and-ignored. The issued pair's `cnf.jkt` is the JWK SHA-256 thumbprint of that same key and is computed from the proof, never taken from a separate claim the caller makes; without that the route would hand an unauthenticated caller a bearer pair. A missing, malformed, replayed, or `ath`-bearing proof refuses the whole verification and issues nothing (Plan-015 I-015-10 / T6.3).
 
 Refusals are `user.webauthn_challenge_invalid` (400) for an unknown, consumed, or expired challenge or transaction id, and `user.webauthn_verification_failed` (400) for every verification arm — bad signature, wrong origin, wrong `rpId`, UV mismatch, regressed counter — so the reply is no oracle for which check failed.
 
@@ -4733,7 +4698,7 @@ interface AttachmentIngestCompleteResponse {
 //     was registered as the Plan-011 cross-plan follow-up obligation CP-011-1 so the change would land
 //     under its owners. IT HAS: both arms are `ArtifactId[]`, typed by Plan-003
 //     (SteerPayload, §Plan-003 above — where the carrier contract is stated once) and Plan-002 (the
-//     InterventionRequestPayload `steer` arm, §Plan-002), so every V1 attachment carrier registered
+//     message's `attachments` on QueueItemCreateRequest, `run.queueCreate`, §Plan-002), so every V1 attachment carrier registered
 //     here is typed and CP-011-1's prerequisite — no V1 carrier may be wired to deliver an
 //     attachment over an untyped arm — holds. ---
 ```
@@ -4752,11 +4717,9 @@ The session screen reads this manifest space through these methods on the daemon
 ### Plan-012 — Persistence Recovery And Replay
 
 ```ts
-// RecoveryStatusRead
-interface RecoveryStatusReadRequest {
-  sessionId?: SessionId; // omit for daemon-wide status
-}
-interface RecoveryStatusReadResponse {
+// DaemonRecoveryStatus — the `recovery` field on `DaemonStatusReadResult` (§Plan-005), which
+// Settings › Runtime and `sidekicks daemon status` already read. There is no recovery method of its own.
+interface DaemonRecoveryStatus {
   overall: "healthy" | "replaying" | "degraded" | "blocked";
   sessions: Array<{
     sessionId: SessionId;
@@ -4932,9 +4895,9 @@ type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm: 
 type RunScopedTimelineEntry = TimelineRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
   runId: RunId; // run identity — with position + epoch, the REQUIRED all-or-none attribution triple the run.rolled_back live client rule keys on, never dug out of payload (CP-002-13): arm selection is by kind, so a run-scoped row missing any of the three fails ITS Zod arm — the malformed-row test — and can never fall through to the general arm
-  position: number; // the row's projection-resolved originating run position (Plan-002 T3.16's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
+  position: number; // the row's projection-resolved originating run position (Plan-002 T3.15's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
   epoch: number; // the row's projection-resolved execution epoch (T3.16's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise); position alone can never recover the epoch, since re-execution reuses ordinals
-  superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current — projection-computed from Plan-002 T3.16's exported supersededTurns(runId); deliberately single-field: the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and on live delivery, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
+  superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current — projection-computed from Plan-002 T3.15's exported supersededTurns(runId); deliberately single-field: the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and on live delivery, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-011 §Required Behavior
   // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
   // (Plan-010 Phase 1 — I-010-3's no-second-source rule reaching the payload): payload run
   // identity under either spelling (runId, targetRunId) must equal this row's runId, and payload
@@ -5351,7 +5314,7 @@ Plan-016's attention surface is exposed as the `attention.*` methods below, all 
 
 ### Page-Host Method Registry
 
-The Preview pane and the machine-wide Browser page are served by two daemon JSON-RPC roots, `preview` and `browser`. Both register against the Plan-005 `MethodRegistry` in that plan's remainder, which owns them along with the daemon-side pieces they answer from ([Plan-005 CP-005-14](../../plans/005-local-ipc-and-daemon-control.md#cp-005-14--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-020-cp-020-5)).
+The Preview pane and the machine-wide Browser page are served by two daemon JSON-RPC roots, `preview` and `browser`. Both register against the Plan-005 `MethodRegistry` in that plan's remainder, which owns them along with the daemon-side pieces they answer from ([Plan-005 CP-005-12](../../plans/005-local-ipc-and-daemon-control.md#cp-005-12--the-daemons-page-host-namespaces-preview-and-browser-owed-to-plan-020-cp-020-5)).
 
 **Why the daemon and not the main process.** There are TWO page hosts and ONE endpoint: the desktop's own native page view, and — where no desktop runs — the daemon's headless browser, launched over Playwright's own pipe with no listening port and with `acceptDownloads: false`. One resolver in the daemon returns the live host and nothing above it branches, so an agent never knows which host it is talking to: the daemon reaches the desktop's pages through the relay's debugger link on the connection the app dials to the service, never a debug port, and the headless browser directly. Putting the verbs on the daemon is what makes that true; putting them on the main process would give the no-desktop case no surface at all. A file a page saves, in the Preview pane of the machine's own desktop window, opens the system save dialog: the Preview feature asks for it through the platform bridge, and the main process owns the dialog and the file write, so the window gains no file access. On another device, on the headless host, or anywhere no person at that machine can choose, the download is refused and nothing is written — on the desktop host main cancels it in `will-download` with its documented cancel, `event.preventDefault()`, and reports the refusal to the service, and the headless host is launched with downloads off — and the service sends one line back to the pane, `Downloads are off in Preview`. The renderer owns no page: it publishes the rectangle a page is positioned to and renders the outcomes, through the preload bridge's own page-host namespace — a **bridge namespace canonical in the `PlatformBridge` interface in the front end's `services/platform/`** per the §Source-of-Truth Policy, which shares the word `browser` with the root below and is a different surface: the bridge positions and captures a page, the root below manages pages and site data. The bridge's `daemon`, `native` and `window` namespaces are canonical in that same file and are not mirrored here; what the design fixes about them is one rule each — every address the console hands outward goes through the bridge's external-open except a loopback address printed in a reply, a tool row or a shell, which opens in the Preview pane instead; the composer's attach picker takes files only and several at a time, never a folder, and hands back tokens, never a path; and any side pane can move into its own window.
 

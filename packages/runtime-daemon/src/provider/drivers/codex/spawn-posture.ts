@@ -2,7 +2,8 @@
 // launches under, the posture and subagent legs a thread is established with, the per-turn sandbox
 // policy, and the diagnostics for what this provider cannot realize.
 
-import type { ExecutionPosture, SessionId } from "@ai-sidekicks/contracts";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { CredentialEnvPolicy } from "../../spawn-env.js";
 import type { CodexLifecycleOptions, CodexSessionRecord } from "./session-state.js";
 import {

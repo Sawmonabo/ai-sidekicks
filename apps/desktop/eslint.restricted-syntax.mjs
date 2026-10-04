@@ -1,7 +1,8 @@
-// The renderer's single-reading chokepoints, as `no-restricted-syntax` selectors.
+// This package's `no-restricted-syntax` selectors: the renderer's single-reading chokepoints and
+// the syntax bans the renderer, main-process and test blocks compose.
 //
 // A sibling of the flat config, not a second config: `eslint.config.mjs` composes these selectors
-// into its own blocks, so one file states what the renderer may not write. They live here so the
+// into its own blocks, so one file states what this package may not write. They live here so the
 // import boundary stays findable in the config; the package holds one concept per file, and the
 // import boundary and the syntax bans are two.
 //
@@ -63,9 +64,20 @@ export const TIME_READING_SELECTORS = [
     // it names `Date` as an initializer and takes whatever it likes off it. It therefore refuses
     // `const { now } = Date` too, deliberately: `lib/clock.ts` is the renderer's one time source
     // and reaches `Date.now` through the object.
-    selector: `:matches(MemberExpression[object.name="Date"][property.name="parse"], MemberExpression[object.name="Date"][property.value="parse"], MemberExpression[object.property.name="Date"][property.name="parse"], MemberExpression[object.property.name="Date"][property.value="parse"], VariableDeclarator[init.name="Date"] > ObjectPattern)`,
+    selector:
+      `:matches(MemberExpression[object.name="Date"][property.name="parse"], ` +
+      `MemberExpression[object.name="Date"][property.value="parse"], ` +
+      `MemberExpression[object.property.name="Date"][property.name="parse"], ` +
+      `MemberExpression[object.property.name="Date"][property.value="parse"], ` +
+      `VariableDeclarator[init.name="Date"] > ObjectPattern)`,
     message:
-      "`Date.parse` is not a validator: it reads a timezone-less stamp in the HOST's zone, reads a date-only string in UTC, and normalizes a day that does not exist (`2026-02-30T10:00:00Z` becomes March 2). Each answers a NUMBER, so the `Number.isNaN` guard passes and a surface renders an instant the wire never sent. Read the stamp with `parseInstant` from `lib/instant.ts`, and order two of them with `compareInstants`. Taking the function off `Date` by a destructure, a computed key, or the global object reaches the same reading.",
+      "`Date.parse` is not a validator: it reads a timezone-less stamp in the HOST's zone, reads " +
+      "a date-only string in UTC, and normalizes a day that does not exist " +
+      "(`2026-02-30T10:00:00Z` becomes March 2). Each answers a NUMBER, so the `Number.isNaN` " +
+      "guard passes and a surface renders an instant the wire never sent. Read the stamp with " +
+      "`parseInstant` from `lib/instant.ts`, and order two of them with `compareInstants`. " +
+      "Taking the function off `Date` by a destructure, a computed key, or the global object " +
+      "reaches the same reading.",
   },
   {
     // A string-shaped argument only. `new Date(<milliseconds>)` is how a fixture composes an
@@ -75,7 +87,9 @@ export const TIME_READING_SELECTORS = [
     selector:
       'NewExpression[callee.name="Date"] > :matches(TemplateLiteral, Literal[value=/[-:T]/])',
     message:
-      "`new Date(<string>)` is `Date.parse` with a wrapper and carries the same leniency. Read the stamp with `parseInstant` from `lib/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
+      "`new Date(<string>)` is `Date.parse` with a wrapper and carries the same leniency. Read " +
+      "the stamp with `parseInstant` from `lib/instant.ts`; build a fixture instant from " +
+      "`Date.UTC(...)` instead of parsing one.",
   },
   {
     // The named form, inverted: a `new Date` whose argument is a name is refused unless the name
@@ -84,9 +98,16 @@ export const TIME_READING_SELECTORS = [
     // lower-case name. Inverted, a new stamp name is caught, and a new numeric name is a one-word
     // edit to `NUMERIC_INSTANT_NAME_SUFFIX` that a reviewer sees. A sum or a call is not a name and
     // is outside the arm, so `new Date(base + offsetMs)` and `new Date(Date.UTC(...))` still pass.
-    selector: `:matches(NewExpression[callee.name="Date"][arguments.0.type="Identifier"][arguments.0.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/], NewExpression[callee.name="Date"][arguments.0.type="MemberExpression"][arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
+    selector:
+      `:matches(NewExpression[callee.name="Date"][arguments.0.type="Identifier"]` +
+      `[arguments.0.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/], ` +
+      `NewExpression[callee.name="Date"][arguments.0.type="MemberExpression"]` +
+      `[arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
     message:
-      "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency — it just does not look like it, because the string is behind a name. Read the stamp with `parseInstant` from `lib/instant.ts`; build a fixture instant from `Date.UTC(...)`, or name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
+      "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency " +
+      "— it just does not look like it, because the string is behind a name. Read the stamp with " +
+      "`parseInstant` from `lib/instant.ts`; build a fixture instant from `Date.UTC(...)`, or " +
+      "name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
   },
   {
     // Ordering two stamps by their text. `compareInstants` exists because the wire's stamps are not
@@ -101,9 +122,15 @@ export const TIME_READING_SELECTORS = [
     //
     // `localeCompare` on anything else is untouched: sorting a display path, a repo name or a
     // handle is what it is for.
-    selector: `CallExpression[callee.property.name="localeCompare"]:has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))`,
+    selector:
+      `CallExpression[callee.property.name="localeCompare"]` +
+      `:has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], ` +
+      `Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))`,
     message:
-      "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `lib/instant.ts`, which compares the moments; `localeCompare` on a name, a path, or a handle is untouched.",
+      "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the " +
+      "same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order " +
+      "them with `compareInstants` from `lib/instant.ts`, which compares the moments; " +
+      "`localeCompare` on a name, a path, or a handle is untouched.",
   },
   {
     // The shorter spelling of the same defect, which `lib/instant.ts` names beside `localeCompare`:
@@ -118,9 +145,19 @@ export const TIME_READING_SELECTORS = [
     // or `String(...)` inside a comparison is being ordered as text whatever sits opposite it. It
     // is keyed on the direct child so a comparison that merely contains a stamp somewhere
     // (`rows.filter((row) => row.createdAt).length > 0`) is not swept in.
-    selector: `:matches(BinaryExpression[operator=/^[<>]=?$/][left.property.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.property.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/][left.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/]:has(> :matches(LogicalExpression, CallExpression):has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))))`,
+    selector:
+      `:matches(BinaryExpression[operator=/^[<>]=?$/]` +
+      `[left.property.name=/${WIRE_STAMP_NAME_SUFFIX}/]` +
+      `[right.property.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/]` +
+      `[left.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.name=/${WIRE_STAMP_NAME_SUFFIX}/], ` +
+      `BinaryExpression[operator=/^[<>]=?$/]:has(> :matches(LogicalExpression, ` +
+      `CallExpression):has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], ` +
+      `Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))))`,
     message:
-      "Ordering two RFC 3339 stamps with `<` or `>` compares their TEXT: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `lib/instant.ts`, which compares the moments; comparing two numeric figures is untouched.",
+      "Ordering two RFC 3339 stamps with `<` or `>` compares their TEXT: an offset form and a " +
+      "`Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it " +
+      "PRECEDES. Order them with `compareInstants` from `lib/instant.ts`, which compares the " +
+      "moments; comparing two numeric figures is untouched.",
   },
 ];
 
@@ -155,7 +192,253 @@ export const EXPORTED_COLLECTION_SELECTOR = {
   // The remedy is to export the derived data as a `readonly T[]` and let each consumer build the
   // collection it needs, once, where it needs it.
   selector:
-    "ExportNamedDeclaration > VariableDeclaration > VariableDeclarator > NewExpression[callee.name=/^(?:Set|Map|WeakSet|WeakMap)$/]",
+    "ExportNamedDeclaration > VariableDeclaration > VariableDeclarator > " +
+    "NewExpression[callee.name=/^(?:Set|Map|WeakSet|WeakMap)$/]",
   message:
-    "An exported `Set` or `Map` is a mutable runtime singleton however it is annotated: `ReadonlySet` and `ReadonlyMap` hide the mutators from a reader and from nothing else, every importer shares the one object, and `Object.freeze` does not close it. Export the derived data instead — a `readonly T[]` of entries — and build the collection inside the module, class, or controller that reads it. A collection this module keeps to itself is untouched.",
+    "An exported `Set` or `Map` is a mutable runtime singleton however it is annotated: " +
+    "`ReadonlySet` and `ReadonlyMap` hide the mutators from a reader and from nothing else, " +
+    "every importer shares the one object, and `Object.freeze` does not close it. Export the " +
+    "derived data instead — a `readonly T[]` of entries — and build the collection inside the " +
+    "module, class, or controller that reads it. A collection this module keeps to itself is " +
+    "untouched.",
+};
+
+/**
+ * Reading the preload bridge off the window.
+ *
+ * `services/platform/live-bridge.ts` is the one renderer module that may: the platform bridge
+ * provider calls its `readInstalledBridge` and hands the result down as context, so the provider
+ * distributes the bridge and the live bridge reads it. A second reader is a second idea of when the
+ * bridge exists, what it does before it does, and which fixture stands in for it under test.
+ *
+ * Five arms, because one spelling of the read is one identifier away from useless: a member read
+ * off `window` or `globalThis`, a cast (`(window as { … }).<name>`, whose object is a
+ * `TSAsExpression`, so the arm keys on the cast alone), a computed key, and a destructure
+ * (`const { <name> } = window;`, which performs no member read).
+ *
+ * An alias (`const w = window; w.desktopBridge`) is not closable by a selector, since esquery
+ * cannot know what `w` holds; `apps/desktop/AGENTS.md` states it beside the rule.
+ */
+export const BRIDGE_GLOBAL_READ = {
+  selector:
+    ':matches(MemberExpression[object.name="window"][property.name="desktopBridge"], ' +
+    'MemberExpression[object.name="globalThis"][property.name="desktopBridge"], ' +
+    'MemberExpression[object.type="TSAsExpression"][property.name="desktopBridge"], ' +
+    'MemberExpression[computed=true][property.value="desktopBridge"], ' +
+    "VariableDeclarator[init.name=/^(?:window|globalThis)$/] > ObjectPattern > " +
+    'Property[key.name="desktopBridge"])',
+  message:
+    "Mechanical gate 1 in `apps/desktop/AGENTS.md`: renderer code reaches the bridge only " +
+    "through `services/platform/live-bridge.ts`, and every surface above it takes the bridge " +
+    "from the platform bridge provider's context. A second reader is a second idea of when the " +
+    "bridge exists and what stands in for it under test.",
+};
+
+/**
+ * `export default`, which this package uses for root tool configuration and nothing else.
+ *
+ * A default export has no name at the import site, so two importers can call one symbol two things
+ * and a rename reaches neither. The tools that load a config by default export
+ * (`*.config.{ts,mjs}`, `.dependency-cruiser.mjs`) live at the package root, outside every scope
+ * this rule is composed into.
+ *
+ * Both spellings are banned: `export { x as default }` (and its `… from "./other.js"` form) parses
+ * as an `ExportSpecifier`, not an `ExportDefaultDeclaration`, and publishes the same nameless
+ * symbol. `export { default as Thing } from …` is untouched: it imports a default and republishes
+ * it under a name, which is the remedy.
+ */
+export const EXPORT_DEFAULT_DECLARATION = {
+  selector: ':matches(ExportDefaultDeclaration, ExportSpecifier[exported.name="default"])',
+  message:
+    "Mechanical gate 3 in `apps/desktop/AGENTS.md`: named exports only. `export default` is for " +
+    "tool configuration at the package root — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, " +
+    "which their tools load by default export — and nowhere else: a default export has no name " +
+    "at the import site, so two importers can call one symbol two things and a rename reaches " +
+    "neither.",
+};
+
+/**
+ * A module-level `let`, which is a singleton every importer in the window shares.
+ *
+ * Scoped to the shipped renderer surface: a suite's module-level `let` reassigned in `beforeEach`
+ * is the standard vitest shape and holds no shared runtime state, so the unions composed for
+ * `*.test.*` and `*.test-support.*` drop this selector.
+ *
+ * The exported form is banned too and is the strongest spelling of the hazard: `export let` parses
+ * as `Program > ExportNamedDeclaration > VariableDeclaration`, so a bare child combinator would
+ * miss it, yet every importer observes the live binding. A `let` nested in a module-level block is
+ * left alone, and `no-var` covers module-level `var`.
+ */
+export const MODULE_LEVEL_LET = {
+  selector: ':matches(Program, ExportNamedDeclaration) > VariableDeclaration[kind="let"]',
+  message:
+    "Mechanical gate 4 in `apps/desktop/AGENTS.md`: stateful logic is an encapsulated class with " +
+    "private fields. A module-level `let` is a singleton every importer in the window shares and " +
+    "any of them can reassign — put it in a class, a hook, or a controller the caller constructs.",
+};
+
+/**
+ * Reaching `child_process` dynamically. The static forms are `no-restricted-imports`' half of the
+ * same claim; these two are the spellings that rule cannot see. `spawnSync` is untouched: it
+ * settles before the next statement, so it leaves nothing behind for a test to own.
+ */
+export const CHILD_PROCESS_DYNAMIC_REACH = [
+  {
+    selector: "ImportExpression[source.value=/child_process/]",
+    message:
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
+      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
+      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
+      "timer. Spawn through that module; `spawnSync` is untouched.",
+  },
+  {
+    selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
+    message:
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
+      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
+      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
+      "timer. Spawn through that module; `spawnSync` is untouched.",
+  },
+];
+
+const WINDOW_CLASS_NAME = "/^(BrowserWindow|BaseWindow|WebContentsView)$/";
+
+/**
+ * A window or web view built outside the window factory. The factory holds the one locked
+ * `webPreferences` block, so a construction anywhere else ships a window that block does not
+ * govern.
+ */
+export const WINDOW_CONSTRUCTION_OUTSIDE_FACTORY = {
+  selector:
+    `NewExpression:matches([callee.name=${WINDOW_CLASS_NAME}], ` +
+    `[callee.property.name=${WINDOW_CLASS_NAME}])`,
+  message:
+    "Every window and web view is built by the window factory in `src/main/windows/window.ts`, " +
+    "which holds the one locked `webPreferences` block. Build it there.",
+};
+
+const HARDENED_WHEN_TRUE = "/^(contextIsolation|sandbox|webSecurity)$/";
+const HARDENED_WHEN_FALSE = "/^(nodeIntegration|nodeIntegrationInWorker)$/";
+
+/**
+ * A window security setting written as anything but its hardened literal: `sandbox: false`, and
+ * also `sandbox: someFlag`, whose value no reader of the source can vouch for.
+ */
+export const WEAKENED_WINDOW_SETTING = [
+  {
+    selector:
+      `Property:matches([key.name=${HARDENED_WHEN_TRUE}], ` +
+      `[key.value=${HARDENED_WHEN_TRUE}]):not([value.raw="true"])`,
+    message:
+      "`contextIsolation`, `sandbox` and `webSecurity` are written as the literal `true` in the " +
+      "main process. A window with any of them off runs the renderer with more reach than the " +
+      "hardening allows.",
+  },
+  {
+    selector:
+      `Property:matches([key.name=${HARDENED_WHEN_FALSE}], ` +
+      `[key.value=${HARDENED_WHEN_FALSE}]):not([value.raw="false"])`,
+    message:
+      "`nodeIntegration` and `nodeIntegrationInWorker` are written as the literal `false` in the " +
+      "main process. Either one on hands Node to the renderer.",
+  },
+];
+
+/**
+ * A text snapshot in a package whose Vitest runs resolve `UPDATE_SNAPSHOT=all`.
+ *
+ * `vitest/screenshot-pins.ts` sets that variable so the screenshot tier writes its capture aids
+ * instead of gating on them, and it is process-wide because Vitest offers no per-project snapshot
+ * mode. Under it a text snapshot rewrites itself and passes, the one shape of green that means
+ * nothing. No such matcher exists in this package today; this keeps it that way. Assert the value
+ * instead.
+ *
+ * Scope is every directory this package's `lint` script reads: `src/**`, `tests/**`, `fixtures/**`,
+ * `scripts/**`, `build/**` and `vitest/**`. Most of `main-unit`'s `include` entries live outside
+ * the renderer and `tests/**` unions, so a narrower ban would leave the process-wide mode unguarded
+ * in the projects that run under it. Because flat config replaces a rule's options at the last
+ * matching block, the selector is added to each block by name rather than declared once in a widest
+ * one.
+ */
+export const TEXT_SNAPSHOT_MATCHER_REACH = {
+  selector:
+    "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], " +
+    "MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
+  message:
+    "Mechanical gate 9 in `apps/desktop/AGENTS.md`: this package's Vitest runs resolve " +
+    "`UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on " +
+    "them, and under that mode a text snapshot rewrites itself instead of failing. Assert the " +
+    "value.",
+};
+
+/**
+ * Writing a capture anywhere but through the settled capture.
+ *
+ * A capture taken straight after a mount photographs the reserved region a loader-backed body has
+ * not filled yet, a picture of a pane that had not finished loading. `captureSettled` refuses a
+ * tree still carrying the pending marker, so every written capture goes through it. A never-saved
+ * `page.screenshot({ save: false })` read is a measurement, not a capture, and is outside this
+ * rule, which names the matcher.
+ */
+export const SCREENSHOT_MATCHER_REACH = {
+  // The computed arm is the same reach with the matcher named as a string —
+  // `expect(page)["toMatchScreenshot"]()` — which the property-name arm cannot see.
+  selector:
+    ':matches(MemberExpression[property.name="toMatchScreenshot"], ' +
+    'MemberExpression[computed=true][property.value="toMatchScreenshot"])',
+  message:
+    "Mechanical gate 6 in `apps/desktop/AGENTS.md`: a screenshot is taken through " +
+    "`tests/screenshot/settled-capture.ts` and no other way. A capture taken straight after a " +
+    "mount photographs the region a loader-backed body has not filled yet — stable, green, and a " +
+    "picture of a pane that had not finished loading.",
+};
+
+/**
+ * A stylesheet imported from another folder.
+ *
+ * A component imports its own sheet from its own folder, so importing the component brings its
+ * styles. Relative and `@renderer/` specifiers only: a vendor sheet reached by package specifier
+ * has no owning folder here.
+ *
+ * A trailing query is still the sheet: `./x.css?inline` and `./x.css?raw` are bundler spellings of
+ * the same import, so the match is not `$`-anchored. The dynamic form carries the sheet as the
+ * static one does (the chunk it lands on is the component's), so both declarations are named.
+ */
+const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|@renderer[/]).*[.]css(?:[?].*)?$";
+const SAME_FOLDER_STYLESHEET_SPECIFIER = "^[.][/][^/?]+[.]css(?:[?].*)?$";
+const STYLESHEET_OUTSIDE_FOLDER_SPECIFIER =
+  `[source.value=/${STYLESHEET_SPECIFIER}/]` +
+  `:not([source.value=/${SAME_FOLDER_STYLESHEET_SPECIFIER}/])`;
+
+export const STYLESHEET_THROUGH_OWNER = {
+  selector:
+    `:matches(ImportDeclaration${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER}, ` +
+    `ImportExpression${STYLESHEET_OUTSIDE_FOLDER_SPECIFIER})`,
+  message:
+    "Mechanical gate 7 in `apps/desktop/AGENTS.md`: a component imports its own sheet from its " +
+    "own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature " +
+    "is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a " +
+    "global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another " +
+    "folder's sheet puts that surface's rules wherever the module loads.",
+};
+
+/**
+ * A directory `import.meta.glob` under `src/`.
+ *
+ * The literal must carry a `*`: a raw read of one named module differs from a walk that decides its
+ * own membership. A walk under `src/` is a second source of truth for what the tree holds and is
+ * silently wrong when a file moves.
+ *
+ * The array arm covers the multi-pattern spelling, `import.meta.glob(["./views/*.ts"])`, where the
+ * literal is a grandchild of the call rather than its direct child.
+ */
+export const DIRECTORY_SOURCE_GLOB = {
+  selector:
+    ':matches(CallExpression[callee.object.type="MetaProperty"][callee.property.name="glob"] > ' +
+    'Literal[value=/[*]/], CallExpression[callee.object.type="MetaProperty"]' +
+    '[callee.property.name="glob"] > ArrayExpression > Literal[value=/[*]/])',
+  message:
+    "A directory `import.meta.glob` under `src/` is a second source of truth for what the tree " +
+    "holds, and it decides its own membership — so it is silently wrong the moment a file moves " +
+    "and reports nothing. Name the modules, or let the bundler's own entry graph decide.",
 };

@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
 

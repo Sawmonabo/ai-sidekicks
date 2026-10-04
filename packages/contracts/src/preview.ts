@@ -67,7 +67,11 @@ export const PreviewZoomFactorSchema: z.ZodType<number, number> = z
  * where it was. Nothing is ever searched on the web.
  */
 export const PREVIEW_ADDRESS_REFUSED_CODE = "preview.address_refused" as const;
-/** The type of {@link PREVIEW_ADDRESS_REFUSED_CODE}. */
+/**
+ * The type of {@link PREVIEW_ADDRESS_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `preview.address_refused` error
+ */
 export type PreviewAddressRefusedCode = typeof PREVIEW_ADDRESS_REFUSED_CODE;
 /**
  * Why an address was refused: its scheme is one the pane cannot open, or the text is not an
@@ -81,7 +85,11 @@ export const PREVIEW_ADDRESS_REFUSED_REASONS: readonly PreviewAddressRefusedReas
 export interface PreviewAddressRefusedDetails {
   reason: PreviewAddressRefusedReason;
 }
-/** Parses {@link PreviewAddressRefusedDetails}. */
+/**
+ * Parses {@link PreviewAddressRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `preview.address_refused` error
+ */
 export const PreviewAddressRefusedDetailsSchema: z.ZodType<PreviewAddressRefusedDetails> = z
   .object({ reason: z.enum(PREVIEW_ADDRESS_REFUSED_REASONS) })
   .strict();
@@ -689,7 +697,11 @@ export interface PreviewMethodDescriptors {
   >;
 }
 
-/** The `preview.*` page methods the daemon answers, each with its schemas. */
+/**
+ * The `preview.*` page methods the daemon answers, each with its schemas.
+ *
+ * @consumedBy the daemon's Preview handlers
+ */
 export const PREVIEW_METHOD_DESCRIPTORS: PreviewMethodDescriptors = defineMethodDescriptors({
   "preview.pageList": {
     method: "preview.pageList",
@@ -770,6 +782,9 @@ export const PREVIEW_METHOD_DESCRIPTORS: PreviewMethodDescriptors = defineMethod
  * One keystroke main claimed from a page and handed back to the app to replay through its own
  * bindings. It carries the `KeyboardEvent` members a chord is matched on and nothing that names
  * an action; `isComposing` because a keystroke inside an input-method composition is never claimed.
+ *
+ * @consumedBy the preload bridge's page-chord feed, which hands back a kept chord pressed while a
+ * Preview page has focus
  */
 export interface BrowserPageChord {
   key: string;

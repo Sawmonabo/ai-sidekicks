@@ -31,7 +31,11 @@ export const PlanIdSchema: z.ZodType<PlanId, PlanId> = brandedUuidIdSchema<PlanI
  * as a record the next plan replaces.
  */
 export type PlanState = "waiting" | "accepted" | "handed_off" | "open";
-/** Parses a {@link PlanState}. */
+/**
+ * Parses a {@link PlanState}.
+ *
+ * @consumedBy the daemon's `plan.resolve` handler
+ */
 export const PlanStateSchema: z.ZodType<PlanState, PlanState> = z.enum([
   "waiting",
   "accepted",
@@ -177,7 +181,11 @@ export interface PlanMethodDescriptors {
   >;
 }
 
-/** The `plan.*` descriptor table. */
+/**
+ * The `plan.*` descriptor table.
+ *
+ * @consumedBy the daemon's `plan.resolve` handler
+ */
 export const PLAN_METHOD_DESCRIPTORS: PlanMethodDescriptors = defineMethodDescriptors({
   "plan.resolve": {
     method: "plan.resolve",

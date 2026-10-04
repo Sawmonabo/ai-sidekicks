@@ -5,12 +5,9 @@
 // contract's refinement, so a payload that contradicts its reason is refused here without
 // restating the rule. `lease-model.ts` folds a log of these readings into a lease state.
 
-import type {
-  CommandId,
-  PtyControlChangedReason,
-  RunId,
-  TerminalId,
-} from "@ai-sidekicks/contracts";
+import type { CommandId } from "@ai-sidekicks/contracts/command";
+import type { PtyControlChangedReason, TerminalId } from "@ai-sidekicks/contracts/pty";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { readPtyControlChangedPayload } from "@renderer/services/daemon/pty-control-changed-payload.js";

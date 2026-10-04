@@ -4,18 +4,18 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
 import type {
-  HandlerContext,
-  JsonRpcNotification,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
 import {
-  JSONRPC_VERSION,
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import { MethodRegistryImpl } from "../registry.js";
 import {
@@ -25,6 +25,7 @@ import {
 } from "../streaming-primitive.js";
 
 import { passthroughSchema, rejectingSchema } from "../__fixtures__/zod-schemas.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 interface PrimitiveFixture {
   readonly registry: MethodRegistryImpl;
@@ -89,12 +90,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
   it("next(invalidValue) throws `StreamingValidationError` and sends nothing", () => {
     const { primitive, send } = makeFixture();
     const sub = primitive.createSubscription<unknown>(9, rejectingSchema<unknown>("invalid-value"));
-    let caught: unknown = null;
-    try {
-      sub.next({ bogus: true });
-    } catch (err) {
-      caught = err;
-    }
+    const caught = captureThrow(() => sub.next({ bogus: true }));
     expect(caught).toBeInstanceOf(StreamingValidationError);
     if (caught instanceof StreamingValidationError) {
       expect(caught.subscriptionId).toBe(sub.subscriptionId);
@@ -279,12 +275,7 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
       throw failure;
     });
     sub.onCancel(after);
-    let thrown: unknown;
-    try {
-      sub.cancel();
-    } catch (error) {
-      thrown = error;
-    }
+    const thrown = captureThrow(() => sub.cancel());
     expect(thrown).toBeInstanceOf(AggregateError);
     expect((thrown as AggregateError).errors).toStrictEqual([failure]);
     expect(before).toHaveBeenCalledTimes(1);

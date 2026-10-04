@@ -1,6 +1,6 @@
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
-import { type ExecutionMode } from "@ai-sidekicks/contracts";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
 import { type ExecutionModeRowReading } from "../execution-mode-rows.js";
 
 /** One radio row: a mode, whether it is bound now or the default, and why it is restricted. */

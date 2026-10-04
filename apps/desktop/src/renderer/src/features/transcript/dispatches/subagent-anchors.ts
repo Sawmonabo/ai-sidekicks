@@ -3,7 +3,7 @@
 // compaction inside the child never moves the card. Identity is read, never inferred: guessing
 // it from the actor would merge concurrent subagents of one provider onto a single anchor.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";

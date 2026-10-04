@@ -8,7 +8,7 @@
 // heuristic standing in for it.
 
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { settleSessionStart } from "./start/session-start.js";
 
 /** Every act the sessions destination performs, already bound to its context. */

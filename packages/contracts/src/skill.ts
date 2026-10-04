@@ -458,7 +458,11 @@ export const SkillRecordDiscardResponseSchema: z.ZodType<SkillRecordDiscardRespo
  * is not a row of the session's skill list; nothing is written or sent.
  */
 export const SKILL_PATH_REFUSED_CODE = "skill.path_refused" as const;
-/** The type of {@link SKILL_PATH_REFUSED_CODE}. */
+/**
+ * The type of {@link SKILL_PATH_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `skill.path_refused` error
+ */
 export type SkillPathRefusedCode = typeof SKILL_PATH_REFUSED_CODE;
 
 /**
@@ -481,7 +485,11 @@ export interface SkillPathRefusedDetails {
   path: string;
   reason: SkillPathRefusedReason;
 }
-/** Parses {@link SkillPathRefusedDetails}. */
+/**
+ * Parses {@link SkillPathRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `skill.path_refused` error
+ */
 export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> = z
   .object({
     path: z.string().max(FILE_PATH_MAX_LEN),
@@ -491,7 +499,11 @@ export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> =
 
 /** A write the skill cannot take; nothing is written. */
 export const SKILL_WRITE_REFUSED_CODE = "skill.write_refused" as const;
-/** The type of {@link SKILL_WRITE_REFUSED_CODE}. */
+/**
+ * The type of {@link SKILL_WRITE_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `skill.write_refused` error
+ */
 export type SkillWriteRefusedCode = typeof SKILL_WRITE_REFUSED_CODE;
 
 /**
@@ -507,7 +519,11 @@ export type SkillWriteRefusedReason = (typeof SKILL_WRITE_REFUSED_REASONS)[numbe
 export interface SkillWriteRefusedDetails {
   reason: SkillWriteRefusedReason;
 }
-/** Parses {@link SkillWriteRefusedDetails}. */
+/**
+ * Parses {@link SkillWriteRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `skill.write_refused` error
+ */
 export const SkillWriteRefusedDetailsSchema: z.ZodType<SkillWriteRefusedDetails> = z
   .object({ reason: z.enum(SKILL_WRITE_REFUSED_REASONS) })
   .strict();
@@ -517,14 +533,22 @@ export const SkillWriteRefusedDetailsSchema: z.ZodType<SkillWriteRefusedDetails>
  * ours already holds in the same place; nothing is renamed and nothing is written.
  */
 export const SKILL_NAME_TAKEN_CODE = "skill.name_taken" as const;
-/** The type of {@link SKILL_NAME_TAKEN_CODE}. */
+/**
+ * The type of {@link SKILL_NAME_TAKEN_CODE}.
+ *
+ * @consumedBy the handler that returns the `skill.name_taken` error
+ */
 export type SkillNameTakenCode = typeof SKILL_NAME_TAKEN_CODE;
 
 /** The folder already holding the name, so the screen names it under the Name field. */
 export interface SkillNameTakenDetails {
   folderPath: string;
 }
-/** Parses {@link SkillNameTakenDetails}. */
+/**
+ * Parses {@link SkillNameTakenDetails}.
+ *
+ * @consumedBy the handler that returns the `skill.name_taken` error
+ */
 export const SkillNameTakenDetailsSchema: z.ZodType<SkillNameTakenDetails> = z
   .object({ folderPath: z.string().max(FILE_PATH_MAX_LEN) })
   .strict();
@@ -577,7 +601,11 @@ export interface SkillMethodDescriptors {
   >;
 }
 
-/** The `skill.*` method table. */
+/**
+ * The `skill.*` method table.
+ *
+ * @consumedBy the daemon's `skill.*` handlers
+ */
 export const SKILL_METHOD_DESCRIPTORS: SkillMethodDescriptors = defineMethodDescriptors({
   "skill.list": {
     method: "skill.list",

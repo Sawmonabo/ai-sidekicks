@@ -4,7 +4,7 @@
 // the single-flight fetch are both about one artifact), so a component reused for another
 // artifact must not keep the first artifact's bytes or its held control.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 import { useCallback, useMemo } from "react";
 
 import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";

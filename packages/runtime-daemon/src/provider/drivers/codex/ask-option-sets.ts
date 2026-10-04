@@ -6,8 +6,8 @@
 import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-  wireFreeFormString,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import { wireFreeFormString } from "@ai-sidekicks/contracts/session";
 import { isPlainObject } from "../../record-readers.js";
 
 // Ask choice sets: providers publish an ask's choices in provider-specific shapes, so they are

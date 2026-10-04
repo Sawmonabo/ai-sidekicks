@@ -7,7 +7,7 @@ import "./PreviewPaneContent.css";
 
 import { useCallback, useId } from "react";
 
-import type { PreviewPageId } from "@ai-sidekicks/contracts";
+import type { PreviewPageId } from "@ai-sidekicks/contracts/preview";
 
 import type { PageHost } from "../geometry/page-host.js";
 import {

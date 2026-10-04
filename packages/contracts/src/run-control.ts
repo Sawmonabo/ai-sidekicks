@@ -535,7 +535,11 @@ export const RunStateSubscribeRequestSchema: z.ZodType<
  * choice the run already settled.
  */
 export const RUN_INVALID_TRANSITION_CODE = "run.invalid_transition" as const;
-/** The type of {@link RUN_INVALID_TRANSITION_CODE}. */
+/**
+ * The type of {@link RUN_INVALID_TRANSITION_CODE}.
+ *
+ * @consumedBy the handler that returns the `run.invalid_transition` error
+ */
 export type RunInvalidTransitionCode = typeof RUN_INVALID_TRANSITION_CODE;
 
 /** The run-control methods, keyed by method name. */

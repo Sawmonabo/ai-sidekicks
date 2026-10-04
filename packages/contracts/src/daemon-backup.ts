@@ -20,7 +20,11 @@ import { ServicePlaceLocationSchema, type ServicePlaceLocation } from "./service
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
-/** The manifest's file name, beside each backup's database copy. */
+/**
+ * The manifest's file name, beside each backup's database copy.
+ *
+ * @consumedBy the daemon's backups, which write a manifest beside each copy
+ */
 export const BACKUP_MANIFEST_FILE_NAME = "manifest.json";
 
 /** The longest backup id or computer name accepted. */
@@ -167,7 +171,11 @@ export interface DaemonBackupMethodDescriptors {
   readonly "daemon.backupStart": MethodDescriptor<"daemon.backupStart", EmptyPayload, EmptyPayload>;
 }
 
-/** The backup methods. A run started now reports its end through the `backup.*` events. */
+/**
+ * The backup methods. A run started now reports its end through the `backup.*` events.
+ *
+ * @consumedBy the daemon's `daemon.backupRead` and `daemon.backupStart` handlers
+ */
 export const DAEMON_BACKUP_METHOD_DESCRIPTORS: DaemonBackupMethodDescriptors =
   defineMethodDescriptors({
     "daemon.backupRead": {

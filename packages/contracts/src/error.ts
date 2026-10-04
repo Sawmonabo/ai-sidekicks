@@ -57,7 +57,11 @@ export interface ResourceLimitExceededError {
   message: string;
   details: ResourceLimitExceededDetails;
 }
-/** Parses a {@link ResourceLimitExceededError}. */
+/**
+ * Parses a {@link ResourceLimitExceededError}.
+ *
+ * @consumedBy the handler that returns the `resource.limit_exceeded` error
+ */
 export const ResourceLimitExceededErrorSchema: z.ZodType<ResourceLimitExceededError> = z
   .object({
     code: z.literal(RESOURCE_LIMIT_EXCEEDED_CODE),
@@ -94,7 +98,11 @@ export interface PtyBackendUnavailable {
   message: string;
   details: PtyBackendUnavailableDetails;
 }
-/** Parses a {@link PtyBackendUnavailable}. */
+/**
+ * Parses a {@link PtyBackendUnavailable}.
+ *
+ * @consumedBy the handler that returns the `pty.backend_unavailable` error
+ */
 export const PtyBackendUnavailableSchema: z.ZodType<PtyBackendUnavailable> = z
   .object({
     code: z.literal(PTY_BACKEND_UNAVAILABLE_CODE),

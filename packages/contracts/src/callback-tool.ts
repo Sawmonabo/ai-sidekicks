@@ -54,7 +54,11 @@ export interface CallbackToolMethodDescriptors {
   >;
 }
 
-/** The `callbackTool.*` method table. */
+/**
+ * The `callbackTool.*` method table.
+ *
+ * @consumedBy the daemon's `callbackTool.list` handler
+ */
 export const CALLBACK_TOOL_METHOD_DESCRIPTORS: CallbackToolMethodDescriptors =
   defineMethodDescriptors({
     "callbackTool.list": {

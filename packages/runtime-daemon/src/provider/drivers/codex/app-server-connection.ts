@@ -3,7 +3,8 @@
  * notifications, and the process or socket underneath.
  */
 
-import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../spawn-env.js";
 import {

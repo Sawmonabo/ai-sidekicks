@@ -8,7 +8,7 @@
 // - Each flag is the matrix intersected with a zero-turn probe (`../../capability-probe.ts`);
 //   `detectionSource` records which decided it and is composed only from a live read.
 
-import type { DriverCapabilityFlag, ProviderModel } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag, ProviderModel } from "@ai-sidekicks/contracts/provider-driver";
 
 import {
   applyCapabilityDetection,

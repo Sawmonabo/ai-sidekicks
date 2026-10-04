@@ -19,10 +19,10 @@ import {
   ApprovalRuleRevokedPayloadSchema,
   type ApprovalRequestId,
   type ApprovalState,
-  type SessionEventType,
-  type SessionId,
-  type ZodType,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import type {

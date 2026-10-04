@@ -47,7 +47,12 @@ const ATTENTION_BANNER_STATE_VALUES = ["pending", "posted", "withheld", "withdra
  * otherwise; main settles a `pending` entry once, so no banner is posted twice.
  */
 export type AttentionBannerState = (typeof ATTENTION_BANNER_STATE_VALUES)[number];
-/** Every {@link AttentionBannerState}. */
+/**
+ * Every {@link AttentionBannerState}.
+ *
+ * @consumedBy the main process's notification poster, which posts only pending entries and settles
+ * each one
+ */
 export const ATTENTION_BANNER_STATES: readonly AttentionBannerState[] =
   ATTENTION_BANNER_STATE_VALUES;
 
@@ -55,7 +60,12 @@ const ATTENTION_WEB_ADDRESS_STATE_VALUES = ["pending", "delivered", "undelivered
 
 /** Where an entry's message to the person's web address stands. */
 export type AttentionWebAddressState = (typeof ATTENTION_WEB_ADDRESS_STATE_VALUES)[number];
-/** Every {@link AttentionWebAddressState}. */
+/**
+ * Every {@link AttentionWebAddressState}.
+ *
+ * @consumedBy the web-address send, and the Notifications page's status line that counts what stays
+ * undelivered
+ */
 export const ATTENTION_WEB_ADDRESS_STATES: readonly AttentionWebAddressState[] =
   ATTENTION_WEB_ADDRESS_STATE_VALUES;
 
@@ -108,8 +118,6 @@ export interface AttentionItem {
  * Parses an {@link AttentionItem}. A Notify step's item names its step and no other
  * item does, and it is informational and carries its run: it tells the person
  * something and never counts as waiting on them.
- *
- * @consumedBy the attention projector
  */
 export const AttentionItemSchema: z.ZodType<AttentionItem> = z
   .object({
@@ -363,7 +371,11 @@ export const AttentionWebAddressSecretRotateResponseSchema: z.ZodType<AttentionW
 
 /** The keychain holding the delivery secrets could not be used. */
 export type AttentionDeliveryStoreUnavailableCode = "attention.delivery_store_unavailable";
-/** Error code for a keychain that could not be used for the delivery secrets. */
+/**
+ * Error code for a keychain that could not be used for the delivery secrets.
+ *
+ * @consumedBy the handler that returns the `attention.delivery_store_unavailable` error
+ */
 export const ATTENTION_DELIVERY_STORE_UNAVAILABLE_CODE: AttentionDeliveryStoreUnavailableCode =
   "attention.delivery_store_unavailable";
 
@@ -376,13 +388,21 @@ export type AttentionDeliveryStoreCause = (typeof ATTENTION_DELIVERY_STORE_CAUSE
 export interface AttentionDeliveryStoreUnavailableDetails {
   cause: AttentionDeliveryStoreCause;
 }
-/** Parses an {@link AttentionDeliveryStoreUnavailableDetails}. */
+/**
+ * Parses an {@link AttentionDeliveryStoreUnavailableDetails}.
+ *
+ * @consumedBy the handler that returns the `attention.delivery_store_unavailable` error
+ */
 export const AttentionDeliveryStoreUnavailableDetailsSchema: z.ZodType<AttentionDeliveryStoreUnavailableDetails> =
   z.object({ cause: z.enum(ATTENTION_DELIVERY_STORE_CAUSE_VALUES) }).strict();
 
 /** A test was asked of a channel that is not set up. */
 export type AttentionDeliveryNotConfiguredCode = "attention.delivery_not_configured";
-/** Error code for a delivery test asked of a channel that is not set up. */
+/**
+ * Error code for a delivery test asked of a channel that is not set up.
+ *
+ * @consumedBy the handler that returns the `attention.delivery_not_configured` error
+ */
 export const ATTENTION_DELIVERY_NOT_CONFIGURED_CODE: AttentionDeliveryNotConfiguredCode =
   "attention.delivery_not_configured";
 
@@ -395,7 +415,11 @@ export type AttentionDeliveryMissing = (typeof ATTENTION_DELIVERY_MISSING_VALUES
 export interface AttentionDeliveryNotConfiguredDetails {
   missing: AttentionDeliveryMissing;
 }
-/** Parses an {@link AttentionDeliveryNotConfiguredDetails}. */
+/**
+ * Parses an {@link AttentionDeliveryNotConfiguredDetails}.
+ *
+ * @consumedBy the handler that returns the `attention.delivery_not_configured` error
+ */
 export const AttentionDeliveryNotConfiguredDetailsSchema: z.ZodType<AttentionDeliveryNotConfiguredDetails> =
   z.object({ missing: z.enum(ATTENTION_DELIVERY_MISSING_VALUES) }).strict();
 
@@ -460,7 +484,11 @@ export interface AttentionMethodDescriptors {
   >;
 }
 
-/** The `attention.*` methods' names, procedure types and shapes. */
+/**
+ * The `attention.*` methods' names, procedure types and shapes.
+ *
+ * @consumedBy the daemon's `attention.*` handlers
+ */
 export const ATTENTION_METHOD_DESCRIPTORS: AttentionMethodDescriptors = defineMethodDescriptors({
   "attention.projectionRead": {
     method: "attention.projectionRead",

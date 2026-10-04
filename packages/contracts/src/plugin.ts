@@ -408,7 +408,11 @@ export interface PluginMethodDescriptors {
   >;
 }
 
-/** The `plugin.*` method table. */
+/**
+ * The `plugin.*` method table.
+ *
+ * @consumedBy the daemon's `plugin.*` handlers
+ */
 export const PLUGIN_METHOD_DESCRIPTORS: PluginMethodDescriptors = defineMethodDescriptors({
   "plugin.catalogList": {
     method: "plugin.catalogList",

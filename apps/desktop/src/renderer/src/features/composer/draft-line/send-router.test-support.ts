@@ -1,7 +1,8 @@
 // Shared scaffolding for the send-router suites: one router builder, stub calls, and the wire
 // shapes and ids every case is written against, so the suites cannot drift apart.
 
-import type { InterventionRequestResponse, QueueItemCreateResponse } from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run-control";
+import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run-queue";
 import type { Mock } from "vitest";
 import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type { ComposerSessionTarget, ComposerRunTarget } from "../composer-target.js";

@@ -4,9 +4,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 
 import type { SecureDefaultsConfig } from "../secure-defaults.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   localIpcPath: "/tmp/ai-sidekicks-test.sock",
@@ -42,16 +43,13 @@ describe("load-before-bind", () => {
 // loaded.
 describe("fail-closed on invalid config", () => {
   it("refuses a bad value, a non-object and a missing key, each with its code, and stays unloaded", () => {
-    let caught: unknown;
-    try {
-      // Per-field validation; unknown keys are covered by the extended-scope cases below.
+    // Per-field validation; unknown keys are covered by the refusal cases below.
+    let caught = captureThrow(() =>
       SecureDefaults.load({
         ...VALID_BASE_CONFIG,
         bannerFormat: "yaml",
-      } as unknown as SecureDefaultsConfig);
-    } catch (err) {
-      caught = err;
-    }
+      } as unknown as SecureDefaultsConfig),
+    );
 
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
@@ -62,26 +60,18 @@ describe("fail-closed on invalid config", () => {
     expect(SecureDefaults.isLoaded()).toBe(false);
     expect(() => SecureDefaults.effectiveSettings()).toThrow();
 
-    caught = undefined;
-    try {
-      // The type rules this out; the runtime guard is what is pinned here.
-      SecureDefaults.load(null as unknown as SecureDefaultsConfig);
-    } catch (err) {
-      caught = err;
-    }
+    // The type rules this out; the runtime guard is what is pinned here.
+    caught = captureThrow(() => SecureDefaults.load(null as unknown as SecureDefaultsConfig));
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("invalid_config");
     expect(SecureDefaults.isLoaded()).toBe(false);
 
-    caught = undefined;
-    try {
+    caught = captureThrow(() =>
       SecureDefaults.load({
         localIpcPath: "/tmp/ai-sidekicks-test.sock",
-      } as unknown as SecureDefaultsConfig);
-    } catch (err) {
-      caught = err;
-    }
+      } as unknown as SecureDefaultsConfig),
+    );
     expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("missing_required_setting");
@@ -106,48 +96,41 @@ describe("effectiveSettings non-secret typed values", () => {
   });
 });
 
-// Each extended-scope key must be refused with `unknown_setting`, both as the typed error
-// and as the JSON-RPC envelope from `mapJsonRpcError`. The rest of the config is valid, so
-// the key refusal is the only thing that can fire.
+// Any key outside the validation scope (`localIpcPath` and `bannerFormat`) is refused with
+// `unknown_setting`, both as the typed error and as the JSON-RPC envelope from
+// `mapJsonRpcError`. The rest of the config is valid, so the key refusal is the only thing
+// that can fire.
 
-describe("extended-scope-key refusal", () => {
+describe("unknown settings key refusal", () => {
   // Cast through `unknown` because the config type is closed and rejects these keys.
-  const EXTENDED_SCOPE_KEYS: ReadonlyArray<string> = [
+  const UNKNOWN_SETTINGS_KEYS: ReadonlyArray<string> = [
     "tlsMode",
     "tlsCertPath",
     "nonLoopbackHost",
     "firstRunKeysPolicy",
   ];
 
-  it.each(EXTENDED_SCOPE_KEYS)(
-    "refuses key %p with `unknown_setting` envelope",
-    (extendedScopeKey) => {
-      const config = {
-        ...VALID_BASE_CONFIG,
-        [extendedScopeKey]: "any-value",
-      } as unknown as SecureDefaultsConfig;
+  it.each(UNKNOWN_SETTINGS_KEYS)("refuses key %p with `unknown_setting` envelope", (unknownKey) => {
+    const config = {
+      ...VALID_BASE_CONFIG,
+      [unknownKey]: "any-value",
+    } as unknown as SecureDefaultsConfig;
 
-      let caught: unknown;
-      try {
-        SecureDefaults.load(config);
-      } catch (err) {
-        caught = err;
-      }
+    const caught = captureThrow(() => SecureDefaults.load(config));
 
-      expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
-      if (!(caught instanceof SecureDefaultsValidationError)) return;
-      expect(caught.code).toBe("unknown_setting");
-      expect(caught.message).toMatch(new RegExp(extendedScopeKey));
+    expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
+    if (!(caught instanceof SecureDefaultsValidationError)) return;
+    expect(caught.code).toBe("unknown_setting");
+    expect(caught.message).toMatch(new RegExp(unknownKey));
 
-      // Boot-time config counts as request params, so the code is InvalidParams.
-      const envelope = mapJsonRpcError(caught, 1);
-      expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-      expect(envelope.error.data).toEqual({
-        type: "unknown_setting",
-        fields: { setting: extendedScopeKey, value: "any-value" },
-      });
+    // Boot-time config counts as request params, so the code is InvalidParams.
+    const envelope = mapJsonRpcError(caught, 1);
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.error.data).toEqual({
+      type: "unknown_setting",
+      fields: { setting: unknownKey, value: "any-value" },
+    });
 
-      expect(SecureDefaults.isLoaded()).toBe(false);
-    },
-  );
+    expect(SecureDefaults.isLoaded()).toBe(false);
+  });
 });

@@ -1,13 +1,13 @@
 // The run group fold, driven with no store and no React. A run longer than the cap needs
 // this file: a virtualized feed mounts a range whatever the fold admitted.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
+import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/run-group-body.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type RunGroup } from "../run-groups/run-groups.js";

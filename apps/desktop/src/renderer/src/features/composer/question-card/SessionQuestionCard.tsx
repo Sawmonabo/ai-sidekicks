@@ -3,7 +3,7 @@
 // Its own component so that only a row that is a question arms the answer dispatcher. A
 // row that is not a question renders something else and arms none of it.
 
-import type { QuestionAskedPersonalData } from "@ai-sidekicks/contracts";
+import type { QuestionAskedPersonalData } from "@ai-sidekicks/contracts/question";
 import { type QuestionReading } from "@renderer/store/session-events/question-reading.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./hooks/useQuestionAnswer.js";
 import { QuestionCard } from "./QuestionCard.js";

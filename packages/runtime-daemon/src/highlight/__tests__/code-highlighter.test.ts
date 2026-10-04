@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { HIGHLIGHT_SPAN_CLASSES } from "@ai-sidekicks/contracts";
+import { HIGHLIGHT_SPAN_CLASSES } from "@ai-sidekicks/contracts/highlight";
 
 import { CodeHighlighter } from "../code-highlighter.js";
 

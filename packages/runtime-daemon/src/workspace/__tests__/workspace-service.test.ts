@@ -13,10 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   WorkspaceListResponseSchema,
   WORKSPACE_LAST_ERROR_MAX_LEN,
-  type RepoMountId,
-  type SessionId,
-  type WorkspaceState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workspace";
+import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
@@ -44,10 +43,10 @@ import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
 
 import {
   bindReadyWorkspace,
-  captureRejection,
   readWorkspaceRow,
   requireWorkspaceRow,
 } from "./workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

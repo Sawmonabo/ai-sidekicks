@@ -8,7 +8,7 @@ import {
   type ProviderAccount,
   type ProviderName,
   type ProviderReadiness,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-account";
 
 import {
   findReadRefusal,

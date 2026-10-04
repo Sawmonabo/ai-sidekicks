@@ -10,13 +10,12 @@
  * - Errors use registered codes only: `driver.unavailable` (503), `driver.timeout` (504).
  */
 
-import {
-  type DriverCompactionResult,
-  type ProviderCommandListResult,
-  type InterruptRunParams,
-  type RunId,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import { ThreadFrameRouter } from "../../thread-frame-router.js";
 import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";

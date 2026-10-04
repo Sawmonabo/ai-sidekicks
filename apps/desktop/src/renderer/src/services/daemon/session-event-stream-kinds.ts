@@ -7,7 +7,8 @@
 // and arrays, not `Set`s or `Map`s, so nothing in the process can add a kind and re-route every
 // subscription.
 
-import type { QueueItemState, SessionEventType } from "@ai-sidekicks/contracts";
+import type { QueueItemState } from "@ai-sidekicks/contracts/run-queue";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import {

@@ -2,7 +2,7 @@
 // it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
 // `system-message-kinds.ts`. Superseded turns are ranked separately in `superseded-turns.ts`.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import {
   SYSTEM_MESSAGE_KINDS,

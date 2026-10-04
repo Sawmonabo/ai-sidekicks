@@ -8,12 +8,12 @@
 // Models no payload preview and never nulls a derivative's `subject`: payloads are explicit-fetch
 // downloads, and nothing in the product executes one.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 import type {
-  ArtifactId,
   ArtifactManifest,
   ArtifactState as ManifestState,
   ArtifactType as ManifestType,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/artifacts/manifest";
 
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 

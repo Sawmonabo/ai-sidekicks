@@ -9,13 +9,9 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  DAEMON_SCOPE_SENTINEL_SESSION_ID,
-  NodeIdSchema,
-  SessionIdSchema,
-  type NodeId,
-  type SessionId,
-} from "@ai-sidekicks/contracts";
+import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event-envelope";
+import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/node-id";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { withSessionAppendLock } from "../session-append-lock.js";

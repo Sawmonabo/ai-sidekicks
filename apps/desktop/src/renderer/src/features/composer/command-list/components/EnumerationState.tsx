@@ -2,7 +2,7 @@
 // is a fact about the read, not the commands, so it is its own line rather than a selectable entry
 // with nothing to send.
 
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";

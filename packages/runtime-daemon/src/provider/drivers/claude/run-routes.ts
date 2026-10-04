@@ -2,7 +2,8 @@
 // opening frame's write and retires a session's routes when its turn settles or it closes; the
 // tripwire rulings read the routes to find the run a frame belongs to.
 
-import type { RunId, SessionId } from "@ai-sidekicks/contracts";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 /** The run-to-session routes of one `ClaudeSessionLifecycle`, in the order the runs were bound. */
 export class ClaudeRunRoutes {

@@ -527,12 +527,20 @@ export const ProviderInstallProgressSchema: z.ZodType<ProviderInstallProgress> =
  * availability for new sessions, the shared terminal service, and the terminal plugin.
  */
 export const PROVIDER_NOT_INSTALLED_CODE = "provider.not_installed" as const;
-/** Type of {@link PROVIDER_NOT_INSTALLED_CODE}. */
+/**
+ * Type of {@link PROVIDER_NOT_INSTALLED_CODE}.
+ *
+ * @consumedBy the handler that returns the `provider.not_installed` error
+ */
 export type ProviderNotInstalledCode = typeof PROVIDER_NOT_INSTALLED_CODE;
 
 /** Nothing runnable sits at the command path the person typed. */
 export const PROVIDER_COMMAND_NOT_RUNNABLE_CODE = "provider.command_not_runnable" as const;
-/** Type of {@link PROVIDER_COMMAND_NOT_RUNNABLE_CODE}. */
+/**
+ * Type of {@link PROVIDER_COMMAND_NOT_RUNNABLE_CODE}.
+ *
+ * @consumedBy the handler that returns the `provider.command_not_runnable` error
+ */
 export type ProviderCommandNotRunnableCode = typeof PROVIDER_COMMAND_NOT_RUNNABLE_CODE;
 
 /** The typed descriptor for each `provider.*` method. */
@@ -586,7 +594,11 @@ export interface ProviderMethodDescriptors {
   >;
 }
 
-/** Every `provider.*` method: its name, how it answers, and its shapes. */
+/**
+ * Every `provider.*` method: its name, how it answers, and its shapes.
+ *
+ * @consumedBy the daemon's `provider.*` handlers
+ */
 export const PROVIDER_METHOD_DESCRIPTORS: ProviderMethodDescriptors = defineMethodDescriptors({
   "provider.list": {
     method: "provider.list",

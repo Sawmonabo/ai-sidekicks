@@ -331,5 +331,9 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
  * folder in another WSL distribution than the one the service runs in.
  */
 export const REPO_FOLDER_UNREACHABLE_CODE = "repo.folder_unreachable" as const;
-/** The type of {@link REPO_FOLDER_UNREACHABLE_CODE}. */
+/**
+ * The type of {@link REPO_FOLDER_UNREACHABLE_CODE}.
+ *
+ * @consumedBy the handler that returns the `repo.folder_unreachable` error
+ */
 export type RepoFolderUnreachableCode = typeof REPO_FOLDER_UNREACHABLE_CODE;

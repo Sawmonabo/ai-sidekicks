@@ -2,7 +2,7 @@
 // contract's; the fence's spelling of them (aliases such as `ts`, `sh`, `yml`, and commonmark's
 // reading of an info string) is the renderer's own. A fence naming none stays plain.
 
-import { HIGHLIGHT_LANGUAGES, type HighlightLanguage } from "@ai-sidekicks/contracts";
+import { HIGHLIGHT_LANGUAGES, type HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
 
 /**
  * The language the fence's info string names, or `undefined` for one the daemon cannot color.

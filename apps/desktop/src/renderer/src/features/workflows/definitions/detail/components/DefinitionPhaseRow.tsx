@@ -4,12 +4,12 @@
 // the scope: two `project` bindings under different roots are different configured servers, and
 // `user` carries no reference. The scope and reference are never joined into one string.
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { WorkflowPhaseDefinition } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { schemaFormPreviewBody } from "../../../schema-form/schema-form-mounts.js";
+import { schemaFormPreviewBody } from "@renderer/features/workflows/schema-form/schema-form-mounts.js";
 
 /** The phase to draw. */
 export interface DefinitionPhaseRowProps {

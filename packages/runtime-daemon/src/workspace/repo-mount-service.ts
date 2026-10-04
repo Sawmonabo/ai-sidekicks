@@ -13,23 +13,24 @@
 
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
+import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/node-id";
 import {
-  NodeIdSchema,
   RepoAttachResponseSchema,
-  RepoMountIdSchema,
-  RepoMountStateSchema,
-  VcsTypeSchema,
-  WorkspaceIdSchema,
-  type NodeId,
   type RepoAttachRequest,
   type RepoAttachResponse,
   type RepoDetachRequest,
   type RepoDetachResponse,
-  type RepoMountId,
   type RepoMountReadResponse,
+} from "@ai-sidekicks/contracts/repo-folders";
+import {
+  RepoMountIdSchema,
+  RepoMountStateSchema,
+  VcsTypeSchema,
+  WorkspaceIdSchema,
+  type RepoMountId,
   type RepoMountState,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/repo";
 
 import {
   RepoAlreadyAttachedError,

@@ -13,7 +13,11 @@ import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** A port added to the shared list that is on it already; nothing changes. */
 export const PREVIEW_PORT_ALREADY_SHARED_CODE = "preview.port_already_shared" as const;
-/** The type of {@link PREVIEW_PORT_ALREADY_SHARED_CODE}. */
+/**
+ * The type of {@link PREVIEW_PORT_ALREADY_SHARED_CODE}.
+ *
+ * @consumedBy the handler that returns the `preview.port_already_shared` error
+ */
 export type PreviewPortAlreadySharedCode = typeof PREVIEW_PORT_ALREADY_SHARED_CODE;
 
 /**
@@ -21,14 +25,23 @@ export type PreviewPortAlreadySharedCode = typeof PREVIEW_PORT_ALREADY_SHARED_CO
  * machine forwards only listed ports, and only to its own loopback.
  */
 export const PREVIEW_PORT_NOT_SHARED_CODE = "preview.port_not_shared" as const;
-/** The type of {@link PREVIEW_PORT_NOT_SHARED_CODE}. */
+/**
+ * The type of {@link PREVIEW_PORT_NOT_SHARED_CODE}.
+ *
+ * @consumedBy the handler that returns the `preview.port_not_shared` error
+ */
 export type PreviewPortNotSharedCode = typeof PREVIEW_PORT_NOT_SHARED_CODE;
 
 /** The details both port refusals carry: the port the request named. */
 export interface PreviewPortRefusalDetails {
   port: number;
 }
-/** Parses {@link PreviewPortRefusalDetails}. */
+/**
+ * Parses {@link PreviewPortRefusalDetails}.
+ *
+ * @consumedBy the handlers that return the `preview.port_already_shared` and
+ * `preview.port_not_shared` errors
+ */
 export const PreviewPortRefusalDetailsSchema: z.ZodType<PreviewPortRefusalDetails> = z
   .object({ port: portSchema })
   .strict();
@@ -144,7 +157,11 @@ export interface PreviewPortMethodDescriptors {
   >;
 }
 
-/** The `preview.port*` methods the daemon answers, each with its schemas. */
+/**
+ * The `preview.port*` methods the daemon answers, each with its schemas.
+ *
+ * @consumedBy the daemon's preview port sharing handlers
+ */
 export const PREVIEW_PORT_METHOD_DESCRIPTORS: PreviewPortMethodDescriptors =
   defineMethodDescriptors({
     "preview.portShareList": {

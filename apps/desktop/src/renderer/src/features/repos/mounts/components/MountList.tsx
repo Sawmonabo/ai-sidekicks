@@ -7,7 +7,7 @@ import { type RepoMountsReading } from "../repo-mounts-model.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type RepoOperations } from "../../repo-operations.js";
-import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
+import type { WorkspaceId, ExecutionMode } from "@ai-sidekicks/contracts/repo";
 
 /** What the mount list reads and the handlers it passes through to each card. */
 export interface MountListProps {

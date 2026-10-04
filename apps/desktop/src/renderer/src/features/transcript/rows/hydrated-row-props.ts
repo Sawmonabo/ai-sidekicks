@@ -2,7 +2,7 @@
 // and the footnote registry the message shares. Extending that contract means a member added
 // to it reaches every card.
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
 
 import type { TranscriptRowProps } from "../transcript-row-renderer.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";

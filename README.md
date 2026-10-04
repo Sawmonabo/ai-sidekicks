@@ -237,7 +237,7 @@ Code execution is under way. What is left to build, and the order between the pi
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |
 | Operations | [`docs/operations/`](docs/operations/) | Runbooks, SLOs, on-call routing |
 | V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What V1 ships and what is out of scope |
-| Build Order | `docs/architecture/cross-plan-dependencies.md` | Forward phase DAG and dispatch groups |
+| Build Order | `docs/architecture/cross-plan-dependencies.md` | The unit order: what is left to build and what each unit waits on |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch naming, commit format, PR workflow |
 
 ---

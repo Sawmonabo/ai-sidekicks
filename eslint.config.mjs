@@ -45,6 +45,13 @@ export const ENUM_DECLARATION = {
     "Do not use TypeScript enums in application or domain code. Use a string-literal union, an `as const` object with its derived union, or a discriminated union. An enum an external contract requires stays at that boundary and is translated there.",
 };
 
+/** The `export *` ban, exported so a package config restates it beside the enum ban. */
+export const EXPORT_ALL_DECLARATION = {
+  selector: "ExportAllDeclaration",
+  message:
+    "No `export *`. Name each export, so a module's public surface is written where it is published and a symbol added to the source module is not exported by accident.",
+};
+
 /*
  * File and folder name shapes, as micromatch extglobs (the syntax `eslint-plugin-check-file`
  * matches with). A name is checked without its extensions, so `AppRouter.test.tsx` is checked as
@@ -60,7 +67,8 @@ const SCRIPT_FILES = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"];
 /** The desktop renderer, the one tree that holds React components and hooks. */
 const RENDERER_FILES = ["**/src/renderer/src/**/*.{ts,tsx}"];
 
-const NAMING_RULES_SOURCE = "the file and folder names in .claude/rules/coding-standards.md";
+/** Where the file and folder naming rules these messages enforce are written. */
+const NAMING_RULES_SOURCE = "File and folder names under Code conventions in the root AGENTS.md";
 
 /** A `.tsx` file with no JSX in it, which is named `.ts` instead. */
 const TSX_WITHOUT_JSX = {
@@ -131,12 +139,12 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // Every authored TypeScript file carries the enum ban. A declaration file is ambient
-  // and holds no runtime code.
+  // Every authored TypeScript file carries the enum and `export *` bans. A declaration file is
+  // ambient and holds no runtime code.
   {
     files: ["**/*.{ts,tsx,mts,cts}"],
     ignores: ["**/*.d.ts"],
-    rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION] },
+    rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION, EXPORT_ALL_DECLARATION] },
   },
   // An interface takes no `I` prefix (`IUser`); an acronym such as `IPCClient` still passes.
   // Only this selector is configured, so no other naming is checked.
@@ -356,7 +364,7 @@ const repositoryConfig = defineConfig(
         {
           patterns: [
             {
-              regex: "^@ai-sidekicks/(?!contracts$)",
+              regex: "^@ai-sidekicks/(?!contracts/[\\w-]+(?:/[\\w-]+)*$)",
               message:
                 "@ai-sidekicks/client-sdk imports @ai-sidekicks/contracts and no other " +
                 "workspace package.",
@@ -374,14 +382,15 @@ const repositoryConfig = defineConfig(
   // Carried on `no-restricted-syntax`, not `no-restricted-imports`: the block above already
   // configures `no-restricted-imports` for every contracts source file, and flat config replaces a
   // rule's options at the last matching object, so a second invocation would drop the `node:*` ban
-  // for this file. All four edge-carrying forms are denied: static import, dynamic import, and both
-  // `export … from` shapes.
+  // for this file. The static import, the dynamic import and `export { … } from` are denied here;
+  // `export *` is banned everywhere.
   {
     files: ["packages/contracts/src/event-core.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
         ENUM_DECLARATION,
+        EXPORT_ALL_DECLARATION,
         {
           selector: 'ImportDeclaration[source.value="./event.js"]',
           message:
@@ -394,11 +403,6 @@ const repositoryConfig = defineConfig(
         },
         {
           selector: 'ExportNamedDeclaration[source.value="./event.js"]',
-          message:
-            "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
-        },
-        {
-          selector: 'ExportAllDeclaration[source.value="./event.js"]',
           message:
             "event-core.ts is the acyclic leaf of the contracts module graph — re-exporting from ./event.js closes the cycle exactly as importing it does.",
         },
@@ -474,8 +478,8 @@ const repositoryConfig = defineConfig(
   // side-effect-free fold over already-read rows. The realistic purity break is a sibling import (a
   // service module, the database layer) that pulls I/O in behind it, not a direct `node:fs` import,
   // so the rule is an allow-list (negative-lookahead `regex`) rather than a denylist of builtins:
-  // `@ai-sidekicks/contracts`, itself held isomorphic above, is the one permitted specifier. A
-  // legitimately pure new import widens the pattern in the same diff.
+  // a module of `@ai-sidekicks/contracts`, itself held isomorphic above, is the one permitted
+  // import. A legitimately pure new import widens the pattern in the same diff.
   //
   // This block replaces the daemon-wide `no-restricted-imports` options for these two files, which
   // is fine: the allow-list forbids `node:crypto` outright, so it is stronger than the `randomUUID`
@@ -496,7 +500,7 @@ const repositoryConfig = defineConfig(
         {
           patterns: [
             {
-              regex: "^(?!@ai-sidekicks/contracts$).*$",
+              regex: "^(?!@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*$).*$",
               message:
                 "The read-side projectors are pure: @ai-sidekicks/contracts is the only import they may carry, because any other specifier can reach I/O transitively. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
@@ -521,7 +525,7 @@ const repositoryConfig = defineConfig(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
               message:
                 "The brief projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },

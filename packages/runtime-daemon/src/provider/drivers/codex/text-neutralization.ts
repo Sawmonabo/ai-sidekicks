@@ -3,7 +3,8 @@
 // settles, its steer fails, its binding is condemned or a resume supersedes it. A trip quarantines
 // the session and the run and reports the run failure.
 
-import type { RunId, SessionId } from "@ai-sidekicks/contracts";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import {
   type OutboundFrameTripwire,
   type OutboundTextFrame,

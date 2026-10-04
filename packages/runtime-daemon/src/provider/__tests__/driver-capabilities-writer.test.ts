@@ -4,12 +4,12 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { captureRejection } from "../../workspace/__tests__/workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import {
   DRIVER_CAPABILITY_FLAGS,
-  type ProviderName,
   type ProviderToolMetadata,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";

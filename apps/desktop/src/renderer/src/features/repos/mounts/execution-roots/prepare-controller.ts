@@ -4,13 +4,8 @@
 // answer in flight and an emptied field withdraws it. Only the check is refreshable; re-sending
 // a prepare on a window focus would put a second root on disk for one press.
 
-import type {
-  ExecutionMode,
-  ExecutionRootPrepareResponse,
-  RepoMountId,
-  WorkspaceId,
-  WorktreeId,
-} from "@ai-sidekicks/contracts";
+import type { ExecutionMode, RepoMountId, WorkspaceId } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionRootPrepareResponse, WorktreeId } from "@ai-sidekicks/contracts/worktree";
 
 import type { Clock } from "@renderer/lib/clock.js";
 import { ActControllerBase } from "../../acts/act-controller-base.js";

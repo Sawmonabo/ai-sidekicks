@@ -1,444 +1,206 @@
 # Cross-Plan Dependency Graph
 
-This is the forward build order for the plan phases that have not shipped yet: every node is a phase with tasks still to build, every edge is a dependency one phase has on another, and the PR that finishes a phase deletes its node from this graph.
+This is the build order for the work that has not shipped yet. Each unit below is one PR off `develop`: the row says what it builds, the units it waits on, and the plan tasks it discharges. The PR that finishes a unit deletes its row here and its name from every other row's "Waits on".
 
 ## Platform order
 
-Every numbered group below builds and checks on macOS. The code stays portable: each piece that differs by operating system sits behind one interface in the phase that owns it, which builds the macOS form, and nothing is hard-coded to macOS. Two phases follow every group. **Phase 10, Other platforms**, adds the Windows, WSL 2 and Linux side of every such interface, with the plan phases that build only for those systems. **Phase 11, Release**, holds packaging and signing on every platform, the release manifest, the app's update path, `sidekicks self-update` and the background service's update, and a one-time vulnerability scan before the first release; there is no license scan. A feature is built in its own group, and only its run on a signed, packaged build waits for Phase 11. The email digest comes last of all.
+Every unit before Phase 10 builds and checks on macOS. The code stays portable: each piece that differs by operating system sits behind one interface in the unit that owns it, which builds the macOS form, and nothing is hard-coded to macOS. Two phases follow. **Phase 10, Other platforms**, adds the Windows, WSL 2 and Linux side of every such interface, with the plan phases that build only for those systems. **Phase 11, Release**, holds packaging and signing on every platform, the release manifest, the app's update path, `sidekicks self-update` and the background service's update, and a one-time vulnerability scan before the first release; there is no license scan. A feature is built in its own unit, and only its run on a signed, packaged build waits for Phase 11. The email digest comes last of all.
 
-## Graph
+## How the order is read
 
-```mermaid
-flowchart TD
- %% Plan-001
- n001_6["Plan-001 Phase 6 — the session directory and lifecycle"]
- %% Plan-002
- n002_2["Plan-002 Phase 2 — queue admission and serialized interventions"]
- n002_3["Plan-002 Phase 3 — run-engine orchestration"]
- n002_3B["Plan-002 Phase 3B — the run side of an undo"]
- n002_4["Plan-002 Phase 4 — desktop run controls"]
- %% Plan-003
- n003_3["Plan-003 Phase 3 — Codex and Claude driver implementations"]
- n003_5["Plan-003 Phase 5 — MCP task-handle durability"]
- %% Plan-004
- n004_3B["Plan-004 Phase 3B — machine-authored content column"]
- n004_4["Plan-004 Phase 4 — read side and SDK"]
- %% Plan-005
- n005_R1["Plan-005 Phase R1 — daemon and settings namespace handlers"]
- n005_R2["Plan-005 Phase R2 — secure defaults, TLS, first-run keys"]
- n005_R3["Plan-005 Phase R3 — CLI package and daemon-status delivery"]
- n005_2B["Plan-005 Phase 2B — the calling device on the dispatch context"]
- n005_2C["Plan-005 Phase 2C — socket path length check before bind"]
- n005_2D["Plan-005 Phase 2D — batched subscription frame"]
- n005_R4["Plan-005 Phase R4 — the service on WSL 2"]
- %% Plan-006
- n006_2B["Plan-006 Phase 2B — repo identity keying and resolution"]
- n006_3["Plan-006 Phase 3 — repo IPC namespace and SDK"]
- %% Plan-007
- n007_3["Plan-007 Phase 3 — run-setup gate, worktree verbs, IPC namespace and SDK"]
- %% Plan-008
- n008_1["Plan-008 Phase 1 — contracts"]
- n008_2["Plan-008 Phase 2 — ship facts and the diff read"]
- n008_3["Plan-008 Phase 3 — ship acts, generate and the trailer"]
- n008_4["Plan-008 Phase 4 — hosting, reviews and notes"]
- n008_5["Plan-008 Phase 5 — the review surface"]
- %% Plan-009
- n009_1["Plan-009 Phase 1 — approval contracts and persistence"]
- n009_2["Plan-009 Phase 2 — daemon policy and approval services"]
- n009_3["Plan-009 Phase 3 — approval IPC, SDK, projection"]
- n009_4["Plan-009 Phase 4 — desktop approval surfaces"]
- %% Plan-010
- n010_2["Plan-010 Phase 2 — projection and replay-aware subscription"]
- n010_3["Plan-010 Phase 3 — child-run expansion and reasoning"]
- n010_4["Plan-010 Phase 4 — desktop timeline rendering"]
- %% Plan-011
- n011_1["Plan-011 Phase 1 — artifact contracts"]
- n011_2["Plan-011 Phase 2 — ingest and publication producers"]
- n011_3["Plan-011 Phase 3 — derivatives, events and deletion"]
- n011_4["Plan-011 Phase 4 — ingest worker, scan, cover, staging and artifact reads"]
- %% Plan-012
- n012_1["Plan-012 Phase 1 — persistence schema and receipt store"]
- n012_2["Plan-012 Phase 2 — replay rebuild and recovery status"]
- n012_3["Plan-012 Phase 3 — runtime-binding recovery and resume"]
- %% Plan-013
- n013_1["Plan-013 Phase 1 — orchestration contracts and persistence"]
- n013_2["Plan-013 Phase 2 — daemon orchestration services"]
- n013_3["Plan-013 Phase 3 — orchestration wire namespace and SDK"]
- n013_4["Plan-013 Phase 4 — desktop child-run surface"]
- n013_4B["Plan-013 Phase 4B — session cost receipt"]
- %% Plan-014
- n014_1["Plan-014 Phase 1 — workflow contracts, schema, writer"]
- n014_2["Plan-014 Phase 2 — sequential execution and gate resolution"]
- n014_2B["Plan-014 Phase 2B — usage-limit park and durable pacing"]
- n014_3["Plan-014 Phase 3 — multi-agent and human steps"]
- n014_4["Plan-014 Phase 4 — parallel steps and memory admission"]
- n014_5["Plan-014 Phase 5 — resumption, CLI, authoring surfaces"]
- n014_5B["Plan-014 Phase 5B — park cancelability and operator recovery"]
- n014_5C["Plan-014 Phase 5C — always-on engine event record"]
- %% Plan-015
- n015_1["Plan-015 Phase 1 — user contracts"]
- n015_2["Plan-015 Phase 2 — identity to user mapping"]
- n015_3["Plan-015 Phase 3 — user projection and display updates"]
- n015_4["Plan-015 Phase 4 — client surfaces and authorization"]
- n015_5["Plan-015 Phase 5 — credential seam and account"]
- n015_6["Plan-015 Phase 6 — WebAuthn ceremony server side"]
- %% Plan-016
- n016_1["Plan-016 Phase 1 — attention contracts and kinds"]
- n016_2["Plan-016 Phase 2 — the projection, the gate and the mute"]
- n016_3["Plan-016 Phase 3 — notification emission and delivery"]
- %% Plan-017
- n017_1["Plan-017 Phase 1 — diagnostic policy state"]
- n017_2["Plan-017 Phase 2 — diagnostic-bucket retention"]
- %% Plan-018
- n018_1["Plan-018 Phase 1 — rate-limit contracts and doc parity"]
- n018_2["Plan-018 Phase 2 — rate-limit backends"]
- n018_3["Plan-018 Phase 3 — enforcement wiring"]
- n018_4["Plan-018 Phase 4 — verification"]
- %% Plan-019
- n019_1["Plan-019 Phase 1 — the daemon's secrets"]
- n019_2["Plan-019 Phase 2 — the data acts"]
- n019_3["Plan-019 Phase 3 — the purge's erasure step and the account-deletion alignment"]
- %% Plan-020
- n020_1B["Plan-020 Phase 1B — main's registry of windows"]
- n020_2["Plan-020 Phase 2 — IPC bridge registry and handlers"]
- n020_3["Plan-020 Phase 3 — crash reporter and main startup composition"]
- n020_4["Plan-020 Phase 4 — auto-updater and deep-link handler"]
- n020_5["Plan-020 Phase 5 — renderer layout, router, composer"]
- n020_6["Plan-020 Phase 6 — build pipeline and release signing"]
- n020_7["Plan-020 Phase 7 — E2E suite, harness, CI gate"]
- n020_8["Plan-020 Phase 8 — Preview and detached panes"]
- %% Plan-021
- n021_3B["Plan-021 Phase 3B — PTY substrate hardening"]
- n021_4["Plan-021 Phase 4 — CI cross-compile matrix and signing"]
- n021_5["Plan-021 Phase 5 — publish and Windows default-flip"]
- %% Plan-022
- n022_1["Plan-022 Phase 1 — MCP contracts and storage"]
- n022_2["Plan-022 Phase 2 — MCP inventory and status observation"]
- n022_3["Plan-022 Phase 3 — MCP configuration mutation engines"]
- n022_4["Plan-022 Phase 4 — MCP overrides"]
- n022_5["Plan-022 Phase 5 — MCP sign-in, the daemon's client and route, and client delivery"]
- %% Plan-023
- n023_2["Plan-023 Phase 2 — account registry service and authorization"]
- n023_3["Plan-023 Phase 3 — credential homes and spawn binding"]
- n023_4["Plan-023 Phase 4 — cost attribution and client surfaces"]
- %% Plan-024
- n024_1["Plan-024 Phase 1 — agent definition contracts and schema"]
- n024_2["Plan-024 Phase 2 — definition registry, CLI, SDK"]
- n024_3["Plan-024 Phase 3 — resolution when a run starts"]
- n024_4["Plan-024 Phase 4 — peer invocation"]
- n024_5["Plan-024 Phase 5 — desktop library and editor"]
- n024_6["Plan-024 Phase 6 — Browse plugins"]
- %% Plan-025
- n025_1["Plan-025 Phase 1 — the daemon as a running process"]
- n025_2["Plan-025 Phase 2 — identity keys and the statement chain"]
- n025_3["Plan-025 Phase 3 — the relay and the channel"]
- n025_4["Plan-025 Phase 4 — method proxy and terminal streaming"]
- n025_5["Plan-025 Phase 5 — devices, linking and revocation"]
- n025_6["Plan-025 Phase 6 — the device recorded on each event"]
- n025_7["Plan-025 Phase 7 — Remote Control frontend"]
- n025_8["Plan-025 Phase 8 — self-host deployment"]
- %% Plan-026
- n026_1["Plan-026 Phase 1 — skill contracts and the read over three origins"]
- n026_2["Plan-026 Phase 2 — folder write, availability record, widening scan"]
- n026_3["Plan-026 Phase 3 — session pack and mid-session liveness"]
- n026_4["Plan-026 Phase 4 — Skills destination: addresses and the list"]
- n026_5["Plan-026 Phase 5 — folder editor"]
- n026_6["Plan-026 Phase 6 — availability on screen and the composer's Skills group"]
- n026_7["Plan-026 Phase 7 — a plugin's skills"]
- %% Plan-027
- n027_1["Plan-027 Phase 1 — Windows"]
- n027_2["Plan-027 Phase 2 — Linux"]
- subgraph phase10["Phase 10 — Other platforms"]
-  n021_4
-  n021_5
-  n005_R4
-  n027_1
-  n027_2
- end
- subgraph phase11["Phase 11 — Release"]
-  n020_6
- end
- n002_2 --> n002_3
- n002_2 --> n013_2
- n002_3 --> n002_4
- n002_3 --> n007_3
- n002_3B --> n010_2
- n002_4 --> n002_3B
- n004_4 --> n024_4
- n005_R1 --> n005_R2
- n005_2D --> n010_2
- n005_R1 --> n013_2
- n005_R1 --> n014_1
- n005_R1 --> n014_2
- n005_2D --> n020_5
- n005_R2 --> n005_R3
- n005_R2 --> n019_1
- n005_R3 --> n020_2
- n005_R3 --> n024_2
- n005_R3 --> n005_R4
- n007_3 --> n006_2B
- n008_1 --> n008_2
- n008_1 --> n008_3
- n008_1 --> n008_4
- n008_1 --> n008_5
- n009_1 --> n009_2
- n009_2 --> n009_3
- n009_2 --> n022_4
- n009_2 --> n023_2
- n009_2 --> n014_2
- n009_3 --> n009_4
- n010_2 --> n010_4
- n010_2 --> n016_2
- n010_3 --> n010_4
- n010_4 --> n016_3
- n011_1 --> n011_2
- n011_2 --> n011_3
- n011_3 --> n011_4
- n012_1 --> n012_2
- n012_1 --> n014_4
- n012_1 --> n014_5
- n012_2 --> n012_3
- n013_1 --> n013_2
- n013_1 --> n024_1
- n013_2 --> n013_3
- n013_2 --> n024_3
- n013_3 --> n013_4
- n013_3 --> n014_3
- n013_4 --> n013_4B
- n013_4B --> n024_4
- n014_1 --> n014_2
- n014_1 --> n024_2
- n014_2 --> n014_2B
- n014_2 --> n014_3
- n014_2B --> n014_5B
- n014_2B --> n014_5C
- n014_3 --> n014_4
- n014_4 --> n014_5
- n014_5 --> n014_5B
- n015_1 --> n015_2
- n015_2 --> n015_3
- n015_2 --> n015_6
- n015_3 --> n015_4
- n015_4 --> n015_5
- n016_1 --> n016_2
- n016_2 --> n016_3
- n017_1 --> n017_2
- n017_2 --> n014_5C
- n018_1 --> n018_2
- n018_2 --> n018_3
- n018_3 --> n018_4
- n019_1 --> n019_2
- n019_2 --> n019_3
- n005_R1 --> n019_3
- n020_2 --> n020_3
- n020_3 --> n020_4
- n020_4 --> n020_5
- n020_5 --> n020_6
- n020_5 --> n024_5
- n020_5 --> n020_7
- n020_7 --> n020_8
- n021_3B --> n021_5
- n021_4 --> n021_5
- n021_4 --> n005_R4
- n022_1 --> n022_2
- n022_1 --> n022_3
- n022_2 --> n022_4
- n022_3 --> n022_4
- n022_4 --> n022_5
- n023_2 --> n023_3
- n023_2 --> n024_3
- n023_3 --> n023_4
- n023_3 --> n013_2
- n024_1 --> n024_2
- n024_2 --> n024_3
- n024_3 --> n024_4
- n024_3 --> n024_5
- n025_1 --> n025_2
- n025_1 --> n020_2
- n025_2 --> n025_3
- n025_2 --> n025_5
- n025_3 --> n025_4
- n025_3 --> n025_5
- n025_3 --> n025_8
- n025_4 --> n025_7
- n025_5 --> n025_6
- n025_6 --> n025_7
- n005_R1 --> n026_1
- n005_R1 --> n005_R4
- n026_1 --> n026_2
- n026_2 --> n026_3
- n026_3 --> n026_4
- n020_5 --> n026_4
- n026_4 --> n026_5
- n026_5 --> n026_6
- n024_2 --> n026_1
- n024_3 --> n026_3
- n024_5 --> n024_6
- n026_3 --> n024_6
- n022_2 --> n024_6
- n026_6 --> n026_7
- n024_6 --> n026_7
- n006_2B --> n006_3
- n005_2B --> n002_2
- n005_2B --> n002_3
- n003_3 --> n003_5
- n003_3 --> n022_2
- n003_3 --> n024_3
- n003_3 --> n024_4
- n003_3 --> n024_6
- n003_3 --> n026_3
- n020_1B --> n020_2
- n020_1B --> n020_8
- n024_3 --> n001_6
- n025_3 --> n015_5
- n014_4 --> n011_4
- n001_6 --> n011_4
- n021_5 --> n020_6
- n005_R4 --> n020_6
- n027_1 --> n020_6
- n027_2 --> n020_6
-```
+A unit is ready once every unit in its "Waits on" has merged; it starts then, with no wait for a batch or a group. "Waits on" lists only direct dependencies: one already implied by another is left out. "Every macOS unit" means every unit in the first section below, except, on a row in that section, the row itself and the units that wait on it. A plan task listed under several units is built in parts: each unit builds the part its row names, and the task is done when the last of them merges.
 
-## Dispatch groups
+Free build lanes take ready units in the order of the sections below: desktop and daemon, then Remote Control, then the command line, then other platforms, release and email. Within a section, rows run from the unit with the longest chain of units after it to the shortest, so the first ready row in a section goes first.
 
-Every phase in a group can be built in parallel; a group opens once the phases it waits on have merged.
+A file several units edit (a `package.json`, the daemon's schema, the handler registration, main's entry point) takes one block per unit. A unit that lands second on it rebases, keeps both blocks, and reruns typecheck and tests.
 
-| Group | Phase | Builds | Waits on |
+## Units
+
+### Desktop and daemon
+
+| Unit | What it builds | Waits on | Plan tasks it discharges |
 | --- | --- | --- | --- |
-| 1 | [Plan-003 Phase 3](../plans/003-provider-driver-contract-and-capabilities.md) | Codex and Claude driver implementations; its cloud bridge (T3.32) waits on Plan-001 Phase 6, Plan-007 Phase 3 and Plan-012 Phase 1. | — |
-|  | [Plan-004 Phase 3B](../plans/004-session-event-taxonomy-and-audit-log.md) | machine-authored content column. | — |
-|  | [Plan-004 Phase 4](../plans/004-session-event-taxonomy-and-audit-log.md) | read side and SDK. | — |
-|  | [Plan-005 Phase R1](../plans/005-local-ipc-and-daemon-control.md) | daemon and settings namespace handlers. | — |
-|  | [Plan-005 Phase 2B](../plans/005-local-ipc-and-daemon-control.md) | the calling device on the dispatch context. | — |
-|  | [Plan-008 Phase 1](../plans/008-gitflow-pr-and-diff-attribution.md) | contracts. | — |
-|  | [Plan-009 Phase 1](../plans/009-approvals-permissions-and-trust-boundaries.md) | approval contracts and persistence. | — |
-|  | [Plan-010 Phase 3](../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) | child-run expansion and reasoning; its compaction-bound task (T3.9) waits on Plan-024 Phase 3. | — |
-|  | [Plan-011 Phase 1](../plans/011-artifacts-files-and-attachments.md) | artifact contracts. | — |
-|  | [Plan-012 Phase 1](../plans/012-persistence-recovery-and-replay.md) | persistence schema and receipt store. | — |
-|  | [Plan-013 Phase 1](../plans/013-multi-agent-orchestration.md) | orchestration contracts and persistence. | — |
-|  | [Plan-015 Phase 1](../plans/015-identity-and-user-state.md) | user contracts. | — |
-|  | [Plan-016 Phase 1](../plans/016-notifications-and-attention-model.md) | attention contracts and kinds. | — |
-|  | [Plan-017 Phase 1](../plans/017-observability-and-failure-recovery.md) | diagnostic policy state. | — |
-|  | [Plan-018 Phase 1](../plans/018-rate-limiting-policy.md) | rate-limit contracts and doc parity. | — |
-|  | [Plan-021 Phase 3B](../plans/021-rust-pty-sidecar.md) | PTY substrate hardening: the shells, their lease and flow control and the orphan defense on macOS; its sidecar-only tasks are Phase 10's. | — |
-|  | [Plan-022 Phase 1](../plans/022-mcp-server-configuration-and-governance.md) | MCP contracts and storage. | — |
-|  | [Plan-025 Phase 1](../plans/025-remote-control.md) | the daemon as a running process. | — |
-|  | [Plan-005 Phase 2C](../plans/005-local-ipc-and-daemon-control.md) | socket path length check before bind. | — |
-|  | [Plan-005 Phase 2D](../plans/005-local-ipc-and-daemon-control.md) | batched subscription frame. | — |
-|  | [Plan-020 Phase 1B](../plans/020-desktop-app-and-renderer.md#phase-1b--renderer-load-substrate) | main's registry of windows (T-020p-1B-5). | — |
-| 2 | [Plan-003 Phase 5](../plans/003-provider-driver-contract-and-capabilities.md) | MCP task-handle durability. | Plan-003 Phase 3 |
-|  | [Plan-014 Phase 1](../plans/014-workflow-authoring-and-execution.md) | workflow contracts, schema, writer. | Plan-005 Phase R1 |
-|  | [Plan-002 Phase 2](../plans/002-queue-steer-pause-resume.md) | queue admission and serialized interventions. | Plan-005 Phase 2B |
-|  | [Plan-005 Phase R2](../plans/005-local-ipc-and-daemon-control.md) | secure defaults, TLS, first-run keys. | Plan-005 Phase R1 |
-|  | [Plan-008 Phase 3](../plans/008-gitflow-pr-and-diff-attribution.md) | ship acts, generate and the trailer. | Plan-008 Phase 1 |
-|  | [Plan-009 Phase 2](../plans/009-approvals-permissions-and-trust-boundaries.md) | daemon policy and approval services. | Plan-009 Phase 1 |
-|  | [Plan-011 Phase 2](../plans/011-artifacts-files-and-attachments.md) | ingest and publication producers. | Plan-011 Phase 1 |
-|  | [Plan-012 Phase 2](../plans/012-persistence-recovery-and-replay.md) | replay rebuild and recovery status. | Plan-012 Phase 1 |
-|  | [Plan-015 Phase 2](../plans/015-identity-and-user-state.md) | identity to user mapping. | Plan-015 Phase 1 |
-|  | [Plan-017 Phase 2](../plans/017-observability-and-failure-recovery.md) | diagnostic-bucket retention. | Plan-017 Phase 1 |
-|  | [Plan-018 Phase 2](../plans/018-rate-limiting-policy.md) | rate-limit backends. | Plan-018 Phase 1 |
-|  | [Plan-022 Phase 2](../plans/022-mcp-server-configuration-and-governance.md) | MCP inventory and status observation. | Plan-003 Phase 3, Plan-022 Phase 1 |
-|  | [Plan-022 Phase 3](../plans/022-mcp-server-configuration-and-governance.md) | MCP configuration mutation engines. | Plan-022 Phase 1 |
-|  | [Plan-024 Phase 1](../plans/024-agent-definitions-and-peer-invocation.md) | agent definition contracts and schema. | Plan-013 Phase 1 |
-|  | [Plan-025 Phase 2](../plans/025-remote-control.md) | identity keys and the statement chain. | Plan-025 Phase 1 |
-|  | [Plan-008 Phase 4](../plans/008-gitflow-pr-and-diff-attribution.md) | hosting, reviews and notes. | Plan-008 Phase 1 |
-|  | [Plan-008 Phase 5](../plans/008-gitflow-pr-and-diff-attribution.md) | the review surface. | Plan-008 Phase 1 |
-|  | [Plan-008 Phase 2](../plans/008-gitflow-pr-and-diff-attribution.md) | ship facts and the diff read. | Plan-008 Phase 1 |
-| 3 | [Plan-002 Phase 3](../plans/002-queue-steer-pause-resume.md) | run-engine orchestration. | Plan-002 Phase 2, Plan-005 Phase 2B |
-|  | [Plan-005 Phase R3](../plans/005-local-ipc-and-daemon-control.md) | CLI package and daemon-status delivery; its self-update tasks are Phase 11's. | Plan-005 Phase R2 |
-|  | [Plan-009 Phase 3](../plans/009-approvals-permissions-and-trust-boundaries.md) | approval IPC, SDK, projection. | Plan-009 Phase 2 |
-|  | [Plan-011 Phase 3](../plans/011-artifacts-files-and-attachments.md) | derivatives, events and deletion. | Plan-011 Phase 2 |
-|  | [Plan-012 Phase 3](../plans/012-persistence-recovery-and-replay.md) | runtime-binding recovery and resume. | Plan-012 Phase 2 |
-|  | [Plan-015 Phase 3](../plans/015-identity-and-user-state.md) | user projection and display updates. | Plan-015 Phase 2 |
-|  | [Plan-015 Phase 6](../plans/015-identity-and-user-state.md) | WebAuthn ceremony server side. | Plan-015 Phase 2 |
-|  | [Plan-018 Phase 3](../plans/018-rate-limiting-policy.md) | enforcement wiring. | Plan-018 Phase 2 |
-|  | [Plan-023 Phase 2](../plans/023-provider-accounts-and-credential-homes.md) | account registry service and authorization. | Plan-009 Phase 2 |
-|  | [Plan-025 Phase 3](../plans/025-remote-control.md) | the relay and the channel. | Plan-025 Phase 2 |
-|  | [Plan-014 Phase 2](../plans/014-workflow-authoring-and-execution.md) | sequential execution and gate resolution. | Plan-005 Phase R1, Plan-009 Phase 2, Plan-014 Phase 1 |
-|  | [Plan-022 Phase 4](../plans/022-mcp-server-configuration-and-governance.md) | MCP overrides. | Plan-009 Phase 2, Plan-022 Phase 2, Plan-022 Phase 3 |
-|  | [Plan-019 Phase 1](../plans/019-data-retention-and-gdpr.md) | the daemon's secrets; the credential store's Windows arm is Phase 10's, beside Plan-005 Phase R4. | Plan-005 Phase R2 |
-| 4 | [Plan-025 Phase 5](../plans/025-remote-control.md) | devices, linking and revocation. | Plan-025 Phase 2, Plan-025 Phase 3 |
-|  | [Plan-002 Phase 4](../plans/002-queue-steer-pause-resume.md) | desktop run controls. | Plan-002 Phase 3 |
-|  | [Plan-007 Phase 3](../plans/007-worktree-lifecycle-and-execution-modes.md) | run-setup gate, worktree verbs, IPC namespace and SDK. | Plan-002 Phase 3 |
-|  | [Plan-009 Phase 4](../plans/009-approvals-permissions-and-trust-boundaries.md) | desktop approval surfaces. | Plan-009 Phase 3 |
-|  | [Plan-015 Phase 4](../plans/015-identity-and-user-state.md) | client surfaces and authorization. | Plan-015 Phase 3 |
-|  | [Plan-018 Phase 4](../plans/018-rate-limiting-policy.md) | verification. | Plan-018 Phase 3 |
-|  | [Plan-020 Phase 2](../plans/020-desktop-app-and-renderer.md) | IPC bridge registry and handlers. | Plan-005 Phase R3, Plan-020 Phase 1B, Plan-025 Phase 1 |
-|  | [Plan-023 Phase 3](../plans/023-provider-accounts-and-credential-homes.md) | credential homes and spawn binding. | Plan-023 Phase 2 |
-|  | [Plan-024 Phase 2](../plans/024-agent-definitions-and-peer-invocation.md) | definition registry, CLI, SDK. | Plan-005 Phase R3, Plan-014 Phase 1, Plan-024 Phase 1 |
-|  | [Plan-025 Phase 4](../plans/025-remote-control.md) | method proxy and terminal streaming. | Plan-025 Phase 3 |
-|  | [Plan-014 Phase 2B](../plans/014-workflow-authoring-and-execution.md) | usage-limit park and durable pacing. | Plan-014 Phase 2 |
-|  | [Plan-025 Phase 8](../plans/025-remote-control.md) | self-host deployment. | Plan-025 Phase 3 |
-|  | [Plan-022 Phase 5](../plans/022-mcp-server-configuration-and-governance.md) | MCP sign-in, the daemon's client and route, and client delivery. | Plan-022 Phase 4 |
-|  | [Plan-019 Phase 2](../plans/019-data-retention-and-gdpr.md) | the data acts. | Plan-019 Phase 1 |
-| 5 | [Plan-025 Phase 6](../plans/025-remote-control.md) | the device recorded on each event. | Plan-025 Phase 5 |
-|  | [Plan-006 Phase 2B](../plans/006-repo-attachment-and-workspace-binding.md) | repo identity keying and resolution. | Plan-007 Phase 3 |
-|  | [Plan-026 Phase 1](../plans/026-skills.md) | skill contracts and the read over three origins. | Plan-005 Phase R1, Plan-024 Phase 2 |
-|  | [Plan-013 Phase 2](../plans/013-multi-agent-orchestration.md) | daemon orchestration services. | Plan-002 Phase 2, Plan-005 Phase R1, Plan-013 Phase 1, Plan-023 Phase 3 |
-|  | [Plan-015 Phase 5](../plans/015-identity-and-user-state.md) | credential seam and account. | Plan-015 Phase 4, Plan-025 Phase 3 |
-|  | [Plan-020 Phase 3](../plans/020-desktop-app-and-renderer.md) | crash reporter and main startup composition. | Plan-020 Phase 2 |
-|  | [Plan-023 Phase 4](../plans/023-provider-accounts-and-credential-homes.md) | cost attribution and client surfaces. | Plan-023 Phase 3 |
-|  | [Plan-014 Phase 5C](../plans/014-workflow-authoring-and-execution.md) | always-on engine event record. | Plan-014 Phase 2B, Plan-017 Phase 2 |
-|  | [Plan-002 Phase 3B](../plans/002-queue-steer-pause-resume.md) | the run side of an undo. | Plan-002 Phase 4 |
-|  | [Plan-019 Phase 3](../plans/019-data-retention-and-gdpr.md) | the purge's erasure step and the account-deletion alignment. | Plan-005 Phase R1, Plan-019 Phase 2 |
-| 6 | [Plan-025 Phase 7](../plans/025-remote-control.md) | Remote Control frontend. | Plan-025 Phase 4, Plan-025 Phase 6 |
-|  | [Plan-006 Phase 3](../plans/006-repo-attachment-and-workspace-binding.md) | repo IPC namespace and SDK. | Plan-006 Phase 2B |
-|  | [Plan-026 Phase 2](../plans/026-skills.md) | folder write, availability record, widening scan. | Plan-026 Phase 1 |
-|  | [Plan-020 Phase 4](../plans/020-desktop-app-and-renderer.md) | deep-link handler; its auto-updater tasks are Phase 11's. | Plan-020 Phase 3 |
-|  | [Plan-010 Phase 2](../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) | projection and replay-aware subscription. | Plan-002 Phase 3B, Plan-005 Phase 2D |
-|  | [Plan-024 Phase 3](../plans/024-agent-definitions-and-peer-invocation.md) | resolution when a run starts. | Plan-003 Phase 3, Plan-013 Phase 2, Plan-023 Phase 2, Plan-024 Phase 2 |
-|  | [Plan-013 Phase 3](../plans/013-multi-agent-orchestration.md) | orchestration wire namespace and SDK. | Plan-013 Phase 2 |
-| 7 | [Plan-001 Phase 6](../plans/001-session-core.md) | the session directory and lifecycle. | Plan-024 Phase 3 |
-|  | [Plan-020 Phase 5](../plans/020-desktop-app-and-renderer.md) | renderer layout, router, composer. | Plan-005 Phase 2D, Plan-020 Phase 4 |
-|  | [Plan-010 Phase 4](../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) | desktop timeline rendering. | Plan-010 Phase 2, Plan-010 Phase 3 |
-|  | [Plan-016 Phase 2](../plans/016-notifications-and-attention-model.md) | the projection, the gate and the mute. | Plan-010 Phase 2, Plan-016 Phase 1 |
-|  | [Plan-014 Phase 3](../plans/014-workflow-authoring-and-execution.md) | multi-agent and human steps. | Plan-013 Phase 3, Plan-014 Phase 2 |
-|  | [Plan-013 Phase 4](../plans/013-multi-agent-orchestration.md) | desktop child-run surface. | Plan-013 Phase 3 |
-| 8 | [Plan-024 Phase 5](../plans/024-agent-definitions-and-peer-invocation.md) | desktop library and editor. | Plan-020 Phase 5, Plan-024 Phase 3 |
-|  | [Plan-016 Phase 3](../plans/016-notifications-and-attention-model.md) | notification emission and delivery; its email digest (T3.5) comes last of all. | Plan-010 Phase 4, Plan-016 Phase 2 |
-|  | [Plan-014 Phase 4](../plans/014-workflow-authoring-and-execution.md) | parallel steps and memory admission. | Plan-012 Phase 1, Plan-014 Phase 3 |
-|  | [Plan-013 Phase 4B](../plans/013-multi-agent-orchestration.md) | session cost receipt. | Plan-013 Phase 4 |
-|  | [Plan-020 Phase 7](../plans/020-desktop-app-and-renderer.md) | E2E suite, harness, CI gate; the suite's run on a signed, packaged build, the release job and the release runbook are Phase 11's. | Plan-020 Phase 5 |
-| 9 | [Plan-014 Phase 5](../plans/014-workflow-authoring-and-execution.md) | resumption, CLI, authoring surfaces. | Plan-012 Phase 1, Plan-014 Phase 4 |
-|  | [Plan-024 Phase 4](../plans/024-agent-definitions-and-peer-invocation.md) | peer invocation. | Plan-003 Phase 3, Plan-004 Phase 4, Plan-013 Phase 4B, Plan-024 Phase 3 |
-|  | [Plan-020 Phase 8](../plans/020-desktop-app-and-renderer.md) | Preview and detached panes. | Plan-020 Phase 1B, Plan-020 Phase 7 |
-|  | [Plan-011 Phase 4](../plans/011-artifacts-files-and-attachments.md) | ingest worker, scan, cover, staging and artifact reads. | Plan-001 Phase 6, Plan-011 Phase 3, Plan-014 Phase 4 |
-| 10 | [Plan-014 Phase 5B](../plans/014-workflow-authoring-and-execution.md) | park cancelability and operator recovery. | Plan-014 Phase 2B, Plan-014 Phase 5 |
-|  | [Plan-026 Phase 3](../plans/026-skills.md) | session pack and mid-session liveness. | Plan-003 Phase 3, Plan-024 Phase 3, Plan-026 Phase 2 |
-| 11 | [Plan-026 Phase 4](../plans/026-skills.md) | Skills destination: addresses and the list. | Plan-020 Phase 5, Plan-026 Phase 3 |
-|  | [Plan-024 Phase 6](../plans/024-agent-definitions-and-peer-invocation.md) | Browse plugins. | Plan-003 Phase 3, Plan-022 Phase 2, Plan-024 Phase 5, Plan-026 Phase 3 |
-| 12 | [Plan-026 Phase 5](../plans/026-skills.md) | folder editor. | Plan-026 Phase 4 |
-| 13 | [Plan-026 Phase 6](../plans/026-skills.md) | availability on screen and the composer's Skills group. | Plan-026 Phase 5 |
-| 14 | [Plan-026 Phase 7](../plans/026-skills.md) | a plugin's skills. | Plan-024 Phase 6, Plan-026 Phase 6 |
-| Phase 10 | [Plan-021 Phase 4](../plans/021-rust-pty-sidecar.md) | CI cross-compile matrix of both Rust crates for x64 and arm64; its signing stages are Phase 11's. | — |
-|  | [Plan-021 Phase 5](../plans/021-rust-pty-sidecar.md) | publish and Windows default-flip. | Plan-021 Phase 3B, Plan-021 Phase 4 |
-|  | [Plan-005 Phase R4](../plans/005-local-ipc-and-daemon-control.md) | the service on WSL 2. | Plan-005 Phase R1, Plan-005 Phase R3, Plan-021 Phase 4 |
-|  | [Plan-027 Phase 1](../plans/027-windows-and-linux.md) | Windows: every Windows implementation of an interface the numbered groups build on macOS that the Windows half does not hold. | — |
-|  | [Plan-027 Phase 2](../plans/027-windows-and-linux.md) | Linux: every Linux implementation of an interface the numbered groups build on macOS. | — |
-| Phase 11 | [Plan-020 Phase 6](../plans/020-desktop-app-and-renderer.md) | build pipeline and release signing. | Plan-005 Phase R4, Plan-020 Phase 5, Plan-021 Phase 5, Plan-027 Phase 1, Plan-027 Phase 2 |
+| `daemon-process` | The daemon as a running process: entry point, socket, start, ready, clean shutdown and reconnect, the machine's id minted at first start and kept the same after, the machine's name, and the login-shell environment captured at start; its done-when line on replay after a restart is proven in recovery | — | Plan-005 Phase R3: T-005r-3-11, T-005r-3-9; Plan-025 Phase 1 (daemon entry, local socket, lifecycle, replay, the machine's id minted at first start; read machine friendly name, macOS form); Plan-001 Phase 5: T5.2; Plan-005 Phase 2: T-005p-2-4, T-005p-2-6 |
+| `console-window` | The console window becomes a BaseWindow. Also: the supervisor that starts the service detached and reaches it through its socket; the notification permission read; refuses daemon.stop and daemon.restart unless the link reads connected | daemon-process | Plan-020 Phase 1B: T-020p-1B-5; Plan-020 Phase 2: T-020r-2-4, T-020r-2-4 EXTEND, T-020r-2-5, T-020r-2-7, T-020r-2-9; Plan-020 Phase 3: T-020r-3-1, T-020r-3-3, T-020r-3-3 EXTEND; Plan-020 Phase 7: T-020r-7-1; Plan-025 Phase 1 (main starts the service detached; quit leaves it; hang detection, restart backoff, hello wait; stop/restart: flush, SIGTERM, SIGKILL after 2 s; link status: unknown reads degraded; refuse renderer restart without status topic) |
+| `preload-bridge` | The live preload bridge. Also: the daemon.status topic's typed bridge contract (Plan-005 T-005r-3-7) | console-window | Plan-005 Phase R3: T-005r-3-7; Plan-005 Phase 2C: T-005p-2C-1; Plan-020 Phase 2: T-020r-2-1, T-020r-2-2, T-020r-2-3, T-020r-2-6; Plan-020 Phase 7: T-020r-7-1 |
+| `wire-contracts` | The wire contracts in `packages/contracts`. Also: the artifact contracts (Plan-011 T14.1); the session cursor codec and timelineCursors.earliest; the user.message payload; removes the uncalled cancel arm | — | Plan-013 Phase 1: T1.1, T1.2; Plan-011 Phase 1: T14.1; Plan-002 Phase 1: T1.2, T1.3 |
+| `calling-device` | The calling device on every handler call, stamped by the gateway | preload-bridge, wire-contracts | Plan-005 Phase 2B: T-005p-2B-1 |
+| `database-writer` | The writer worker: the one owner of the database handle; every daemon write goes through it (Plan-005 T-005r-1-18) | — | Plan-005 Phase R1: T-005r-1-18 |
+| `run-engine` | The run engine: getRun, the intervention service, the stale-replay guard, run transitions, one terminal per run, the run-setup seam, late-event epochs | calling-device, database-writer | Plan-002 Phase 2: T2.5, T2.6, T2.4; Plan-002 Phase 3: T3.2, T3.5, T3.6, T3.7, T3.9, T3.10; Plan-002 Phase 4: T4.5; Plan-002 Phase 1: T1.7 |
+| `session-directory` | The session directory and lifecycle, with a chat's managed workspace. Also: the read after a cursor and the replay-to-live handoff for session.subscribe; binds session.subscribe and session.read in the running daemon | database-writer, preload-bridge, wire-contracts | Plan-001 Phase 6: T6.3, T6.2, T6.4, T6.5, T6.6, T6.7, T6.9, T6.10, T6.15, T6.1, T6.8; Plan-004 Phase 4: T4.1; Plan-005 Phase 2D: T-005p-2D-1; Plan-010 Phase 3: T3.6; Plan-014 Phase 5: T5.15; Plan-001 Phase 3: T3.2, T3.3; Plan-016 Phase 1: T1.4 |
+| `provider-drivers` | Pause, interrupt, steer, child hold; five permission levels per driver. Also: one Codex service per account (Plan-003 T3.25) | run-engine | Plan-001 Phase 6: T6.13; Plan-002 Phase 3: T3.1, T3.3, T3.4, T3.8; Plan-003 Phase 3: T3.1, T3.2, T3.3, T3.4, T3.5, T3.6, T3.7, T3.8, T3.9, T3.10, T3.11, T3.12, T3.13, T3.14, T3.22, T3.26, T3.27, T3.34, T3.35, T3.36, T3.37, T3.38, T3.42, T3.39, T3.15, T3.28, T3.25, T3.30, T3.18, T3.21; Plan-009 Phase 2: T2.9; Plan-002 Phase 2: T2.4; Plan-013 Phase 2: T2.7; Plan-003 Phase 1: T1.8; Plan-003 Phase 3B: T3.40 |
+| `provider-accounts` | The current account: the switch at the next request, the hand-over brief a provider switch carries (Plan-003 T3.17), the five-minute limits reads, the window-start scheduler, usage across accounts | provider-drivers | Plan-003 Phase 3: T3.17; Plan-023 Phase 2: T2.1, T2.2, T2.3, T2.4, T2.5, T2.6; Plan-023 Phase 3: T3.1, T3.2, T3.3, T3.4; Plan-023 Phase 4: T4.1, T4.7; Plan-023 Phase 1: T1.3 |
+| `repo-handlers` | Every `repo.*` handler: projects, mounts, worktrees, the working-folder watch, the background fetch, setup progress and retry; keys a repository by its git common folder (`git rev-parse --path-format=absolute --git-common-dir`, then verified; unique per machine, with a separate per-worktree key for status and diffs), replacing the resolver that keys a linked worktree as its own root; its handlers, in the daemon, implement the `repo.*` methods of the repo contract (`packages/contracts/src/`), whose `repo.*` contracts and refusal codes are already in `packages/contracts`. Also: the run-setup gate (Plan-007 T3.2) | run-engine, session-directory | Plan-006 Phase 2B: T-006-2B-1, T-006-2B-2, T-006-2B-3, T-006-2B-4; Plan-006 Phase 3: T3.1, T3.2, T3.3, T3.4, T3.5, T3.6, T3.7, T3.8, T3.9, T3.10; Plan-007 Phase 3: T3.1, T3.2, T3.3, T3.4, T3.5, T3.6, T3.7, T3.8, T3.9, T3.10; Plan-007 Phase 2: T2.1, T2.2 |
+| `drafts-and-artifacts` | Daemon-held session-scoped draft and attachment store. Also: the daemon's artifact publish and derivatives (Plan-011 T14.3, T14.6), on its content-addressed store | provider-drivers | Plan-011 Phase 2: T14.2, T14.3, T14.4; Plan-011 Phase 3: T14.6; Plan-008 Phase 4: T11.9 |
+| `frame-tokens` | Frame tokens and the type/space scale | — | none |
+| `workflow-contracts` | v2 workflow contracts: document, kinds, items, run, step, events, methods | wire-contracts | Plan-014 Phase 1: T1.1, T1.2, T1.3, T1.8, T1.9 |
+| `frame-grid` | The three-column frame grid and its floors. Also: the overlay scrollbar every scroller but the conversation draws, its theme read from the frame tokens | frame-tokens | Plan-020 Phase 1C: T-020p-1C-1 |
+| `run-queue` | Run admission by the memory gate, the queue verbs (`run.queueCreate`, which also replaces a queued item in place, `run.queueList`, `run.subscribeQueue`, `run.queueCancel`, `run.queueReorder {sessionId, childHandle?, queueItemIds}`) and the run-state stream (`run.subscribeState`). Also: typed attachments on run.queueCreate (Plan-011 T14.5); removes the steer arm | drafts-and-artifacts | Plan-002 Phase 2: T2.1, T2.2, T2.3, T2.7, T2.8, T2.9, T2.10; Plan-011 Phase 2: T14.5; Plan-014 Phase 4: T4.2; Plan-002 Phase 1: T1.1 |
+| `session-messaging` | Sessions talking to each other, and the step bound | provider-accounts | Plan-002 Phase 3: T3.11; Plan-003 Phase 3: T3.24; Plan-013 Phase 2: T2.10, T2.12; Plan-013 Phase 3: T3.1, T3.2 |
+| `daemon-control` | The service's own control surface: `daemon.status.read`, `daemon.flush`, `daemon.stop` and `daemon.restart`, `daemon.retention*` and `daemon.config*` (the daemon status, lifecycle, retention and config contracts, `packages/contracts/src/`), the whole-session purge, which keeps no stub (it also deletes the session's capture folder, with its snapshot refs, and its base pins under `refs/sidekicks/base/<session id>/`, so they end with the session), the diagnostic-log expiry, the answer to main's `daemon.ping`, and the service's own sleep hold while any agent works, tied to its process (on macOS `caffeinate -d -i -w <daemon pid>`; on Linux logind's inhibitor and the screen saver's; on Windows, on both kinds of Windows computer, the service's Windows half holding `SetThreadExecutionState` for as long as its channel to the daemon is open, unit windows-wsl), which holds after the app quits. A quit only flushes; the service, every run and every shell keep running. Also: the diagnostic-log expiry's bound (Plan-017 T1.1); the data-folder lock the command line checks; registers daemon.stop and daemon.restart as mutating | drafts-and-artifacts, repo-handlers | Plan-002 Phase 2: T2.11; Plan-004 Phase 3B: T3.4, T3.5; Plan-005 Phase R1: T-005r-1-4, T-005r-1-5, T-005r-1-7, T-005r-1-9, T-005r-1-10, T-005r-1-11, T-005r-1-12, T-005r-1-14, T-005r-1-15, T-005r-1-16, T-005r-1-17; Plan-005 Phase R3: T-005r-3-12; Plan-011 Phase 3: T14.8; Plan-017 Phase 1: T1.1; Plan-017 Phase 2: T2.1, T2.2; Plan-019 Phase 2: T22.2.1, T22.2.3, T22.2.2; Plan-020 Phase 3: T-020r-3-2; Plan-025 Phase 1 (refuse renderer restart without status topic; daemon.ping answered) |
+| `approvals` | Approval service with no timer, and the Cedar evaluator | provider-drivers | Plan-009 Phase 1: T1.1, T1.2, T1.3, T1.4; Plan-009 Phase 2: T2.1, T2.2, T2.3, T2.4, T2.5, T2.6, T2.7, T2.8, T2.10, T2.11, T2.12; Plan-009 Phase 3: T3.1, T3.2, T3.3, T3.5, T3.6, T3.7, T3.8, T3.9, T3.10, T3.13, T3.12, T3.4; Plan-014 Phase 3: T3.3; Plan-014 Phase 5: T5.9; Plan-025 Phase 6 (answering device id on approval resolutions) |
+| `usage-and-commands` | turn.usage, turn.tasks and command.\*. Also: the session's idle stop (Plan-001 T6.12) and the driver half of the idle sleep (Plan-003 T3.30) | provider-drivers, session-directory | Plan-003 Phase 3: T3.29, T3.30; Plan-003 Phase 5: T5.2; Plan-010 Phase 3: T3.7, T3.9; Plan-022 Phase 1: T28.1.7; Plan-022 Phase 5: T28.5.9; Plan-001 Phase 6: T6.12; Plan-003 Phase 4: T4.9 |
+| `recovery` | Recovery: the receipt store, the replay rebuild after a restart, refusing writes while degraded, and the recovery state as a field on daemon.status.read | run-engine | Plan-012 Phase 1: T15.1; Plan-012 Phase 2: T15.2, T15.4 |
+| `workflow-storage` | Workflow SQLite tables, hash, layout and pin-data storage | database-writer, workflow-contracts | Plan-014 Phase 1: T1.4, T1.5, T1.6, T1.7, T1.8, T1.9, T1.10, T1.11, T1.12; Plan-014 Phase 2: T2.7, T2.10, T2.11, T2.12; Plan-014 Phase 5: T5.14, T5.16, T5.19; Plan-014 Phase 5B: T5.22 |
+| `checkpoints-and-undo` | Checkpoint store, three-way undo, inspector's snapshot list. Also: its capture leg reads repo-handlers' run-setup gate | repo-handlers, run-queue, session-messaging, usage-and-commands | Plan-002 Phase 3B: T3.13, T3.14; Plan-012 Phase 1: T15.6, T15.7; Plan-003 Phase 3: T3.15, T3.28, T3.30 |
+| `pricing` | The price table and request pricing (daemon): the price table under `packages/runtime-daemon/src/provider/pricing/` (the fetch, the schema check, the storage, the match by exact id), the per-request Codex price, Claude Code's `costBasis` handling, the loopback telemetry receiver with its attribution by `parentThreadId` and `request_id`, the model-list match that fetches for an unpriced model or speed and holds its requests until priced, and the release build step that embeds the fetched copy | session-messaging | Plan-013 Phase 2: T2.11, T2.4 |
+| `rail` | The rail | frame-grid | Plan-020 Phase 5: T-020r-5-1, T-020r-5-1 EXTEND; Plan-026 Phase 4 (skills routing arm and four addresses) |
+| `workflow-engine` | Workflow engine, JSONata expressions, secret resolution, execution context and snapshot points | approvals, daemon-control, recovery, workflow-storage | Plan-014 Phase 2: T2.1, T2.2, T2.4, T2.8, T2.9, T2.12, T2.10; Plan-014 Phase 2B: T2.5, T2.6; Plan-014 Phase 3: T3.4; Plan-014 Phase 4: T4.1, T4.3; Plan-014 Phase 5: T5.1, T5.9, T5.11, T5.12, T5.19; Plan-014 Phase 5B: T5.20, T5.21, T5.22; Plan-014 Phase 5C: T5.24 |
+| `pane-tracks` | Screen-view pane tracks: one main pane, the stacked terminal, full width | rail | none |
+| `cli-scaffold` | apps/cli: the package, entry point, base command and exit codes (sidekicks hook-gate builds on it in agent-definitions) | — | Plan-005 Phase R3: T-005r-3-1, T-005r-3-2, T-005r-3-3, T-005r-3-9 |
+| `agent-tree` | The agent tree and the orchestration reads, and the routing of a child's controls. Also: the admission pipeline (Plan-013 T2.2), the goal service (T2.6), an agent's provider switch (T1.4, T2.9, T3.8), and the budget: the accountant and limits, context headroom, the spend roll-up, the cost receipt, budgetRead and costReceiptRead, the spend-limit and tokens-per-run verbs | pricing, run-queue, session-directory | Plan-002 Phase 3: T3.12; Plan-013 Phase 1: T1.3, T1.4; Plan-013 Phase 2: T2.1, T2.3, T2.2, T2.4, T2.5, T2.6, T2.7, T2.8, T2.9; Plan-013 Phase 3: T3.1, T3.3, T3.4, T3.5, T3.6, T3.7, T3.2, T3.8; Plan-013 Phase 4B: T2.13, T3.9 |
+| `timeline-projector` | The timeline projector: run stamps, the superseded marker, the rollback boundary, timeline.read windows | run-engine, session-directory | Plan-002 Phase 3B: T3.15; Plan-004 Phase 4: T4.1; Plan-010 Phase 2: T2.1, T2.2, T2.3, T2.4 |
+| `workflow-triggers` | Trigger arming, scheduler, loopback webhook listener | checkpoints-and-undo, workflow-engine | Plan-014 Phase 5: T5.10, T5.12, T5.17 |
+| `credential-store` | The credential store: each secret is its own item in the operating system's credential store through `@napi-rs/keyring`, and nothing in the daemon's database is encrypted by the app. The items are the machine's identity key and channel key, the hosted sign-in's refresh token and DPoP key, and the private half of the artifact-encryption key pair (relay content keys stay wrapped to that pair), beside the items the store already holds: a pasted provider token, a workflow secret, the web address and its signing secret, the mail password, and each tool server sign-in's refresh token and DPoP key (ADR-038). On Linux the daemon picks the Secret Service store explicitly and, where no Secret Service answers, keeps its items in one file, `~/.ai-sidekicks/secrets.json` in its own data folder, readable only by the person (mode `0600`), as `gh` and Codex do; it never uses the kernel keyring, which is cleared at every restart and which the binding would fall back to on its own. It never falls back silently: while the file holds the items, Settings › Runtime shows one line, `Secrets are kept in <path>, readable only by you, because no Secret Service is running.`, its path read from `daemon.status.read`'s `secretsFile`, absent on every other machine. `daemon.dataErase` deletes every item the app made. The code goes: the master key and its custody (the Secure Enclave wrap and the `sidekicks-keywrap` helper, the TPM wrap, the keychain entry, the passphrase file), the WebAuthn PRF root and `shell.deriveKek`, `daemon.unlock` and `sidekicks daemon unlock`, `daemon_secrets` and the `master_keys` table, `daemon.keyRotate`, `sidekicks rotate-keys` and the retired keys, `daemon.recoveryPassphraseSet`, `daemon.backupKeySyncUpdate` and the iCloud Keychain item, and the `user_keys` table and its migrations with `pii_user_id`, the owner stamp and `pii_owner_stamp_unbound`. | daemon-control | Plan-005 Phase R2: T-005r-2-1; Plan-019 Phase 1: T22.1.1, T22.1.2; Plan-019 Phase 2: T22.2.2; Plan-019 Phase 3: T22.3.1 |
+| `session-header` | The session header and its one session-actions list | pane-tracks | Plan-020 Phase 1C: T-020p-1C-4 |
+| `transcript-frame` | Transcript frame: width, gap, fade, jump control | pane-tracks, timeline-projector | Plan-010 Phase 4: T4.10; Plan-020 Phase 1C: T-020p-1C-2 |
+| `agent-definitions` | The definition contract, the table, the daemon service. Also: the run-start resolution of a saved definition and a session led by one (Plan-024 T3.2), the configuration-isolation suite (T3.3) | agent-tree, approvals, cli-scaffold, workflow-storage | Plan-024 Phase 1: T1.1, T1.2; Plan-024 Phase 2: T2.1, T2.2, T2.4; Plan-024 Phase 3: T3.1, T3.4, T3.5, T3.6, T3.7, T3.2, T3.3; Plan-001 Phase 6: T6.1, T6.8; Plan-013 Phase 3: T3.1 |
+| `mcp-read` | MCP read path at every scope on both providers; the MCP tables and error classes | provider-drivers | Plan-022 Phase 1: T28.1.5, T28.1.6, T28.1.7; Plan-022 Phase 2: T28.2.1, T28.2.2, T28.2.3, T28.2.4, T28.2.5, T28.2.6, T28.2.7, T28.2.8, T28.2.9, T28.2.10 |
+| `workflow-handlers` | The 47 workflow.\* handlers, subscription and refusal codes | workflow-triggers | Plan-014 Phase 1: T1.7, T1.8, T1.10, T1.11, T1.12; Plan-014 Phase 2: T2.3, T2.4, T2.7, T2.8, T2.9, T2.11; Plan-014 Phase 3: T3.2; Plan-014 Phase 5: T5.2, T5.5, T5.9, T5.11, T5.12, T5.13, T5.14, T5.15, T5.16, T5.19; Plan-014 Phase 5B: T5.20, T5.21, T5.22, T5.23 |
+| `composer-card` | Composer card shell: hairline, draft, Send, attachment strip | transcript-frame | Plan-020 Phase 5: T-020r-5-2, T-020r-5-2 EXTEND; Plan-020 Phase 1C: T-020p-1C-3, T-020p-1C-3 EXTEND |
+| `renderer-persistence` | Renderer-local persistence for the new facts | pane-tracks | none |
+| `header-banners` | Banners directly under the header | session-header, wire-contracts | none |
+| `deep-links` | The `sidekicks://` link handler in main, and its `window.subscribeToNavigationRequest` bridge member, which hands the address, a `sidekicks open` and a notification click to the renderer; multiple-windows routes them to their place | console-window | Plan-020 Phase 4: T-020r-4-3, T-020r-4-4; Plan-020 Phase 7: T-020r-7-1 |
+| `plans-questions-artifacts` | plan._ and question._ records; artifact.list and artifact.read | approvals, drafts-and-artifacts, session-directory | Plan-009 Phase 3: T3.11; Plan-010 Phase 3: T3.10; Plan-011 Phase 3: T14.7; Plan-014 Phase 3: T3.4; Plan-011 Phase 4: T14.12; Plan-025 Phase 6 (answering device id on question and plan resolutions) |
+| `timeline-details` | Child-run expansion, the reasoning surface, intervention rows, timeline.bodyRead and patchRead | provider-drivers, timeline-projector | Plan-010 Phase 3: T3.1, T3.2, T3.3, T3.4, T3.5 |
+| `mcp-write` | MCP write path and Browse servers; the session's own tool servers, live, with a per-session switch (Plan-022 T28.5.12) | mcp-read | Plan-022 Phase 1: T28.1.7; Plan-022 Phase 3: T28.3.1, T28.3.2, T28.3.3, T28.3.4, T28.3.5, T28.3.6, T28.3.7, T28.3.8, T28.3.9, T28.3.10, T28.3.11, T28.3.12; Plan-022 Phase 5: T28.5.12 |
+| `settings-screen` | The screen and the ten-page vocabulary | — | Plan-020 Phase 1C: T-020p-1C-4 |
+| `workflows-page` | Workflows page: title, three tabs with counts, actions menu, tab state | workflow-handlers | Plan-014 Phase 5: T5.3 |
+| `workflow-nodes-1` | NODE_KINDS registry and catalog batch 1 | agent-definitions, checkpoints-and-undo, workflow-engine | Plan-014 Phase 2: T2.1, T2.2, T2.3, T2.12, T2.10; Plan-014 Phase 5: T5.13; Plan-014 Phase 4: T4.2 |
+| `transcript-prose-rows` | Transcript rows, part 1: act rows, the user turn, prose, thinking | timeline-details, transcript-frame | Plan-010 Phase 4: T4.1, T4.2, T4.3, T4.8, T4.9, T4.13, T4.14, T4.15, T4.16, T4.17, T4.18 |
+| `working-line` | The working line and the run controls. Also: the connection line: boot cover, boot card, working line (Plan-005 T-005r-3-8) | composer-card, header-banners | Plan-002 Phase 4: T4.2, T4.3, T4.5; Plan-005 Phase R3: T-005r-3-8, T-005r-3-9; Plan-020 Phase 5: T-020r-5-2 EXTEND; Plan-020 Phase 1C: T-020p-1C-3 |
+| `code-colorer` | One colorer in the daemon; spans painted as classes | provider-drivers | none |
+| `attention` | Attention projection with moment id and seen fact; windowless banner start | plans-questions-artifacts, timeline-projector | Plan-016 Phase 1: T1.2; Plan-016 Phase 2: T2.1, T2.2, T2.3, T2.4, T2.5 |
+| `preview-daemon` | Preview's daemon side | provider-drivers | Plan-020 Phase 8: T-020r-8-2 |
+| `agent-binding-chain` | Hoist the provider-axis binding chain out of the agents feature | — | Plan-020 Phase 1C: T-020p-1C-4 EXTEND |
+| `multiple-windows` | Several sessions on screen: session views side by side in a window and windows of their own (the frame's row of views, focus between them, `⌥⌘←` and `⌥⌘→`, the view's close and `⌘W`, `Open beside` and `⌘`-click, `Open in new window` for a session, `New window` on `⌘⇧N`, a view's title dragged into another window or onto the desktop), one place per session and per destination, routing of links, `sidekicks open`, notification clicks and bell lines, window titles after the focused view, the sessions list's thin mark, and restore of every window with its views | deep-links, pane-tracks | Plan-020 Phase 5: T-020r-5-3; Plan-020 Phase 7: T-020r-7-1 |
+| `auto-compact` | session.autoCompactUpdate: the per-session compaction bound | agent-definitions, usage-and-commands | Plan-010 Phase 3: T3.8 |
+| `shell-control-lease` | The shells' control lease (session.takeControl), flow control, the orphan defense, on macOS | calling-device, database-writer | Plan-021 Phase 3B: T-021-3B-2, T-021-3B-7, T-021-3B-3 |
+| `mcp-overrides` | MCP tool overrides and the effective-binding derivation; it hooks approvals' rules so a removed server's approval rules end | approvals, mcp-write | Plan-022 Phase 1: T28.1.7; Plan-022 Phase 4: T28.4.1, T28.4.2, T28.4.3, T28.4.4, T28.4.5; Plan-009 Phase 3: T3.4 |
+| `machine-settings-file` | The machine's settings file and the preference carrier | preload-bridge | Plan-020 Phase 2: T-020r-2-8 |
+| `appearance-settings` | Appearance, theme axis, text-size axis, transcript-width token | renderer-persistence, settings-screen | none |
+| `workflow-builder` | Builder: canvas, palette, inspector, store, toolbar, validation strip, versions panel | workflows-page | Plan-014 Phase 5: T5.3, T5.4 |
+| `code-node` | Code node quick tier (QuickJS) and full tier (provider sandbox) | checkpoints-and-undo, workflow-engine | Plan-014 Phase 1: T1.13; Plan-014 Phase 2: T2.2, T2.13, T2.14; Plan-014 Phase 4: T4.3 |
+| `workflow-nodes-2` | Catalog batch 2 | workflow-nodes-1 | Plan-014 Phase 2: T2.11; Plan-014 Phase 4: T4.1 |
+| `transcript-tool-rows` | Transcript rows, part 2: run group, tool row, output row, running command, diff block | transcript-prose-rows | Plan-010 Phase 4: T4.5, T4.11, T4.12, T4.13 |
+| `toolbar-chips` | The toolbar's six chips, the ring and the ⋯ fold | auto-compact, composer-card | Plan-010 Phase 4: T4.4, T4.7; Plan-020 Phase 5: T-020r-5-2 EXTEND |
+| `pending-rows` | Pending rows in the flow | composer-card, transcript-prose-rows | Plan-020 Phase 5: T-020r-5-2 EXTEND |
+| `message-actions` | Message actions, fork and restore | checkpoints-and-undo, transcript-prose-rows | Plan-002 Phase 4: T4.6 |
+| `markdown-and-diagrams` | Markdown, code color and diagrams | code-colorer, transcript-frame | none |
+| `sessions-flyout` | Sessions flyout: shell, search, picker | pane-tracks, repo-handlers | none |
+| `run-controls` | Pause, interrupt, stop-all, undo and rewind | checkpoints-and-undo, working-line | Plan-002 Phase 4: T4.1, T4.5 |
+| `notifications-main` | Notifications, the bell and the app icon (main-process half) | attention, machine-settings-file | Plan-016 Phase 3: T3.1 |
+| `preview-host` | Preview's main-process host | machine-settings-file, multiple-windows | Plan-020 Phase 7: T-020r-7-2; Plan-020 Phase 8: T-020r-8-1 |
+| `approvals-card` | The approvals card in the composer | approvals, composer-card | Plan-009 Phase 4: T4.1, T4.3, T4.4; Plan-025 Phase 6 (answered on <device> line on screen); Plan-020 Phase 1C: T-020p-1C-3 EXTEND |
+| `inspector` | The inspector | agent-tree, pane-tracks | Plan-009 Phase 4: T4.2; Plan-013 Phase 4B: T4.3; Plan-020 Phase 1C: T-020p-1C-5 EXTEND |
+| `session-import` | Provider-session import | provider-accounts, session-directory | Plan-023 Phase 4: T4.6 |
+| `terminal-daemon` | The terminal's daemon side: shells per session, order, output with replay, writes, resize | session-directory, shell-control-lease | Plan-021 Phase 3B: T-021-3B-8 |
+| `git-flow` | Git flow: the diff, ship facts and acts with their progress, Generate, the hosting adapter and reads, trailers, self-hosted hosts; its handlers, in the daemon, implement the `gitflow.*` methods of the git-flow contract (`packages/contracts/src/`), which already holds every `gitflow.*` contract, and the hosting adapter's shapes stay in the daemon | checkpoints-and-undo | Plan-008 Phase 2: T11.2, T11.3; Plan-008 Phase 3: T11.4, T11.5, T11.6; Plan-008 Phase 4: T11.7, T11.8, T11.9 |
+| `provider-settings` | Provider settings, the machine-level `provider.*` surface, including the standing rules' list and revoke (each rule read from the provider's own files with its scope, an account home or a project, and its source file: Codex's `rules/default.rules` under each account home and each trusted project's `.codex/rules/`, Claude Code's `permissions` in its user-level, project and project-local settings files), each provider knob carried to the provider as flag settings at each start (Claude Code `--settings`, Codex `-c`) or mid-session through `apply_flag_settings`, never written to its files, the executable re-check (`provider.probe`) and the one-press install of a missing provider (`provider.install`, its stream and its stop: the provider's own installer from one table per provider and platform, run as the person with no administrator step, no terminal and no input (Codex's with `CODEX_NON_INTERACTIVE=1`), no time limit of the app's own, the process tree stopped on `Cancel`, the reason trimmed with credential-shaped strings removed, then the login shell read again and the provider checked; the provider lookup reads the PATH, the login shell's PATH, then where each installer puts its command, from the same table) | session-messaging | Plan-023 Phase 4: T4.4, T4.5 |
+| `web-address` | Delivery beyond this Mac: the web address (the web-address sender and its verbs, the outcome table, `attention.deliveryRead` and `attention.deliveryTest`) | attention, machine-settings-file | Plan-016 Phase 3: T3.3, T3.4 |
+| `agent-library` | The agents feature and the library | agent-binding-chain, agent-definitions, rail | Plan-024 Phase 5: T5.1 |
+| `cross-provider-bridge` | The cross-provider bridge: one daemon-owned tool server with six verbs (run, message, wait, stop, close, list) through which a lead runs an agent on the other provider. Also: the cost-and-causation test (Plan-024 T4.3) | agent-definitions | Plan-024 Phase 4: T4.1, T4.2, T4.3 |
+| `skills` | The Skills destination (console + daemon) | agent-definitions, code-colorer, rail | Plan-026 Phase 1 (skill contract module, strict schemas; register eight roots on Plan-024's watch; parse SKILL.md; loadError, disabledInProvider; keep orphaned records through agent-definitions' mechanism); Plan-026 Phase 2 (skill.update whole-folder save, skill.create; availability record and skill.availabilityUpdate; recordReattach and recordDiscard; skill.subscribe whole-list stream; skill.scan widening scan); Plan-026 Phase 3 (skills join each provider's session pack; mid-session liveness and per-session off switch); Plan-026 Phase 4 (skills screen layout and list with arms); Plan-026 Phase 5 (folder editor, Files panel, skill.fileRead); Plan-026 Phase 6 (availability control and scan line on screen; run.queueCreate accepts a listed picked skill) |
+| `restart-sweep` | After a restart, each in-flight run adopts or resumes its provider session or fails explicitly, and every receipt with a task handle resumes | recovery, usage-and-commands | Plan-012 Phase 3: T15.3 |
+| `mcp-sign-in` | The daemon's MCP sign-in, its completion event and sign-out (Plan-022 T28.5.1–T28.5.3, T28.5.10, T28.5.11); mcp.reconnect and the Spec-024 acceptance sweep | credential-store, mcp-overrides, usage-and-commands | Plan-022 Phase 1: T28.1.7; Plan-022 Phase 5: T28.5.4, T28.5.8, T28.5.1, T28.5.2, T28.5.3, T28.5.10, T28.5.11 |
+| `general-settings` | General | appearance-settings, daemon-control, machine-settings-file | none |
+| `workflow-agent-tools` | The 16 workflow\_\* agent tools with Cedar actions | workflow-handlers | Plan-014 Phase 5: T5.8 |
+| `workflow-runs` | Runs tab and a run's page: strip, attention, table, run graph, step panel, actions, receipts | workflow-builder | Plan-014 Phase 5: T5.3 |
+| `workflow-nodes-3` | Catalog batch 3 | code-node, preview-daemon, workflow-nodes-2 | Plan-014 Phase 3: T3.2, T3.3 |
+| `worktree-switcher` | The worktree switcher and its setup card | repo-handlers, toolbar-chips | Plan-020 Phase 1C: T-020p-1C-5 |
+| `sessions-list` | Sessions list: groups, rows, dots, menu, archived. Also: the `multi-session-streaming` fixture scenario, several sessions across more than one project with one streaming a scripted reply word by word | session-header, sessions-flyout | Plan-020 Phase 1C: T-020p-1C-1 |
+| `notifications-list` | The notifications list in the sessions track | attention, deep-links, machine-settings-file, sessions-flyout | Plan-016 Phase 3: T3.2 |
+| `terminal-pane` | The terminal: tabs, per-shell lease, the grid. Also: the terminal's throughput micro-benchmark in the bench ledger | pane-tracks, terminal-daemon | Plan-020 Phase 1C: T-020p-1C-8 |
+| `preview-pane` | Preview's renderer pane | composer-card, preview-host | Plan-020 Phase 8: T-020r-8-3 |
+| `plan-and-question-cards` | Plan mode, the plan card, the plan reader, the question card | approvals-card, attention, inspector, markdown-and-diagrams, message-actions, pending-rows, transcript-tool-rows | Plan-010 Phase 4: T4.6 |
+| `review-pane` | Review, the ship strip and the file pane | inspector | Plan-008 Phase 5: T11.10 |
+| `sidekicks-pane` | The Sidekicks pane, its tree and the child view | agent-library, cross-provider-bridge, run-controls, timeline-details | Plan-013 Phase 4: T4.1, T4.2 |
+| `terminal-bridge` | The terminal bridge, an optional Claude Code plugin: two function hooks, the shared `sidekicks` server connected in the person's terminal sessions through an entry the daemon mints for each, so they hold every session tool but `session_remind` under the same rules text, and a peer delivery handed to the daemon first, each with the daemon-side behavior that stands when the plugin is absent | agent-tree | Plan-001 Phase 6: T6.14 |
+| `recovery-divergence` | The divergence arm of the recovery after a restart (run.recoveryResolve) | checkpoints-and-undo, restart-sweep | Plan-012 Phase 3: T15.5 |
+| `inspector-provider-reads` | The inspector's provider reads: memory and hooks | provider-drivers | Plan-003 Phase 3: T3.31; Plan-020 Phase 5: T-020r-5-4 |
+| `ingest-worker` | The ingest worker: a child process the daemon starts for one file and ends after it, holding no key, socket, database handle or session state. No antivirus scan runs on any platform; on macOS and Linux a person's own ClamAV would hold about 1.5 GB for a check that protects little, since the app never runs an attached file, renders outside bytes only in this worker and the first-page worker, and stores every other file unopened. It draws a PDF's first page with PDFium; a picture never passes through it and reaches the provider as its original bytes. Also: the staging verbs (Plan-011 T14.11), the cover (T14.10) and the first-page picture artifact.read returns | daemon-control, plans-questions-artifacts, preview-daemon, run-queue, usage-and-commands | Plan-011 Phase 4: T14.9, T14.10, T14.11, T14.12 |
+| `agent-editor` | The agent definition editor and Try it | agent-library, cross-provider-bridge | Plan-024 Phase 5: T5.1 |
+| `plugins` | `Browse plugins`: the daemon's plugin service over each provider's own plugin verbs, one daemon-owned plugin home per provider (`~/.ai-sidekicks/plugins/claude/`, `~/.ai-sidekicks/plugins/codex/`), the `plugin.*` wire and events (the plugin contract, `packages/contracts/src/`), the view at `#/sidekicks/plugins`, delivery into the session pack, and the `Installed in your terminal` reader | agent-library, mcp-read, skills | Plan-024 Phase 6: T6.1, T6.2; Plan-026 Phase 7 (read plugin skills from plugin homes; refuse writes plugin_read_only; held controls; browse plugins in Skills header) |
+| `codex-output-speed` | The Codex output-speed leg | provider-drivers | Plan-003 Phase 3: T3.23; Plan-003 Phase 4: T4.5 |
+| `provider-cloud` | The provider-cloud bridge: `Send to the cloud…`, the cloud task's record and rows, and bring-back, gated by what each provider can do | checkpoints-and-undo, session-import | Plan-003 Phase 3: T3.32 |
+| `detached-panes` | Detached panes: the detach act and its chord (`⌘⇧A`, the pane header's `Open in new window`, the window's `Return to session`), the window's life (open, return to its session's view or to the window used last, close, restore across quits, placement kept per pane kind; a pane's own window belongs to its session and outlives the window it came from), Preview's page moving with its pane (with preview-host), and the when-scoped chords across windows | preview-host | Plan-020 Phase 8: T-020r-8-5 |
+| `refusal-words` | Refusal words: a code-to-words mapper behind the refusal card | — | none |
+| `bundle-budget` | The renderer bundle budget checked in CI by `size-limit`: the brotli and gzip sizes of the built `out/renderer` assets against the budgets in its one config, on the tier-1 desktop job, replacing the own-built bundle measurer and its test | — | Plan-020 Phase 1C: T-020p-1C-8 |
+| `mcp-task-handle` | The command_receipts.mcp_task_id write | usage-and-commands | Plan-003 Phase 5: T5.1 |
+| `runtime-settings` | Runtime | appearance-settings, code-node, machine-settings-file | none |
+| `providers-settings` | Providers | appearance-settings, credential-store, machine-settings-file, provider-settings, session-import | Plan-023 Phase 4: T4.3 |
+| `mcp-settings` | MCP servers | frame-tokens, machine-settings-file, mcp-sign-in, settings-screen | Plan-022 Phase 5: T28.5.7 |
+| `projects-settings` | Projects | general-settings | Plan-020 Phase 1C: T-020p-1C-4 |
+| `browser-settings` | Browser | appearance-settings, git-flow, preview-daemon, preview-host | Plan-020 Phase 8: T-020r-8-4 |
+| `notification-settings` | Notifications | appearance-settings, notifications-main, web-address | none |
+| `voice` | `/voice`: dictation into the composer on Claude Code and Codex's own spoken voice on Codex — the window's capture and WebRTC peer, the daemon's socket to Anthropic's speech service and its bridge to Codex's realtime voice | session-directory, session-messaging | Plan-003 Phase 3: T3.33, T3.15 |
+| `workflows-tab` | Workflows tab: table, filter row, row actions, empty states | workflows-page | none |
+| `workflow-chat` | The 13 chat verbs, the progress row and the results row | workflow-agent-tools, workflow-runs | Plan-014 Phase 5: T5.7 |
+| `workflow-export` | Canonical v2 export/import file shared by daemon and renderer | workflow-handlers | Plan-014 Phase 5: T5.5 |
+| `workflow-nodes-4` | Catalog batch 4 | attention, workflow-nodes-3, workflow-triggers | Plan-014 Phase 3: T3.1, T3.4; Plan-014 Phase 5: T5.18 |
+| `banner-mode` | Banner mode, turned on through notifications-main's poster | notifications-main | none |
+| `quit-flush` | Main's quit calls daemon.flush; the supervisor's hard stop | daemon-control | none |
+| `command-list` | The command list: the thirty-four words, their arguments and completion | every macOS unit | Plan-020 Phase 5: T-020r-5-2 EXTEND; Plan-026 Phase 6 (composer's Skills group reads skill.list) |
+| `keyboard-and-find` | Keyboard, the palette's acts, find. Also: the fuzzy-search micro-benchmark in the bench ledger, over the palette's ranking | command-list | Plan-020 Phase 1C: T-020p-1C-8 |
+| `keyboard-settings` | Keyboard | keyboard-and-find | Plan-020 Phase 1C: T-020p-1C-4 |
+| `console-polish` | The accessibility sweeps over every route and dialog, the capture aid's pass over every route and dialog, the endurance reference run, and the fan-out and markdown tail-slice micro-benchmarks in the endurance ledger | keyboard-settings | Plan-020 Phase 1C: T-020p-1C-8 |
 
-## Console build order
+### Remote Control
 
-The console has five rail destinations, in a fixed order ([ADR-029](../decisions/029-five-rail-destinations.md)): Sessions, Sidekicks, Skills, Workflows, Settings. Its frame, routes, pane chrome and fixtures are already in the tree from Plan-020's console phase, so what remains is each destination's live body, and every body is built by the plan that owns it, in its own feature, and registered through that feature's contributions. This table reads the dispatch groups above by destination: the phase that puts each screen on the glass, and the earliest group in which it can open.
+| Unit | What it builds | Waits on | Plan tasks it discharges |
+| --- | --- | --- | --- |
+| `machine-identity-key` | The machine's identity key, minted under the machine's id at the first start that has the credential store, the same after every later start | credential-store | Plan-025 Phase 1 (mint the identity key under the machine's id) |
+| `sign-in-rate-limiter` | The sign-in-route limiter: interface, the Workers Durable Object counter, the in-memory counter, the 429 procedure | — | Plan-018 Phase 1: T21.1-1, T21.1-2, T21.1-3, T21.1-4; Plan-018 Phase 2: T21.2-1, T21.2-2, T21.2-3, T21.2-4, T21.2-5, T21.2-6; Plan-018 Phase 3: T21.3-1, T21.3-2; Plan-018 Phase 4: T21.4-1 |
+| `identity-keys` | Remote Control Phase 2: identity keys and the statement chain | machine-identity-key | Plan-025 Phase 2 (machine Ed25519 key as its own store item; P-256 device keys: Enclave, Keystore, WebCrypto; algorithm tag on every public key; X25519 channel key per device and machine; signed statement chain and its verification; devices table replaces user_identity_keys) |
+| `relay-channel` | Remote Control Phase 3: the relay, the channel, the pin; the relay connect token | identity-keys, sign-in-rate-limiter | Plan-015 Phase 4: T4.3; Plan-025 Phase 3 (machine registers with the control plane; typed error envelope, runtimenode.permission_denied; one Noise_KK channel per device and machine; first frame profile negotiation; relay negotiation, one connection per key; sign-in route rate limit, channel backpressure; relay key pin and repin; shared channel package under packages/; controlPlane.call on the local socket; control plane pg.Pool Querier client) |
+| `passkey-relying-party` | The WebAuthn relying party: credential and challenge tables, the users columns, registration and authentication, revoke | sign-in-rate-limiter | Plan-015 Phase 2: T2.1; Plan-015 Phase 6: T6.1, T6.2, T6.3, T6.4, T6.5; Plan-018 Phase 3: T21.3-3 |
+| `method-proxy` | Remote Control Phase 4: the method proxy | relay-channel | Plan-025 Phase 4 (SDK relay arm and method proxy; channel stream framing; port tunnel streams; event subscriptions resume across reconnect; terminal streaming with backpressure, resume point; keep last presence.heartbeat per device) |
+| `devices-and-push` | Remote Control Phases 5 and 6: devices, linking, push, presence, and the device recorded on each event; push to a device with no live connection (Plan-016 T3.6) | attention, method-proxy, passkey-relying-party | Plan-018 Phase 3: T21.3-3; Plan-025 Phase 5 (device.list/link\*/rename/revoke/forget; runtimenode.remove; chain head exchanged at every channel open; linking secret, six digits, passkey linking; removed machine relinked under new key; revoke closes channel; linked-by flags; push addresses, settings, APNs/FCM/VAPID senders; per-machine presence register); Plan-025 Phase 6 (record connection's device on each event); Plan-016 Phase 3: T3.6 |
+| `web-client` | The web client: the browser bridge, the relay transport in the renderer, the web app manifest, the Web Push service worker, the WebCrypto device key, and the machine switch shared by every host | approvals-card, devices-and-push | Plan-025 Phase 7 (web client: bridge, relay transport, manifest, push; front end runs in WebKit: doctype, cssTarget) |
+| `control-plane-account` | The control-plane account: sign-in and refresh, machine enrollment, account.export and account.delete, the account's users row | passkey-relying-party, relay-channel | Plan-015 Phase 2: T2.1, T2.2; Plan-015 Phase 5: T5.1, T5.2, T5.3, T5.4, T5.5; Plan-018 Phase 3: T21.3-3 |
+| `one-column-layout` | One column on every screen: the fold on Sidekicks, Skills, Workflows and Settings, its Devices page included, back controls, coarse-pointer presses, the terminal key row, Back, and the in-place folder list | web-client | Plan-025 Phase 7 (one-column fold on every screen) |
+| `account-name` | The account name: user projection and display update on the control plane, the daemon's user.\* handlers | control-plane-account | Plan-015 Phase 1: T1.1, T1.2; Plan-015 Phase 3: T3.1, T3.2; Plan-015 Phase 4: T4.4 |
+| `android-app` | The Android app: a Capacitor 8.5.2 shell and the phone bridge's Android members, the Keystore key, FCM, Back, the scan, the cover and the port view | one-column-layout | Plan-025 Phase 7 (android Capacitor app) |
+| `self-host-relay` | Remote Control Phase 8: the Compose relay | preview-daemon, relay-channel | Plan-025 Phase 8 (compose relay: Caddy TLS front, ARI, bind check; first-run secrets, sentinel, refusal; postgres secret file, SCRAM over verify-full; server-name router, wildcard names, DNS challenge; daemon's ACME certificate client; relay and Postgres budget measurement; port ticket and scoped cookie) |
+| `devices-page` | The Devices page in Settings: machine, device and passkey cards, linking on both sides, and the shared-ports list | web-client | Plan-025 Phase 7 (settings Devices page, linking, shared ports) |
+| `iphone-app` | The iPhone app: the one front end in a Capacitor shell, native only for the enclave key, the push extension, the cover, the scan, the port view, bundle staging, the link open (`sidekicks://session/<id>`, with the foreground and background events that close and reopen the channel) and the edge swipe's one marked dismissal; iOS 26 and later | android-app | Plan-025 Phase 7 (iPhone Capacitor app) |
+| `desktop-remote-client` | The desktop app as a client of other machines: one relay channel per other machine, opened by this machine's background service as this machine, so main holds no key, the machine switch, the merged bell, and the loopback listener for shared ports | web-client | Plan-025 Phase 7 (desktop as client of other machines) |
+| `cli-devices` | `sidekicks devices`, with `link`, `rename`, `revoke` and `forget` | every macOS unit | Plan-025 Phase 7 (sidekicks devices link/rename/revoke/forget) |
 
-| Destination | Phase that builds the screen | Opens in group |
-| --- | --- | --- |
-| Every destination | [Plan-020 Phase 5](../plans/020-desktop-app-and-renderer.md) adopts the console as the desktop app's frame and wires the composer live. A body that lands before it renders inside the console from its fixture data; a body that lands after it renders live. | 7 |
-| Sessions | [Plan-008 Phase 5](../plans/008-gitflow-pr-and-diff-attribution.md) (the review surface) | 2 |
-|  | [Plan-002 Phase 4](../plans/002-queue-steer-pause-resume.md) (run controls), [Plan-007 Phase 3](../plans/007-worktree-lifecycle-and-execution-modes.md) (the worktree methods the console's worktree switcher and its setup card call), [Plan-009 Phase 4](../plans/009-approvals-permissions-and-trust-boundaries.md) (approvals) | 4 |
-|  | [Plan-006 Phase 3](../plans/006-repo-attachment-and-workspace-binding.md) (the repo methods the console's new-session picker, clone card and projects page call) | 6 |
-|  | [Plan-013 Phase 4](../plans/013-multi-agent-orchestration.md) (child runs), [Plan-010 Phase 4](../plans/010-live-timeline-visibility-and-reasoning-surfaces.md) (the transcript's rows) | 7 |
-|  | [Plan-016 Phase 3](../plans/016-notifications-and-attention-model.md) (the bell and notification delivery) | 8 |
-|  | [Plan-020 Phase 8](../plans/020-desktop-app-and-renderer.md#phase-8--preview-and-detached-panes) (the Preview pane, [ADR-034](../decisions/034-embedded-browser-for-preview.md), and a side pane in a window of its own) | 9 |
-|  | The terminal bridge, an optional Claude Code plugin that gives the user's own terminal Claude Code sessions an entry for the daemon's shared `sidekicks` tool server, and with it the session tools, and hands a peer delivery to the daemon first ([ADR-035](../decisions/035-claude-code-mods-are-an-optional-terminal-bridge.md)), after [Plan-013 Phase 2](../plans/013-multi-agent-orchestration.md) lands the daemon's own messaging. Nothing in the daemon depends on it, so it has no node in the graph. | — |
-| Sidekicks | [Plan-024 Phase 5](../plans/024-agent-definitions-and-peer-invocation.md) (the library and the editor), then Phase 6 (Browse plugins) | 8, 11 |
-| Skills | [Plan-026 Phase 4](../plans/026-skills.md) (rail, addresses, list), then Phase 5 (the folder editor), then Phase 6 (availability and the composer's Skills group), then Phase 7 (a plugin's skills) | 11, 12, 13, 14 |
-| Workflows | [Plan-014 Phase 5](../plans/014-workflow-authoring-and-execution.md) (the builder, run detail, human forms and chat start), then Phase 5B (the operator recovery surface) | 9, 10 |
-| Settings | [Plan-022 Phase 5](../plans/022-mcp-server-configuration-and-governance.md) (the MCP servers page) | 4 |
-|  | [Plan-023 Phase 4](../plans/023-provider-accounts-and-credential-homes.md) (the Providers page) | 5 |
-|  | [Plan-020 Phase 8](../plans/020-desktop-app-and-renderer.md#phase-8--preview-and-detached-panes) (the Browser page) | 9 |
-|  | The other pages' chrome is in the tree from the console phase. Each page goes live when the daemon methods it reads are built; [api-payload-contracts.md §Operations Not Yet Built](./contracts/api-payload-contracts.md#operations-not-yet-built) names each with its owning plan. | — |
+### The command line
 
-Sidekicks and Skills open late: both screens wait on Plan-020 Phase 5, which sits behind that plan's Phases 2, 3 and 5, and the Skills screen also waits on Plan-026 Phase 3, which follows Plan-024 Phase 4.
+| Unit | What it builds | Waits on | Plan tasks it discharges |
+| --- | --- | --- | --- |
+| `cli-account` | sidekicks sign-in, sign-out, delete-account, users, relay repin | account-name, every macOS unit | Plan-005 Phase R3: T-005r-3-12, T-005r-3-18, T-005r-3-20, T-005r-3-9; Plan-015 Phase 4: T4.1, T4.2 |
+| `cli-daemon` | sidekicks daemon start/stop/restart/status/install/uninstall, settings effective-read and the banner, open, crash list, export-data, erase-data, db restore | every macOS unit | Plan-005 Phase R1: T-005r-1-3, T-005r-1-6; Plan-005 Phase R2: T-005r-2-2, T-005r-2-3; Plan-005 Phase R3: T-005r-3-4, T-005r-3-5, T-005r-3-6, T-005r-3-6b, T-005r-3-9, T-005r-3-10, T-005r-3-14, T-005r-3-15, T-005r-3-16, T-005r-3-17, T-005r-3-19 |
+| `cli-features` | sidekicks workflow, mcp, provider accounts, sidekick-definition (and their typed clients) | every macOS unit | Plan-014 Phase 5: T5.6; Plan-014 Phase 5B: T5.23; Plan-022 Phase 5: T28.5.5, T28.5.6; Plan-023 Phase 4: T4.2; Plan-024 Phase 2: T2.3 |
 
-Remote Control's own screens — the Devices page with its machine, device and passkey cards, the linking flow, and the ports this machine shares with the person's other devices — are [Plan-025 Phase 7](../plans/025-remote-control.md)'s. Remote Control adds no rail destination ([ADR-029](../decisions/029-five-rail-destinations.md)): Devices is the last Settings page, after Runtime.
+### Other platforms, release and email
+
+| Unit | What it builds | Waits on | Plan tasks it discharges |
+| --- | --- | --- | --- |
+| `windows` | Native Windows: every Windows implementation of an interface Phases 1 to 9 build on macOS that the service's Windows half (unit windows-wsl) does not hold, in main, the renderer, the daemon's TypeScript and the terminal sidecar. The terminal sidecar, Plan-021 whole: its host, protocol, crash budget and respawn, the cross-compile of both Rust crates for x64 and arm64 and its publish script, with the arm64 package; `native.listEditors` and `native.openInEditor` on Windows; the taskbar's overlay count; the Codex hooks' `command_windows` form; the agent-memory folder's link as a junction; the stop of Claude Code and of the daemon on Windows; session-messaging's session inboxes as named pipes; the socket-path limit on Windows; the machine name; the Windows window chrome, key legends and file-manager wording; the provider lookup table's Windows rows and the one-press install there; each Windows behavior measured on a Windows machine | cli-account, cli-daemon, cli-devices, cli-features, desktop-remote-client, devices-page, iphone-app, self-host-relay | Plan-021 Phase 3B: T-021-3B-1, T-021-3B-4, T-021-3B-5, T-021-3B-6; Plan-021 Phase 4: T-021-4-1, T-021-4-2, T-021-4-6, T-021-4-7; Plan-021 Phase 5: T-021-5-1, T-021-5-2, T-021-5-3; Plan-027 Phase 1: T27.1.1, T27.1.2, T27.1.3, T27.1.4, T27.1.5, T27.1.6, T27.1.7, T27.1.8, T27.1.9, T27.1.10, T27.1.11 |
+| `linux` | Linux: every Linux implementation of an interface Phases 1 to 9 build on macOS. The user service with lingering and the service across logout; the Secret Service pin on every keychain entry; the credential store's Linux file, where no Secret Service answers, and Runtime's line naming it then; keep-awake through `systemd-inhibit`; the wake helper's Linux form; `native.listEditors` and `native.openInEditor` through desktop entries; the machine name from `PRETTY_HOSTNAME`; `MimeType=x-scheme-handler/sidekicks` for deep-links' address; both sandboxes on a real Ubuntu desktop; the waiting signal through `/proc/<pid>/wchan`; the clone where the disk has one; the backup folder's Linux default; the provider lookup table's Linux rows; the Linux window chrome and key legends; each Linux behavior measured on a real Linux desktop | cli-account, cli-daemon, cli-devices, cli-features, desktop-remote-client, devices-page, iphone-app, self-host-relay | Plan-027 Phase 2: T27.2.1, T27.2.2, T27.2.3, T27.2.4, T27.2.5, T27.2.6, T27.2.7, T27.2.8, T27.2.9, T27.2.10, T27.2.11, T27.2.12, T27.2.13, T27.2.14, T27.2.15 |
+| `windows-wsl` | The background service on a Windows computer whose Claude Code and Codex live in WSL 2, and every Windows-only job on both kinds of Windows computer. The Windows half (`packages/service-windows-half`, a Rust crate on the `tokio` runtime the terminal sidecar uses, binary `sidekicks-windows-half.exe`): the per-user logon task that starts it; the attached `wsl.exe` in its Job; the per-user named pipe with its fail-closed server, and the client SDK's open at identification level with its owner check; the HTTP/2 channel over `wsl.exe` stdio and its control stream; the stuck-WSL deadlines and status file; sign-out, and the signed-out task with the desktop role where the signed-out probe on a Windows machine allows it (`--while-signed-out`); banners and their withdrawal; keep-awake and the wake timer; the port-owner check and the carry of a port WSL cannot carry, bound to this machine only; the credential store's Windows arm with its one-shot verbs. On native Windows the same binary runs as the daemon's child, serving its pipe and doing the same Windows jobs. The daemon's WSL arm: the stop on end-of-input, the environment captured at each start, `wslpath` translation, the per-mode port check for Preview and the webhook listener, and the locked worktrees on the other side's disk. Discovery and the place row's readings; the runtime installed into the distribution and its own rollback; the move with its move set, each sign-in file moved and never copied, take-in, worktree repair and undo; backups defaulting to a Windows folder; the command line on both sides | windows | Plan-005 Phase R4: T-005r-4-1, T-005r-4-2, T-005r-4-3, T-005r-4-4, T-005r-4-5, T-005r-4-6, T-005r-4-7, T-005r-4-8, T-005r-4-9, T-005r-4-10, T-005r-4-11, T-005r-4-12, T-005r-4-13, T-005r-4-14, T-005r-4-15, T-005r-4-16, T-005r-4-17; Plan-019 Phase 1: T22.1.3; Plan-022 Phase 2: T28.2.11; Plan-025 Phase 1 (WSL start via logon task and mutex); Plan-019 Phase 2: T22.2.2 |
+| `app-update` | The app's own update path (electron-updater) | linux, windows-wsl | Plan-020 Phase 4: T-020r-4-1, T-020r-4-2 |
+| `service-update` | sidekicks self-update and the service's update; no self-swap while connections are open | linux, windows-wsl | Plan-005 Phase R3: T-005r-3-6a, T-005r-3-13, T-005r-3-9 |
+| `release` | The release workflow: the packaging targets (`.dmg` and `.zip` on macOS; NSIS for x64 and arm64; AppImage; `.deb` and `.rpm` through the project's signed apt and dnf repository on Cloudsmith's open-source plan), the self-signed macOS code-signing identity with one bundle identifier on every build, the Windows arm64 legs with the terminal sidecar's `@ai-sidekicks/pty-sidecar-win32-arm64` package, its files and a checksum list on every release, the sidecar's platform packages published to npm with npm's own provenance, and the service's Linux runtime as the standalone Node.js bundle for glibc and for musl on x64 and arm64 (the musl archives built in an Alpine container on the Node.js project's `linux-x64-musl` and `linux-arm64-musl` binaries from its unofficial-builds channel, so an Alpine machine or distribution runs it), each Windows installer carrying both Linux archives for its architecture with their SHA-256, and `sidekicks-windows-half.exe` for x64 and arm64 from the terminal sidecar's cross-compile, signed in the Windows signing step beside the app | app-update | Plan-020 Phase 6: T-020r-6-1, T-020r-6-2, T-020r-6-3, T-020r-6-4, T-020r-6-5; Plan-020 Phase 7: T-020r-7-1, T-020r-7-3, T-020r-7-4; Plan-021 Phase 4: T-021-4-3, T-021-4-4, T-021-4-5 |
+| `email-digest` | The email digest: the digest scheduler and sender and the mail-password verbs | release, service-update | Plan-016 Phase 3: T3.5 |
+
+## Replaced plan tasks
+
+These plan tasks were replaced by the design and deleted from their plans. Code, tests or contract members they left behind are deleted by the unit named here, under engineering rule 8; the unit deletes the row when it does.
+
+| Plan | What was replaced | Why | Deleted by |
+| --- | --- | --- | --- |
+| Plan-002 | A steer that degrades to a queue send plus an interrupt | A person's steer is always a queue send. | `run-queue` |
+| Plan-002 | A cancel that ends a run as interrupted | There is no Stop and no Cancel turn; a system stop is an interrupt with its trigger. | `run-engine` |
+| Plan-002 | The run-control client | No consumer: the desktop calls the daemon through `callDaemon`, and no command drives a run. | `run-controls` |
+| Plan-006 | The repo client and its tests | No consumer: the desktop uses `callDaemon`, and no command reads `repo.*`. | `repo-handlers` |
+| Plan-007 | The worktree client and its tests | No consumer, as above. | `repo-handlers` |
+| Plan-010 | The timeline client | No consumer, as above. | `timeline-details` |
+| Plan-004 | The `event.*` read side | One stream per session, `session.subscribe`, carries every read. | `session-directory` |
+| Plan-005 | The config keys and the update poller | The first-start key is minted by the daemon's start, and main and `sidekicks self-update --check` check for the update. | `machine-identity-key`, `service-update` |
+| Plan-015 | The renderer's user store | No screen draws the account. | `account-name` |
+| Plan-017 | The SQLite diagnostic tables and their compaction | The diagnostic-log expiry deletes whole log files. | `daemon-control` |
+| Plan-020 | The import ban for a desktop native tree | No desktop native tree exists or is planned. | `preload-bridge` |

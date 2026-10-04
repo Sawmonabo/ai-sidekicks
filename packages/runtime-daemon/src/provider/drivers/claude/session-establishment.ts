@@ -8,7 +8,8 @@
 //   (Claude starts a fresh session when the recorded working directory changed).
 // - Every refused attachment is disposed before `failed` is returned.
 
-import { type RecoveryCondition, type SessionId } from "@ai-sidekicks/contracts";
+import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider-driver-recovery";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type {
   ClaudeChannelDisposalReason,
   ClaudeResumedSessionAttachment,

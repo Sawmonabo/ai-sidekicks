@@ -1,6 +1,6 @@
 // Claude Code's static facts: what the daemon reads about it before any session exists.
 
-import { CLAUDE_UPDATE_SWITCH_NAMES } from "@ai-sidekicks/contracts";
+import { CLAUDE_UPDATE_SWITCH_NAMES } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { DriverCapabilityDetectionTable, ProbeAnswer } from "../../capability-probe.js";
 import type {

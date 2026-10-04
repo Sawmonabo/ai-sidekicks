@@ -5,7 +5,9 @@
 // per child run (children expand independently) and per session (session stores outlive a
 // navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
-import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
+import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

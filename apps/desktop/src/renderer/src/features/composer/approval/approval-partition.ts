@@ -2,7 +2,7 @@
 // `partitionApprovalRecords` returns empty lists for every phase but `answered`, so callers
 // render the phase beside them: a read in flight is not a read that found none.
 
-import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
 import { type ReadPhase } from "@renderer/lib/read-phase.js";
 

@@ -179,7 +179,11 @@ export interface QuestionMethodDescriptors {
   >;
 }
 
-/** The `question.*` descriptor table. */
+/**
+ * The `question.*` descriptor table.
+ *
+ * @consumedBy the daemon's `question.resolve` handler
+ */
 export const QUESTION_METHOD_DESCRIPTORS: QuestionMethodDescriptors = defineMethodDescriptors({
   "question.resolve": {
     method: "question.resolve",

@@ -1,5 +1,5 @@
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { type AgentListEntry } from "@ai-sidekicks/contracts";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
 
 /**
  * The mode the provider declared, beside the one requested; never folded into or substituted for

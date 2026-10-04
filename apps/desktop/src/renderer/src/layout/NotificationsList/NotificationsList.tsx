@@ -3,7 +3,7 @@
 // re-filters nothing. It performs no read: it is handed the reading, so it and the sessions list
 // use one projection.
 
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { NotificationsListBody } from "./NotificationsListBody.js";
 

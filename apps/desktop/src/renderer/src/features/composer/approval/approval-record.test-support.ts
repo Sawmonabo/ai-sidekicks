@@ -6,7 +6,7 @@ import {
   ApprovalResolveRequestSchema,
   type ApprovalProjectionRow,
   type ApprovalResolveRequest,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
 
 /** The pending ask's id, for the cases that name it. */
 export const PENDING_APPROVAL_ID = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";

@@ -1,4 +1,4 @@
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { NotificationEntryList } from "./NotificationEntryList.js";

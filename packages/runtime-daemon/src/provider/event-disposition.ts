@@ -1,7 +1,8 @@
 // How the provider drivers dispose of each normalized event kind: the daemon-side half of the
 // event taxonomy.
 
-import type { EventCategory, SessionEventType } from "@ai-sidekicks/contracts";
+import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 // The provider drivers normalize both provider wires into a fixed vocabulary of normalized kinds
 // before the taxonomy maps each kind onto a `SessionEventType`. `EVENT_DISPOSITION_BY_KIND` is the

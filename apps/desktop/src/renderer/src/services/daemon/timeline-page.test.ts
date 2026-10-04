@@ -3,13 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  EventCursor,
-  SessionId,
-  TimelineReadResponse,
-  TimelineRow,
-} from "@ai-sidekicks/contracts";
-import { TimelineReadResponseSchema } from "@ai-sidekicks/contracts";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
+import type { TimelineReadResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
+import { TimelineReadResponseSchema } from "@ai-sidekicks/contracts/timeline/operations";
 
 import { readEarlierTimelinePage } from "./timeline-page.js";
 

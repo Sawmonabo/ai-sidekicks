@@ -5,7 +5,7 @@
 // own latch round rather than the scheduled read's stamp, since a list read carries the
 // payload arm forward and says nothing about anyone's bytes.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";

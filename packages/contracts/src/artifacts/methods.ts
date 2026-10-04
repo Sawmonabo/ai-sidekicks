@@ -27,7 +27,11 @@ export interface ArtifactMethodDescriptors {
   >;
 }
 
-/** The `artifact.*` methods, each with its schemas. */
+/**
+ * The `artifact.*` methods, each with its schemas.
+ *
+ * @consumedBy the daemon's `artifact.list` and `artifact.read` handlers
+ */
 export const ARTIFACT_METHOD_DESCRIPTORS: ArtifactMethodDescriptors = defineMethodDescriptors({
   "artifact.list": {
     method: "artifact.list",

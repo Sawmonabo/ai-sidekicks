@@ -4,7 +4,7 @@
 // edit control. The contract carries only the row and its superseded ranking, no caller or
 // run state: whether a person may edit is a daemon predicate, not something computed here.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
 

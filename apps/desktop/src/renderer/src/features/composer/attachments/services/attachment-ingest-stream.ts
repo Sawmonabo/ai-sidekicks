@@ -4,7 +4,7 @@
 // replayed completion returns its original response. A user can act mid-call, so every
 // continuation re-reads the record after its await and a stale one writes nothing. No timer.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { reportTripwire } from "@renderer/lib/tripwires.js";

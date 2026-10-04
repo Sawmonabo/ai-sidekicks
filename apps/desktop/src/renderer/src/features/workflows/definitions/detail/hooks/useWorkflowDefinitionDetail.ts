@@ -7,8 +7,11 @@ import type {
   WorkflowDefinitionReadResult,
   WorkflowVersionBody,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import type { WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
-import { subjectReadStart, type SubjectRead } from "../../../subject-read-start.js";
+import type { WorkflowVersionChainEntry } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import {
+  subjectReadStart,
+  type SubjectRead,
+} from "@renderer/features/workflows/subject-read-start.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 
 /**

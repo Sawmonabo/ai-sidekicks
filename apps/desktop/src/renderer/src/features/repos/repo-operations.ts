@@ -2,25 +2,27 @@
 // an abort signal and the acts do not: a view may go away before a read lands, but an act that
 // reached the daemon has happened, and abandoning it would leave the view saying it did not.
 
+import type { ExecutionMode, RepoMountId, WorkspaceId } from "@ai-sidekicks/contracts/repo";
 import type {
-  ExecutionMode,
   ExecutionModeSelectResponse,
   ExecutionRootPrepareRequest,
   ExecutionRootPrepareResponse,
-  RepoAttachRequest,
-  RepoAttachResponse,
-  RepoMountId,
-  RepoMountReadResponse,
-  WorkspaceBindRequest,
-  WorkspaceBindResponse,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-  WorkspaceId,
-  WorkspaceListResponse,
   WorktreeRetireRequest,
   WorktreeRetireResponse,
   WorktreeReuseCheckResponse,
   WorktreeStatusReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/worktree";
+import type {
+  RepoAttachRequest,
+  RepoAttachResponse,
+  RepoMountReadResponse,
+} from "@ai-sidekicks/contracts/repo-folders";
+import type {
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+  WorkspaceListResponse,
+} from "@ai-sidekicks/contracts/workspace";
 
 /** The calls the repos, workspaces and execution-root views make. */
 export interface RepoOperations {

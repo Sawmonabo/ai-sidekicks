@@ -22,27 +22,33 @@ import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-  RecoveryConditionSchema,
   RunIdSchema,
-  SessionIdSchema,
-  wireFreeFormString,
   type ApplyInterventionParams,
   type DriverCapabilities,
   type DriverCapabilityFlag,
-  type DriverCompactionResult,
   type DriverInterventionResult,
   type ExecutionPosture,
   type InterruptRunParams,
   type McpServerStatus,
-  type ProviderCommandListResult,
   type ProviderMode,
   type ProviderModel,
   type ProviderToolMetadata,
-  type RecoveryCondition,
   type RunId,
   type SessionCallbackTool,
+} from "@ai-sidekicks/contracts/provider-driver";
+import {
+  RecoveryConditionSchema,
+  type RecoveryCondition,
+} from "@ai-sidekicks/contracts/provider-driver-recovery";
+import {
+  SessionIdSchema,
+  wireFreeFormString,
   type SessionId,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/session";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
 import { z } from "zod";
 
 // ---- ProviderDriver ----

@@ -181,12 +181,20 @@ export const ProviderAccountRemoveResponseSchema: z.ZodType<ProviderAccountRemov
 
 /** A run bound to the account is live, so it is not removed; the refusal names those sessions. */
 export const PROVIDER_ACCOUNT_IN_USE_CODE = "provideraccount.account_in_use" as const;
-/** The type of {@link PROVIDER_ACCOUNT_IN_USE_CODE}. */
+/**
+ * The type of {@link PROVIDER_ACCOUNT_IN_USE_CODE}.
+ *
+ * @consumedBy the handler that returns the `provideraccount.account_in_use` error
+ */
 export type ProviderAccountInUseCode = typeof PROVIDER_ACCOUNT_IN_USE_CODE;
 
 /** The sessions whose live runs block a removal. */
 export type ProviderAccountInUseDetails = { sessionIds: SessionId[] };
-/** Parses {@link ProviderAccountInUseDetails}; at least one session is named. */
+/**
+ * Parses {@link ProviderAccountInUseDetails}; at least one session is named.
+ *
+ * @consumedBy the handler that returns the `provideraccount.account_in_use` error
+ */
 export const ProviderAccountInUseDetailsSchema: z.ZodType<ProviderAccountInUseDetails> = z
   .object({ sessionIds: z.array(SessionIdSchema).min(1) })
   .strict();
@@ -256,7 +264,11 @@ export const ProviderAccountSetCurrentResponseSchema: z.ZodType<ProviderAccountS
  * account whose last limits read showed its login gone is refused this way.
  */
 export const PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = "provideraccount.not_authenticated" as const;
-/** The type of {@link PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE}. */
+/**
+ * The type of {@link PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE}.
+ *
+ * @consumedBy the handler that returns the `provideraccount.not_authenticated` error
+ */
 export type ProviderAccountNotAuthenticatedCode = typeof PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE;
 
 /** Checks one account's health now. */

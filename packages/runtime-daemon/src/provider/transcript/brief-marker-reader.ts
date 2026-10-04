@@ -3,8 +3,8 @@
  * declared, so a repeat delivery is recognized instead of duplicated.
  */
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
-import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import {
   BRIEF_CONTINUITY_LOSS_JOINER,
   BRIEF_CONTINUITY_LOSS_SEPARATOR,

@@ -19,12 +19,14 @@
 
 import type {
   ApplyInterventionParams,
-  DriverCompactionResult,
   DriverInterventionResult,
   InterruptRunParams,
-  ProviderCommandListResult,
   ProviderModel,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  DriverCompactionResult,
+  ProviderCommandListResult,
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
@@ -68,8 +70,6 @@ export {
 export { CodexLifecycleManager } from "./lifecycle.js";
 export {
   CODEX_APP_SERVER_READY_SENTINEL,
-  CODEX_APP_SERVER_SHELL_ARGV0,
-  CODEX_APP_SERVER_SHELL_PRELUDE,
   composeCodexTransportArgv,
   type CodexTransportSelection,
   type CodexWebsocketBearerCredential,

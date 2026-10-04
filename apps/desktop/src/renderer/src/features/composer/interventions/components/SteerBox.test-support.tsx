@@ -3,7 +3,8 @@
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
-import type { InterventionRequestResponse, RunState } from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run-control";
+import type { RunState } from "@ai-sidekicks/contracts/run-state";
 import { type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import { SteerBox } from "./SteerBox.js";
 import { inertBridge } from "../../composer.test-support.js";

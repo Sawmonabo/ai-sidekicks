@@ -6,14 +6,14 @@ Repair or restore the Local Runtime Daemon SQLite store when daemon startup, rep
 
 ## Symptoms
 
-- `RecoveryStatusRead` remains `blocked` because local persistence is unavailable
+- The `recovery` field on `daemon.status.read` stays `blocked` because local persistence is unavailable
 - Local Runtime Daemon logs show SQLite open, lock, integrity, or WAL-related failure
 - Replay rebuild fails before projections become queryable
 - Scope and blast radius: the machine's daemon-owned canonical local store
 
 ## Detection
 
-- Read `RecoveryStatusRead` and `sidekicks daemon status` on the machine before mutating any files.
+- Read `sidekicks daemon status` on the machine, whose `recovery` field (from `daemon.status.read`) states healthy, replaying, degraded or blocked, before mutating any files.
 - Inspect Local Runtime Daemon logs for SQLite open failure, WAL replay failure, integrity error, or projection-rebuild failure.
 - Confirm whether the failure is limited to projection rebuild or whether the canonical SQLite store itself is unreadable or corrupt.
 
@@ -47,7 +47,7 @@ A backup is a plain copy of what it lists — the service's database, copied onl
 
 ## Validation
 
-- `RecoveryStatusRead` moves out of `blocked` and replay rebuild completes
+- The `recovery` field on `daemon.status.read` moves out of `blocked` and replay rebuild completes
 - Session projections become queryable again through the typed client SDK or CLI
 - One affected session can replay from canonical events without missing history or duplicate side effects
 

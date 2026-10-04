@@ -11,7 +11,7 @@ import type {
   McpMutationResult,
   McpServerBindingRef,
   McpSetEnabledRequest,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/mcp";
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**

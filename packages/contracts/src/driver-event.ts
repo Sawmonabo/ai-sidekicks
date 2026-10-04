@@ -57,7 +57,11 @@ export const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Session
  */
 export type DriverEvent = Extract<SessionEvent, { category: DriverEventCategory }>;
 
-/** The `type` discriminant of {@link DriverEvent}. */
+/**
+ * The `type` discriminant of {@link DriverEvent}.
+ *
+ * @consumedBy the client SDK's stream of one run's driver activity
+ */
 export type DriverEventType = DriverEvent["type"];
 
 /**

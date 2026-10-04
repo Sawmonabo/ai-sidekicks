@@ -12,7 +12,7 @@ import {
   WorktreeStatusReadResponseSchema,
   type WorktreeStatusReadRequest,
   type WorktreeStatusReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/worktree";
 
 // --------------------------------------------------------------------------
 // Inputs

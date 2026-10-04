@@ -1,6 +1,6 @@
 // The mixed window both run group suites fold, so their claims stay about the same run groups.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type RunGroup } from "./run-groups.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";

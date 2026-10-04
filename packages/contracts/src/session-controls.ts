@@ -584,7 +584,11 @@ const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation"] as const;
 /** Which Codex notice a provider warning came from: its warning or its deprecation notice. */
 export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[number];
 
-/** Every `session.notice` kind. */
+/**
+ * Every `session.notice` kind.
+ *
+ * @consumedBy the transcript's system messages, each drawn by its session notice kind
+ */
 export type SessionNoticeKind = SessionNoticePayload["kind"];
 
 /** Parses a {@link SessionNoticePayload}. */
@@ -755,7 +759,11 @@ export interface SessionControlMethodDescriptors {
   >;
 }
 
-/** The session-control methods' wire contract: name, procedure type and schemas. */
+/**
+ * The session-control methods' wire contract: name, procedure type and schemas.
+ *
+ * @consumedBy the daemon's session control handlers
+ */
 export const SESSION_CONTROL_METHOD_DESCRIPTORS: SessionControlMethodDescriptors =
   defineMethodDescriptors({
     "session.permissionLevelUpdate": {

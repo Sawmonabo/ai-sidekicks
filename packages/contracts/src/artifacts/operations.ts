@@ -259,5 +259,9 @@ const ARTIFACT_REFUSAL_CODE_VALUES = [
 
 /** A refusal an artifact call answers with. */
 export type ArtifactRefusalCode = (typeof ARTIFACT_REFUSAL_CODE_VALUES)[number];
-/** Every {@link ArtifactRefusalCode}. */
+/**
+ * Every {@link ArtifactRefusalCode}.
+ *
+ * @consumedBy the composer attachment strip's one-line refusal
+ */
 export const ARTIFACT_REFUSAL_CODES: readonly ArtifactRefusalCode[] = ARTIFACT_REFUSAL_CODE_VALUES;

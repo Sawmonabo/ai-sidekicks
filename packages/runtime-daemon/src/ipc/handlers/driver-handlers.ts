@@ -13,30 +13,34 @@
 
 import type {
   ApplyInterventionParams,
-  CompactContextRequest,
-  EmptyPayload,
-  DriverCapabilityReport,
-  DriverCompactionResult,
   DriverInterventionResult,
+  InterruptRunParams,
+  RunId,
+} from "@ai-sidekicks/contracts/provider-driver";
+import type {
+  CompactContextRequest,
+  DriverCapabilityReport,
   DriverModeReport,
   DriverModelReport,
   DriverReadParams,
-  Handler,
-  InterruptRunParams,
   ListCapabilitiesResult,
   ListModelsRequest,
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
-  MethodRegistry,
+} from "@ai-sidekicks/contracts/provider-driver-wire";
+import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
+import type {
+  DriverCompactionResult,
   ProviderCommandBinding,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
-  ProviderName,
-  RunId,
-  SessionId,
-} from "@ai-sidekicks/contracts";
-import { DRIVER_METHOD_DESCRIPTORS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-driver-wire";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
 
 import type { DriverCapabilityCache } from "../../provider/capability-cache.js";
 import {

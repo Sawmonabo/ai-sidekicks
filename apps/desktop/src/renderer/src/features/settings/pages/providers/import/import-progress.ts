@@ -10,7 +10,7 @@ import type {
   ProviderImportId,
   ProviderImportProgress,
   ProviderImportProviderRequest,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-import";
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** An open progress subscription: the messages, and the way to let go of it. */

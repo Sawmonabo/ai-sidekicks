@@ -6,7 +6,7 @@
 // per-case seam. Each bridge is minted once and held, because the hook keys its state on the
 // bridge; only the last describe changes it deliberately.
 
-import type { RunControlAck } from "@ai-sidekicks/contracts";
+import type { RunControlAck } from "@ai-sidekicks/contracts/run-control";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {

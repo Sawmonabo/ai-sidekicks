@@ -8,24 +8,17 @@
     "node": ">=24.21.0"
   },
   "exports": {
-    ".": {
-      "@ai-sidekicks/source": "./src/index.ts",
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./*": {
+      "@ai-sidekicks/source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
     },
-    "./session": {
-      "@ai-sidekicks/source": "./src/session.ts",
-      "types": "./dist/session.d.ts",
-      "import": "./dist/session.js"
-    },
-    "./web-address": {
-      "@ai-sidekicks/source": "./src/web-address.ts",
-      "types": "./dist/web-address.d.ts",
-      "import": "./dist/web-address.js"
-    }
+    "./event-core": null,
+    "./gitflow/shared": null,
+    "./internal/*": null,
+    "./__tests__/*": null,
+    "./*.test-d": null
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],

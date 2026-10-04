@@ -1,5 +1,5 @@
-// The small scalar rules several contract modules share. Internal: not re-exported from
-// `src/index.ts`.
+// The small scalar rules several contract modules share. Internal: the package's exports map
+// closes `internal/*`.
 import { z } from "zod";
 
 /**

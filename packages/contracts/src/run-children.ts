@@ -163,7 +163,11 @@ export const ChildrenStopResponseSchema: z.ZodType<ChildrenStopResponse> = z
  * refusal.
  */
 export const RUN_CHILD_CONTROL_REFUSED_CODE = "run.child_control_refused" as const;
-/** The type of {@link RUN_CHILD_CONTROL_REFUSED_CODE}. */
+/**
+ * The type of {@link RUN_CHILD_CONTROL_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `run.child_control_refused` error
+ */
 export type RunChildControlRefusedCode = typeof RUN_CHILD_CONTROL_REFUSED_CODE;
 
 /** Why a child control was refused. */
@@ -176,7 +180,11 @@ export const RUN_CHILD_CONTROL_REFUSED_REASONS: readonly RunChildControlRefusedR
 export interface RunChildControlRefusedDetails {
   reason: RunChildControlRefusedReason;
 }
-/** Parses {@link RunChildControlRefusedDetails}. */
+/**
+ * Parses {@link RunChildControlRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `run.child_control_refused` error
+ */
 export const RunChildControlRefusedDetailsSchema: z.ZodType<RunChildControlRefusedDetails> = z
   .object({ reason: z.enum(RUN_CHILD_CONTROL_REFUSED_REASONS) })
   .strict();

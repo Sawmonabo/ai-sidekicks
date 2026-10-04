@@ -1,6 +1,7 @@
 // One pair of stub calls (paged enumeration and run start) shared by the workflow suites.
 
-import type { WorkflowDefinitionId, WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
 import type { ReadWorkflowDefinitionPage } from "./definition-enumeration.js";
 import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-workflow-from-line.js";
 

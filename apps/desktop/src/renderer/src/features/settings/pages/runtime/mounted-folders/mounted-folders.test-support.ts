@@ -4,11 +4,9 @@
 // The ids are UUIDs because request ids are branded UUID scalars that a shipped call parses;
 // they are named so cases read as "the first mount".
 
-import type {
-  ProjectId,
-  RepoMountReadResponse,
-  WorkspaceListResponse,
-} from "@ai-sidekicks/contracts";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 
 /** The session both suites read for. */
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";

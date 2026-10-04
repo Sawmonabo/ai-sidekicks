@@ -3,7 +3,7 @@
 // files or message are where they are not.
 
 import { describe, expect, it } from "vitest";
-import type { SessionRestoreResult } from "@ai-sidekicks/contracts";
+import type { SessionRestoreResult } from "@ai-sidekicks/contracts/session-restore";
 
 import { readRestoreResult, type RestoreTarget } from "./restore-result-reading.js";
 

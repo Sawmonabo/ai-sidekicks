@@ -4,7 +4,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { QuestionAnswer, QuestionResolveRequest } from "@ai-sidekicks/contracts";
+import type { QuestionAnswer, QuestionResolveRequest } from "@ai-sidekicks/contracts/question";
 
 import { settle } from "@test/helpers/settle.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./useQuestionAnswer.js";

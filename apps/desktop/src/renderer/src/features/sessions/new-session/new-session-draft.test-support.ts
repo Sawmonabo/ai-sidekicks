@@ -3,11 +3,12 @@
 // (plain, and one that records what reached the wire). One copy, so the draft and control
 // suites never script slightly different replies.
 
-import type { AgentProviderBinding, RepoMountId } from "@ai-sidekicks/contracts";
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent-definition";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import type { Scenario } from "../../../../../../fixtures/scenario.js";
+import type { Scenario } from "@fixtures/scenario.js";
 import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 import { type DraftRepoMount } from "./new-session-send.js";

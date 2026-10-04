@@ -225,7 +225,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "recovery.succeeded": "recovery_events",
   "recovery.failed": "recovery_events",
   // security_events
-  "security.update.available": "security_events",
   "relay.pin_refused": "security_events",
   // event_maintenance
   "event.compacted": "event_maintenance",
@@ -800,5 +799,5 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = Object.freez
   SESSION_EVENT_VARIANT_SCHEMAS.map((variant) => variant.shape.type.value),
 );
 
-// Cross-file ID types (`SessionId`, `UserId`, ...) are not re-exported here: the package barrel
-// already exports them from session.ts, and a second export would conflict.
+// Cross-file ID types (`SessionId`, `UserId`, ...) are not re-exported here: each is imported from
+// the module that declares it, so it has one import path.

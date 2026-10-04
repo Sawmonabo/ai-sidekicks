@@ -25,17 +25,14 @@
 // escape by being forgotten; it would have to leave both its stream and the excluded-payload
 // table, and each is a compile error in its own module.
 
-import {
-  EventEnvelopeSchema,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SessionEventSchema,
-  type SessionEventType,
-} from "@ai-sidekicks/contracts";
+import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event-envelope";
+import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "@ai-sidekicks/contracts/event";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { describeRunAndQueueSemanticsDefect } from "./run-and-queue-semantics.js";
 import { composeScenarioEventEnvelope } from "@renderer/services/daemon/event-envelope.fixture.js";
-import type { ScenarioBeat } from "../../../fixtures/scenario.js";
+import type { ScenarioBeat } from "@fixtures/scenario.js";
 
 /** What is wrong with one beat, or `undefined` when the wire could have emitted it. */
 export function describeBeatDefect(beat: ScenarioBeat): string | undefined {

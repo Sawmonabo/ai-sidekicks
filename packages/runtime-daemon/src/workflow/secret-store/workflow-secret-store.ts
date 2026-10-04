@@ -12,7 +12,7 @@
 // back and compares.
 import { timingSafeEqual } from "node:crypto";
 
-import type { WorkflowSecretId } from "@ai-sidekicks/contracts";
+import type { WorkflowSecretId } from "@ai-sidekicks/contracts/workflow-secret";
 
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./secret-keychain.js";
 

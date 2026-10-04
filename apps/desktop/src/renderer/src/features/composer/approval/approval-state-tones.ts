@@ -1,4 +1,4 @@
-import type { ApprovalState } from "@ai-sidekicks/contracts";
+import type { ApprovalState } from "@ai-sidekicks/contracts/approval";
 
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 

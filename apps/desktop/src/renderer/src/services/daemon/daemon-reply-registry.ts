@@ -7,20 +7,17 @@
 // error. Subscriptions are not in it: a stream has no reply to bind, and
 // `session-event-streams.ts` owns the stream names.
 
-import {
-  DRIVER_METHOD_DESCRIPTORS,
-  HIGHLIGHT_METHOD_DESCRIPTORS,
-  MCP_METHOD_DESCRIPTORS,
-  PRESENCE_METHOD_DESCRIPTORS,
-  PROVIDER_ACCOUNT_METHOD_DESCRIPTORS,
-  SESSION_DIRECTORY_METHOD_DESCRIPTORS,
-  SESSION_METHOD_DESCRIPTORS,
-  TIMELINE_METHOD_DESCRIPTORS,
-  type AnyMethodDescriptor,
-  type DaemonParams,
-  type DaemonResult,
-  type ZodType,
-} from "@ai-sidekicks/contracts";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-driver-wire";
+import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight";
+import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp-governance";
+import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
+import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
+import { TIMELINE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/timeline/methods";
+import type { AnyMethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
+import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon-methods";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 import {
   REGISTERED_DAEMON_METHODS,

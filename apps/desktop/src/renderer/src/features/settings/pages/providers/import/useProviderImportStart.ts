@@ -11,7 +11,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-import";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

@@ -3,13 +3,12 @@
 // mounts does not put a read on the wire per mount. A bind answers with the mode and lifecycle
 // state and no root; the workspace list is where a root is read from.
 
+import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type {
-  ExecutionMode,
-  RepoMountId,
-  SessionId,
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workspace";
 import type { Clock } from "@renderer/lib/clock.js";
 import { ActControllerBase } from "../../acts/act-controller-base.js";
 import { type ActReading } from "../../acts/act-reading.js";

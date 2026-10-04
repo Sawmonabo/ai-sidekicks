@@ -4,7 +4,7 @@
 // here stays `unknown`. It sits in this folder, the lowest one that can hold a `PlatformBridge`,
 // because features that never import each other share it.
 
-import type { DaemonSubscribeParams } from "@ai-sidekicks/contracts";
+import type { DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon-methods";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";

@@ -7,7 +7,7 @@ import type {
   ApprovalState,
   RememberedRuleSense,
   RememberedScopeKind,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/approval";
 
 /** The palette category the approval rows and the rule revocations sit under. */
 export const APPROVAL_COMMAND_GROUP = "Approvals";
@@ -20,7 +20,7 @@ export const APPROVAL_CATEGORY_LABELS: Readonly<Record<ApprovalCategory, string>
   destructive_git: "Change git history",
   plan_approval: "Approve a plan",
   gate: "Pass a gate",
-  human_phase_contribution: "Contribute to a phase",
+  human_step_contribution: "Contribute to a step",
 };
 
 /** What a state is called on screen. */

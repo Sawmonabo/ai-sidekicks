@@ -1,4 +1,4 @@
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
 import type { ReactNode } from "react";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

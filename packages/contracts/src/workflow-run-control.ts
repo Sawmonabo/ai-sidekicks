@@ -286,27 +286,47 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
 
 // Refusals
 
-/** A start the policy check denied, or whose principal could not be resolved. */
+/**
+ * A start the policy check denied, or whose principal could not be resolved.
+ *
+ * @consumedBy the handler that returns the `workflow.start_denied` error
+ */
 export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on
  * Resume has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
+ *
+ * @consumedBy the handler that returns the `workflow.run_not_cancelable` error
  */
 export const WORKFLOW_RUN_NOT_CANCELABLE_CODE = "workflow.run_not_cancelable" as const;
 
-/** A resume on a run that is not waiting: there is no wait to lift. */
+/**
+ * A resume on a run that is not waiting: there is no wait to lift.
+ *
+ * @consumedBy the handler that returns the `workflow.resume_not_parked` error
+ */
 export const WORKFLOW_RESUME_NOT_PARKED_CODE = "workflow.resume_not_parked" as const;
 
-/** A version re-pin on a run that is not waiting; a going run is never re-pinned. */
+/**
+ * A version re-pin on a run that is not waiting; a going run is never re-pinned.
+ *
+ * @consumedBy the handler that returns the `workflow.repair_not_parked` error
+ */
 export const WORKFLOW_REPAIR_NOT_PARKED_CODE = "workflow.repair_not_parked" as const;
 
-/** A version re-pin while one of the run's steps is still in flight. */
+/**
+ * A version re-pin while one of the run's steps is still in flight.
+ *
+ * @consumedBy the handler that returns the `workflow.repair_attempt_in_flight` error
+ */
 export const WORKFLOW_REPAIR_ATTEMPT_IN_FLIGHT_CODE = "workflow.repair_attempt_in_flight" as const;
 
 /**
  * A version re-pin whose target cannot account for the steps the run already finished:
  * it drops a node whose output the run holds, or leaves a finished node unreachable.
+ *
+ * @consumedBy the handler that returns the `workflow.repair_version_unaccountable` error
  */
 export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
   "workflow.repair_version_unaccountable" as const;
@@ -315,10 +335,16 @@ export const WORKFLOW_REPAIR_VERSION_UNACCOUNTABLE_CODE =
  * A run or step move its state does not allow: retrying from a step that did not fail,
  * posting the results of an unfinished run, or opening a fix session on a step that did
  * not fail.
+ *
+ * @consumedBy the handler that returns the `workflow.invalid_transition` error
  */
 export const WORKFLOW_INVALID_TRANSITION_CODE = "workflow.invalid_transition" as const;
 
-/** A retry the daemon cannot make now; the reason says why. */
+/**
+ * A retry the daemon cannot make now; the reason says why.
+ *
+ * @consumedBy the handler that returns the `workflow.retry_unavailable` error
+ */
 export const WORKFLOW_RETRY_UNAVAILABLE_CODE = "workflow.retry_unavailable" as const;
 /**
  * Why a retry cannot be made: the source run's step data is past its time bound, or
@@ -331,7 +357,11 @@ export type WorkflowRetryUnavailableReason = (typeof WORKFLOW_RETRY_UNAVAILABLE_
 export interface WorkflowRetryUnavailableDetails {
   reason: WorkflowRetryUnavailableReason;
 }
-/** Wire schema for {@link WorkflowRetryUnavailableDetails}. */
+/**
+ * Wire schema for {@link WorkflowRetryUnavailableDetails}.
+ *
+ * @consumedBy the handler that returns the `workflow.retry_unavailable` error
+ */
 export const WorkflowRetryUnavailableDetailsSchema: z.ZodType<WorkflowRetryUnavailableDetails> = z
   .object({ reason: z.enum(WORKFLOW_RETRY_UNAVAILABLE_REASONS) })
   .strict();
@@ -451,7 +481,11 @@ export interface WorkflowRunControlMethodDescriptors {
   >;
 }
 
-/** The `workflow.*` methods that act on a run. */
+/**
+ * The `workflow.*` methods that act on a run.
+ *
+ * @consumedBy the daemon's workflow run control handlers
+ */
 export const WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS: WorkflowRunControlMethodDescriptors =
   defineMethodDescriptors({
     "workflow.runStart": {

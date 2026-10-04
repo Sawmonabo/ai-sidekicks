@@ -11,7 +11,7 @@
 // closes (a session asking for an account verb, a lost set-default race that retries, a token
 // this machine's keychain refused to seal), so the table's value type admits `null`.
 
-import type { ProviderRemedy } from "@ai-sidekicks/contracts";
+import type { ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
 
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 

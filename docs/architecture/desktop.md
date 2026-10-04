@@ -43,9 +43,7 @@ The desktop app is the primary interactive client, but it must remain a client. 
 - Shared client SDK root: `packages/client-sdk/`
 - Related CLI client root, which [Plan-005](../plans/005-local-ipc-and-daemon-control.md) creates: `apps/cli/`
 
-Inside the renderer, imports run one way: `lib/`, `styles/` and `assets/`, then `routing/`, `components/` and `hooks/`, `store/`, `services/`, `registries/`, `features/`, `layout/`, and `app/` last. Each folder imports only the folders before it, no feature imports another, and the renderer never imports Electron or Node APIs. dependency-cruiser enforces the direction.
-
-- Folder layout, ownership, naming and import rules: [Desktop Structure](./desktop-structure.md)
+Folder layout, ownership, naming and import rules: [`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md).
 
 ## Data Flow
 

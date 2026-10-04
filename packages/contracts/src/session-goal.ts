@@ -143,7 +143,11 @@ export interface SessionGoalMethodDescriptors {
     SessionAcknowledgement
   >;
 }
-/** The goal methods' wire contract: name, procedure type and schemas. */
+/**
+ * The goal methods' wire contract: name, procedure type and schemas.
+ *
+ * @consumedBy the daemon's `session.goalUpdate` and `session.goalClear` handlers
+ */
 export const SESSION_GOAL_METHOD_DESCRIPTORS: SessionGoalMethodDescriptors =
   defineMethodDescriptors({
     "session.goalUpdate": {

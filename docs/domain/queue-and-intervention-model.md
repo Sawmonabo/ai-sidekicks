@@ -59,7 +59,7 @@ Intervention states:
 | `accepted` | Determined to be valid for the target. |
 | `applied` | Successfully changed runtime or scheduling state. |
 | `rejected` | Determined to be invalid or unauthorized. Authorization failure produces `rejected`. |
-| `degraded` | The intervention took partial or fallback effect, with the outcome detail naming what degraded: the driver could not deliver the type at all — neither through a provider verb of its own nor through the orchestration leg above it — and the orchestration layer fell back (e.g., a driver that can accept nothing mid-run degrades steer to queue plus interrupt; neither V1 provider is such a driver). |
+| `degraded` | The intervention took partial or fallback effect, with the outcome detail naming what degraded: the driver could not deliver the type at all — neither through a provider verb of its own nor through the orchestration leg above it — and the orchestration layer fell back; neither V1 provider reaches it. |
 | `expired` | No longer meaningful because the target state changed first. Version guard mismatch produces `expired`. |
 
 ### Intervention State Transition Table
@@ -89,9 +89,8 @@ The `interventions` SQLite table (Plan-002) stores the full lifecycle entity —
 
 Intervention payloads are a discriminated union by type:
 
-- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, clientIdempotencyKey, content, attachments?}`
+- `steer`: `{targetRunId, expectedTurnId?, expectedRunVersion, clientIdempotencyKey, content, attachments?}` — the daemon's delivery of a message the person sent mid-turn (`run.queueCreate`) through the driver's own steer; no client sends a steer intervention
 - `interrupt`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
-- `cancel`: `{targetRunId, expectedRunVersion, clientIdempotencyKey, reason?}`
 
 All intervention types carry a **mandatory** version guard (`expectedRunVersion`) — the guard is **fail-closed**: the comparand is required on every intervention request and an absent comparand is **rejected**, never applied (an optional guard would let a caller bypass stale-replay protection by omitting the field). See [Spec-003 §Interfaces And Contracts](../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts) and [Plan-002 D-002-2](../plans/002-queue-steer-pause-resume.md). A guard mismatch produces `expired`. An authorization failure produces `rejected`.
 
@@ -101,20 +100,20 @@ All intervention types also carry a **mandatory** requester-generated `clientIde
 
 The following field inventory maps each intervention payload to its sources.
 
-**`steer` payload:**
+**`steer` payload** (built by the daemon from the queued message when it delivers it, Plan-002 T3.8):
 
-| Field | Required | Source: API Contracts | Source: Spec-004 `ApplyInterventionParams` |
+| Field | Required | Source: the queued message and the daemon | Source: Spec-004 `ApplyInterventionParams` |
 | --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
-| `content` | yes | `InterventionRequestPayload` | `SteerPayload.content` |
-| `attachments` | no | `InterventionRequestPayload` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
-| `expectedTurnId` | no | `InterventionRequestPayload` (optional) | `SteerPayload.expectedTurnId` (optional) |
+| `targetRunId` | yes | the run the daemon delivers into | `ApplyInterventionParams.targetRunId` |
+| `expectedRunVersion` | yes | the run's `runVersion` at delivery | `ApplyInterventionParams.expectedRunVersion` |
+| `clientIdempotencyKey` | yes | the daemon's own id on the message | `ApplyInterventionParams.clientIdempotencyKey` |
+| `content` | yes | `QueueItemCreateRequest` (the message's text) | `SteerPayload.content` |
+| `attachments` | no | `QueueItemCreateRequest.attachments` (optional, `ArtifactId[]`) | `SteerPayload.attachments` (optional, `ArtifactId[]`) |
+| `expectedTurnId` | no | the daemon at delivery (optional) | `SteerPayload.expectedTurnId` (optional) |
 
 At-rest routing: `content` rests on the durable intervention row in its `payload` column, as plain text like every other column ([Spec-003 §State And Data Implications](../specs/003-queue-steer-pause-resume.md#state-and-data-implications)), and the driver leg is handed the same text. `attachments` are references, not bodies.
 
-Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-003--provider-driver-contract-internal-interface), and cited from the intervention arm rather than restated.
+Element type: both `attachments` columns above are `ArtifactId[]` — ids into [Spec-012](../specs/012-artifacts-files-and-attachments.md)'s manifest space. The two are one carrier seen from its two ends, so the ordering rule, the cause-bearing unresolved-marker rule, and both count bounds are stated once, on `SteerPayload` in [api-payload-contracts.md §Plan-003 — Provider Driver Contract (Internal Interface)](../architecture/contracts/api-payload-contracts.md#plan-003--provider-driver-contract-internal-interface), and cited from `run.queueCreate` rather than restated.
 
 **`interrupt` payload:**
 
@@ -125,16 +124,7 @@ Element type: both `attachments` columns above are `ArtifactId[]` — ids into [
 | `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
 | `reason` | no | `InterventionRequestPayload` (optional) | `InterruptPayload.reason` (optional) |
 
-**`cancel` payload:**
-
-| Field | Required | Source: API Contracts | Source: Spec-004 `ApplyInterventionParams` |
-| --- | --- | --- | --- |
-| `targetRunId` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.targetRunId` |
-| `expectedRunVersion` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.expectedRunVersion` |
-| `clientIdempotencyKey` | yes | `InterventionRequestPayload` | `ApplyInterventionParams.clientIdempotencyKey` |
-| `reason` | no | `InterventionRequestPayload` (optional) | `CancelPayload.reason` (optional) |
-
-Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload`, `InterruptPayload`, or `CancelPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
+Note: The `ApplyInterventionParams` interface in Spec-004 splits the payload into `targetRunId`, `expectedRunVersion`, and `clientIdempotencyKey` at the top level and routes the remaining type-specific fields through `SteerPayload` or `InterruptPayload`. The `InterventionRequestPayload` in the API contracts flattens all fields into a single discriminated union. Both representations carry the same field set per intervention type. The `DriverInterventionResult` returned by the driver uses `status: 'applied' | 'degraded'` — the orchestration layer maps this to the full 6-state lifecycle per the normative table below.
 
 ## Driver Result To Lifecycle Mapping
 
@@ -148,17 +138,16 @@ The driver-result and intervention-lifecycle vocabularies are distinct and map n
 | `applied` | driver → daemon | Driver returned `status: 'applied'` — the intervention was delivered, whether by the driver's own provider verb or by the orchestration leg above it |
 | `degraded` | driver → daemon; or daemon (post-driver) | Driver returned `status: 'degraded'` — the type could be delivered neither by a provider verb of the driver's own nor by the orchestration leg above it, so the orchestration layer fell back (`fallbackAction`), which neither V1 provider reaches |
 
-Static capability refusal is a separate, earlier path with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver, which degrades to the queue+interrupt composite per [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**, Claude declaring `steer: true` and delivering the steer inside the same run. Static refusal never substitutes for a documented degraded path ([Plan-003](../plans/003-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
+Static capability refusal is a separate, earlier path with a narrow carve-out: the daemon MAY refuse dispatch outright with `driver.capability_unsupported` ONLY for an intervention type that has no documented orchestration fallback under the excluded flag. A type with a documented fallback — one a driver can neither perform natively nor have performed for it above the driver ([Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior-1)) — MUST enter the lifecycle and terminate `degraded`, so the fallback is recorded on the intervention row (`fallbackAction`); **neither V1 provider reaches that path**. Static refusal never substitutes for a documented degraded path ([Plan-003](../plans/003-provider-driver-contract-and-capabilities.md) adjudicates the static/dynamic split within that rule).
 
 ## Boundary: Interventions vs Interactive Requests
 
 - `respondToRequest` (from Spec-004 `ProviderDriver` interface) is the driver's mechanism for handling PROVIDER-initiated interactive requests (tool confirmations, clarification questions). It is REACTIVE — the provider asked for input.
-- `applyIntervention(type: "steer")` is USER-initiated content injection into an active run. It is PROACTIVE — the user wants to redirect.
+- `applyIntervention(type: "steer")` delivers a message the user sent mid-turn (a queue send, `run.queueCreate`) into the active run. It is PROACTIVE — the user wants to redirect.
 - The two never overlap: a steer targets a `running` state, a response targets a `waiting_for_input` state.
-- `interrupt` intervention targets `running` specifically — it stops active computation.
-- `cancel` intervention targets any non-terminal state — it ends the run regardless of whether it is `running`, `paused`, or waiting.
+- `interrupt` intervention is the single abort: it targets any non-terminal state after admission and ends the run `interrupted`, whether it is `starting`, `running`, `pausing`, `paused`, or waiting. A stop the daemon makes itself — at the step limit, the spend limit or the token limit, or because a workflow phase was canceled — is the same interrupt, carrying its `trigger` ([Run State Machine](run-state-machine.md)).
 - Undo is not an intervention. `Undo to here` on the person's own message, a snapshot's `Restore` and the rewind menu's rows are one operation, `session.restore({ target, scope })`: `target` is a stable message or snapshot identity, never a numeric or provider position, and `scope` is `"conversation-and-files"`, `"conversation"` or `"files"`. `session.restorePreview` takes the same and changes nothing. The result carries `requested` (the same values), `restored` (`"conversation-and-files"`, `"conversation"`, `"files"` or `"nothing"`) and, for each requested part that did not apply, `failures.conversation` / `failures.files` with a `reason`; edit and resend is the same call carrying the edited message, one intent with one result. Every outcome is stored as one event, `session.restore_finished`, and `run.rolled_back` records the conversation cut alone ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)). The conversation half is the driver's `rewindConversation`; the driver's `forkConversation` serves `session.fork` and is never an undo. An undo is never refused because the run is `running`: it stops the later work and ends the turn itself ([Run State Machine §Rollback Transitions](run-state-machine.md#rollback-transitions)).
-- Queue-item cancellation (`QueueItemCancel`) is separate from `cancel` intervention — `QueueItemCancel` targets queue items the agent has not yet taken (`Remove`, `run.queueCancel`), while `cancel` intervention targets runs that already exist in the run state machine.
+- Queue-item cancellation (`QueueItemCancel`) is separate from the `interrupt` intervention — `QueueItemCancel` targets queue items the agent has not yet taken (`Remove`, `run.queueCancel`), while an interrupt targets runs that already exist in the run state machine.
 
 ## Example Flows
 
@@ -168,7 +157,6 @@ Static capability refusal is a separate, earlier path with a narrow carve-out: t
 
 ## Edge Cases
 
-- A steer intervention against a run whose driver can deliver the type neither natively nor through the orchestration leg above it must be rejected or degraded to a new queue item explicitly. Both V1 providers declare `steer: true` and deliver a steer inside the running run, so neither reaches that case.
 - A waiting message has a deadline: once it has waited longer than the daemon's own delivery timeout it is `not_delivered`, carries its reason and can be sent again from itself. While the daemon is only unreachable it keeps waiting.
 - A canceled queue item remains in history for audit and replay.
 

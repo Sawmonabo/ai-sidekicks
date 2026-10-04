@@ -20,8 +20,8 @@ import type {
   MethodRegistry,
   RegisterOptions,
   ZodType,
-} from "@ai-sidekicks/contracts";
-import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
 // --------------------------------------------------------------------------
 // Method-name format regexes

@@ -4,7 +4,7 @@
 
 import { useCallback } from "react";
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type FindStepDirection } from "../../find/find-model.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";

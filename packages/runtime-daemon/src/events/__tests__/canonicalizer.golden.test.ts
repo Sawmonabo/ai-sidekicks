@@ -6,11 +6,13 @@ import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
-  SessionIdSchema,
-} from "@ai-sidekicks/contracts";
-import type { EventEnvelope, EventEnvelopeVersion, SessionId } from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/event-envelope";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
+import type { EventEnvelope, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event-envelope";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
 
 // Helpers are hand-rolled, not imported from a byte-utility library, so a library bump cannot
 // move the expected side of an assertion together with the produced side.
@@ -48,12 +50,7 @@ function ieee754HexToNumber(ieee754Hex: string): number {
 
 /** Captures the message of the error a thunk throws, or fails loudly if it throws nothing. */
 function captureThrownMessage(thunk: () => unknown): string {
-  try {
-    thunk();
-  } catch (error) {
-    return (error as Error).message;
-  }
-  throw new Error("expected the call to throw, but it returned normally");
+  return (captureThrow(thunk) as Error).message;
 }
 
 // RFC 8785 section 3.2.2 sample document, verbatim.

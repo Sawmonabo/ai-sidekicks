@@ -1,9 +1,7 @@
 import "./execution-mode-picker.css";
 
-import type {
-  ExecutionMode,
-  WorkspaceExecutionModeCapabilitiesReadResponse,
-} from "@ai-sidekicks/contracts";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

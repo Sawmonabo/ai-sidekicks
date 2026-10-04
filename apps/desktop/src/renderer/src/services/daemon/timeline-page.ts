@@ -8,7 +8,8 @@
 // total: every member the log holds is required on the row except an optional `actor`, so no row is
 // dropped. Whether more rows remain is the reply's `hasMore`, never inferred from a short page.
 
-import type { TimelineReadResponse, TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineReadResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

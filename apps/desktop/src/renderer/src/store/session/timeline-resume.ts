@@ -5,7 +5,7 @@
 // `acknowledged`). The cursor is opaque to the app, so there is no lost-event arm: a lost row
 // reaches the store as the sequence gap it already reconciles.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
 import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire-errors.js";
 

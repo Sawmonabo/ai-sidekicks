@@ -103,6 +103,8 @@ export const WORKFLOW_DOCUMENT_SCHEMA_VERSION = "2" as const;
 /**
  * The document members the content hash covers, in the order the hash preimage lists
  * them. Everything else, `layout` and `pinData`, is outside the hash.
+ *
+ * @consumedBy the daemon's workflow content hash, which covers these members and not the layout
  */
 export const WORKFLOW_DOCUMENT_HASHED_MEMBERS = [
   "name",
@@ -429,7 +431,11 @@ export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowT
 
 // The document's refusal
 
-/** A document the daemon's check at save refused; it carries every finding at once. */
+/**
+ * A document the daemon's check at save refused; it carries every finding at once.
+ *
+ * @consumedBy the handler that returns the `workflow.definition_refused` error
+ */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
 
 /**
@@ -490,7 +496,11 @@ export const WorkflowDefinitionFindingSchema: z.ZodType<WorkflowDefinitionFindin
 export interface WorkflowDefinitionRefusedDetails {
   findings: WorkflowDefinitionFinding[];
 }
-/** Wire schema for {@link WorkflowDefinitionRefusedDetails}. */
+/**
+ * Wire schema for {@link WorkflowDefinitionRefusedDetails}.
+ *
+ * @consumedBy the handler that returns the `workflow.definition_refused` error
+ */
 export const WorkflowDefinitionRefusedDetailsSchema: z.ZodType<WorkflowDefinitionRefusedDetails> = z
   .object({ findings: z.array(WorkflowDefinitionFindingSchema).min(1) })
   .strict();

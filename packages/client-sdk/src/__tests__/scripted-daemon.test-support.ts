@@ -2,22 +2,17 @@
 // the client sends and answers from a script, plus the frames and session events tests feed it.
 // The package does not depend on the runtime daemon; both sides share the contract schemas.
 
+import type { AgentId } from "@ai-sidekicks/contracts/agent-definition";
 import type {
-  AgentId,
   JsonRpcError,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
-  SessionEvent,
-  SessionId,
-  SessionShape,
-  UserId,
-} from "@ai-sidekicks/contracts";
-import {
-  JSONRPC_VERSION,
-  JsonRpcErrorCode,
-  SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/jsonrpc";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+import type { SessionId, SessionShape, UserId } from "@ai-sidekicks/contracts/session";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import type { JsonRpcClientOptions } from "../transport/json-rpc-client.js";
 import type { ClientTransport } from "../transport/types.js";

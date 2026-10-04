@@ -14,7 +14,7 @@ import { describeBeatDefect } from "./beat-shape.js";
 import { findBeatOrderDefects } from "./beat-order.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { findReplyDefects } from "./reply-checks.js";
-import type { Scenario } from "../../../fixtures/scenario.js";
+import type { Scenario } from "@fixtures/scenario.js";
 
 /** Every scenario contract defect across the given scenarios. Empty is the passing state. */
 export function findScenarioContractDefects(

@@ -3,7 +3,7 @@
  * workspace.
  */
 
-import { WORKSPACE_LAST_ERROR_MAX_LEN } from "@ai-sidekicks/contracts";
+import { WORKSPACE_LAST_ERROR_MAX_LEN } from "@ai-sidekicks/contracts/workspace";
 
 /** Marker appended to a truncated detail; counted inside the cap, which is also the wire cap. */
 export const WORKSPACE_LAST_ERROR_TRUNCATION_MARKER = "...[truncated]";

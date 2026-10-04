@@ -27,7 +27,7 @@
 //     unsubtracted with a diagnostic. Cache-read and cache-write stay on the diagnostic channel,
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
-import type { ProviderName } from "@ai-sidekicks/contracts";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 

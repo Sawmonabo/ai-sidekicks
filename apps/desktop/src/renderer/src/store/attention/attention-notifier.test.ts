@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "./attention-notifier.js";
-import type { AttentionItem } from "@ai-sidekicks/contracts";
+import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { AttentionSummary, type AnsweredAttentionReading } from "./attention-summary.js";
 import { AttentionNotifier } from "./attention-notifier.js";
 

@@ -10,7 +10,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { settle } from "@test/helpers/settle.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 import { McpServersPage } from "../McpServersPage.js";
 import { registerMcpFixtureBody } from "./register-mcp-fixture-body.js";
 

@@ -3,7 +3,7 @@
 // to its projected row. The window is unfurled (every member of every run group) because the fold
 // in `feed/run-group-fold.ts` runs after it, and Find counts a folded group's rows.
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {

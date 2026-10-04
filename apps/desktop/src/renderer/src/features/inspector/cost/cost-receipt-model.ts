@@ -1,7 +1,7 @@
 // The cost receipt's one property: every figure adds up to the one above it. The sums are
 // computed and never shown; the verdict is a boolean per level.
 
-import type { SessionCostReceipt } from "@ai-sidekicks/contracts";
+import type { SessionCostReceipt } from "@ai-sidekicks/contracts/session-cost";
 
 /** Whether each level of the receipt accounts for the level above it. */
 export interface ReceiptPartitionVerdicts {

@@ -13,11 +13,9 @@
 //   * A re-declaration reporting `changed` invalidates through an injected subscription. Without
 //     one, the caller must call `invalidate()` wherever it re-declares.
 
-import type {
-  DriverCapabilities,
-  DriverCapabilityReport,
-  ProviderName,
-} from "@ai-sidekicks/contracts";
+import type { DriverCapabilities } from "@ai-sidekicks/contracts/provider-driver";
+import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider-driver-wire";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import type { DriverCapabilityHydrationResult } from "./driver-capabilities-writer.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";

@@ -10,8 +10,10 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeId, RepoAttachResponse, SessionId } from "@ai-sidekicks/contracts";
-import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts";
+import type { NodeId } from "@ai-sidekicks/contracts/node-id";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/workspace";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
@@ -24,7 +26,6 @@ import { WorkspaceStaleError } from "../workspace-service-errors.js";
 import {
   bindReadyWorkspace,
   buildFixtureEnvironment,
-  captureRejection,
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
   requireMountRow,
@@ -33,6 +34,7 @@ import {
   seedSession,
   steppingClock,
 } from "./workspace.test-support.js";
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // Fixtures
 

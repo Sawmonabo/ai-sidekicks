@@ -9,9 +9,9 @@
 // one id cannot be carried as-is, so the repair disambiguates the later call instead of dropping
 // it, and declares that it did.
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
 
-import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
+import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts/provider-driver-transcript";
 
 import type {
   CanonicalTranscriptProjection,
@@ -24,14 +24,14 @@ import type {
 // --------------------------------------------------------------------------
 
 /** What each step reads and rewrites. */
-export interface TranscriptPipelineState {
+interface TranscriptPipelineState {
   readonly projection: CanonicalTranscriptProjection;
   readonly turns: readonly CanonicalTranscriptTurn[];
   readonly declaredLosses: readonly DeclaredLossKind[];
 }
 
 /** One pipeline step: reads the state and returns the next one. */
-export type TranscriptPipelineStep = (state: TranscriptPipelineState) => TranscriptPipelineState;
+type TranscriptPipelineStep = (state: TranscriptPipelineState) => TranscriptPipelineState;
 
 /**
  * The text a repaired tool result carries where the call was never answered. Fixed, so a target
@@ -53,7 +53,7 @@ export const SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT: string =
 const REPAIRED_TOOL_CALL_ID_INFIX = "-repaired-";
 
 /** Build the state a pipeline run starts from. */
-export function createTranscriptPipelineState(
+function createTranscriptPipelineState(
   projection: CanonicalTranscriptProjection,
 ): TranscriptPipelineState {
   return {
@@ -77,7 +77,7 @@ export function segmentContentIsUnavailable(segment: CanonicalTranscriptSegment)
  * Step 1: place the folded turns the projection carries, declaring the loss for any body the
  * fold could not read, so no consumer reads an empty loss list as "nothing was dropped".
  */
-export const foldTurns: TranscriptPipelineStep = (state) => {
+const foldTurns: TranscriptPipelineStep = (state) => {
   const carriesUnavailableContent: boolean = state.projection.turns.some((turn) =>
     turn.segments.some(segmentContentIsUnavailable),
   );
@@ -101,7 +101,7 @@ const EMPTY_BLOCK_ID_SET: ReadonlySet<string> = new Set<string>();
  * kind's redacted sibling behind and breaks the multi-turn protocol. Visible summaries carry
  * forward as plain text and declare no loss.
  */
-export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
+const stripNonPortableContent: TranscriptPipelineStep = (state) => {
   const declaredLosses: DeclaredLossKind[] = [...state.declaredLosses];
 
   // Two passes, because a result inside a private block may be rendered before that block in
@@ -208,7 +208,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
  *     position, with a synthetic error result under the new id. Its arguments are unchanged.
  *     Dropping the call or carrying two indistinguishable calls are the alternatives.
  */
-export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
+const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
   // Flat segment ordinals across the whole transcript, so "before" and "after" hold across a
   // turn boundary, where a provider's out-of-order emission lands them.
   const ownerCallOrdinalByToolCallId: Map<string, number> = new Map<string, number>();

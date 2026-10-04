@@ -10,11 +10,8 @@ import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type {
-  McpMutationResult,
-  McpServerInventoryEntry,
-  SessionId,
-} from "@ai-sidekicks/contracts";
+import type { McpMutationResult, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { Clock } from "@renderer/lib/clock.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";

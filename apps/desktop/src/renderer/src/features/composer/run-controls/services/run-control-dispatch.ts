@@ -12,10 +12,10 @@ import type {
   InterventionRequestPayload,
   InterventionRequestResponse,
   RunControlAck,
-  RunId,
   RunPauseRequest,
   RunResumeRequest,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/run-control";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 
 import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
 import { AnsweredRunVersions } from "../../answered-run-versions.js";

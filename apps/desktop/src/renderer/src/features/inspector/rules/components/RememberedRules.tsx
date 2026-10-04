@@ -10,7 +10,7 @@
 // An unreadable count is read before the empty arm: rows this build could not read are of
 // unknown existence, so "No rules yet" may be said only for a fully readable, empty reply.
 
-import type { RememberedRule } from "@ai-sidekicks/contracts";
+import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 import { useState } from "react";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

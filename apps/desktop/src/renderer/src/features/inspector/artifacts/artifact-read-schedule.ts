@@ -5,7 +5,8 @@
 // overlap, and a superseded completion is dropped. A rejected list call is not caught here:
 // with no `onError`, the scheduler re-throws it.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 
 import type { Clock } from "@renderer/lib/clock.js";
 import {

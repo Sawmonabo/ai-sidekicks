@@ -9,7 +9,12 @@ import { z } from "zod";
 import { ReleaseVersionSchema } from "./release-manifest.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
-/** The record's file name, in `%LOCALAPPDATA%\ai-sidekicks\`. */
+/**
+ * The record's file name, in `%LOCALAPPDATA%\ai-sidekicks\`.
+ *
+ * @consumedBy the Windows service start, which writes this record once a start succeeds, and the
+ * `sidekicks daemon` commands that read it
+ */
 export const SERVICE_RECORD_FILE_NAME = "service.json";
 
 /** The longest WSL distribution name accepted. */
@@ -46,7 +51,12 @@ export interface WslServiceRecord {
 /** The contents of `service.json`. */
 export type ServiceRecord = WindowsServiceRecord | WslServiceRecord;
 
-/** Parses a {@link ServiceRecord}. */
+/**
+ * Parses a {@link ServiceRecord}.
+ *
+ * @consumedBy the Windows service start, which writes this record once a start succeeds, and the
+ * `sidekicks daemon` commands that read it
+ */
 export const ServiceRecordSchema: z.ZodType<ServiceRecord, ServiceRecord> = z.union([
   z.object({ place: z.literal("windows") }).strict(),
   z

@@ -13,12 +13,12 @@ import {
   WorkflowDefinitionScopeSchema,
   WorkflowDocumentSchema,
   WorkflowDraftDocumentSchema,
-  type SessionCallbackTool,
   type WorkflowDefinitionId,
   type WorkflowDefinitionScope,
   type WorkflowDocument,
   type WorkflowDraftDocument,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/workflow-definition";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
 import { z } from "zod";
 
 const positiveNumber = z.number().int().positive();

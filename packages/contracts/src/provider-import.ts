@@ -212,7 +212,11 @@ export interface SessionImportMethodDescriptors {
   >;
 }
 
-/** The four import methods: their names, how each answers, and their shapes. */
+/**
+ * The four import methods: their names, how each answers, and their shapes.
+ *
+ * @consumedBy the daemon's session import handlers
+ */
 export const SESSION_IMPORT_METHOD_DESCRIPTORS: SessionImportMethodDescriptors =
   defineMethodDescriptors({
     "session.importPreview": {

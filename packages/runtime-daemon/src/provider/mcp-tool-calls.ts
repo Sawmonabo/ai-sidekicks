@@ -6,7 +6,7 @@
 // - The `taskId` in a task-augmented call's `CreateTaskResult` is the handle recovery polls instead
 //   of halting.
 
-import type { IdempotencyClass } from "@ai-sidekicks/contracts";
+import type { IdempotencyClass } from "@ai-sidekicks/contracts/provider-driver";
 
 /** The class of every MCP-discovered tool: equal to a driver's default in value but not in rule. */
 const MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";

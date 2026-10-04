@@ -2,7 +2,7 @@
 // act. Matching is `find-model.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { TimelineRow } from "@ai-sidekicks/contracts/timeline/row";
 import { describe, expect, it } from "vitest";
 
 import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";

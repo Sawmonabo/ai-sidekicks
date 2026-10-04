@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkspaceState } from "@ai-sidekicks/contracts";
+import type { WorkspaceState } from "@ai-sidekicks/contracts/repo";
 
 import {
   computeExecutionModeCapabilities,

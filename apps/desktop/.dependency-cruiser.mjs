@@ -39,6 +39,7 @@ import {
   LIB,
   REGISTRIES,
   RENDERER,
+  RENDERER_HOMES,
   ROUTING,
   SERVICES,
   STORE,
@@ -200,6 +201,20 @@ export default {
       // one rule covering both directions rather than two rules covering one each.
       from: { path: STORE_ISOLATED_SUBTREES },
       to: { path: STORE_ISOLATED_SUBTREES, pathNot: `${STORE}$1/` },
+    },
+    {
+      name: "renderer-top-level-folders",
+      comment:
+        "A renderer module outside the top-level folders, or a file at the renderer root " +
+        "other than `main.tsx` and its two ambient declarations. A new top-level folder needs a " +
+        "concrete ownership or dependency need, and joins the layer ladder and `RENDERER_HOMES` " +
+        "in `.dependency-cruiser.layers.mjs`.",
+      severity: "error",
+      // A module rule, not an edge rule, so it reports a module whatever it imports and whatever
+      // imports it. 100 is the schema's ceiling for the count; the rule fires at the first module
+      // of a new folder, long before any module there could reach it.
+      module: { path: `${RENDERER}/`, pathNot: RENDERER_HOMES, numberOfDependentsLessThan: 100 },
+      from: {},
     },
     {
       name: "app-is-composition-only",

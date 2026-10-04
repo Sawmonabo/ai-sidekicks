@@ -54,7 +54,12 @@ export interface ReleaseManifest {
   artifacts: Record<string, ReleaseManifestArtifact>;
 }
 
-/** Parses a {@link ReleaseManifest}. */
+/**
+ * Parses a {@link ReleaseManifest}.
+ *
+ * @consumedBy the command line's `sidekicks self-update`, which checks each download against the
+ * manifest
+ */
 export const ReleaseManifestSchema: z.ZodType<ReleaseManifest> = z
   .object({
     version: z.number().int().positive(),

@@ -14,9 +14,9 @@ import {
   DRIVER_TOOL_NAME_MAX_LEN,
   type RunId,
   type SessionCallbackTool,
-  type SessionId,
-  type ProviderName,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/provider-driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,

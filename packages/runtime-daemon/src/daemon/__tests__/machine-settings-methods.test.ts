@@ -7,16 +7,17 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { JsonRpcErrorCode, type JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
 import {
-  JsonRpcErrorCode,
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
-  type JsonRpcNotification,
   type MachineSettingsReading,
   type MachineSettingsUpdateResponse,
-  type SubscribeAckResponse,
-  type SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
+import type {
+  SubscribeAckResponse,
+  SubscriptionNotifyParams,
+} from "@ai-sidekicks/contracts/jsonrpc-streaming";
 
 import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../ipc/registry.js";

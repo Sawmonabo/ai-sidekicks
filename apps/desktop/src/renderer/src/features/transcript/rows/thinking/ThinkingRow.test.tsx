@@ -1,6 +1,7 @@
 // The availability arms, the tail, and the one control — each rendered as itself.
 
-import type { ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
+import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/timeline/operations";
+import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

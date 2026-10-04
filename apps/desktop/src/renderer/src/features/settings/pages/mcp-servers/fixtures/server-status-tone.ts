@@ -3,7 +3,7 @@
 // neutral.
 
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
-import type { McpServerStatus } from "@ai-sidekicks/contracts";
+import type { McpServerStatus } from "@ai-sidekicks/contracts/provider-driver";
 
 /**
  * The mapping.

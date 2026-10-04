@@ -1,4 +1,4 @@
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 

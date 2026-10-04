@@ -8,7 +8,7 @@ import {
   type MachineSettings,
   type MachineSettingsChange,
   type MachineSettingsReading,
-} from "@ai-sidekicks/contracts";
+} from "@ai-sidekicks/contracts/machine-settings";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore } from "./machine-settings-store.js";
 import { effectiveSettings } from "./machine-settings-snapshot.js";

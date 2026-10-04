@@ -3,7 +3,7 @@
 // holder before it, so stdin is never left open on a guess.
 
 import { describe, expect, it } from "vitest";
-import { TERMINAL_LEASE_SCENARIO } from "../../../../../../fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
 import { projectTerminalLease } from "./lease-model.js";
 import {
   COMMAND_ID,

@@ -3,8 +3,9 @@
 // The answer comes from the heartbeats held in memory, one per device; nothing is read from
 // storage. The descriptor is not `mutating`, so a connection with an incompatible protocol
 // version can still read it.
-import type { MachinePresence, MethodRegistry } from "@ai-sidekicks/contracts";
-import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts";
+import type { MachinePresence } from "@ai-sidekicks/contracts/presence";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 
 import { registerDescribedMethod } from "./register-described-method.js";
 

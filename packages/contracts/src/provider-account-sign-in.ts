@@ -123,7 +123,11 @@ const KEYCHAIN_REFUSAL_CAUSE_VALUES = ["locked", "unavailable"] as const;
  * keychain carries this one pair.
  */
 export type KeychainRefusalCause = (typeof KEYCHAIN_REFUSAL_CAUSE_VALUES)[number];
-/** Every {@link KeychainRefusalCause}. */
+/**
+ * Every {@link KeychainRefusalCause}.
+ *
+ * @consumedBy the paste-token refusal, one line per keychain cause
+ */
 export const KEYCHAIN_REFUSAL_CAUSES: readonly KeychainRefusalCause[] =
   KEYCHAIN_REFUSAL_CAUSE_VALUES;
 /** Parses a {@link KeychainRefusalCause}. */
@@ -133,7 +137,11 @@ export const KeychainRefusalCauseSchema: z.ZodType<KeychainRefusalCause, Keychai
 /** A pasted token could not be sealed in this machine's keychain, so nothing was stored. */
 export const PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE =
   "provideraccount.credential_seal_refused" as const;
-/** The type of {@link PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE}. */
+/**
+ * The type of {@link PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `provideraccount.credential_seal_refused` error
+ */
 export type ProviderAccountCredentialSealRefusedCode =
   typeof PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE;
 
@@ -154,7 +162,12 @@ export const ProviderAccountCredentialSealRefusedDetailsSchema: z.ZodType<Provid
  */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE =
   "provideraccount.display_label_taken" as const;
-/** The type of {@link PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE}. */
+/**
+ * The type of {@link PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE}.
+ *
+ * @consumedBy the token and API-key account registration and rename, which refuse a name another
+ * account of that provider has
+ */
 export type ProviderAccountDisplayLabelTakenCode = typeof PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE;
 
 /**
@@ -266,7 +279,11 @@ const PROVIDER_LOGIN_CANCEL_STATUS_VALUES = ["canceled", "notFound"] as const;
  * sees no refusal for losing.
  */
 export type ProviderLoginCancelStatus = (typeof PROVIDER_LOGIN_CANCEL_STATUS_VALUES)[number];
-/** Every {@link ProviderLoginCancelStatus}. */
+/**
+ * Every {@link ProviderLoginCancelStatus}.
+ *
+ * @consumedBy the sign-in card's `Cancel`
+ */
 export const PROVIDER_LOGIN_CANCEL_STATUSES: readonly ProviderLoginCancelStatus[] =
   PROVIDER_LOGIN_CANCEL_STATUS_VALUES;
 
@@ -283,5 +300,8 @@ export const ProviderAccountLoginCancelResponseSchema: z.ZodType<ProviderAccount
  * Wire member names a request-logging transport must redact before emitting a record. Declared
  * once here so a transport does not re-derive the list, and adding a credential-accepting member
  * without redacting it is one omission instead of one per transport.
+ *
+ * @consumedBy the daemon transport's request log, which leaves the registration token out of every
+ * record
  */
 export const PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS: readonly string[] = ["nonInteractiveToken"];

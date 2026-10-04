@@ -4,7 +4,7 @@
 // `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A replayed chunk (same
 // sequence number, same bytes) is acknowledged without re-appending, so retry resumes.
 
-import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
 
 import { encodeBase64 } from "../base64.js";
 import { type Clock } from "@renderer/lib/clock.js";

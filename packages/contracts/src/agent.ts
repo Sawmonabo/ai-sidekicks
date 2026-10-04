@@ -275,7 +275,11 @@ export interface AgentMethodDescriptors {
   >;
 }
 
-/** The `agent.*` method table. */
+/**
+ * The `agent.*` method table.
+ *
+ * @consumedBy the daemon's `agent.*` handlers
+ */
 export const AGENT_METHOD_DESCRIPTORS: AgentMethodDescriptors = defineMethodDescriptors({
   "agent.list": {
     method: "agent.list",

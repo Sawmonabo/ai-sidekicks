@@ -5,19 +5,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  EventEnvelopeSchema,
-  STREAM_FRAME_MAX_CHANGES,
-  SessionStreamFrameSchema,
-} from "@ai-sidekicks/contracts";
+import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event-envelope";
+import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session";
 
 import {
   createFixture,
   lastScriptedBeatMs,
   subscribeToSessionStream,
 } from "@test/helpers/fixture-bridge.js";
-import type { Scenario, ScenarioBeat } from "../../../../../fixtures/scenario.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios/concurrent-streaming.js";
+import type { Scenario, ScenarioBeat } from "@fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 
 /** The `session.subscribe` frame as the contract registers it, over the tolerant envelope. */
 const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);

@@ -82,7 +82,11 @@ const PROVIDER_ACCOUNT_HEALTH_STATE_VALUES = [
  * and this wire value is not, so a NULL stored reading is sent as `indeterminate`.
  */
 export type ProviderAccountHealthState = (typeof PROVIDER_ACCOUNT_HEALTH_STATE_VALUES)[number];
-/** Every `ProviderAccountHealthState`, in declaration order. */
+/**
+ * Every `ProviderAccountHealthState`, in declaration order.
+ *
+ * @consumedBy an account's row on Settings › Providers, which draws its state in words
+ */
 export const PROVIDER_ACCOUNT_HEALTH_STATES: readonly ProviderAccountHealthState[] =
   PROVIDER_ACCOUNT_HEALTH_STATE_VALUES;
 /** Parses a {@link ProviderAccountHealthState}. */
@@ -129,7 +133,11 @@ const PROVIDER_READINESS_STATE_VALUES = [
  * new health value cannot widen it silently. It authorizes nothing: admission re-validates.
  */
 export type ProviderReadinessState = (typeof PROVIDER_READINESS_STATE_VALUES)[number];
-/** Every `ProviderReadinessState`, in declaration order. */
+/**
+ * Every `ProviderReadinessState`, in declaration order.
+ *
+ * @consumedBy the Providers page's state and the one remedy that applies to it
+ */
 export const PROVIDER_READINESS_STATES: readonly ProviderReadinessState[] =
   PROVIDER_READINESS_STATE_VALUES;
 /** Parses a {@link ProviderReadinessState}. */
@@ -147,7 +155,11 @@ const PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES = ["probe", "run"] as const;
  */
 export type ProviderAccountUsageWindowSource =
   (typeof PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES)[number];
-/** Every `ProviderAccountUsageWindowSource`, in declaration order. */
+/**
+ * Every `ProviderAccountUsageWindowSource`, in declaration order.
+ *
+ * @consumedBy the provider limits reads: the five-minute limits read and the turn-end read
+ */
 export const PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES: readonly ProviderAccountUsageWindowSource[] =
   PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES;
 /** Parses a {@link ProviderAccountUsageWindowSource}. */
@@ -636,7 +648,11 @@ const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "canceled"] as con
 
 /** How a brokered sign-in attempt ended. */
 export type ProviderLoginOutcome = (typeof PROVIDER_LOGIN_OUTCOME_VALUES)[number];
-/** Every `ProviderLoginOutcome`, in declaration order. */
+/**
+ * Every `ProviderLoginOutcome`, in declaration order.
+ *
+ * @consumedBy the sign-in card, which reads `Sign-in did not finish.` when a sign-in fails
+ */
 export const PROVIDER_LOGIN_OUTCOMES: readonly ProviderLoginOutcome[] =
   PROVIDER_LOGIN_OUTCOME_VALUES;
 
