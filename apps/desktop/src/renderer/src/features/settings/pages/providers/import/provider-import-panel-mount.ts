@@ -8,7 +8,7 @@
 // component identity so a re-render does not remount a half-typed form, and the settled
 // body rendered directly so reopening never suspends. While pending it draws nothing.
 
-import { LoaderBackedBody } from "@renderer/components/LazyBody/lazy-body.js";
+import { LoaderBackedBody } from "#renderer/components/LazyBody/lazy-body.js";
 import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**

@@ -7,10 +7,10 @@ import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { describe, expect, it } from "vitest";
 
 import { encodeBase64 } from "./base64.js";
-import { readWireString } from "@renderer/lib/wire/strings.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./services/attachment-ingest-acknowledgement.js";
 import { PAYLOAD_READ_REFUSAL_CODE } from "./services/attachment-ingest-chunks.js";
-import type { AttachmentIngestEntry } from "./attachment-shapes.js";
+import type { AttachmentIngestEntry } from "./shapes.js";
 import {
   INGEST_SESSION_ID,
   SMALL_SOURCE,
@@ -19,8 +19,8 @@ import {
   movableSourceOver,
   patternedBytes,
   sourceOver,
-} from "@test/helpers/scripted-ingest-port.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+} from "#test/helpers/scripted-ingest-port.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 /** Whether one recorded request carried bytes rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {

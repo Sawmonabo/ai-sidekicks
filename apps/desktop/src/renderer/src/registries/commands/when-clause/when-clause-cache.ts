@@ -2,7 +2,7 @@
 // keystroke, and a broken clause warns once when first compiled, not per character.
 
 import { evaluateWhenClause, type WhenClauseContext } from "./when-clause.js";
-import { parseWhenClause, type WhenClauseParseResult } from "./when-clause-parser.js";
+import { parseWhenClause, type WhenClauseParseResult } from "./parser.js";
 
 /** A memo over `parseWhenClause`, one instance per command registry. */
 export class WhenClauseCache {

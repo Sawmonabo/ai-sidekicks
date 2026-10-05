@@ -3,8 +3,8 @@
 // cursor block. The reply's `result` is untyped, so reaching a member is a narrowing walk; two
 // copies of it could disagree about a reply that is half a record.
 
-import { isWireRecord } from "@renderer/lib/wire/record.js";
-import type { Scenario } from "@fixtures/scenario.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
+import type { Scenario } from "#fixtures/scenario.js";
 
 /** The wire call a scenario states its session through. */
 const SESSION_READ_CALL = "session.read";

@@ -3,7 +3,7 @@
 // not fit an option label. Every mode is rendered and excluded ones are disabled, since
 // `availableModes` is the daemon's answer for this mount.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { ExecutionModeRowReading } from "../execution-mode/execution-mode-rows.js";
 
 /** Props for the execution-mode picker. */

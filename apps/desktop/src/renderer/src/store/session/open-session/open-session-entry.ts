@@ -17,18 +17,18 @@
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
-import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import type { SessionDegradedCause } from "../degradation.js";
 import type { EntityProjectorTable } from "../entities/entities.js";
 import { ApplyQueue } from "../apply/apply-queue.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
 import { type ApplyOutcome } from "../apply/apply-outcome.js";
 import { SessionStore, type SessionBaseState } from "../session-store.js";
 import {

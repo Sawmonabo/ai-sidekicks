@@ -9,12 +9,12 @@
 import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
-import { PERSISTENCE_GLOBAL_PARTITION } from "@renderer/store/persistence/persistence-adapter.js";
+import { PERSISTENCE_GLOBAL_PARTITION } from "#renderer/store/persistence/persistence-adapter.js";
 import {
   UI_STATE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
-} from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { consoleWindowId } from "@shared/window/frame-name.js";
+} from "#renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { consoleWindowId } from "#shared/window/frame-name.js";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { clickViewMenuScheme, readPageScheme } from "./color-scheme/color-scheme.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";

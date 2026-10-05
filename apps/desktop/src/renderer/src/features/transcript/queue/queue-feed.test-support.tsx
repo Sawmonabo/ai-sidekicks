@@ -4,13 +4,13 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { createFixture } from "@test/helpers/fixture/bridge.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { createFixture } from "#test/helpers/fixture/bridge.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
-import type { QueueCalls, QueueFeed } from "./queue-reading.js";
+import type { QueueCalls, QueueFeed } from "./reading.js";
 
 /** The session most cases read. */
 export const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";

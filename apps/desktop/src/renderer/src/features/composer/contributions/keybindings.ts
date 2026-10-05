@@ -1,7 +1,7 @@
 // The composer's keybinding: the chord that asks for the composer from anywhere in the window.
 
-import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import type { Keybinding } from "@renderer/registries/commands/command-types.js";
+import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import type { Keybinding } from "#renderer/registries/commands/types.js";
 import { COMPOSER_FOCUS_COMMAND_ID } from "./commands.js";
 
 /**

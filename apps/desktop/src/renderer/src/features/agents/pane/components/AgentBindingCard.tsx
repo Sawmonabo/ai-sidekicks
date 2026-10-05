@@ -4,8 +4,8 @@
 // resolved configuration is never re-read from the registry, whose row may have moved. `createdAt`
 // sits in the head, not the effective line, whose members are all provider axes.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "@renderer/lib/wire/figures.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";

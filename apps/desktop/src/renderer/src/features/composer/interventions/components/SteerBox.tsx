@@ -6,11 +6,11 @@
 // that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
 
 import { useCallback, useEffect, useId, useMemo } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,

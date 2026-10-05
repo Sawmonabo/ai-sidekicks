@@ -10,15 +10,15 @@ import type {
 } from "@ai-sidekicks/contracts/daemon/methods";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
-import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
-import type { ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { SESSION_EVENT_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
+import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import type { ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { SESSION_EVENT_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /** The fixture bridge and the engine driving its scenario. */
 export interface FixtureUnderTest {

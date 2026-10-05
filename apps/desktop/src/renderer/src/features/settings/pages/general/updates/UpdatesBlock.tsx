@@ -8,15 +8,15 @@
 // updater's own words under the controls, which stay drawn. Under the read-out sits the switch
 // for the machine setting `updatesAutomatic`, which draws a refused write the same way.
 
-import type { UpdateState } from "@shared/preload-api.js";
+import type { UpdateState } from "#shared/preload-api.js";
 import { useState, type ReactNode } from "react";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { PreferenceToggleRow } from "@renderer/features/settings/components/PreferenceToggleRow.js";
-import type { MachineSettingsBinding } from "@renderer/features/settings/machine-settings/hooks/useMachineSettings.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
+import type { MachineSettingsBinding } from "#renderer/features/settings/machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";

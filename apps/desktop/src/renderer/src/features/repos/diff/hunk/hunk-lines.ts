@@ -2,11 +2,11 @@
 // and the `\ No newline at end of file` annotation. `patch-parse.ts` reads the patch's
 // structure; this reads inside one hunk.
 
-import { RealClock } from "@renderer/lib/clock.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import type { DiffLine, DiffLineKind } from "../diff-model.js";
 import { wholeLineSegments } from "../diff-model.js";
 

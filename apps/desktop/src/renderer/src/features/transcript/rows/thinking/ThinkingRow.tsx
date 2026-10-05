@@ -3,7 +3,7 @@
 // The control is absent, not disabled, on a row with no run attribution: the read is run-scoped,
 // and a disabled control would claim an action that exists but is not permitted.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type {
   ReasoningEntry,
   ReasoningSurfaceReadResponse,

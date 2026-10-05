@@ -4,9 +4,9 @@
 import {
   IDENTIFIER_MAX_LENGTH,
   isSingleNameIdentifierShaped,
-} from "@renderer/lib/identifier-grammar.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
+} from "#renderer/lib/identifier-grammar.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import {
   isEntityOptionalPaneKind,
   paneEntityScopeFor,

@@ -1,15 +1,15 @@
 import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import {
   DELETE_OLDER_THAN_DAYS,
   useDeleteOlderRuns,
   type DeleteOlderThanDays,
 } from "../hooks/useDeleteOlderRuns.js";
 import { useInlineConfirm } from "../hooks/useInlineConfirm.js";
-import { runCountWords } from "../../workflow-words.js";
+import { runCountWords } from "../../words.js";
 import { ActionButton } from "../../components/ActionButton.js";
 
 /**

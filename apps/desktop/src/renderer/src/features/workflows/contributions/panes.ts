@@ -3,7 +3,7 @@
 import {
   type PaneRegistration,
   type PaneRegistry,
-} from "@renderer/registries/panes/pane-registry.js";
+} from "#renderer/registries/panes/pane-registry.js";
 
 /**
  * The feature's owner string. One binding, because the registries' duplicate policy is

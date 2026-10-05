@@ -7,8 +7,8 @@
 
 import "./NewSessionControl.css";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import type { NewSessionControlProps } from "../new-session-control-contract.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import type { NewSessionControlProps } from "../control-contract.js";
 import { useNewSessionComposition } from "../hooks/useNewSessionComposition.js";
 
 /**

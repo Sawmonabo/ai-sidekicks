@@ -8,8 +8,8 @@
 
 import { useEffect } from "react";
 
-import { commandContributionRegistry } from "../command-contributions.js";
-import type { CommandDefinition } from "../command-types.js";
+import { commandContributionRegistry } from "../contributions.js";
+import type { CommandDefinition } from "../types.js";
 
 /** No chords, always; frozen so a caller cannot add one. */
 const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);

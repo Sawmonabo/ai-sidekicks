@@ -5,11 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyAppearance, installMeridianTokens } from "@renderer/app/token-installation.js";
-import { tokenVariableName, type SchemePreference } from "@renderer/styles/tokens.js";
-import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
+import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
+import { tokenVariableName, type SchemePreference } from "#renderer/styles/tokens.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
 /**
  * Wait for the platform to deliver a resize observation, then run the frame it armed. Bounded;

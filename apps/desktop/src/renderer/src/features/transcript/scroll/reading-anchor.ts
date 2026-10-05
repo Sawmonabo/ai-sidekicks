@@ -1,5 +1,5 @@
 // The reading anchor: the transcript never takes the reading position away from a person while
-// agents work. It decides what should happen to the reading position; `scroll-chokepoint.ts` is
+// agents work. It decides what should happen to the reading position; `chokepoint.ts` is
 // the only module that writes a scroll offset, and this one touches no DOM.
 //   - Following is a state: appends move the offset only while the viewport is at the tail, and
 //     otherwise they are counted (the tail pill's count).
@@ -9,12 +9,12 @@
 //     are never pruned; the held set lives here because engagement is a reading fact.
 //   - Following resumes on arrival at the tail or through the pill, never on a timer.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
 import {
   SCROLL_GEOMETRY_EPSILON_PX,
   type ScrollGeometry,
-} from "@renderer/lib/scroll/geometry-sample.js";
+} from "#renderer/lib/scroll/geometry-sample.js";
 
 /**
  * The three reading states. Closed.

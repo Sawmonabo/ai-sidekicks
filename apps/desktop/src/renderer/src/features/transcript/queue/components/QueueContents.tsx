@@ -3,11 +3,11 @@
 // keeps it), and all five states render as rows because queue rows are durable and never
 // deleted; cancel is offered only on the state that can still be taken back.
 
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import { findReadRefusal } from "@renderer/services/wire-reads/read-lifecycle.js";
-import type { QueueFeed } from "../queue-reading.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { findReadRefusal } from "#renderer/services/wire-reads/read-lifecycle.js";
+import type { QueueFeed } from "../reading.js";
 import { QueueRow } from "./QueueRow.js";
 
 import "./QueueContents.css";

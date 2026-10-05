@@ -10,11 +10,11 @@
 // The store runs on the window's clock (`useBridgeClock`), so under the fixture its record
 // stamps and the LRU trim ordered on them follow the scenario, not the host.
 
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
  * This window's UI-state store, rebuilt on a new bridge and closed when the app unmounts.

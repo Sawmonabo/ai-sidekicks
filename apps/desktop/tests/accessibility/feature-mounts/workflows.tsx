@@ -19,31 +19,31 @@ import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../../helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import {
   PROBE_SESSION_ID,
   definition,
-} from "@renderer/features/workflows/workflows-probe.test-support.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+} from "#renderer/features/workflows/workflows-probe.test-support.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import {
   registerWorkflowPanes,
   registerWorkflowScreens,
-} from "@renderer/features/workflows/index.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+} from "#renderer/features/workflows/index.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";

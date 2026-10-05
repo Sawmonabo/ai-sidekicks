@@ -13,11 +13,11 @@
 
 import { createElement } from "react";
 
-import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/lazy-body.js";
 import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type PaneContext } from "./pane-context.js";
-import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { PANE_KINDS, type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 
 /** What a feature registers to claim a pane kind. */
 export interface PaneDescriptor {

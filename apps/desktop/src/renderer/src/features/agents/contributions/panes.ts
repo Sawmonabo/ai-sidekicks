@@ -1,6 +1,6 @@
 // The Agents pane's registration, called from `app/registrations.ts`.
 
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 
 /** The owner string this body's claim carries, so a hot reload replaces. */
 const AGENTS_PANE_OWNER = "agents";

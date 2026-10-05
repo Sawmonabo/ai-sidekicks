@@ -1,6 +1,6 @@
 // Query layer over `tests/budget/budgets.json`, the one place every numeric budget the app is
 // gated on is written down. Validation is `budget-document.mts`, comparing a measurement is
-// `budget-evaluation.mts`, and formatting the un-measured rows is `budget-report.mts`.
+// `evaluation.mts`, and formatting the un-measured rows is `report.mts`.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";

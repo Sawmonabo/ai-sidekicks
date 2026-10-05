@@ -4,10 +4,10 @@
 // arrangement is restored. One request is held per window; a newer one replaces it, since only the
 // last press says where the person meant to go.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
-import { Emitter } from "@renderer/lib/emitter.js";
-import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import type { PaneAddress } from "#renderer/routing/panes/pane-address.js";
 
 /** One held request: the session whose layout should open the pane, and the pane's address. */
 export interface PaneOpenRequest {

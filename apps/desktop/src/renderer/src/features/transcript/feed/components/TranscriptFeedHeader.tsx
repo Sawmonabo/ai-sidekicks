@@ -3,8 +3,8 @@
 // a count computed here would be a second answer to `useVisibleTranscriptWindow.ts`.
 
 import { FindBox } from "../../find/components/FindBox.js";
-import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
-import { matchWalkReading } from "../../find/find-readings.js";
+import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
+import { matchWalkReading } from "../../find/readings.js";
 import { type TranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 
 /** The find state the header draws its field and counts from. */

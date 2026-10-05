@@ -9,7 +9,7 @@ import {
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** One member of the settings file, which is what one write changes. */
 export type MachineSettingsMember = keyof MachineSettings;

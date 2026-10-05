@@ -7,7 +7,7 @@ import path from "node:path";
 
 import { expect, it } from "vitest";
 
-import { PACKAGE_ROOT } from "@test/helpers/fixture/bundle.js";
+import { PACKAGE_ROOT } from "#test/helpers/fixture/bundle.js";
 
 import { resolveServiceProgram } from "./service-program.js";
 

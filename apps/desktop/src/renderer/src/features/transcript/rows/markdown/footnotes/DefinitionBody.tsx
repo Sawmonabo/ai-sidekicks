@@ -2,11 +2,11 @@
 
 import type { RootContent } from "mdast";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {
   MarkdownNodes,
   type MarkdownRenderContext,
-} from "@renderer/components/Markdown/MarkdownNodes.js";
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 
 /** What one footnote definition is drawn from. */
 export interface DefinitionBodyProps {

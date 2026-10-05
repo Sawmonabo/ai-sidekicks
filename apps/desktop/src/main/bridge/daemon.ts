@@ -24,17 +24,17 @@ import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mac
 import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import { z, type ZodType } from "zod";
 
-import { daemonMethodBindingFor } from "@shared/daemon/daemon-method-bindings.js";
+import { daemonMethodBindingFor } from "#shared/daemon/daemon-method-bindings.js";
 import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
-} from "@shared/bridge-channels.js";
+} from "#shared/bridge-channels.js";
 import type {
   DaemonCallOutcome,
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
-} from "@shared/daemon/forwarding.js";
-import { DAEMON_STATUS_TOPIC } from "@shared/daemon/daemon-status-topic.js";
+} from "#shared/daemon/forwarding.js";
+import { DAEMON_STATUS_TOPIC } from "#shared/daemon/daemon-status-topic.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 import type {
   DaemonSupervisor,

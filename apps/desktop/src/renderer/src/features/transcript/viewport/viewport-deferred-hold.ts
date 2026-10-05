@@ -8,7 +8,7 @@
 // which captures nothing while a reader is at the tail; it uses where the head row was.
 
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
-import { type ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
+import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
 /** Dependencies of a `ViewportDeferredHold`; `rowKeys` is read when the hold is performed. */
 export interface ViewportDeferredHoldOptions {

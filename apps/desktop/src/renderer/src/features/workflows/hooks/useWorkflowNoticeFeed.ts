@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { Clock } from "@renderer/lib/clock.js";
-import { subscribeWorkflowNotices } from "@renderer/services/daemon/workflow-notices.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { subscribeWorkflowNotices } from "#renderer/services/daemon/workflow-notices.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { WorkflowNoticeFeed, type WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
 
 /** The screen's one notice feed and where it stands. */

@@ -1,6 +1,6 @@
 // The renderer's root component.
 
-import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
+import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { composeFixtureLaunch } from "./fixture/composition.js";
 import { AppProviders } from "./AppProviders.js";
 

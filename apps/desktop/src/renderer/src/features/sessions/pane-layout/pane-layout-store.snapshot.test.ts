@@ -8,10 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP, PaneLayoutStore } from "./pane-layout-store.js";
-import {
-  PANE_LAYOUT_SNAPSHOT_VERSION,
-  PANE_LAYOUT_SNAPSHOT_HEADER_KEY,
-} from "./pane-layout-snapshot.js";
+import { PANE_LAYOUT_SNAPSHOT_VERSION, PANE_LAYOUT_SNAPSHOT_HEADER_KEY } from "./snapshot.js";
 
 function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });

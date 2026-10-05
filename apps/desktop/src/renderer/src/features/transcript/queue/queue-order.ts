@@ -3,7 +3,7 @@
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
-import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
+import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 
 /** The ordered fold of queue rows; the order rule lives here and nowhere else. */
 export class QueueOrder {

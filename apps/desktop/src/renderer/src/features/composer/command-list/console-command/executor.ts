@@ -5,7 +5,7 @@
 // a `finally` with no `catch`, so an escaping rejection would show no refusal. A command that
 // does not run here settles as `send-as-typed`, so the provider answers the line, not the console.
 
-import { isErrorInstance, lossyStringify, readGuardedProperty } from "@renderer/lib/wire/errors.js";
+import { isErrorInstance, lossyStringify, readGuardedProperty } from "#renderer/lib/wire/errors.js";
 import type { CommandExecutor, CommandOutcome, ComposerCommandLine } from "../../types.js";
 import { consoleCommandRefusal, recognizeConsoleCommand } from "./recognizer.js";
 import { type ComposerCommands } from "../composer-commands.js";

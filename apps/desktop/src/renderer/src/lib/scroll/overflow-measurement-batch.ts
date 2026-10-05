@@ -7,7 +7,7 @@
 
 import { getWindow } from "@floating-ui/utils/dom";
 
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 
 /** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
 export interface OverflowMeasurementBatchOptions {

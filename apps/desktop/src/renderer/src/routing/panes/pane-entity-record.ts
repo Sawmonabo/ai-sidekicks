@@ -5,7 +5,7 @@
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 
-import type { EntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { WorkflowRunComparisonRef } from "./pane-address.js";
 
 /** One pane's entity as layout record members. */

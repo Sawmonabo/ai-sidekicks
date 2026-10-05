@@ -6,15 +6,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { RevealEngine } from "../reveal-engine.js";
 import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
-import { type RevealDelta } from "../reveal-model.js";
+import { type RevealDelta } from "../model.js";
 
 /** What a view gets back: the channel its rows read, the drain state, and the acts. */
 export interface RevealBinding {

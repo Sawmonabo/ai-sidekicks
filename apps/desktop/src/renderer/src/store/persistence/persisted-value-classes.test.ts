@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { validatePersistedAddress } from "./persisted-value-classes.js";
-import { PERSISTENCE_REFUSAL_ORIGIN } from "./persistence-refusals.js";
+import { PERSISTENCE_REFUSAL_ORIGIN } from "./refusals.js";
 
 describe("a record's ADDRESS passes the same chokepoint as its value", () => {
   const PROSE_KEY = "Rerun the migration and tell me what the row counts look like";

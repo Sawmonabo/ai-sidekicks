@@ -4,8 +4,8 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 import type { ReactNode } from "react";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { readKeychainRefusalCause } from "@renderer/services/provider-accounts/provider-account-refusal-details.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
 import type { TokenRegistrationOutcome } from "../provider-sign-in-flow.js";
 
 /** What each keychain refusal reads as, in the slot a refused token's line takes. */

@@ -9,18 +9,18 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { executionModeRows } from "../execution-mode/execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
-import { type BindReading } from "./bind-controller.js";
+import { type BindReading } from "./controller.js";
 import { useBindController } from "./hooks/useBindController.js";
-import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-form.js";
+import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./form.js";
 
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const MODE_GROUP_NAME = "meridian-bind-mode";

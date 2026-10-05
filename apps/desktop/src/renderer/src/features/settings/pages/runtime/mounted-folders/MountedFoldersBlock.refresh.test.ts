@@ -4,7 +4,7 @@
 // whether a refusal ends the conversation) and drive the block through the harness in
 // `mounted-folders-block.test-support.tsx`.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 

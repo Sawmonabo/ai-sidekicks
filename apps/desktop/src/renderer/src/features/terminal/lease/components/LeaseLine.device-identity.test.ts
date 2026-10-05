@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_DEVICE_ID } from "../lease-model.test-support.js";
+import { OTHER_DEVICE_ID } from "../model.test-support.js";
 
 describe("the take control is gated on knowing which device this is", () => {
   /** The take control, or `null` — the shape the absent-control cases need. */

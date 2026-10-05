@@ -8,9 +8,9 @@
 // It lives in `app/` and not `styles/` because it is the one part that touches a `Document`, and
 // node-context tooling imports `styles/` with no DOM lib.
 
-import { generateMeridianCss } from "@renderer/styles/generate-css.js";
-import { composeRootAppearance, type AppearanceRecord } from "@shared/appearance.js";
-import { generateTypefaceCss } from "@renderer/styles/typeface.js";
+import { generateMeridianCss } from "#renderer/styles/generate-css.js";
+import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
+import { generateTypefaceCss } from "#renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */
 export const MERIDIAN_STYLE_ELEMENT_ID = "meridian-tokens";

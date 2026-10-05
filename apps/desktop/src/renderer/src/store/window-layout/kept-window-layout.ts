@@ -3,7 +3,7 @@
 // and the rest from here. It holds every window open now, and the last one closed while none other
 // is open, so a reopen brings that window back; it is read from storage, so each entry is checked.
 
-import { isConsoleWindowId } from "@shared/window/frame-name.js";
+import { isConsoleWindowId } from "#shared/window/frame-name.js";
 import type { PersistableValue } from "../persistence/persisted-value-classes.js";
 import type { PersistenceWriteResult, UiStateStore } from "../persistence/ui-state-store.js";
 

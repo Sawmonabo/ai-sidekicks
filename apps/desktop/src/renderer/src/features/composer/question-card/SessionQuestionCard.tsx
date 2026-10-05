@@ -4,7 +4,7 @@
 // row that is not a question renders something else and arms none of it.
 
 import type { QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
-import { type QuestionReading } from "@renderer/store/session-events/question-reading.js";
+import { type QuestionReading } from "#renderer/store/session-events/question-reading.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./hooks/useQuestionAnswer.js";
 import { QuestionCard } from "./QuestionCard.js";
 

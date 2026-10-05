@@ -29,11 +29,11 @@ import {
   ENDURANCE_LAUNCH_OPTIONS,
   expectConcurrentStreamingSessionCarriesContent,
   openConcurrentStreamingSessionRoute,
-} from "../endurance-workload.js";
+} from "../workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./instrument.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "../../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../../scripts/budget/budget-evaluation.mts";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 

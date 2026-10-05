@@ -3,9 +3,9 @@
 // payload (no `dangerously`, `src`, `href`, or element a media type could turn into a document).
 
 import "./artifact.css";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { ArtifactPayloadReading } from "#renderer/store/artifacts/payload.js";
 
 /** What the payload section draws. */
 export interface ArtifactPayloadSectionProps {

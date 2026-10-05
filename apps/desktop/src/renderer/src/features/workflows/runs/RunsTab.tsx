@@ -13,25 +13,25 @@ import type {
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
 import { DeleteOlderRuns } from "./components/DeleteOlderRuns.js";
 import { RunAttentionSection } from "./components/RunAttentionSection.js";
 import { RunFilterBar } from "./components/RunFilterBar.js";
 import { RunsTable } from "./components/RunsTable.js";
 import type { RunFiltersHold } from "./hooks/useRunFilters.js";
 import { useRunTimesNow } from "../hooks/useRunTimesNow.js";
-import { isGoing } from "../run-controls.js";
+import { isGoing } from "./controls.js";
 import { NO_RUN_FILTERS, hasRunFilters, noRunMatchSentence } from "./run-filters.js";
-import type { RunListAnswer, RunListAsk } from "./run-list-pages.js";
-import { runCountWords } from "../workflow-words.js";
+import type { RunListAnswer, RunListAsk } from "./list-pages.js";
+import { runCountWords } from "../words.js";
 import { ActionButton } from "../components/ActionButton.js";
 
 /** What the Runs tab's list is drawn from, and where it leads. */

@@ -16,11 +16,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ZodType } from "zod";
 
-import { OPEN_DAEMON_SUBSCRIPTION_CHANNEL } from "@shared/bridge-channels.js";
-import type { DaemonSubscriptionRequest } from "@shared/daemon/forwarding.js";
-import type { MainProcessState } from "@shared/daemon/daemon-status-topic.js";
-import type { PreloadApi } from "@shared/preload-api.js";
-import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+import { OPEN_DAEMON_SUBSCRIPTION_CHANNEL } from "#shared/bridge-channels.js";
+import type { DaemonSubscriptionRequest } from "#shared/daemon/forwarding.js";
+import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { PreloadApi } from "#shared/preload-api.js";
+import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import {
   bridgeOverLink,
   linkOver,

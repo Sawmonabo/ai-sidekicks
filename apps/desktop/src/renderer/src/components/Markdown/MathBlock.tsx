@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
 /** What one formula is drawn from. */
 export interface MathBlockProps {

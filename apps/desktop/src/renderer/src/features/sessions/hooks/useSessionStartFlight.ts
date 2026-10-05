@@ -13,8 +13,8 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-import { type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
+import { type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
 
 /**
  * The one act this destination has in flight per bridge: creating a session. A key in the

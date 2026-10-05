@@ -10,7 +10,7 @@ import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import {
   readWorkspaceControlAvailability,
   type WorkspaceControlAvailability,
-} from "../../mount-health.js";
+} from "../../health.js";
 
 /** The two availabilities a card hands down, composed through the real predicate. */
 const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(

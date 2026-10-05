@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { IdleMemoryTrim } from "./idle-trim.js";
 import { TranscriptWindow } from "./window-cap.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./viewport-constants.js";
-import { ManualClock } from "@renderer/lib/clock.js";
+import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./constants.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { PRUNABLE, TOP_LEVEL_ROW_COUNT, loadedWindow } from "./window-cap.test-support.js";
 
 /** The newest run group in the shared log — the one end of it the cap never drops. */

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "@renderer/features/composer/composer-bounds.js";
+import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "#renderer/features/composer/bounds.js";
 import { readWorkflowDefinitions } from "./enumeration.js";
 import {
   fixtureWorkflowStartOperations,

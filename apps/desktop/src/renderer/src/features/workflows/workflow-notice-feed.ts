@@ -10,10 +10,10 @@
 
 import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import type { WorkflowNoticeFrame } from "@renderer/services/daemon/workflow-notices.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { WorkflowNoticeFrame } from "#renderer/services/daemon/workflow-notices.js";
 
 /** Where the feed stands: opening, open with the hold as last told, or refused while it is down. */
 export type WorkflowNoticeFeedState =

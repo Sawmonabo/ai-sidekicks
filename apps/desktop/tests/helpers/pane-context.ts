@@ -7,15 +7,15 @@
 // (session-scoped kinds carry no `entity`, entity-keyed kinds require one) are enforced at the call
 // site.
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type PaneAddressOf } from "@renderer/routing/panes/pane-address.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { type PaneAddressOf } from "#renderer/routing/panes/pane-address.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 
 /**
  * What a mounting suite decides. `bridge` and `sessionStore` are required with no default, since

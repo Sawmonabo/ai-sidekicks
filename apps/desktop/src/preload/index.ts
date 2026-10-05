@@ -7,7 +7,7 @@
 
 import { contextBridge } from "electron";
 
-import { FIXTURE_LAUNCH_GLOBAL, readFixtureLaunchSwitches } from "@shared/fixture-launch.js";
+import { FIXTURE_LAUNCH_GLOBAL, readFixtureLaunchSwitches } from "#shared/fixture-launch.js";
 import { createPreloadApi } from "./api.js";
 
 // Set by the `define` block in `electron.vite.config.ts`: `true` in the development and

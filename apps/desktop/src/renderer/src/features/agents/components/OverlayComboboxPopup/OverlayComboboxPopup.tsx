@@ -4,8 +4,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
-import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** What the popup renders, and the class names the caller styles it with. */
 export interface OverlayComboboxPopupProps {

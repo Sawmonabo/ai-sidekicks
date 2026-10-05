@@ -7,10 +7,10 @@
 // history is on the `interventions` table, which no registered wire reads.
 
 import { useCallback, useMemo, useRef } from "react";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { INTERVENTION_OUTCOME_CAP } from "../../run-caps.js";
 import {
   RunControlDispatcher,
@@ -18,7 +18,7 @@ import {
   type RunControlCalls,
   type RunControlOutcome,
 } from "../services/run-control-dispatch.js";
-import { inFlightKeyFor, mintRunControlDispatchToken } from "../run-control-keys.js";
+import { inFlightKeyFor, mintRunControlDispatchToken } from "../keys.js";
 
 /** One recorded dispatch and what it settled to, read back by the steer box. */
 export interface RunControlRecord {

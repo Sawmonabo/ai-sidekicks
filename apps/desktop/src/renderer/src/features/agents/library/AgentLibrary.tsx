@@ -1,13 +1,13 @@
 // The agent library: the agents a person has tuned, so a configuration outlives the session it
-// was typed into. Renders one snapshot from `library-view.ts`, which owns the read, the delete
+// was typed into. Renders one snapshot from `view.ts`, which owns the read, the delete
 // in flight and the editor subject; this file makes no call and holds no state. The list is
 // read on mount and again only after a delete the daemon applied. Delete asks in the row, not a
 // dialog: the row is the subject, so a person can still read what they are about to delete.
 
 import type { ReactNode } from "react";
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type AgentRegistryCalls } from "./library-view.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type AgentRegistryCalls } from "./view.js";
 import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
 import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";
 import { SavedDefinitions } from "./components/SavedDefinitions.js";

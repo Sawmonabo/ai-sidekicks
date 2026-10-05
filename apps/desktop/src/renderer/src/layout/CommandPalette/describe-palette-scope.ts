@@ -1,6 +1,6 @@
 // The palette's scope row: what a command acts on if run now.
 
-import type { AppRoute } from "@renderer/routing/routes.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 
 /**
  * Names what the palette's commands act on for `route`, so "Interrupt the run" is unambiguous, or

@@ -20,7 +20,7 @@ import {
   assertNoSeededContentDescription,
   assertRegisteredVariantParses,
   composeContentRow,
-} from "./content/content.js";
+} from "./content/append.js";
 import { withSessionAppendLock } from "./session/append-lock.js";
 
 /**

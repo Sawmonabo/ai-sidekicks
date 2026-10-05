@@ -25,9 +25,9 @@
 
 import process from "node:process";
 
-import type { GcProbeReading } from "@main/probes/gc-probe.js";
-import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { GC_PROBE_TAG } from "@shared/probe-tags.js";
+import type { GcProbeReading } from "#main/probes/gc-probe.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
+import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron/child/cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron/child/child.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture/bundle.js";
@@ -129,7 +129,7 @@ export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
           ...envWithoutSmoke,
           ...serviceEnvironment,
           SIDEKICKS_GC_PROBE: "1",
-          // No focus steal on the person's machine; see `src/main/windows/window-reveal.ts`.
+          // No focus steal on the person's machine; see `src/main/windows/reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         },
       },

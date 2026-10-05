@@ -9,8 +9,8 @@ import type {
   ArtifactReadResponse,
 } from "@ai-sidekicks/contracts/artifacts/operations";
 
-import { SERVED_SUMMARY, SERVED_VERSION } from "@test/helpers/artifact-list-readers.js";
-import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
+import { SERVED_SUMMARY, SERVED_VERSION } from "#test/helpers/artifact-list-readers.js";
+import type { DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
 import { readArtifactPayload } from "./artifact-payload-read.js";
 
 const ARTIFACT_ID = SERVED_SUMMARY.id;

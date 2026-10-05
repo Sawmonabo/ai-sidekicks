@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { diffLineText } from "../diff-model.js";
 import { hunkLines } from "./hunk-lines.js";
 

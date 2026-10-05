@@ -4,8 +4,8 @@
 // covers provider entries only, not the argument of a command the runtime itself intercepts.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
 import { workflowDefinitionCandidates } from "../definition/match.js";
 import "./WorkflowStartCandidates.css";
 

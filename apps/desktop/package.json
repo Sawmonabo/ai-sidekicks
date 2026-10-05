@@ -9,6 +9,15 @@
   "engines": {
     "node": ">=24.21.0"
   },
+  "imports": {
+    "#renderer/*": "./src/renderer/src/*",
+    "#main/*": "./src/main/*",
+    "#preload/*": "./src/preload/*",
+    "#shared/*": "./src/shared/*",
+    "#test/*": "./tests/*",
+    "#fixtures/*": "./fixtures/*",
+    "#scripts/*": "./scripts/*"
+  },
   "scripts": {
     "postinstall": "node --experimental-strip-types scripts/materialize-electron.ts",
     "dev": "electron-vite dev",

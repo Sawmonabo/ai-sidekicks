@@ -1,5 +1,5 @@
 // The find field's held state: the walk when the window moves under it, and its own open
-// act. Matching is `find-model.test.ts`'s.
+// act. Matching is `model.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";

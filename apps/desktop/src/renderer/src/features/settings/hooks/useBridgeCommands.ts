@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import type { CommandDefinition } from "#renderer/registries/commands/types.js";
 import { buildBridgeCommands, type BridgeCommandRefusalSink } from "../contributions/commands.js";
 
 /**

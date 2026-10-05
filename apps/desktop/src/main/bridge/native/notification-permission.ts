@@ -5,7 +5,7 @@
 
 import type { Authorization, NotificationStatus } from "notify-status";
 
-import type { NotificationPermission } from "@shared/preload-api.js";
+import type { NotificationPermission } from "#shared/preload-api.js";
 
 /** Reads the host's notification status; `getNotificationStatus` from `notify-status`. */
 export type NotificationStatusReader = () => Promise<NotificationStatus>;

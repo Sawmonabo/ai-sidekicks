@@ -5,13 +5,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
-import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import {
   createCountingScrollContainer,
   type CountingScrollContainer,
-} from "@renderer/lib/scroll/scroll-container.test-support.js";
+} from "#renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 
 const ROW_HEIGHT_PX = 40;

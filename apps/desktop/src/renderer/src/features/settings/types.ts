@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { MainProcessState } from "@shared/daemon/daemon-status-topic.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { SchemePreference } from "#renderer/styles/tokens.js";
 
 /**
  * Everything a settings page is handed.

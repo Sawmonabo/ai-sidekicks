@@ -20,22 +20,22 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../helpers/app/harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { ManualClock } from "@renderer/lib/clock.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 // Imported deeply, not through the feature's `index.ts`: widening the public entry for one test
 // would be wrong.
-import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
-import { TranscriptPane } from "@renderer/features/transcript/TranscriptPane.js";
-import { transcriptPaneContext } from "@renderer/features/transcript/TranscriptPane.test-support.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
-import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
+import { registerTranscriptRows } from "#renderer/features/transcript/contributions/transcript-rows.js";
+import { TranscriptPane } from "#renderer/features/transcript/TranscriptPane.js";
+import { transcriptPaneContext } from "#renderer/features/transcript/TranscriptPane.test-support.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
+import { SessionScreenContainer } from "#renderer/features/transcript/SessionScreenContainer.js";
 
 /**
  * The cursor a scenario's log is applied on top of. Zero rather than `-1`, because

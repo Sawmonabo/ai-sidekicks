@@ -4,9 +4,9 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import {
   QUEUED_ROW,
   QueueFeedProbe,
@@ -16,8 +16,8 @@ import {
   openFeed,
   queueFeedBridge,
 } from "./queue-feed.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import type { QueueCalls, QueueFeed } from "./queue-reading.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import type { QueueCalls, QueueFeed } from "./reading.js";
 
 describe("one session's queue is read once for every view", () => {
   it("opens one stream and takes one snapshot for two views on one session", async () => {

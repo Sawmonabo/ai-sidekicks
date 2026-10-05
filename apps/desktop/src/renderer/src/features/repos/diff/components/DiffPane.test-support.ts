@@ -5,13 +5,13 @@
 
 import { afterEach, beforeEach } from "vitest";
 
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { paneContext } from "@test/helpers/pane-context.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { paneContext } from "#test/helpers/pane-context.js";
 import type { DiffPaneProps } from "./DiffPane.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
-} from "@test/helpers/diff/diff-layout-fixture.js";
+} from "#test/helpers/diff/diff-layout-fixture.js";
 
 /** This pane's own address arm, taken from the prop rather than restated. */
 export type DiffPaneContext = DiffPaneProps["context"];

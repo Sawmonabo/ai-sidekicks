@@ -19,8 +19,8 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { structuralKey } from "@renderer/lib/structural-key.js";
+import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
+import { structuralKey } from "#renderer/lib/structural-key.js";
 
 /** One provider account's quota in one limit window, as a view renders it. */
 export interface ProviderQuotaReading {

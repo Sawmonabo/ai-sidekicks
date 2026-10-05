@@ -15,9 +15,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
-import type { MainProcessState } from "@shared/daemon/daemon-status-topic.js";
-import { PACKAGE_ROOT } from "@test/helpers/fixture/bundle.js";
-import { TemporaryDirectoryTrail } from "@test/helpers/temporary-directory.js";
+import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import { PACKAGE_ROOT } from "#test/helpers/fixture/bundle.js";
+import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
 import { DaemonLink } from "../daemon-link.js";
 import { connectMainToDaemon, DaemonSupervisor } from "../daemon-supervisor.js";

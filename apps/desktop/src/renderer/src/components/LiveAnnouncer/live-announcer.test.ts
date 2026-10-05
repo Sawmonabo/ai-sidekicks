@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 
 const HOLD_MS = 500;

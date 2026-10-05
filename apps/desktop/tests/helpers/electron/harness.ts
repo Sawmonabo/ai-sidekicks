@@ -25,7 +25,7 @@ import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { onTestFinished } from "vitest";
 
-import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { BoundedCleanup } from "../bounded-cleanup.js";
 import { type CleanupOutcome, type ClosableApplication } from "../cleanup/contract.js";
 import {
@@ -154,7 +154,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
         ...options.env,
         // Every automated launch asks for an unobtrusive window: an ordinary macOS reveal
         // activates the application, steals focus and switches Space. A fixture build honors
-        // this; a release build cannot (`src/main/windows/window-reveal.ts`).
+        // this; a release build cannot (`src/main/windows/reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),

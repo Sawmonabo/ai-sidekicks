@@ -3,13 +3,13 @@
 // from every main-window route, so the entries are a constant. A session screen route maps onto
 // `sessions`. Render order comes from the `RAIL_DESTINATIONS` tuple, the set from the entry table.
 
-import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
+import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
 import {
   findScreenNameForRoute,
   type ScreenRegistry,
-} from "@renderer/registries/screens/screen-registry.js";
-import { preloadQuietly } from "@renderer/components/LazyBody/lazy-body-warm.js";
+} from "#renderer/registries/screens/screen-registry.js";
+import { preloadQuietly } from "#renderer/components/LazyBody/lazy-body-warm.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**

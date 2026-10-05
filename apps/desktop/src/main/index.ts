@@ -1,4 +1,4 @@
-// Electron main-process entrypoint. Startup order is load-bearing and `startup-composition.test.ts`
+// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts`
 // asserts it: `registerRendererScheme()` at module top level, before `app.ready`, then the crash
 // reporter, then the profile keyed to the install and the single-instance lock, then the kept
 // appearance, the registry of windows and its lifecycle, so a second launch during start is heard;
@@ -11,8 +11,8 @@ import { homedir, totalmem } from "node:os";
 import path from "node:path";
 
 import { app, crashReporter, nativeTheme, screen, type WebContents } from "electron";
-import { appFactsSwitches, supportedArch, supportedPlatform } from "@shared/app-facts.js";
-import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launch.js";
+import { appFactsSwitches, supportedArch, supportedPlatform } from "#shared/app-facts.js";
+import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-appearance.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
@@ -38,7 +38,7 @@ import { keyProfileToInstall } from "./services/install-profile.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { OpenWindows } from "./windows/open-windows.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/place-file.js";
-import { installActivationPolicy } from "./windows/window-reveal.js";
+import { installActivationPolicy } from "./windows/reveal.js";
 
 /** Where main records a line while it has no log of its own: the startup is failing then. */
 const STDERR_LOG: Pick<MainDiagnosticLog, "write"> = {

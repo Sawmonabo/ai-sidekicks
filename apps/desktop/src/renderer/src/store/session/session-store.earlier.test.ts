@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "./session-store.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
 
 const SESSION_ID = "session-earlier-store";
 

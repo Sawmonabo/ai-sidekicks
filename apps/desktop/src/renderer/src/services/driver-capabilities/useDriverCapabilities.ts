@@ -2,8 +2,8 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
-import type { DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
+import type { DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 import { useBridgeClock } from "../platform/hooks/useClock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";

@@ -13,14 +13,14 @@ import type { ReactNode } from "react";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import {
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
   type SchemePreference,
-} from "@renderer/styles/tokens.js";
+} from "#renderer/styles/tokens.js";
 
 /** One option and what choosing it means. */
 interface SchemeOption {

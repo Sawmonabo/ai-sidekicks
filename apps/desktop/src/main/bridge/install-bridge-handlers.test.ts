@@ -11,9 +11,9 @@ import {
   BRIDGE_CHANNELS,
   BRIDGE_MEMBER_CHANNELS,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
-} from "@shared/bridge-channels.js";
-import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+} from "#shared/bridge-channels.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
 

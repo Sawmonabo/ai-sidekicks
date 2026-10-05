@@ -5,12 +5,12 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../pane-layout-store.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
 import { PaneLayoutStore } from "../pane-layout-store.js";
 import type { SessionPane } from "../pane-layout.js";

@@ -14,15 +14,15 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { appFactsSwitches } from "@shared/app-facts.js";
+import { appFactsSwitches } from "#shared/app-facts.js";
 import {
   DEFAULT_APPEARANCE_RECORD,
   MERIDIAN_GROUNDS,
   type AppearanceRecord,
-} from "@shared/appearance.js";
-import { APPEARANCE_VALUE_CHANNEL, FULLSCREEN_VALUE_CHANNEL } from "@shared/bridge-channels.js";
-import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
-import type { MockBaseWindow } from "@test/helpers/electron/mock/window.js";
+} from "#shared/appearance.js";
+import { APPEARANCE_VALUE_CHANNEL, FULLSCREEN_VALUE_CHANNEL } from "#shared/bridge-channels.js";
+import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
 import {
   asMockWindow,
   handedDocument,
@@ -30,7 +30,7 @@ import {
   loggedMessages,
   testWindowFrame,
   windowOpenHandlerOf,
-} from "@test/helpers/window-test-harness.js";
+} from "#test/helpers/window-test-harness.js";
 
 const electronMock = createElectronMock();
 
@@ -156,7 +156,7 @@ function consoleSwitches(index: number): string[] {
 
 /** The window used last that the preload hands the `index`th console document. */
 async function lastUsedWindowIdOf(index: number): Promise<string> {
-  const { createPreloadApi } = await import("@preload/api.js");
+  const { createPreloadApi } = await import("#preload/api.js");
   return createPreloadApi(consoleSwitches(index)).window.lastUsedWindowId;
 }
 

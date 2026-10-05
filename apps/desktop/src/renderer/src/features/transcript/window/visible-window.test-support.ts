@@ -1,7 +1,7 @@
 // The one log the visible-window suite and the find walk beside it share. One session id and one
 // matching kind, so figures derived in one are comparable with figures derived in the other.
 
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import {
   transcriptFixtureStampAt,
   transcriptFixtureStreamCursor,

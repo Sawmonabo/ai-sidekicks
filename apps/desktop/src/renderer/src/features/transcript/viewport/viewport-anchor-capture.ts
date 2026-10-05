@@ -4,12 +4,12 @@
 // Row keys and the virtualizer change after construction, so they are read through the
 // controller's accessors; copies would be a second record of the window's rows. Whether a reader
 // is following is `reading-anchor.ts`'s call, and whether a glide is in flight is
-// `scroll-chokepoint.ts`'s.
+// `chokepoint.ts`'s.
 
-import { type ScrollGeometry } from "@renderer/lib/scroll/geometry-sample.js";
+import { type ScrollGeometry } from "#renderer/lib/scroll/geometry-sample.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
+import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
 /** Dependencies of a `ViewportAnchorCapture`; the two accessors are read on every call. */

@@ -4,7 +4,7 @@
 // yields no reading, rendered as the "not checked" empty state. A model-default window is said in
 // a note beside the bar, since a provider-reported window is a measurement and a default is not.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { ContextWindowReading } from "./context-window-reading.js";
 import { ContextRingReading } from "./ContextRingReading.js";
 

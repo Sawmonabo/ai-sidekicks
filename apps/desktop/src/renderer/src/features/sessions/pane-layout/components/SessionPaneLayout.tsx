@@ -12,13 +12,13 @@ import "./pane-layout.css";
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { isEditableTarget } from "@renderer/lib/editable-target.js";
-import { useAnnounce } from "@renderer/hooks/announce/useAnnounce.js";
-import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { isEditableTarget } from "#renderer/lib/editable-target.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
+import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneLayoutActsOn } from "../pane-layout-acts.js";
@@ -28,8 +28,8 @@ import {
   toPaneSizePercentages,
   type SessionPane,
 } from "../pane-layout.js";
-import { type PaneLayoutDensity } from "../pane-layout-measures.js";
-import { minimumPaneWidthPx } from "../pane-layout-density.js";
+import { type PaneLayoutDensity } from "../measures.js";
+import { minimumPaneWidthPx } from "../density.js";
 import { commitPaneDrop } from "../pane-drag.js";
 import { SessionPaneSlot } from "./SessionPaneSlot.js";
 

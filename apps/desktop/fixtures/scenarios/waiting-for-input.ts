@@ -47,7 +47,7 @@ import {
   type ScriptEntry,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
+import type { ScenarioReply } from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
 // this scenario's start instant. Parsed through the registered schemas, not cast, so a

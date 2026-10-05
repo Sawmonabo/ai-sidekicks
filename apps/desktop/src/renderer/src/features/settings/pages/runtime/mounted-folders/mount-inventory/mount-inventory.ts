@@ -22,16 +22,16 @@ import type {
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/workspace";
 
-import { RefusalError } from "@renderer/lib/refusal/refusal.js";
+import { RefusalError } from "#renderer/lib/refusal/refusal.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./caps.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
-import { heldIdAsWireId } from "@renderer/services/daemon/wire/ids.js";
-import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
-import { isReadAbandoned } from "@renderer/lib/reads/read-scope.js";
-import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { abandonedReadRefusal } from "#renderer/services/daemon/daemon-reply.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/ids.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
+import { isReadAbandoned } from "#renderer/lib/reads/read-scope.js";
+import { subscribeToSessionEventKinds } from "#renderer/store/session/event-signal.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
 const MOUNT_INVENTORY_ORIGIN = "mount-inventory";

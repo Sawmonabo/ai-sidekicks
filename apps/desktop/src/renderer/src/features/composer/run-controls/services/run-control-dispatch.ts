@@ -5,7 +5,7 @@
 // interrupt carry a `clientIdempotencyKey` minted per dispatch. The fresh comparand is the
 // newer of the answer's version and the state stream's, since the run also advances with no
 // control pressed. Eligibility is decided by the daemon, not here; a rejected call propagates.
-// Only steer is gated on the bound driver, in `run-control-gating.ts`. The daemon calls are an
+// Only steer is gated on the bound driver, in `gating.ts`. The daemon calls are an
 // argument (`RunControlCalls`), so this module holds no bridge.
 
 import type {
@@ -17,7 +17,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { readRunId } from "@renderer/services/daemon/wire/identifiers.js";
+import { readRunId } from "#renderer/services/daemon/wire/identifiers.js";
 import { AnsweredRunVersions } from "../../answered-run-versions.js";
 
 /** The three daemon methods the controls reach, each taking the contract's request. */

@@ -5,7 +5,7 @@
 
 import "./Refusal.css";
 
-import type { RefusalRemedy } from "@renderer/lib/refusal/remedies.js";
+import type { RefusalRemedy } from "#renderer/lib/refusal/remedies.js";
 
 /** Props for `RefusalRemedyContent`. */
 export interface RefusalRemedyContentProps {

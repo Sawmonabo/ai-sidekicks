@@ -2,9 +2,9 @@
 // whole layout. Stateless, pure and free of React. Imports run one way:
 // `pane-layout-store` → `pane-layout-snapshot` → `pane-layout`.
 
-import type { EntityRef } from "@renderer/lib/entity-kinds.js";
-import type { PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import type { PaneLayoutDensity } from "./pane-layout-measures.js";
+import type { EntityRef } from "#renderer/lib/entity-kinds.js";
+import type { PaneKind } from "#renderer/routing/panes/pane-kinds.js";
+import type { PaneLayoutDensity } from "./measures.js";
 
 /**
  * Pane widths are carried as permille of the pane layout, summing to this.

@@ -4,7 +4,7 @@
 
 import { getWindow } from "@floating-ui/utils/dom";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
  * Report every size change of one element until the returned disposer is called.

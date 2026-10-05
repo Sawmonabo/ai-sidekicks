@@ -6,7 +6,7 @@
 // effect and removed on unmount.
 
 import { CommandRegistry } from "./command-registry.js";
-import type { CommandDefinition, Keybinding } from "./command-types.js";
+import type { CommandDefinition, Keybinding } from "./types.js";
 
 /** This window's command registry. */
 export const commandRegistry: CommandRegistry = new CommandRegistry();

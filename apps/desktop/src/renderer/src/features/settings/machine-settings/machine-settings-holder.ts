@@ -3,8 +3,8 @@
 // The store is the window's, not a page's: several pages read these keys. Module scope is
 // window scope.
 
-import { KeyBoundHolder } from "@renderer/lib/key-bound-holder.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { KeyBoundHolder } from "#renderer/lib/key-bound-holder.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore } from "./machine-settings-store.js";
 
 /**

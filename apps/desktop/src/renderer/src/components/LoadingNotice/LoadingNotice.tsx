@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { Clock } from "@renderer/lib/clock.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import { Nothing, type NothingPlacement } from "../Nothing/Nothing.js";
 
 /** How long a read in flight shows nothing before its loading line: a first row's launch budget. */

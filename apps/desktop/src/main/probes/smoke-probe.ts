@@ -4,7 +4,7 @@
 
 import { app, net, type WebContents } from "electron";
 
-import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
 
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 

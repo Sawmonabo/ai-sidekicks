@@ -5,9 +5,9 @@
 // Props carry identity only: size, media type and allow-list verdict are not wire members, and
 // the renderer must not invent them. Each body fetches with the identity its arm carries.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
-import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
+import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-cards";

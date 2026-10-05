@@ -6,9 +6,9 @@
 
 import { expect, vi, type Mock } from "vitest";
 
-import type { MainDiagnosticLog } from "@main/services/diagnostic-log.js";
-import type { WindowFrame } from "@main/windows/window.js";
-import { MERIDIAN_GROUNDS } from "@shared/appearance.js";
+import type { MainDiagnosticLog } from "#main/services/diagnostic-log.js";
+import type { WindowFrame } from "#main/windows/window.js";
+import { MERIDIAN_GROUNDS } from "#shared/appearance.js";
 
 import {
   createMockWebContents,

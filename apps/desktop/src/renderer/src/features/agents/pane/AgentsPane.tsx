@@ -6,10 +6,10 @@
 import type { ReactNode } from "react";
 
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
-import type { AgentsPaneCalls } from "../agent-reads.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { AgentsPaneCalls } from "../reads.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
 
 /** What the body needs to read one session's agents. */

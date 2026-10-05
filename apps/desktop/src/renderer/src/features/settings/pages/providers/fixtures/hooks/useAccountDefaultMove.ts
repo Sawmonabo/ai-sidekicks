@@ -1,8 +1,8 @@
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import { useState } from "react";
 
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { WireRefusal } from "@renderer/lib/wire/rejection.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { WireRefusal } from "#renderer/lib/wire/rejection.js";
 import type { ProviderAccountSetCurrentCall } from "../provider-sign-in-flow.js";
 
 /** Where the newest `Set as default` press has got to, and on which account. */

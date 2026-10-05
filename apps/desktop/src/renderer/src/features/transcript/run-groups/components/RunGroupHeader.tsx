@@ -3,12 +3,12 @@
 // It shows the run's newest state (a terminal is one of its values) and mounts `RunGroupBody`
 // underneath while open, so the clipped rows are reachable.
 
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RunGroupBody } from "./RunGroupBody.js";
-import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
-import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
+import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { type RunGroup } from "../run-groups.js";
 
 /** The props of a run group header. */

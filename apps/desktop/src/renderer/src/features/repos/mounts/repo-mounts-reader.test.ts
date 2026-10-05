@@ -4,12 +4,12 @@
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
-import { initializedStore } from "@test/helpers/session/store/fixtures.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
+import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import {
   ALL_MODES_CAPABILITIES,
   CANONICAL_ROOT,

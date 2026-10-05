@@ -10,9 +10,9 @@
 
 import { useEffect, useRef } from "react";
 
-import { formatRoute } from "@renderer/routing/routes.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { type WindowStore } from "@renderer/store/window/window-store.js";
+import { formatRoute } from "#renderer/routing/routes.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { type WindowStore } from "#renderer/store/window/window-store.js";
 
 /**
  * Bind `ownerWindow`'s location hash to its route, in both directions.

@@ -4,30 +4,30 @@
 // application; the scheduler serializes probes and the latch drops a reply from a superseded
 // round. A probe the machine fails to answer leaves the reading as it was and goes to the
 // window's diagnostic capture.
-import type { NotificationPermission, Unsubscribe } from "@shared/preload-api.js";
+import type { NotificationPermission, Unsubscribe } from "#shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { wireRejectionToError } from "@renderer/lib/wire/errors.js";
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
-} from "@renderer/store/reads/read-triggers.js";
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
+} from "#renderer/store/reads/triggers.js";
+import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 
 /** What the machine can answer: the bridge's own permission states. */
 export type OsNotificationPermissionState = NotificationPermission["state"];

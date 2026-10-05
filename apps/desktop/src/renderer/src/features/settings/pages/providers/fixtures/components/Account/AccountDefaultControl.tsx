@@ -4,8 +4,8 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
-import { readCarriedLoginRemedy } from "@renderer/services/provider-accounts/provider-account-refusal-details.js";
-import { AccountPlaneRefusal } from "@renderer/features/settings/pages/providers/components/AccountPlaneRefusal.js";
+import { readCarriedLoginRemedy } from "#renderer/services/provider-accounts/refusal-details.js";
+import { AccountPlaneRefusal } from "#renderer/features/settings/pages/providers/components/AccountPlaneRefusal.js";
 import type { AccountDefaultMove } from "../../hooks/useAccountDefaultMove.js";
 
 /**

@@ -1,6 +1,6 @@
 // A machine-authored turn recorded without content, rendered at its position.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
 /** The turn, at its position, with no content and the sentence saying so. */
 export function UnavailableBody(): React.JSX.Element {

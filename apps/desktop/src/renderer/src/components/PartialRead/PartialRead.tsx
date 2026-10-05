@@ -14,7 +14,7 @@
 // a view calls `useAnnounceOncePerSentence`.
 
 import { ReadingNotice } from "./ReadingNotice.js";
-import { partialReadNotices, type ReadingState } from "@renderer/lib/partial-read.js";
+import { partialReadNotices, type ReadingState } from "#renderer/lib/partial-read.js";
 
 /** Props for `PartialRead`. */
 export interface PartialReadProps {

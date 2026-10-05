@@ -3,9 +3,9 @@
 
 import { Fragment } from "react";
 
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { sessionBannerKey, type SessionBanner } from "../session-banners.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
+import { sessionBannerKey, type SessionBanner } from "../banners.js";
 
 /** One banner row, dismissed by the key the column holds it under. */
 export function SessionBannerRow(props: {

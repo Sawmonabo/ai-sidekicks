@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FindBox } from "./FindBox.js";
-import { findInTranscript, type FindResult } from "../find-model.js";
+import { findInTranscript, type FindResult } from "../model.js";
 import { runRow } from "../../transcript-event-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */

@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { OsNotificationPermissionRead, type OsNotificationPermissionState } from "./permission.js";
 
 interface HeldProbe {

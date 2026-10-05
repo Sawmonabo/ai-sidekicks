@@ -1,4 +1,4 @@
-// The bind dialog, driven against a mount whose answer changes under it. `bind-form.test.ts`
+// The bind dialog, driven against a mount whose answer changes under it. `form.test.ts`
 // proves the resolution; this proves the dialog hands it what the mount admits on every open:
 // a pre-fill must not outlive its form, and the picker and the button must read one answer.
 // Capabilities come from a call this suite owns, so a case can serve a different answer the
@@ -8,13 +8,13 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
-import { initializedStore } from "@test/helpers/session/store/fixtures.js";
-import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
+import { initializedStore } from "#test/helpers/session/store/fixtures.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { bridgeOnClock, type BridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";

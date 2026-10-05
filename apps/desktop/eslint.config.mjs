@@ -115,6 +115,18 @@ const RENDERER_RESTRICTED_PATHS = [
   },
 ];
 
+/** Why renderer source may not import main or preload code, however the specifier reaches it. */
+const RENDERER_INTO_MAIN_OR_PRELOAD =
+  "The renderer is untrusted: imports into `main/**` or `preload/**`, " +
+  "relative or through `#main` / `#preload`, are forbidden. The renderer's " +
+  "only cross-process surface is the `window.desktopBridge` bridge.";
+
+/** Why `src/shared/**` may not import main or preload code. */
+const SHARED_INTO_MAIN_OR_PRELOAD =
+  "`src/shared/**` is bundled into the renderer: it must never " +
+  "reach into `main/**` or `preload/**`. Dependencies point " +
+  "the other way: main imports shared, never the reverse.";
+
 /** The specifier GROUPS renderer source may not import. Hoisted for the same reason. */
 const RENDERER_RESTRICTED_PATTERNS = [
   {
@@ -146,21 +158,24 @@ const RENDERER_RESTRICTED_PATTERNS = [
       "in renderer source. Route through the preload bridge (`window.desktopBridge`).",
   },
   {
-    // Escape into the main and preload subtrees, relative or through their aliases (`../main/x`,
-    // `@main/x`). `**` matches zero or more path segments, so any depth is caught. The only
-    // legitimate cross-process channel is `window.desktopBridge`.
-    group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
-    message:
-      "The renderer is untrusted: imports into `main/**` or `preload/**`, " +
-      "relative or through `@main` / `@preload`, are forbidden. The renderer's " +
-      "only cross-process surface is the `window.desktopBridge` bridge.",
+    // Escape into the main and preload subtrees by a relative path (`../main/x`). `**` matches
+    // zero or more path segments, so any depth is caught. The only legitimate cross-process
+    // channel is `window.desktopBridge`.
+    group: ["**/main/**", "**/preload/**"],
+    message: RENDERER_INTO_MAIN_OR_PRELOAD,
+  },
+  {
+    // The same escape through the package's `#main/*` and `#preload/*` imports. A regex, because
+    // `group` takes gitignore syntax, where a leading `#` starts a comment.
+    regex: "^#(?:main|preload)/",
+    message: RENDERER_INTO_MAIN_OR_PRELOAD,
   },
   {
     // Three or more `../` segments, at any depth.
     regex: "^(?:\\.\\./){3}",
     message:
-      "No deep relative import (`../../../`). Use the path alias for the folder it reaches " +
-      "(`@renderer/`, `@shared/`, `@fixtures/`); an import inside a module stays `./`.",
+      "No deep relative import (`../../../`). Use the package import for the folder it reaches " +
+      "(`#renderer/`, `#shared/`, `#fixtures/`); an import inside a module stays `./`.",
   },
 ];
 
@@ -196,7 +211,8 @@ const CONTRACTS_SCHEMA_IMPORT = {
 
 /** The daemon method table, which hands out each method's schemas: the same claim again. */
 const DAEMON_METHOD_BINDINGS_IMPORT = {
-  group: ["@shared/daemon/daemon-method-bindings.js"],
+  // A regex, because `group` takes gitignore syntax, where a leading `#` starts a comment.
+  regex: "^#shared/daemon/daemon-method-bindings\\.js$",
   message:
     "The daemon method table binds each method to its schemas, which are parsers. " +
     "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`.",
@@ -417,11 +433,14 @@ const desktopConfig = defineConfig(
                 "`src/shared/**`, which is bundled into the renderer.",
             },
             {
-              group: ["**/main/**", "**/preload/**", "@main/**", "@preload/**"],
-              message:
-                "`src/shared/**` is bundled into the renderer: it must never " +
-                "reach into `main/**` or `preload/**`. Dependencies point " +
-                "the other way: main imports shared, never the reverse.",
+              group: ["**/main/**", "**/preload/**"],
+              message: SHARED_INTO_MAIN_OR_PRELOAD,
+            },
+            {
+              // A regex, because `group` takes gitignore syntax, where a leading `#` starts a
+              // comment.
+              regex: "^#(?:main|preload)/",
+              message: SHARED_INTO_MAIN_OR_PRELOAD,
             },
           ],
         },
@@ -454,7 +473,7 @@ const desktopConfig = defineConfig(
   // binding whose name ends in `Schema`.
   //
   // The import is banned, not the call: `.parse(` is not a zod name
-  // (`registries/commands/when-clause/when-clause-parser.ts` calls `.parse()` on its own parser and
+  // (`registries/commands/when-clause/parser.ts` calls `.parse()` on its own parser and
   // two time suites call `Date.parse`), so a call selector's findings would be mostly false.
   // `.safeParse(` needs no ban once the import is banned, because a schema can only arrive by
   // importing `zod`, importing this package, or through a renderer barrel that re-exported one, and

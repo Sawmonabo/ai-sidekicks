@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 
 /** Options for `useAttachmentDropTarget`. */
 export interface AttachmentDropOptions {

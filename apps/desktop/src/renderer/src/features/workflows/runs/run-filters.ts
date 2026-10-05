@@ -11,8 +11,8 @@ import {
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { WorkflowRunListRequest } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
-import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../workflow-words.js";
+import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
+import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../words.js";
 
 /** The date ranges the filter offers, from no bound to the last thirty days. */
 export const RUN_DATE_RANGES = ["any", "day", "week", "month"] as const;

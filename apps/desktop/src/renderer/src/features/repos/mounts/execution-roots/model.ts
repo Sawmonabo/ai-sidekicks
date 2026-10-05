@@ -5,7 +5,7 @@
 
 import type { ListedWorktreeState } from "@ai-sidekicks/contracts/worktree/worktree";
 
-import type { ChipTone } from "@renderer/components/Chip/Chip.js";
+import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 
 /**
  * The tone each listed worktree state wears: amber means a person is needed, red means

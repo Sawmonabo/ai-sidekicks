@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../../clock.js";
 import type { ReadRound } from "../read-scope.js";
 import { RefreshScheduler, type RefreshReason } from "./refresh-scheduler.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 /** A local debounce: the round is under test, not the shipped interval. */
 const TEST_DEBOUNCE_MS = 120;

@@ -4,14 +4,14 @@
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { FixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { FixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { AgentsPaneModels } from "./agents-pane-models.js";
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
-import { initializedStore } from "@test/helpers/session/store/fixtures.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { REJECTING_AGENTS_PANE_CALLS, unscriptedBridge } from "../agent-reads.test-support.js";
+import { initializedStore } from "#test/helpers/session/store/fixtures.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { REJECTING_AGENTS_PANE_CALLS, unscriptedBridge } from "../reads.test-support.js";
 
 /** The provider a hook under test is mounted in: that fixture's bridge, on its frozen clock. */
 function windowOver(

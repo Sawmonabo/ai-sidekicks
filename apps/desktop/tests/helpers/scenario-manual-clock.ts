@@ -8,8 +8,8 @@
 // loops forever against a view that never answers; the last pass runs the caller's assertion
 // outside the `try`, so a case that never settles fails with the assertion's own message.
 
-import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
+import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { settle } from "./settle.js";
 
 /**

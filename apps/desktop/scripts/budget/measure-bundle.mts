@@ -33,7 +33,7 @@ import {
   runBudgetHarness,
   type BudgetGate,
   type BudgetGateReading,
-} from "./budget-harness.mts";
+} from "./harness.mts";
 
 /** The compressed-code ceiling for the renderer's initial graph. */
 export const RENDERER_BUNDLE_BUDGET_ID: string = "renderer-initial-bundle";

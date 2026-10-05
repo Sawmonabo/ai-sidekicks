@@ -14,7 +14,7 @@
   // source is then a typecheck error rather than a bundle failure. Test files are typechecked by
   // the sibling `tsconfig.test.json` (noEmit, `composite: false`), which keeps them out of the
   // `tsc -b` composite-references walk.
-  "extends": ["../../../../tsconfig.base.json", "../../tsconfig.paths.json"],
+  "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "target": "es2023",
     "lib": ["es2023", "dom", "dom.iterable"],

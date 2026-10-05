@@ -6,8 +6,8 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import { useCommandHandling } from "./useCommandHandling.js";
 import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
@@ -16,7 +16,7 @@ import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkf
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_COMMAND_PREFILL,
-} from "../workflow-command/workflow-command-grammar.js";
+} from "../workflow-command/grammar.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,

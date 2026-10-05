@@ -2,7 +2,7 @@
 // contributed before any feed exists, so an act cannot close over one; each is a value over
 // state the feed holds, so a test can drive the set with no render.
 
-import { type FindStepDirection } from "../find/find-model.js";
+import { type FindStepDirection } from "../find/model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import { type TranscriptActs } from "../mounted-transcript.js";
 

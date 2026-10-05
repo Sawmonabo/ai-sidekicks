@@ -2,16 +2,16 @@
 // a render React re-runs or abandons must never dispose the store the committed tree is
 // subscribed to. The abandoned-render case needs a real React render, hence `.tsx`.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./machine-settings-holder.js";
 import type { MachineSettingsStore } from "./machine-settings-store.js";
 import { useMachineSettings } from "./hooks/useMachineSettings.js";

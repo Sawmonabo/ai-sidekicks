@@ -19,7 +19,7 @@ import {
 } from "./SteerBox.test-support.js";
 import { inertBridge } from "../../composer.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the form is keyed by what it is composing against", () => {
   /** A dispatch that never settles, so the form stays pending across the switch. */

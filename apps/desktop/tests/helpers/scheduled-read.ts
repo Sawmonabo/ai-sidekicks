@@ -5,10 +5,10 @@
 // advancing far enough that the absolute deadline fires and not only the debounce, and letting
 // the call's promise chain settle inside `act` so React commits what the answer changed.
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh/caps.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { settle } from "./settle.js";
-import type { Clock } from "@renderer/lib/clock.js";
+import type { Clock } from "#renderer/lib/clock.js";
 
 /**
  * The window's clock as the frozen clock its readings schedule against.

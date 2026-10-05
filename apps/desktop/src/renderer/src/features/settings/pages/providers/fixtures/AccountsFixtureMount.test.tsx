@@ -5,15 +5,15 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { settle } from "@test/helpers/settle.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { settle } from "#test/helpers/settle.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { ProvidersPage } from "../ProvidersPage.js";
 import { pressFirstStartControl } from "./accounts-fixture-body.test-support.js";
 import { registerAccountsFixtureBody } from "./register-accounts-fixture-body.js";

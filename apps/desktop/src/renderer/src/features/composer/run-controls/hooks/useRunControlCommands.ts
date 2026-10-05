@@ -6,10 +6,10 @@
 
 import { useMemo } from "react";
 
-import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
+import { useRegisterCommands } from "#renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import {
   RUN_CONTROL_COMMAND_OWNER,

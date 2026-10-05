@@ -5,8 +5,8 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { SubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /**
  * A resource whose reads are taken against a session store. The resource answers, not the

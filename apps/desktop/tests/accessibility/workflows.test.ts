@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 
 import { emulateSystemScheme } from "../helpers/app/harness.js";
 import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
@@ -21,8 +21,8 @@ import {
 } from "./feature-mounts/workflows.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 /**
  * The views this feature ships, each named as a reader would name it, and words each draws only

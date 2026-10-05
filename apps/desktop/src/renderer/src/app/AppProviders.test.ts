@@ -7,8 +7,8 @@
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SESSIONS_HASH, mountApp, type MountedApp } from "@test/helpers/mount-app.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { SESSIONS_HASH, mountApp, type MountedApp } from "#test/helpers/mount-app.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 /**
  * Press a key with the platform modifier, whichever `$mod` resolves to on this host.

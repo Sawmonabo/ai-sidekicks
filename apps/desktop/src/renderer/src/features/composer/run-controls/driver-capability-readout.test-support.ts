@@ -6,8 +6,8 @@ import {
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
-import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
-import type { DeclaredDriverFlags } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
+import type { DeclaredDriverFlags } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 
 /** A readout over the named reports, with the named run bindings. */
 export function capabilityReadout(

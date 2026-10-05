@@ -7,14 +7,14 @@
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
 
 import { encodeBase64 } from "../base64.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE,
   readChunkAcknowledgement,
 } from "./attachment-ingest-acknowledgement.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { writeIngestRefusal, type AttachmentIngestEntries } from "../attachment-ingest-entries.js";
-import { isSendingAttachmentIngestEntry } from "../attachment-shapes.js";
+import { isSendingAttachmentIngestEntry } from "../shapes.js";
 
 /** The refusal a payload that can no longer be read leaves on its entry. */
 export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";

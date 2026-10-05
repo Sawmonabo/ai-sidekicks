@@ -2,7 +2,7 @@
 // session store that moved is the reason to re-read a projection derived from session state. It
 // binds the registry and every store it holds, rebinds as sessions open and close, and releases
 // everything on teardown. Nothing here polls or reads a wire.
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 import type { SessionStoreRegistry } from "../session-store-registry.js";
 

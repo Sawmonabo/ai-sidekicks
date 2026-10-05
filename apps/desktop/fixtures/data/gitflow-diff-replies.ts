@@ -8,9 +8,9 @@ import type {
   WorkflowRunSnapshotPoint,
 } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
-import { readMember, readString } from "./workflow/run-writes.js";
-import { WORKFLOW_RUN_IDS } from "./workflow/runs.js";
+import type { ScenarioReply } from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+import { readMember, readString } from "./workflow/run/writes.js";
+import { WORKFLOW_RUN_IDS } from "./workflow/run/records.js";
 
 /** The finished digest run's comparison: two files its steps wrote, one edit by someone else. */
 const DIGEST_RUN_CHANGES: GitflowDiffReadResponse = {

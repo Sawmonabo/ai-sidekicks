@@ -1,8 +1,8 @@
 // One key of the viewport's list, dispatched to what it is: a run group header, a system message,
 // a row the window no longer holds, or a projected row for the registered row renderer.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";

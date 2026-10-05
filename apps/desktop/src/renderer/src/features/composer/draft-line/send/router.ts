@@ -13,8 +13,8 @@ import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 import {
   readInterventionRequest,
   readQueueItemCreateRequest,
-} from "@renderer/services/daemon/wire/requests.js";
-import { readRunId, readSessionId } from "@renderer/services/daemon/wire/identifiers.js";
+} from "#renderer/services/daemon/wire/requests.js";
+import { readRunId, readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import type {
   ComposerRunTarget,
   ComposerSessionTarget,

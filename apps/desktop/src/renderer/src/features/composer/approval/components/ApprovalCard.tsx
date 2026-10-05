@@ -12,18 +12,18 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { isHTMLElement } from "@floating-ui/utils/dom";
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { clampedRowIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire/figures.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { approvalAnswer, isApprovalAnswerable } from "../offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import {
   APPROVAL_CATEGORY_LABELS,
   APPROVAL_STATE_LABELS,
-} from "@renderer/lib/approval-vocabulary.js";
+} from "#renderer/lib/approval-vocabulary.js";
 import { APPROVAL_STATE_TONES } from "../approval-state-tones.js";
 import {
   IDLE_REMEMBERED_RULE_INTENT,

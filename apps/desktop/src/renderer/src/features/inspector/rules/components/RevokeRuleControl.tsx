@@ -1,7 +1,7 @@
 // The two-step control that retires one standing permission: the first press arms, the
 // confirming press reaches the wire, and a control already revoking offers no second press.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
 /**
  * Idle, confirming, pending: three states on one control.

@@ -2,16 +2,16 @@ import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { useSessionScopedActController } from "@renderer/features/repos/acts/hooks/useActController.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { useSessionScopedActController } from "#renderer/features/repos/acts/hooks/useActController.js";
 import {
   BindWorkspaceController,
   type BindControllerOptions,
   type BindReading,
-} from "../bind-controller.js";
+} from "../controller.js";
 
 /** What the hook hands a dialog: the reading, and the three things it can ask for. */
 export interface BindBinding {

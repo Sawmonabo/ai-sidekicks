@@ -4,7 +4,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
+import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
 import { TranscriptRowLayout } from "./TranscriptRowLayout.js";
 
 const OCCURRED_AT = "2026-09-01T13:04:05.123Z";

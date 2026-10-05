@@ -14,8 +14,8 @@ import process from "node:process";
 import { describe, expect, it } from "vitest";
 
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
-import { formatUnavailableBudgetReport } from "../../scripts/budget/budget-report.mts";
+import { evaluateBudget } from "../../scripts/budget/evaluation.mts";
+import { formatUnavailableBudgetReport } from "../../scripts/budget/report.mts";
 import { type Budget } from "../../scripts/budget/budget-document.mts";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,

@@ -3,9 +3,9 @@ import type {
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
-import { isPersonWaitCause } from "../run-steps.js";
-import { RUN_STATUS_WORDS } from "../workflow-words.js";
+import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
+import { isPersonWaitCause } from "../runs/steps.js";
+import { RUN_STATUS_WORDS } from "../words.js";
 
 /**
  * A run's status as one chip. Amber only for a run waiting on a person, red for a run that

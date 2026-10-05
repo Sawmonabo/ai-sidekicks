@@ -7,13 +7,13 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { useRepoMounts, type RepoMountsBinding } from "./useRepoMounts.js";
 import { SESSION_ID, sessionOperations } from "../repo-mounts.test-support.js";
 

@@ -6,16 +6,16 @@
 import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRef, type ReactNode } from "react";
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { useRowWindow, type RowWindow } from "@renderer/hooks/useRowWindow.js";
-import { type ChordPlatform } from "@renderer/lib/chord-format.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
-import type { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
+import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import type { CommandSearchResult } from "#renderer/registries/commands/ranking.js";
+import type { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
 import type { PaletteRowPressOutcome } from "./palette-latch.js";
 import type { PaletteListRow } from "./group-results.js";
-import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
+import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/when-clause.js";
 
 /** What the palette's listbox renders its rows against. */
 export interface PaletteResultListProps {

@@ -443,9 +443,11 @@ const repositoryConfig = defineConfig(
   // (global, namespaced, `globalThis`-qualified); `no-restricted-imports` with `importNames` denies
   // the named import while leaving `createHash` and `randomBytes` available.
   //
-  // The same `no-restricted-imports` entry keeps a provider's driver folder private: shared daemon
-  // code names no provider, so only the descriptor registry imports from `drivers/`. Files inside a
-  // driver folder reach their siblings by `./` and `../` paths that never spell `drivers/`.
+  // The same `no-restricted-imports` entry keeps each provider's folder (`provider/driver/claude/`,
+  // `provider/driver/codex/`) private: shared daemon code names no provider, so only the descriptor
+  // registry imports from one. The pattern matches a relative path with a `claude/` or `codex/`
+  // segment; a provider's own files reach their siblings by `./` and shared code by `../` paths
+  // that never spell one, and no other daemon folder carries either name.
   {
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
@@ -457,9 +459,9 @@ const repositoryConfig = defineConfig(
           paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
           patterns: [
             {
-              regex: "(?:^|/)drivers/",
+              regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
               message:
-                "A provider's driver folder is imported only by the " +
+                "A provider's folder is imported only by the " +
                 "provider-driver descriptor registry; shared daemon code " +
                 "reads a provider through the registry and names none.",
             },
@@ -536,14 +538,15 @@ const repositoryConfig = defineConfig(
     },
   },
   // The brief projection floor makes the same purity claim as the projectors above.
-  // `hand-over/brief/brief.ts` folds an already-read canonical projection into the brief turn and
-  // persists nothing; delivering the brief is `brief/delivery.ts`'s job. The allow-list enumerates
-  // specifiers rather than admitting a shape: a relative-path shape would admit `../../db/`, which
-  // reaches the database layer and is spelled like the sibling this module legitimately imports.
+  // `hand-over/brief/projection.ts` folds an already-read canonical projection into the brief turn
+  // and persists nothing; delivering the brief is `brief/delivery.ts`'s job. The allow-list
+  // enumerates specifiers rather than admitting a shape: a relative-path shape would admit
+  // `../../db/`, which reaches the database layer and is spelled like the sibling this module
+  // legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
-    files: ["packages/runtime-daemon/src/provider/hand-over/brief/brief.ts"],
+    files: ["packages/runtime-daemon/src/provider/hand-over/brief/projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

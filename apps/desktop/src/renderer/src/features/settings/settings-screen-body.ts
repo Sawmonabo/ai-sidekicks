@@ -12,7 +12,7 @@ import "./settings-page.css";
 
 import { createElement, useState } from "react";
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import { composeSettingsPages } from "./settings-pages.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 

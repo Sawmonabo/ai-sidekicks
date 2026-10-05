@@ -3,8 +3,8 @@
 // devices. `unrecognized-transition` has its own sentence: both it and `unheld` have a null
 // holder, and the free line is wrong for a fold that refused to guess.
 
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import type { DrawnLeaseHolder } from "../lease-model.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import type { DrawnLeaseHolder } from "../model.js";
 
 /** The holder the statement words. */
 export interface LeaseHolderSentenceProps {

@@ -1,6 +1,6 @@
 import { createContext, useContext, type Context } from "react";
 
-import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
 import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
 import type { AttentionReading } from "../attention-summary.js";
 

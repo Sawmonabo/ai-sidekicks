@@ -8,12 +8,7 @@
 // row count, and an expansion re-derives one prefix sum instead of thousands of row objects.
 
 import type { DiffHunk, DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
-import {
-  diffGapKey,
-  type DiffGapExpansion,
-  type DiffLineRow,
-  type DiffRow,
-} from "./diff-row-model.js";
+import { diffGapKey, type DiffGapExpansion, type DiffLineRow, type DiffRow } from "./row-model.js";
 import {
   buildHunkBodyLayout,
   hunkBodyRowAt,

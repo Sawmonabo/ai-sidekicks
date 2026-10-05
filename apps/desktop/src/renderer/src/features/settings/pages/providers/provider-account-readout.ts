@@ -10,10 +10,10 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/account";
 
-import type { UnreadableDeliveryReading } from "@renderer/services/wire-reads/unreadable-deliveries.js";
-import type { WireReadState } from "@renderer/services/wire-reads/read-lifecycle.js";
-import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { UnreadableDeliveryReading } from "#renderer/services/wire-reads/unreadable-deliveries.js";
+import type { WireReadState } from "#renderer/services/wire-reads/read-lifecycle.js";
+import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
+import type { ProviderAccountFold } from "#renderer/store/provider-accounts/provider-account-fold.js";
 
 /**
  * The empty projection, named once so an unread registry shares one frozen array.

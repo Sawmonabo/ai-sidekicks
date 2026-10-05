@@ -9,9 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
 import { PENDING_APPROVAL_ID, pendingRecord } from "../approval-record.test-support.js";
 import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";

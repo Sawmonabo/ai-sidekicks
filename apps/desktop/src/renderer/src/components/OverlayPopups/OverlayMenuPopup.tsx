@@ -3,8 +3,8 @@
 
 import { Menu } from "@base-ui/react/menu";
 
-import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** Props for `OverlayMenuPopup`. */
 export interface OverlayMenuPopupProps {

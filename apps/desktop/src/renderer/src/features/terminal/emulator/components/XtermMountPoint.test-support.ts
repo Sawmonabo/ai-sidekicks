@@ -7,7 +7,7 @@
 import { act, render, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { terminalEmulatorLoader } from "../emulator-loader.js";
+import { terminalEmulatorLoader } from "../loader.js";
 import { terminalRendererPool } from "../renderer-pool.js";
 
 /**

@@ -10,18 +10,15 @@
 // host supplies one, as `chord-format.ts` does, so a binding stays on the same physical key on
 // AZERTY and Dvorak.
 
-import { reservedChordReason } from "@renderer/registries/keybindings/keybinding-audit.js";
-import {
-  type CommandDefinition,
-  type Keybinding,
-} from "@renderer/registries/commands/command-types.js";
-import type { KeyboardMap } from "@shared/preload-api.js";
+import { reservedChordReason } from "#renderer/registries/keybindings/keybinding-audit.js";
+import { type CommandDefinition, type Keybinding } from "#renderer/registries/commands/types.js";
+import type { KeyboardMap } from "#shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import {
   HOST_CHORD_PLATFORM,
   formatChordForPlatform,
   type ChordPlatform,
-} from "@renderer/lib/chord-format.js";
+} from "#renderer/lib/chord-format.js";
 
 /** One row of the keyboard map. */
 export interface KeybindingRow {

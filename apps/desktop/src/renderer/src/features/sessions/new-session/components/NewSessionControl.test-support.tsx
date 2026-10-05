@@ -2,12 +2,12 @@
 // suites' bridge that the ordering cases need, and the presses that drive them.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall } from "@test/helpers/fixture/bridge.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { FirstTurnQueueCall } from "../control-contract.js";
 import { NewSessionControl } from "./NewSessionControl.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 // The bridge and the reply from the draft suites' module, so one reply has one spelling.
 import {
   CREATE_REPLY,
@@ -16,7 +16,7 @@ import {
   bridgeFor,
   type QueuedFirstTurn,
 } from "../new-session-draft.test-support.js";
-import { SESSION_CREATE_METHOD } from "../new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "../settlement.js";
 
 /** A first-turn call that rejects, so a send stops after the create and settles partial. */
 export const REJECTING_FIRST_TURN: FirstTurnQueueCall = () =>

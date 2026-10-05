@@ -6,9 +6,9 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { ArtifactRowActions } from "./artifact-row-actions.js";
 import { type ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import {
@@ -21,7 +21,7 @@ import {
   ArtifactReadSchedule,
   type ArtifactReadScheduleOptions,
 } from "./artifact-read-schedule.js";
-import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
 
 /** What the reader needs: the schedule's options plus the act call. */
 export interface ArtifactListReaderOptions extends ArtifactReadScheduleOptions {

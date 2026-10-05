@@ -3,21 +3,21 @@
 // error stays visible; a call that succeeded draws no chip, since success is shown by absence.
 // No tool kind is read from the tool's name; `ToolKindBadge` draws what a row declares.
 
-import { elideText } from "@renderer/lib/elide-text.js";
-import { readWireString } from "@renderer/lib/wire/strings.js";
-import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { elideText } from "#renderer/lib/elide-text.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { formatDuration } from "@renderer/lib/wire/figures.js";
-import { describeRowKind, toolResultState, type ToolResultState } from "./row-kind.js";
+import { formatDuration } from "#renderer/lib/wire/figures.js";
+import { describeRowKind, toolResultState, type ToolResultState } from "./kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
 import { readDeclaredToolKind } from "./tool-kinds/tool-kinds.js";
-import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
+import { projectedPayload, readWireCount } from "#renderer/store/session-events/wire-payload.js";
 
 /**
  * Characters of a tool row's one-clause summary before it is elided at a word boundary; at the
@@ -107,7 +107,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
           // No shape is passed: the payload has no tool kind or content type, so any fixed answer
           // (ANSI or prose) would misread some results. `ToolOutput` reads the bytes, and a
-          // shape from the tool's name stays the invention `row-kind.ts` refuses.
+          // shape from the tool's name stays the invention `kind.ts` refuses.
           sourceId={props.row.id}
           footnotes={props.footnotes}
           label={`Output of ${toolName ?? "an unnamed tool"}`}

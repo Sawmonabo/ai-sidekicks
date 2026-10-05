@@ -4,8 +4,8 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
+import { settle as settleReactWork } from "#test/helpers/settle.js";
+import { NO_TRANSPORT_RECONNECT } from "#renderer/lib/transport-reconnect.js";
 import {
   offeredSessionIds,
   requestSessionDirectoryRead,

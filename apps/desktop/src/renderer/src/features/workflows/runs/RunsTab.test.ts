@@ -9,12 +9,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { mountWorkflowsScreen, press } from "../WorkflowsScreen.test-support.js";
-import { RUNS_PAGE_SIZE } from "./run-list-pages.js";
+import { RUNS_PAGE_SIZE } from "./list-pages.js";
 import { RunListDaemon, mintedRunId, playbackRunRows } from "./run-list-daemon.test-support.js";
 
 afterEach(cleanup);

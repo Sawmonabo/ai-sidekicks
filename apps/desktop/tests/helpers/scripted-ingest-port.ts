@@ -11,13 +11,13 @@ import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver"
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import { manualGate } from "./held-calls.js";
-import type { ChunkAcknowledgement } from "@renderer/features/composer/attachments/services/attachment-ingest-acknowledgement.js";
-import type { AttachmentIngestPort } from "@renderer/features/composer/attachments/services/attachment-ingest-answer.js";
-import { AttachmentIngestClient } from "@renderer/features/composer/attachments/attachment-ingest-client.js";
+import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/attachment-ingest-acknowledgement.js";
+import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/attachment-ingest-answer.js";
+import { AttachmentIngestClient } from "#renderer/features/composer/attachments/attachment-ingest-client.js";
 import {
   attachmentSourceFrom,
   type AttachmentSource,
-} from "@renderer/features/composer/attachments/attachment-shapes.js";
+} from "#renderer/features/composer/attachments/shapes.js";
 
 /** The session every case attaches into. */
 export const INGEST_SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;

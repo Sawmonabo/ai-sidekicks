@@ -29,10 +29,10 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { HeapSampler, retainedGrowthBytes } from "../heap/sampling.js";
 import { createTranscriptEnduranceFixture } from "./endurance.test-support.js";
-import { deriveTranscriptWindow } from "@renderer/features/transcript/window/transcript-window.js";
+import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
 
 /**
  * The length of log this tier measures the transcript at.

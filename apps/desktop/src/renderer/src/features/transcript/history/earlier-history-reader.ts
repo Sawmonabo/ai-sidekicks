@@ -8,15 +8,15 @@ import type {
   TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { readEarlierTranscriptPage } from "@renderer/services/daemon/transcript-page.js";
-import { isReadAbandoned, ReadScope } from "@renderer/lib/reads/read-scope.js";
-import { type CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { heldIdAsWireId } from "@renderer/services/daemon/wire/ids.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
+import { readEarlierTranscriptPage } from "#renderer/services/daemon/transcript-page.js";
+import { isReadAbandoned, ReadScope } from "#renderer/lib/reads/read-scope.js";
+import { type CurrentGenerationClaim } from "#renderer/lib/reads/generation-latch.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/ids.js";
 
 /**
  * Rows one backward read of a session's log asks the daemon for.

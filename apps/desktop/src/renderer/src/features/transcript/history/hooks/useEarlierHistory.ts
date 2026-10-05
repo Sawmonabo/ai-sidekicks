@@ -6,10 +6,10 @@
 // the head control and a link reaching back for its message share one single-flight reader.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import {
   EarlierHistoryReader,
   type EarlierHistoryState,

@@ -4,7 +4,7 @@
 
 import { createElement } from "react";
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /** The workflows screen at the committed route. */

@@ -8,8 +8,8 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
-import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
+import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /**
  * A row's collapse state: tool rows render as one line until opened; run groups collapse once

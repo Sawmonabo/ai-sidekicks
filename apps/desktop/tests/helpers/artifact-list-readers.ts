@@ -15,15 +15,15 @@ import type {
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/session";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { handAnsweredCall } from "./held-calls.js";
 import type {
   ArtifactOperations,
   ReadArtifact,
-} from "@renderer/features/inspector/artifacts/services/artifact-reads.js";
-import { ArtifactListReader } from "@renderer/features/inspector/artifacts/artifact-list-reader.js";
+} from "#renderer/features/inspector/artifacts/services/artifact-reads.js";
+import { ArtifactListReader } from "#renderer/features/inspector/artifacts/artifact-list-reader.js";
 
 /** The one session every case here reads, named once so a store and a row agree. */
 export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";

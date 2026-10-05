@@ -20,14 +20,14 @@ import {
   isImportUnderway,
   type ImportProgressReading,
   type ImportProgressSubscribeCall,
-} from "./import-progress.js";
+} from "./progress.js";
 import { useImportProgress } from "./useImportProgress.js";
 import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** The call that starts one provider's import. */
 export type ProviderImportBeginCall = (

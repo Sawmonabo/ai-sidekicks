@@ -7,16 +7,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isRefusal } from "@renderer/lib/refusal/refusal.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
+import { isRefusal } from "#renderer/lib/refusal/refusal.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
 import {
   emptyBaseState,
   runEventAt,
   projectors,
   readsNothing,
-} from "@test/helpers/session/store/fixtures.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+} from "#test/helpers/session/store/fixtures.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { SESSION_REGISTRY_ORIGIN, SessionStoreRegistry } from "./session-store-registry.js";
 
 describe("SessionStoreRegistry — one store per open session", () => {

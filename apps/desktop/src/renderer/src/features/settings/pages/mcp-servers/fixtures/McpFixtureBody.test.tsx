@@ -5,19 +5,19 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
 import type { McpMutationResult, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { Clock } from "@renderer/lib/clock.js";
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 afterEach(() => {

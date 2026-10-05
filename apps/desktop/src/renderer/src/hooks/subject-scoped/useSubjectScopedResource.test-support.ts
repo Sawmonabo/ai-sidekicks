@@ -7,9 +7,9 @@
 //
 // The subjects are named for the roles these suites give them ("discarded" says what the
 // case is about where "subject one" does not), while the type is
-// `NamedFixtureSubject` from `@test/helpers/subject-fixtures.js`.
+// `NamedFixtureSubject` from `#test/helpers/subject-fixtures.js`.
 
-import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
+import type { NamedFixtureSubject } from "#test/helpers/subject-fixtures.js";
 
 /** The subject the pass React throws away is addressed at. */
 export const DISCARDED_SUBJECT: NamedFixtureSubject = { name: "discarded" };

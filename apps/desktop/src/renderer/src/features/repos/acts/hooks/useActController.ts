@@ -4,14 +4,14 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import {
   CONTROLLER_DISPOSAL,
   type DisposableController,
-} from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type SubjectKey } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type SubjectKey } from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { useSessionStoreRebind, type SessionStoreScoped } from "./useSessionStoreRebind.js";
 
 /**

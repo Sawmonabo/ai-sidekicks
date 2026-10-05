@@ -3,10 +3,10 @@
 // `phase: "read"` beside a refusal from an older read, so {@link findReadRefusal} derives what a
 // view renders from the phase, and a reading that forgets to clear the refusal still renders
 // honestly. This is not the scheduler (`lib/reads/refresh/refresh-scheduler.ts` decides when,
-// `store/reads/read-triggers.ts` which moments): it holds no bridge, opens no stream and publishes
+// `store/reads/triggers.ts` which moments): it holds no bridge, opens no stream and publishes
 // nothing.
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** How a wire read has gone; none of the three is an empty list. */
 export type WireReadPhase = "reading" | "read" | "refused";

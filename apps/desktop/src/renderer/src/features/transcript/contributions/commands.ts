@@ -3,10 +3,10 @@
 // their chords exist from the first frame; with no transcript mounted an act states its refusal
 // on the frame's banner. Each command closes over a supplied act, so invoking `run` is the test.
 
-import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
+import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import {
   forwardActs,
   mountedTranscript,
@@ -14,7 +14,7 @@ import {
   type TranscriptActs,
   type MountedTranscript,
 } from "../mounted-transcript.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
 import { TRANSCRIPT_KEY_BINDINGS } from "./keybindings.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 

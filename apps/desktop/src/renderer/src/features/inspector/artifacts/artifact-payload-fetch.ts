@@ -7,18 +7,18 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
-import { RefusalError } from "@renderer/lib/refusal/refusal.js";
-import { readArtifactPayload } from "@renderer/services/artifacts/artifact-payload-read.js";
-import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
-import { artifactManifestRowFrom } from "./artifact-model.js";
+import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
+import { RefusalError } from "#renderer/lib/refusal/refusal.js";
+import { readArtifactPayload } from "#renderer/services/artifacts/artifact-payload-read.js";
+import { abandonedReadRefusal } from "#renderer/services/daemon/daemon-reply.js";
+import { artifactManifestRowFrom } from "./model.js";
 import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import { withReplacedRow } from "./artifact-list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import {
   artifactPayloadReadingFrom,
   type ArtifactPayloadOutcome,
-} from "@renderer/store/artifacts/artifact-payload.js";
+} from "#renderer/store/artifacts/payload.js";
 
 /**
  * The one key the section's payload fetch takes.

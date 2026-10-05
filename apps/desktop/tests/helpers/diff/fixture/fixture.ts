@@ -12,9 +12,9 @@
 
 import { buildPatchText } from "./patch.test-support.js";
 import type { DiffFixtureShape } from "./diff-fixture-shapes.js";
-import type { DiffModel, DiffLine } from "@renderer/features/repos/diff/diff-model.js";
-import { wholeLineSegments } from "@renderer/features/repos/diff/diff-model.js";
-import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
+import type { DiffModel, DiffLine } from "#renderer/features/repos/diff/diff-model.js";
+import { wholeLineSegments } from "#renderer/features/repos/diff/diff-model.js";
+import { parseUnifiedPatch } from "#renderer/features/repos/diff/patch-parse.js";
 
 const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wiring" } as const;
 

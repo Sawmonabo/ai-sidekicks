@@ -5,12 +5,12 @@
 // refusal belongs to the `(bridge, paneId)` it was raised under, so a swap cannot inherit it.
 
 import { useCallback } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { normalizeWireRejection, type RejectionFallback } from "@renderer/lib/wire/rejection.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { normalizeWireRejection, type RejectionFallback } from "#renderer/lib/wire/rejection.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import type { PreviewPaneRefusalCode } from "../pane-refusals.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */

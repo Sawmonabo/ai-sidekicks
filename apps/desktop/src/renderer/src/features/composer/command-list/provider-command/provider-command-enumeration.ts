@@ -2,9 +2,9 @@
 // the addressed agent and bridge, never persisted or cached across sessions. The read runs when
 // the command list opens, so a person who never types a slash costs no provider round trip.
 
-import { ReadScope } from "@renderer/lib/reads/read-scope.js";
+import { ReadScope } from "#renderer/lib/reads/read-scope.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./read.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 
 /** Which binding an enumeration was read under. A change discards before it re-reads. */
 export interface ProviderCommandReadKey {

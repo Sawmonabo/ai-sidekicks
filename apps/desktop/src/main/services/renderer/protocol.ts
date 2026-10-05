@@ -4,7 +4,7 @@
 // CSP), `./assets.ts` (containment and resolution) and
 // `../../windows/load-failure-document.ts` (the generated failure document).
 //
-// Two entry points, so the startup order is assertable (`startup-composition.test.ts`):
+// Two entry points, so the startup order is assertable (`index.test.ts`):
 // `registerRendererScheme()` at module top level in `main/index.ts`, ahead of every
 // `whenReady()` consumer, and `installRendererProtocol(rendererRoot, rootStamp)` inside
 // `whenReady()` before any window exists.

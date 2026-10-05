@@ -1,16 +1,16 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createStubBridge, type ClipboardContent } from "@shared/preload-api.js";
-import { TRANSIENT_STATUS_DURATION_MS } from "@renderer/lib/transient-status.js";
-import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { createStubBridge, type ClipboardContent } from "#shared/preload-api.js";
+import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
+import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import {
   FIXTURE_APP_META,
   FIXTURE_WINDOW_ID,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { CopyButton } from "@renderer/components/CopyButton/CopyButton.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { useClipboardCopy } from "./useClipboardCopy.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";

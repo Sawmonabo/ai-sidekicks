@@ -7,20 +7,20 @@
 // finished uploads do not pin ten files of memory. A write moving a settled entry back into a
 // sending state is refused.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/lib/reads/generation-latch.js";
-import { ingestRefusalDisposition, type IngestRefusalDisposition } from "./attachment-policy.js";
+} from "#renderer/lib/reads/generation-latch.js";
+import { ingestRefusalDisposition, type IngestRefusalDisposition } from "./policy.js";
 import {
   attachmentIngestEntryFrom,
   type AttachmentIngestEntry,
   type AttachmentIngestRecord,
   type AttachmentIngestState,
   type AttachmentSource,
-} from "./attachment-shapes.js";
+} from "./shapes.js";
 
 /**
  * What one entry stood at, taken before an await and checked after it. The claim is the round

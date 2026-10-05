@@ -5,15 +5,15 @@
 // continuation re-reads the record after its await and a stale one writes nothing. No timer.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { lossyStringify } from "@renderer/lib/wire/errors.js";
-import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
-import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+import { reportTripwire } from "#renderer/lib/tripwires/tripwires.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
 import { writeIngestRefusal, type AttachmentIngestEntries } from "../attachment-ingest-entries.js";
-import { isSendingAttachmentIngestEntry } from "../attachment-shapes.js";
+import { isSendingAttachmentIngestEntry } from "../shapes.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
 export const INGEST_STREAM_SITE =

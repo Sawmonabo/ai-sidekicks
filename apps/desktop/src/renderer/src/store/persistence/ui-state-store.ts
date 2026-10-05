@@ -21,11 +21,11 @@
 // `persistence-health.ts`.
 
 import { PERSISTENCE_RECORD_BYTE_CAP, PERSISTENCE_SESSION_PARTITION_CAP } from "./caps.js";
-import { RealClock, type Clock } from "@renderer/lib/clock.js";
+import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -45,7 +45,7 @@ import {
   recordFromReadOutcome,
   type PersistenceReadOutcome,
 } from "./persistence-read-outcome.js";
-import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
+import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 import {
   PersistenceHealthTracker,
   REFUSED_ADDRESS_SITE,

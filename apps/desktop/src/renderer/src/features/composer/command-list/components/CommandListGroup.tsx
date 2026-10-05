@@ -5,7 +5,7 @@
 // flat index is the caller's, so it matches `aria-activedescendant`.
 
 import { CommandListRow } from "./CommandListRow.js";
-import type { CommandListEntry } from "../command-list-entries.js";
+import type { CommandListEntry } from "../entries.js";
 
 /** One entry, carrying the position it holds in the popover's single key sequence. */
 export interface CommandListGroupRow {

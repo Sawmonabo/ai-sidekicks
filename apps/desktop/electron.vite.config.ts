@@ -38,7 +38,6 @@ import {
   RENDERER_DEV_SERVER_PORT,
 } from "./src/main/services/renderer/scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
-import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
@@ -125,13 +124,12 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
   // included, folds the fixture code away.
   const isFixtureBuild = mode === "development" || mode === "fixtures";
   // The builds the automated Electron tiers launch, which may hide their windows
-  // (`src/main/windows/window-reveal.ts`). Narrower than the fixture flag: a
+  // (`src/main/windows/reveal.ts`). Narrower than the fixture flag: a
   // development window is never hidden.
   const isTestTierBuild = isSmokeBuild || mode === "fixtures";
 
   return {
     main: {
-      resolve: { alias: PATH_ALIASES },
       // See the header on `define`: a textual substitution, so Rollup folds `if (false && expr)`
       // and drops the probe body from the release bundle.
       define: {
@@ -158,7 +156,6 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     preload: {
-      resolve: { alias: PATH_ALIASES },
       // The preload hands a fixture launch to the page, and only in a build that
       // carries the catalog; a release preload folds the read away.
       define: {
@@ -182,7 +179,6 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       },
     },
     renderer: {
-      resolve: { alias: PATH_ALIASES },
       // The app's icons, compiled to components at build time rather than fetched or
       // inlined as markup. The options live in one module the Vitest tiers call too (see
       // `vitest/icon-compilation.ts`), so the three consumers cannot drift.

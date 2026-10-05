@@ -6,16 +6,16 @@
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { AppProviders } from "@renderer/app/AppProviders.js";
-import { createFixtureComposition } from "@renderer/app/fixture/composition.js";
-import { FIXTURE_WINDOW_ID } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { UI_STATE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { AppProviders } from "#renderer/app/AppProviders.js";
+import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
+import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   keepWindowIds,
   readKeptWindowIds,
-} from "@renderer/store/window-layout/kept-window-layout.js";
-import { SAFE_START_ATTRIBUTE } from "@shared/window/safe-start.js";
+} from "#renderer/store/window-layout/kept-window-layout.js";
+import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";

@@ -2,8 +2,8 @@
 // reads it at.
 
 import type { ScenarioContractDefect } from "../scenario-contract-defect.js";
-import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
-import type { Scenario } from "@fixtures/scenario.js";
+import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
+import type { Scenario } from "#fixtures/scenario.js";
 
 /**
  * The log position a scenario's first beat occupies.

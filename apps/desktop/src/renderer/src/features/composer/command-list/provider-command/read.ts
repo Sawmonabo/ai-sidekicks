@@ -5,10 +5,10 @@
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { readSessionId } from "@renderer/services/daemon/wire/identifiers.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 
 /** The subsystem name every refusal this read raises carries. */
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";

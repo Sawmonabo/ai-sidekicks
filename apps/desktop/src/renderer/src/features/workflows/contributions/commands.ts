@@ -3,10 +3,10 @@
 // frame, and each presses whatever on screen offers it at that moment; a press nothing offers
 // states its refusal on the frame's banner.
 
-import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
+import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
 import {
   answerThisRunTarget,
   nextWaitingTarget,

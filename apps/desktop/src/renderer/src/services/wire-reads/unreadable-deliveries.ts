@@ -9,8 +9,8 @@
 import {
   recordRefusedMemberPaths,
   type RefusedMemberIssues,
-} from "@renderer/lib/diagnostic-capture/refused-member-record.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+} from "#renderer/lib/diagnostic-capture/refused-member-record.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** What a reading carries about the deliveries its stream could not read. */
 export interface UnreadableDeliveryReading {

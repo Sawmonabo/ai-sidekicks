@@ -1,6 +1,6 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatRelativeTime } from "@renderer/lib/wire/figures.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 
 /**
  * One entry, one line: a dot (waiting amber, done a hollow ring, failed a red mark), the name, the

@@ -19,9 +19,9 @@ import { useRef, useSyncExternalStore } from "react";
 import {
   worstDegradedCause,
   type SessionDegradedCause,
-} from "@renderer/store/session/degradation.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
-import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+} from "#renderer/store/session/degradation.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import type { SessionListRow } from "../rows/session-rows.js";
 
 /** One shared empty projection, so a change with no rows keeps the array identity React sees. */

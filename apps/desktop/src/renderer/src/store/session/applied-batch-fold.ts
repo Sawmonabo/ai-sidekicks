@@ -7,7 +7,7 @@
 // advance on exactly the rows a batch admits. It never sets the store's own zustand cell: the
 // state is answered, so the one writer stays one.
 
-import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
+import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "./degradation.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
@@ -18,8 +18,8 @@ import {
   isReconcilableSequence,
   orderBatchBySequence,
 } from "./sequence-reconciler.js";
-import { capTranscript, type TranscriptRetainedEnd } from "./session-state.js";
-import type { SessionStoreState } from "./session-state.js";
+import { capTranscript, type TranscriptRetainedEnd } from "./state.js";
+import type { SessionStoreState } from "./state.js";
 import type { ApplyOutcome } from "./apply/apply-outcome.js";
 
 /** Everything one fold advances beside the state it answers with. */

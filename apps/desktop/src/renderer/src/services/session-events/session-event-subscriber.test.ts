@@ -5,11 +5,11 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import { SessionEventSubscriber } from "./session-event-subscriber.js";
 import {
   PAST_EVERY_BEAT_MS,

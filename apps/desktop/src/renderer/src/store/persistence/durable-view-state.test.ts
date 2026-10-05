@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { DurableViewState, type PersistenceWriteOutcome } from "./durable-view-state.js";
 import { openStore } from "./ui-state-store.test-support.js";
 

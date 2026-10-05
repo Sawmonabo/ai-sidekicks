@@ -6,8 +6,8 @@
 
 import "./Glyph.css";
 
-import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { GLYPH_DEFAULT_SIZE, type GlyphName } from "@renderer/styles/glyphs.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { GLYPH_DEFAULT_SIZE, type GlyphName } from "#renderer/styles/glyphs.js";
 import { GLYPH_ICONS } from "./glyph-icons.js";
 
 /** Props for `Glyph`. */

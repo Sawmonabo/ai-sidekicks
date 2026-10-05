@@ -10,27 +10,27 @@ import type {
   WorkflowRunAttentionListResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import {
   bridgeAnswering,
   withDaemonSubscribe,
   type RecordedDaemonCall,
-} from "@test/helpers/fixture/bridge.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
-import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
+} from "#test/helpers/fixture/bridge.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**

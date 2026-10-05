@@ -2,23 +2,23 @@
 // no case makes a claim about, and the bridge host the frame resolves its clock from. Anything a
 // single suite uses (the exploding screen, the failure card's addressing, the banner, the live
 // regions) stays beside its one reader.
-import { createStubBridge } from "@shared/preload-api.js";
+import { createStubBridge } from "#shared/preload-api.js";
 import type { ReactNode } from "react";
-import type { Clock } from "@renderer/lib/clock.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
 import {
   FIXTURE_APP_META,
   FIXTURE_WINDOW_ID,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
-import type { WindowBanner } from "@renderer/store/window/window-store.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import type { WindowBanner } from "#renderer/store/window/window-store.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
-} from "@renderer/layout/NavigationRail/NavigationRail.js";
+} from "#renderer/layout/NavigationRail/NavigationRail.js";
 
 const RAIL_ENTRIES: readonly RailEntry[] = [
   { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },

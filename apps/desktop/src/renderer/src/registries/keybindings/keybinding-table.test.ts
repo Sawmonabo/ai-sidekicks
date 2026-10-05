@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandRegistry } from "../commands/command-registry.js";
-import { type Keybinding } from "../commands/command-types.js";
+import { type Keybinding } from "../commands/types.js";
 import { KeybindingTable, type KeybindingTarget } from "./keybinding-table.js";
 
 /** A chord with no modifiers, so the press needs none. */

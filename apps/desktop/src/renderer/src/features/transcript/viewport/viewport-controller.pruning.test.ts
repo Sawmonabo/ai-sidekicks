@@ -5,12 +5,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import {
-  TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
-  TRANSCRIPT_WINDOW_ROW_CAP,
-} from "./viewport-constants.js";
-import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX, TRANSCRIPT_WINDOW_ROW_CAP } from "./constants.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import {
   CALM,

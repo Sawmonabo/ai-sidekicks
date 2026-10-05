@@ -20,12 +20,12 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
 import {

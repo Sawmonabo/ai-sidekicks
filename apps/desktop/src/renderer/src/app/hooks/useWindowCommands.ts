@@ -4,16 +4,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { AppRoute } from "@renderer/routing/routes.js";
-import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/when-clause.js";
 import {
   commandRegistry,
   type WindowWhenClauseContext,
-} from "@renderer/registries/commands/window-command-registry.js";
-import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import type { CommandPaletteProps } from "@renderer/layout/CommandPalette/hooks/useCommandPalette.js";
+} from "#renderer/registries/commands/window-command-registry.js";
+import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import type { CommandPaletteProps } from "#renderer/layout/CommandPalette/hooks/useCommandPalette.js";
 
 /** What one window's palette and chords are built against. */
 export interface WindowCommandsInput {

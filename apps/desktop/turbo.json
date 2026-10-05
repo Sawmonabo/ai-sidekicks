@@ -105,9 +105,8 @@
       ],
       "outputs": []
     },
-    // Only `tsconfig.paths.json` of the tsconfigs: the cruise resolves through an explicit
-    // extension list and that file's aliases, so no other tsconfig edit can change its result.
-    // `package.json` stays because the script that invokes it lives there.
+    // No tsconfig: the cruise resolves through an explicit extension list and the package's
+    // `imports` in `package.json`, which also holds the script that invokes it.
     "structure:layering": {
       "inputs": [
         "src/**",
@@ -117,7 +116,6 @@
         "vitest/**",
         ".dependency-cruiser.mjs",
         ".dependency-cruiser.layers.mjs",
-        "tsconfig.paths.json",
         "package.json"
       ],
       "outputs": []
@@ -216,7 +214,7 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json"
+        "package.json"
       ],
       "outputs": [],
       "cache": false
@@ -230,7 +228,7 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json"
+        "package.json"
       ],
       "outputs": [],
       "cache": false
@@ -246,7 +244,7 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
+        "package.json",
         "electron.vite.config.ts",
         "src/renderer/src/app/fixture/global-names.ts",
         "src/shared/fixture-launch.ts",
@@ -272,7 +270,7 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
+        "package.json",
         "out/**"
       ],
       "outputs": [],
@@ -291,7 +289,7 @@
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
-        "tsconfig.paths.json",
+        "package.json",
         "out/**"
       ],
       "outputs": [],

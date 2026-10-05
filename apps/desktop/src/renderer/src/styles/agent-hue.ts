@@ -7,7 +7,7 @@
 // Departures free nothing: reusing a step would rewrite the meaning of every row its first agent
 // already wrote.
 
-import type { OklchColor } from "@shared/color.js";
+import type { OklchColor } from "#shared/color.js";
 import { HUE_WHEEL_STEPS } from "./palette.js";
 import { readHueWheelColor, formatHueWheelTokenName } from "./tokens.js";
 

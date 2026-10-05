@@ -1,9 +1,9 @@
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import { useState, type ReactNode } from "react";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { ProviderAccountProbeCall } from "../../provider-sign-in-flow.js";
 
 /** The subsystem name a refused check carries when the call raised no refusal of its own. */

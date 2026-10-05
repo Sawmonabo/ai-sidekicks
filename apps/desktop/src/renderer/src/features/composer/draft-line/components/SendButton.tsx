@@ -7,7 +7,7 @@
 // the handler, so the controller's synchronous latch is what holds inside one frame.
 
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
-import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
+import type { ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";

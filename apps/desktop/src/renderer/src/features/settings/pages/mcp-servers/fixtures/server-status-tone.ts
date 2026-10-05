@@ -2,7 +2,7 @@
 // leg's chip. A total `Record` makes a new status a compile error, not a chip that renders
 // neutral.
 
-import type { ChipTone } from "@renderer/components/Chip/Chip.js";
+import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 import type { McpServerStatus } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 /**

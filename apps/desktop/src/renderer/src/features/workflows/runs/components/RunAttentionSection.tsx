@@ -5,12 +5,12 @@ import type {
   WorkflowRunAttentionListResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import { formatDayClock } from "@renderer/lib/wire/figures.js";
-import type { PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
-import { AWAITING_RESUME_WORDS, runCountWords, WAIT_CAUSE_WORDS } from "../../workflow-words.js";
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import { AWAITING_RESUME_WORDS, runCountWords, WAIT_CAUSE_WORDS } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
 import { ActionButton } from "../../components/ActionButton.js";
 

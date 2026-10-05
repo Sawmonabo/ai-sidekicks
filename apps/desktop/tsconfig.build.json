@@ -7,7 +7,7 @@
   //
   // One owner per directory: `scripts/` belongs to `tsconfig.scripts.json`, whose harnesses need
   // `allowImportingTsExtensions` because `node --experimental-strip-types` rewrites no specifier.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the

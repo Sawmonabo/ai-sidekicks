@@ -16,7 +16,7 @@ import { BaseWindow, type App } from "electron";
 import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
-import { GC_PROBE_TAG } from "@shared/probe-tags.js";
+import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */
 const PROBE_ITERATIONS = 20;

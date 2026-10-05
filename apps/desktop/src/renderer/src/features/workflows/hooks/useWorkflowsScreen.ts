@@ -6,19 +6,15 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import {
-  sessionRoute,
-  workflowRunsRoute,
-  workflowsRunId,
-} from "@renderer/routing/route-readers.js";
-import { openSessionPane } from "@renderer/store/window/open-session-pane.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import type { PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
+import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
-import type { RunListAnswer, RunListAsk } from "../runs/run-list-pages.js";
+import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
 import type { WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
 import type { WorkflowRunComparison } from "../workflow-run-comparison.js";
 import {
@@ -27,7 +23,7 @@ import {
   createProviderAccountRead,
   createRunListRead,
   type WorkflowReadSources,
-} from "../workflows-reading.js";
+} from "../reading.js";
 import { nextWaitingTarget } from "../workflow-command-target.js";
 import { useWorkflowCommandTarget } from "./useWorkflowCommandTarget.js";
 import { useWorkflowAct, type WorkflowActState } from "./useWorkflowAct.js";

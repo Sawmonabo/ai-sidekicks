@@ -1,5 +1,5 @@
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /** Props for {@link SettingsSearchField}. */
 export interface SettingsSearchFieldProps {

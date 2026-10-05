@@ -3,8 +3,8 @@
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
-import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { useModalOverlayAirspace } from "#renderer/hooks/useModalOverlayAirspace.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** Props for `OverlayAlertDialogPopup`. */
 export interface OverlayAlertDialogPopupProps {

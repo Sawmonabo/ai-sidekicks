@@ -6,10 +6,10 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { buildDiffFixture } from "@test/helpers/diff/fixture/fixture.js";
-import { SMALL_DIFF_SHAPE } from "@test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
 import type { DiffModel } from "../diff-model.js";
-import { type DiffGapExpansion } from "../diff-row-model.js";
+import { type DiffGapExpansion } from "../row-model.js";
 import { useDiffModelViewState, type DiffModelViewState } from "./useDiffModelViewState.js";
 
 /** What the probe renders where the whole change set is shown. */

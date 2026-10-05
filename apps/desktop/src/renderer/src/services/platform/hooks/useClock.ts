@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
-import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { ForwardingClock } from "#renderer/lib/forwarding-clock.js";
 import { useReadyBridgeResolution } from "./useBridgeResolution.js";
 
 /**

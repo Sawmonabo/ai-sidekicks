@@ -10,8 +10,8 @@ import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
 import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import {
   RUN_ID as TARGET_RUN,

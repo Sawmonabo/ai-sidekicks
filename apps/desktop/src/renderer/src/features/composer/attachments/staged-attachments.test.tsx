@@ -5,20 +5,20 @@ import { act, render } from "@testing-library/react";
 import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import {
   useStagedAttachments,
   type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture/bridge.js";
+import { bridgeOnClock, type BridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {
   INGEST_SESSION_ID,
   ScriptedIngestPort,
   patternedBytes,
-} from "@test/helpers/scripted-ingest-port.js";
+} from "#test/helpers/scripted-ingest-port.js";
 
 /** One file, exactly as a picker hands it over. */
 function pickedFile(byteLength: number): File {

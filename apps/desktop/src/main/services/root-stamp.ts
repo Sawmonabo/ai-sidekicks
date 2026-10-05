@@ -4,8 +4,8 @@
 // crashes. Every value comes from the schema-checked record, an enum or a positive number, so
 // none needs escaping.
 
-import { composeRootAppearance, type AppearanceRecord } from "@shared/appearance.js";
-import { SAFE_START_ATTRIBUTE } from "@shared/window/safe-start.js";
+import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
+import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 
 /** What one served console document's root carries. */
 export interface RootStamp {

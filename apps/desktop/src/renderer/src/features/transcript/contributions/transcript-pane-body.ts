@@ -5,8 +5,8 @@
 
 import { createElement } from "react";
 
-import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { paneBodyForKind } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
 import { registerTranscriptRows } from "./transcript-rows.js";
 import { TranscriptPane } from "../TranscriptPane.js";
 

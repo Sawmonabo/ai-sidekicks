@@ -6,15 +6,15 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import {
   openReopeningSubscription,
   REOPEN_SETTLED_MS,
   REOPEN_WAITS_MS,
   type ReopenableStreamOpen,
 } from "./reopening-subscription.js";
-import { TransportReconnectSignal } from "./transport-reconnect.js";
+import { TransportReconnectSignal } from "./reconnect.js";
 
 /** A daemon stream played by the test: each open it took, and how many next opens throw. */
 class ScriptedStream {

@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { routesAreEqual, sessionRoute } from "./route-readers.js";
+import { routesAreEqual, sessionRoute } from "./readers.js";
 import { formatRoute, parseRoute, type AppRoute } from "./routes.js";
 
 /** Main-window routes, including the arm that carries an optional segment. */

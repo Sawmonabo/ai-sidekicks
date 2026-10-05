@@ -1,7 +1,7 @@
 // Reads what a dispatch answer means to the steer form: the admission verdict and the daemon's
 // settled state become three form outcomes. No JSX, so each arm is testable directly.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
 import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunControlDispatch.js";
 

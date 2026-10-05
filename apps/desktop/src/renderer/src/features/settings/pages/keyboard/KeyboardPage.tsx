@@ -14,20 +14,20 @@ import "./keyboard.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { auditKeybindings } from "@renderer/registries/keybindings/keybinding-audit.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { useKeybindingSnapshot } from "@renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { auditKeybindings } from "#renderer/registries/keybindings/keybinding-audit.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,
   HOST_CHORD_PLATFORM,
   formatChordForPlatform,
-} from "@renderer/lib/chord-format.js";
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useAnnounce } from "@renderer/hooks/announce/useAnnounce.js";
+} from "#renderer/lib/chord-format.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { KeybindingRowBody } from "./components/KeybindingRowBody.js";
 import { ResetAllKeybindings } from "./components/ResetAllKeybindings.js";
 import {

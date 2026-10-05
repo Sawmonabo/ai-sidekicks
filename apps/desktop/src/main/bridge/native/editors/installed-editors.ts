@@ -4,7 +4,7 @@
 // own register of installed apps and never through a command path: an app started from the Dock
 // has no command path of the person's to search.
 
-import type { EditorEntry } from "@shared/preload-api.js";
+import type { EditorEntry } from "#shared/preload-api.js";
 import { EDITOR_CATALOG, type EditorDefinition } from "./editor-catalog.js";
 
 /** Where each installed editor lives, by editor id; an editor this machine lacks is absent. */

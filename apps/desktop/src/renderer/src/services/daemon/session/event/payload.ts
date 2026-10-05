@@ -15,7 +15,7 @@ import {
 } from "@ai-sidekicks/contracts/session/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 
 /** What one readable frame tells the app. */
 export interface SessionStreamFrameReading {

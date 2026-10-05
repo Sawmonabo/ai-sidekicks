@@ -13,7 +13,7 @@ import {
   type BriefRendering,
   type BriefTargetIdentity,
   UnownedBriefTargetError,
-} from "./brief.js";
+} from "./projection.js";
 import type { CanonicalTranscriptProjection } from "../../driver/provider-driver.js";
 
 /**

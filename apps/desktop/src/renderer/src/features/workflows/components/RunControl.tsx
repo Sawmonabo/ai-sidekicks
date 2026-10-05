@@ -1,8 +1,8 @@
 import { useId } from "react";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { WorkflowActState } from "../hooks/useWorkflowAct.js";
-import type { RunControlAvailability } from "../run-controls.js";
+import type { RunControlAvailability } from "../runs/controls.js";
 import { ActionButton } from "./ActionButton.js";
 
 /**

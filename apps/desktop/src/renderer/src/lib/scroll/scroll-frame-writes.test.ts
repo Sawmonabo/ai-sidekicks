@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { AnimationFrameScheduler } from "@renderer/features/transcript/animation-frame-scheduler.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { AnimationFrameScheduler } from "#renderer/features/transcript/animation-frame-scheduler.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 import { type ScrollCaller } from "./scroll-callers.js";
 import { ScrollFrameWrites } from "./scroll-frame-writes.js";

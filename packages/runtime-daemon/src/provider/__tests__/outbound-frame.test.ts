@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
-import { classifyClaudeTurnEvidence } from "../driver/drivers/claude/turn-evidence.js";
-import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../driver/drivers/claude/__fixtures__/turn-evidence-transcripts.js";
+import { classifyClaudeTurnEvidence } from "../driver/claude/turn-evidence.js";
+import { CLAUDE_ZERO_TURN_RESULT_FRAME } from "../driver/claude/__fixtures__/turn-evidence-transcripts.js";
 import {
   composeTextNeutralizationRunFailure,
   isCommandShapedText,

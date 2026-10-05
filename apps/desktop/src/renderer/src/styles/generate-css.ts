@@ -17,7 +17,7 @@
 // inside mismatched scrollbars. `light dark` stays on `:root` to mean "follow the system", and
 // each explicit arm pins its own scheme.
 
-import { formatOklch } from "@shared/color.js";
+import { formatOklch } from "#shared/color.js";
 import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
   LEADING_EDGE_WIDTH_PX,

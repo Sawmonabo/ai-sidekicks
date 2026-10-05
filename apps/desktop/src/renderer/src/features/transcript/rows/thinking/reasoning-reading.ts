@@ -2,7 +2,7 @@
 // The copy table is total over the contract's `availability` union, so a new state fails to
 // compile here instead of rendering blank.
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";

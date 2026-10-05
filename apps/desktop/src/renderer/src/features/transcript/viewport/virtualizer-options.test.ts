@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { attachedController } from "./viewport-controller.test-support.js";

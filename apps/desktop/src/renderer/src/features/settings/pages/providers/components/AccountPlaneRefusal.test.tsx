@@ -7,8 +7,8 @@ import type {
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { refuse } from "@renderer/lib/refusal/refusal.js";
-import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "@renderer/lib/account-plane-sentences.js";
+import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";
 import { AccountPlaneRefusal } from "./AccountPlaneRefusal.js";
 
 afterEach(() => {

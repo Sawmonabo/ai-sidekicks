@@ -3,7 +3,7 @@
 // declaration outright. This is the only place the declared-versus-derived precedence is decided.
 // It stores and formats nothing.
 
-import type { AttachmentIngestEntry } from "./attachment-shapes.js";
+import type { AttachmentIngestEntry } from "./shapes.js";
 
 /**
  * Whose reading of a value this is. A declaration is advisory input that narrows an expected

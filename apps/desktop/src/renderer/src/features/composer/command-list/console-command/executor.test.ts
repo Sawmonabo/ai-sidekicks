@@ -4,8 +4,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { createConsoleCommandExecutor } from "./executor.js";
 import {
   LINE_READING_COMMAND_IDS,

@@ -2,7 +2,7 @@
 // focus, reconnect, and the terminal events the owning view names (`subscribe` belongs to the
 // reader). No interval polling.
 //
-// It wires a `ReadTriggerTarget`, not a scheduler: `read-triggers.ts` does the same through
+// It wires a `ReadTriggerTarget`, not a scheduler: `triggers.ts` does the same through
 // React hooks, while this class does it imperatively for a reading minted in a resource seam.
 // Both read `triggeringEventKinds` and `requestRead` off the reading, so there is one answer
 // to when it goes stale.
@@ -18,7 +18,7 @@ import {
   isRepairEdge,
   requestReadOnWindowFocus,
   type ReadTriggerTarget,
-} from "./read-triggers.js";
+} from "./triggers.js";
 import type { SessionStore } from "../session/session-store.js";
 
 /** Options for a `SessionRefreshTriggers`. */

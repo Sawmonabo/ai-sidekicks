@@ -7,8 +7,8 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/account";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";
+import { BILLING_MODE_WORDS } from "#renderer/lib/account-plane-sentences.js";
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
 import {
   IDLE_TOKEN_REGISTRATION,

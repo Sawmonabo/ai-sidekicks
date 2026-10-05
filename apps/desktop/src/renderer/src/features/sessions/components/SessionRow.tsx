@@ -1,5 +1,5 @@
 import { memo, type MemoExoticComponent } from "react";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { isSessionBeingDeleted, type SessionListRow } from "../rows/session-rows.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 

@@ -3,17 +3,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import { createTranscriptCommands, registerTranscriptCommands } from "./commands.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
-import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
+import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
 
 // A command acts in the window used last; the test's document stands in for it.
 beforeEach(() => publishCommandWindow(() => document));

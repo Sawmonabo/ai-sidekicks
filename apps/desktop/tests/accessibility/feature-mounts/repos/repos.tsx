@@ -17,25 +17,25 @@
 
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
-import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { DiffPane } from "@renderer/features/repos/diff/components/DiffPane.js";
-import { paneContext } from "@test/helpers/pane-context.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
+import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";
+import { paneContext } from "#test/helpers/pane-context.js";
 import {
   HEALTHY_WORKSPACE_ID,
   MOUNTS,
   sessionOperations,
-} from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
-import { MountList } from "@renderer/features/repos/mounts/components/MountList.js";
-import { useRepoMounts } from "@renderer/features/repos/mounts/hooks/useRepoMounts.js";
-import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { renderSettled } from "@test/helpers/app/harness.js";
+} from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
+import { MountList } from "#renderer/features/repos/mounts/components/MountList.js";
+import { useRepoMounts } from "#renderer/features/repos/mounts/hooks/useRepoMounts.js";
+import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { renderSettled } from "#test/helpers/app/harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./fixtures.js";
 import { requireLabeledRegion, type MountedView } from "../mount-queries.js";
 

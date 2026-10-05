@@ -13,8 +13,8 @@ import {
 import {
   findReadRefusal,
   type WireReadState,
-} from "@renderer/services/wire-reads/read-lifecycle.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+} from "#renderer/services/wire-reads/read-lifecycle.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /**
  * The narrow slice of the window's account registry reading this axis reads; the full readout

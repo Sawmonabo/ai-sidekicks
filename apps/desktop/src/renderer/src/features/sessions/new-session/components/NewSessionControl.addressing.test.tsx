@@ -7,9 +7,9 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall } from "@test/helpers/fixture/bridge.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATE_REPLY,
@@ -17,7 +17,7 @@ import {
   NEW_SESSION_LEAD,
   bridgeFor,
 } from "../new-session-draft.test-support.js";
-import { SESSION_CREATE_METHOD } from "../new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "../settlement.js";
 import {
   REJECTING_FIRST_TURN,
   bridgeHoldingCreate,
@@ -29,7 +29,7 @@ import {
   renderControlOn,
   typeFirstTurn,
 } from "./NewSessionControl.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
   it("drops a discarded draft's settlement rather than show it under its replacement", async () => {

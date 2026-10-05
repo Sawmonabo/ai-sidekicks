@@ -11,7 +11,7 @@ import { render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 import { syntheticRows, withLaidOutViewport } from "../viewport-controller.test-support.js";

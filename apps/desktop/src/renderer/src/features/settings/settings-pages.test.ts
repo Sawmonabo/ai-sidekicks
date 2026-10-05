@@ -1,8 +1,8 @@
 // The page registry, and the one search matcher it shares with the palette.
 
 import { describe, expect, it } from "vitest";
-import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
+import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/settings-page-labels.js";
 import {
   SettingsPageRegistry,
   matchSettingsPages,

@@ -2,10 +2,10 @@ import { useCallback, useMemo } from "react";
 
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import {
   CHILD_RUN_SUMMARIZED,
   ChildRunExpansionState,

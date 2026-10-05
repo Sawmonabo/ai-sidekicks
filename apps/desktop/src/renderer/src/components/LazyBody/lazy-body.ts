@@ -8,7 +8,7 @@
 
 import { createElement, lazy, type LazyExoticComponent } from "react";
 
-import { MemoizedLoad } from "@renderer/lib/memoized-load.js";
+import { MemoizedLoad } from "#renderer/lib/memoized-load.js";
 import { LazyBody } from "./LazyBody.js";
 
 /** The module a lazily loaded body comes from; it exports `Body`, never `default`. */

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
-import { useAnnounce } from "@renderer/hooks/announce/useAnnounce.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { readConversationSelection } from "../conversation-selection.js";
 
 /**

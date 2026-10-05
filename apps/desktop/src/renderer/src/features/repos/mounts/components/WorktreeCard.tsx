@@ -9,12 +9,12 @@ import { useId } from "react";
 
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatRelativeTime } from "@renderer/lib/wire/figures.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import { WORKTREE_STATE_TONES } from "../execution-roots/model.js";
 import {
   WORKTREE_COLUMN_LABELS,
@@ -23,7 +23,7 @@ import {
   worktreeColumnCell,
   type WorktreeSummaryColumnKey,
 } from "../execution-roots/columns.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /** A worktree status record, plus the instant the section read at. */
 export interface WorktreeCardProps {

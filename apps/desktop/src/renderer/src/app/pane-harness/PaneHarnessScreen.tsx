@@ -16,13 +16,13 @@
 
 import { useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PaneHarnessFrame } from "./PaneHarnessFrame.js";
 import { paneHarnessInstances } from "./pane-harness-instances.js";
-import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { parsePaneAddress } from "#renderer/routing/panes/parse-pane-address.js";
+import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 /** The harness screen's inputs: the route's context, its harness route, and the pane board. */
 export interface PaneHarnessScreenProps {

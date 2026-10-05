@@ -2,8 +2,8 @@
 
 import type { PreviewPage } from "@ai-sidekicks/contracts/preview/preview";
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { ReadingState } from "@renderer/lib/partial-read.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { ReadingState } from "#renderer/lib/partial-read.js";
 
 /**
  * What the pane knows about the page right now. `ended` is a fact, not an absence: a pane

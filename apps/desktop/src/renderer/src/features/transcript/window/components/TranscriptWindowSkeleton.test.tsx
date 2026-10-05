@@ -6,7 +6,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TranscriptWindowSkeleton } from "./TranscriptWindowSkeleton.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 
 function openStore(): SessionStore {
   return new SessionStore({ sessionId: "session-1" });

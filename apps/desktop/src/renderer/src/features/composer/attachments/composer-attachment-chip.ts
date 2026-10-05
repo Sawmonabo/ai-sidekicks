@@ -3,16 +3,16 @@
 // own the ingest, so the chip and the transcript card cannot disagree about an upload.
 // A refusal is the only non-neutral tone.
 
-import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./attachment-policy.js";
-import { isIngestStalled } from "./attachment-presentation.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./policy.js";
+import { isIngestStalled } from "./presentation.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "./attachment-provenance.js";
-import type { AttachmentIngestEntry } from "./attachment-shapes.js";
-import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
-import { type ChipTone } from "@renderer/components/Chip/Chip.js";
+import type { AttachmentIngestEntry } from "./shapes.js";
+import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
+import { type ChipTone } from "#renderer/components/Chip/Chip.js";
 
 /** What one chip renders, and which acts it offers. */
 export interface ComposerAttachmentChipModel {

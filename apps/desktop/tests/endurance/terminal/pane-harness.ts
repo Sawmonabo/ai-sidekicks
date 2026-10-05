@@ -19,9 +19,9 @@ import {
   CLOSE_CONTROL_LABEL,
   OPEN_CONTROL_LABEL,
   PANE_HARNESS_LABEL,
-} from "@renderer/app/pane-harness/PaneHarnessFrame.js";
-import { advanceScenario, readAppliedEventCount } from "../endurance-workload.js";
-import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
+} from "#renderer/app/pane-harness/PaneHarnessFrame.js";
+import { advanceScenario, readAppliedEventCount } from "../workload.js";
+import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 
 /** The pane kind the address names. The harness is per kind; this row is this one. */
 const MEASURED_PANE_KIND = "terminal";

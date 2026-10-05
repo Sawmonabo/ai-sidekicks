@@ -5,10 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { PrerequisiteReader } from "./act-controller.js";
 import { flush, runScheduledRead } from "./act-controller.test-support.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 
 /** The frames this reading would re-read on. Never fired here; declared to be read. */
 const TRIGGERING_KINDS: ReadonlySet<string> = new Set(["workspace.ready"]);

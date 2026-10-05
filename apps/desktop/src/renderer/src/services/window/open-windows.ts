@@ -6,8 +6,8 @@
 // `closed` reads true; a close the console document's own unloading causes is not a person's and
 // is not published.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { OpenWindowFrames } from "@renderer/lib/open-window-frames.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
 import { StylesheetMirror } from "./stylesheet-mirror.js";
 
 /**

@@ -8,12 +8,12 @@ import { useMemo } from "react";
 
 import type { TerminalId } from "@ai-sidekicks/contracts/pty";
 
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { selectTranscript } from "@renderer/store/session/session-selectors.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { LeaseLine } from "../../lease/components/LeaseLine.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
-import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
+import { projectTerminalLease, type TerminalLeaseState } from "../../lease/model.js";
 
 /** The shell body's accessible name. */
 const TERMINAL_OUTPUT_LABEL = "Shell output";

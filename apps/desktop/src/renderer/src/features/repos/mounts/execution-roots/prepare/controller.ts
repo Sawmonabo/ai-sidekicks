@@ -10,12 +10,12 @@ import type {
   WorktreeId,
 } from "@ai-sidekicks/contracts/worktree/worktree";
 
-import type { Clock } from "@renderer/lib/clock.js";
-import { ActControllerBase } from "@renderer/features/repos/acts/act-controller-base.js";
-import { type ActReading } from "@renderer/features/repos/acts/act-reading.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "@renderer/features/repos/repo-lifecycle-events.js";
-import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { ActControllerBase } from "#renderer/features/repos/acts/act-controller-base.js";
+import { type ActReading } from "#renderer/features/repos/acts/act-reading.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "#renderer/features/repos/lifecycle-events.js";
+import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
 import { reuseVerdictFor, type ReuseVerdict } from "./form.js";
 
 /** The two calls this controller makes. */

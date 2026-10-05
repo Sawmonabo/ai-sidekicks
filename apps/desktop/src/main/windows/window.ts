@@ -22,7 +22,7 @@ import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 import { devServerUrl, installNavigationPolicy, type ChildWindowOpener } from "./navigation.js";
 import { loadDocument } from "./window-load-failure.js";
-import { applyRevealPreferences, revealWindow, type RevealState } from "./window-reveal.js";
+import { applyRevealPreferences, revealWindow, type RevealState } from "./reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
 
@@ -148,7 +148,7 @@ function resolveRendererDocumentUrl(): string {
 export interface ConsoleWindowOptions extends WindowGround {
   /**
    * The renderer switches: the app's facts, the window used last, and on a fixture launch its
-   * scenario (`@shared/fixture-launch.ts`).
+   * scenario (`#shared/fixture-launch.ts`).
    */
   readonly additionalArguments: readonly string[];
   /**

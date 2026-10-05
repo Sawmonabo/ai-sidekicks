@@ -25,7 +25,7 @@ import {
   SubjectScopedHolder,
   type SubjectKey,
   type SubjectScopedPublish,
-} from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
+} from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
 
 /** What a caller reads and the two ways it writes. */
 export interface SubjectScopedState<TValue> {

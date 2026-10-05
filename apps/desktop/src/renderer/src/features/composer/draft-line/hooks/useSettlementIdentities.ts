@@ -11,8 +11,8 @@
 // discarded never leaves them naming a visit nothing committed.
 
 import { useCallback, useLayoutEffect, useRef } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   addressedOperationKey,
   attemptIdsAtAddress,

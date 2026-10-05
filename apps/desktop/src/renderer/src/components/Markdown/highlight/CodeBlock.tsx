@@ -4,7 +4,7 @@
 // ripple; a fence naming no colorable language stays plain.
 
 import type { CodeSpanReader } from "./code-span-reader.js";
-import { resolveHighlightableLanguage } from "./highlight-languages.js";
+import { resolveHighlightableLanguage } from "./languages.js";
 import { HighlightedSource } from "./HighlightedSource.js";
 
 /** What one fenced code block is drawn from. */

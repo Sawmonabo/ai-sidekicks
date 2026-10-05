@@ -6,7 +6,7 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { SingleEntryRegistry } from "@renderer/lib/single-entry-registry.js";
+import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /** What the transcript hands a row footer. */
 export interface TranscriptRowFooterRendererProps {

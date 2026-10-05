@@ -1,7 +1,7 @@
 // The chords the transcript claims in the keybinding table.
 
-import { type Keybinding } from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { type Keybinding } from "#renderer/registries/commands/types.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
 
 /**
  * The chords the transcript claims. `$mod` is Cmd on macOS and Ctrl elsewhere.

@@ -7,7 +7,7 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
-import { handAnsweredCall } from "@test/helpers/held-calls.js";
+import { handAnsweredCall } from "#test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
@@ -15,13 +15,13 @@ import {
   inlineRead,
   readThrough,
   settleAct,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 import {
   OPENED_ARTIFACT_ID,
   artifactPayloadSubject,
   artifactPayloadTree,
   renderArtifactPayloadSection,
-} from "@test/helpers/render-artifact-payload-section.js";
+} from "#test/helpers/render-artifact-payload-section.js";
 
 // "diff --git a/one b/one" in RFC 4648 base64.
 const DIFF_PAYLOAD_BASE64 = "ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==";

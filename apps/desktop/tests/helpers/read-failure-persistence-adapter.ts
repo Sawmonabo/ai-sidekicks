@@ -8,9 +8,9 @@
 import {
   PersistenceAdapterError,
   type StoredRecord,
-} from "@renderer/store/persistence/persistence-adapter.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { refusePersistence } from "@renderer/store/persistence/persistence-refusals.js";
+} from "#renderer/store/persistence/persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { refusePersistence } from "#renderer/store/persistence/refusals.js";
 
 /**
  * A memory persistence adapter whose `read` rejects until `stopFailingReads` is called.

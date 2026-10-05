@@ -5,8 +5,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
-import { OverlayComboboxPopup } from "@renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { OverlayComboboxPopup } from "#renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the account picker reads, and the id of the label that names its trigger. */

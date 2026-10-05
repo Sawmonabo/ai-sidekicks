@@ -391,14 +391,14 @@ export const SCREENSHOT_MATCHER_REACH = {
  * A stylesheet imported from another folder.
  *
  * A component imports its own sheet from its own folder, so importing the component brings its
- * styles. Relative and `@renderer/` specifiers only: a vendor sheet reached by package specifier
+ * styles. Relative and `#renderer/` specifiers only: a vendor sheet reached by package specifier
  * has no owning folder here.
  *
  * A trailing query is still the sheet: `./x.css?inline` and `./x.css?raw` are bundler spellings of
  * the same import, so the match is not `$`-anchored. The dynamic form carries the sheet as the
  * static one does (the chunk it lands on is the component's), so both declarations are named.
  */
-const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|@renderer[/]).*[.]css(?:[?].*)?$";
+const STYLESHEET_SPECIFIER = "^(?:[.][.]?[/]|#renderer[/]).*[.]css(?:[?].*)?$";
 const SAME_FOLDER_STYLESHEET_SPECIFIER = "^[.][/][^/?]+[.]css(?:[?].*)?$";
 const STYLESHEET_OUTSIDE_FOLDER_SPECIFIER =
   `[source.value=/${STYLESHEET_SPECIFIER}/]` +

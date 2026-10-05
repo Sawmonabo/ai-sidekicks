@@ -5,16 +5,16 @@
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import type { FirstTurnQueueCall } from "./control-contract.js";
 import { NewSessionDraft } from "./new-session-draft.js";
-import { type DraftRepoMount } from "./new-session-send.js";
+import { type DraftRepoMount } from "./send.js";
 // The method the send names, taken from the module that sends it, so a script never keys on a
 // stale copy of a wire string.
-import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "./settlement.js";
 
 /** The session id the scripted create replies with. */
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";

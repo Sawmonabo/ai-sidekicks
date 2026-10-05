@@ -5,12 +5,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
+import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
 import {
   ATTACHMENT_ACKNOWLEDGEMENT_SITE,
   readChunkAcknowledgement,
 } from "./attachment-ingest-acknowledgement.js";
-import { attachmentSourceFrom, type AttachmentIngestEntry } from "../attachment-shapes.js";
+import { attachmentSourceFrom, type AttachmentIngestEntry } from "../shapes.js";
 
 /** The stream every case here acknowledges against. */
 const INGEST_ID = "ingest-1";

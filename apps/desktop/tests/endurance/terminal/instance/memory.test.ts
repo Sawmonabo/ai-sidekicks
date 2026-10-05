@@ -40,10 +40,10 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp } from "@test/helpers/electron/harness.js";
-import { fixtureBundleExists } from "@test/helpers/fixture/bundle.js";
+import { withLaunchedApp } from "#test/helpers/electron/harness.js";
+import { fixtureBundleExists } from "#test/helpers/fixture/bundle.js";
 import { HeapSampler } from "../../heap/sampling.js";
-import { enduranceLaunchOptions } from "../../endurance-workload.js";
+import { enduranceLaunchOptions } from "../../workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "../../heap/instrument.js";
 import {
   measureFullScrollbackRetainedBytes,
@@ -62,14 +62,14 @@ import {
   TEARDOWN_RESIDUE_FACTOR,
   type TerminalInstanceSeries,
 } from "./terminal-instance-series.js";
-import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
+import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
-} from "@renderer/features/terminal/terminal-caps.js";
-import { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
-import { BudgetRegistry } from "../../../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../../../scripts/budget/budget-evaluation.mts";
+} from "#renderer/features/terminal/caps.js";
+import { TerminalRendererPool } from "#renderer/features/terminal/emulator/renderer-pool.js";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 

@@ -8,18 +8,18 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import type { Clock } from "@renderer/lib/clock.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
-} from "@renderer/lib/reads/generation-latch.js";
+} from "#renderer/lib/reads/generation-latch.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-triggers.js";
+import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { settledReadReading, type ArtifactListReading } from "./artifact-list-reading.js";
 import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
 

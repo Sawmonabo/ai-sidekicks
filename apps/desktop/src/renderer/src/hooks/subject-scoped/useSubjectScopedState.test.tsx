@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 import { Suspense, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
+import { SUBJECT_ONE, SUBJECT_TWO } from "#test/helpers/subject-fixtures.js";
 import { DiscardedRenderValueProbe } from "./DiscardedRenderValueProbe.test-support.js";
 import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
 import { useSubjectScopedState } from "./useSubjectScopedState.js";

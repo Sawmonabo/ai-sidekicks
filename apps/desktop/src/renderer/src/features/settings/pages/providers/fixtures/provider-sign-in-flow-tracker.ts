@@ -16,12 +16,12 @@
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
+import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
   flowAfterLoginCompleted,

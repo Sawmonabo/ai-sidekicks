@@ -12,11 +12,11 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { vi } from "vitest";
 
-import { appFactsSwitches } from "@shared/app-facts.js";
-import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { lastUsedWindowIdSwitch } from "@shared/window/window-id.js";
-import type { DaemonConnection, MainProcessState } from "@shared/daemon/daemon-status-topic.js";
-import type { PreloadApi } from "@shared/preload-api.js";
+import { appFactsSwitches } from "#shared/app-facts.js";
+import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
+import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { PreloadApi } from "#shared/preload-api.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 
 /** An in-memory daemon connection: it answers each request from a script, and can be closed. */
@@ -117,7 +117,7 @@ export async function bridgeOverLink(
 ): Promise<PreloadApi> {
   const { DaemonForwarding } = await import("./daemon.js");
   const { installBridgeHandlers } = await import("./install-bridge-handlers.js");
-  const { createPreloadApi } = await import("@preload/api.js");
+  const { createPreloadApi } = await import("#preload/api.js");
   const { FilePathRefs } = await import("./file-path/file-path-refs.js");
 
   const log = { write: vi.fn() };

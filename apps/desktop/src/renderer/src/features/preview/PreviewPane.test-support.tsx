@@ -4,18 +4,18 @@
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { frozenClockOf } from "@test/helpers/scheduled-read.js";
-import { RecordingPageHost } from "./geometry/geometry-publisher.test-support.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { frozenClockOf } from "#test/helpers/scheduled-read.js";
+import { RecordingPageHost } from "./geometry/publisher.test-support.js";
 import type { PageHost } from "./geometry/page-host.js";
-import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
-import { paneContext } from "@test/helpers/pane-context.js";
+import type { PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { paneContext } from "#test/helpers/pane-context.js";
 import { PreviewPaneContent, type PreviewChromeActs } from "./components/PreviewPaneContent.js";
 
 /** The context the pane is handed, and the fixture whose window it is mounted in. */

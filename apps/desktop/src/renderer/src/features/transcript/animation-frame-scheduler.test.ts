@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { developmentPerformanceMeters } from "#renderer/lib/performance-meters/performance-meters.js";
 import {
   AnimationFrameScheduler,
   type AnimationFrameDiagnostic,

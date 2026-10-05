@@ -7,19 +7,19 @@
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
-import { collectFootnoteDefinitions } from "@renderer/components/Markdown/footnotes/footnote-collection.js";
+import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/footnote-collection.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 import {
   MarkdownNodes,
   type MarkdownRenderContext,
-} from "@renderer/components/Markdown/MarkdownNodes.js";
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import {
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-} from "@renderer/components/Markdown/parse/markdown-parse.js";
-import { useCodeSpanReader } from "@renderer/services/highlight/hooks/useCodeSpanReader.js";
+} from "#renderer/components/Markdown/parse/markdown-parse.js";
+import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { SettledBlock } from "./SettledBlock.js";
 
 /**

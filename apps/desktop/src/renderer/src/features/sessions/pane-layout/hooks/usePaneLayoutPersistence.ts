@@ -8,14 +8,14 @@
 
 import { useEffect } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneAddressKey } from "../pane-layout.js";
-import { type PaneLayoutRestoreReport } from "../pane-layout-snapshot.js";
+import { type PaneLayoutRestoreReport } from "../snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,

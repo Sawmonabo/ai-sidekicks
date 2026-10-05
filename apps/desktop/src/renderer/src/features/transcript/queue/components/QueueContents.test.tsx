@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { QueueFeed } from "../queue-reading.js";
+import type { QueueFeed } from "../reading.js";
 import { QueueContents } from "./QueueContents.js";
 import { queueRow } from "../queue-feed.test-support.js";
 

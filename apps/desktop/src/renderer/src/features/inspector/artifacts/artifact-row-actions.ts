@@ -7,8 +7,8 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
-import { artifactManifestRowFrom } from "./artifact-model.js";
+import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
+import { artifactManifestRowFrom } from "./model.js";
 import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import {
@@ -18,7 +18,7 @@ import {
   type ArtifactRowActOutcome,
 } from "./artifact-list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
-import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
 
 /** What the row acts need: the read call and the reader's publishing half. */
 export interface ArtifactRowActionsOptions {

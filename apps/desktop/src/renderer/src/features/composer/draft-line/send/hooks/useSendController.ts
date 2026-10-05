@@ -14,8 +14,8 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { composerDraftKey } from "../../draft-key.js";
 import { useComposerActState } from "../../hooks/useComposerActState.js";
 import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js";
@@ -23,7 +23,7 @@ import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
 import { addressedOperationKey } from "../settlement.js";
 import { ComposerSendRouter } from "../router.js";
-import { AnsweredRunVersions } from "@renderer/features/composer/answered-run-versions.js";
+import { AnsweredRunVersions } from "#renderer/features/composer/answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */

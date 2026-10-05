@@ -6,50 +6,50 @@
 // pair. Nothing here runs on import: `AppProviders.tsx` calls it once with the window's
 // registries, and a test calls it with registries of its own.
 
-import type { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import type { InlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
+import type { EntityProjectorRegistry } from "#renderer/registries/entity-projectors/entity-projector-registry.js";
+import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import type { InlineCardRegistry } from "#renderer/registries/inline-cards/inline-card-registry.js";
+import type { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { registerNavigationKeybindings } from "#renderer/layout/NavigationRail/navigation-commands.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
   APPROVAL_FLOW_PROJECTORS,
-} from "@renderer/store/session-events/approval-flow-projection.js";
+} from "#renderer/store/session-events/approval-flow-projection.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
-} from "@renderer/store/session-events/run/lifecycle-projector.js";
-import { registerAgentsPane } from "@renderer/features/agents/index.js";
+} from "#renderer/store/session-events/run/lifecycle-projector.js";
+import { registerAgentsPane } from "#renderer/features/agents/index.js";
 import {
   registerComposerCommands,
   registerComposerView,
   registerComposerInlineCards,
   registerComposerKeybindings,
-} from "@renderer/features/composer/index.js";
+} from "#renderer/features/composer/index.js";
 import {
   registerInspectorInlineCards,
   registerInspectorPane,
-} from "@renderer/features/inspector/index.js";
-import { registerPreviewPanes } from "@renderer/features/preview/index.js";
-import { registerReposInlineCards, registerReposPanes } from "@renderer/features/repos/index.js";
+} from "#renderer/features/inspector/index.js";
+import { registerPreviewPanes } from "#renderer/features/preview/index.js";
+import { registerReposInlineCards, registerReposPanes } from "#renderer/features/repos/index.js";
 import {
   registerPaneLayoutCommands,
   registerSessionsFlyout,
   SessionScreen,
-} from "@renderer/features/sessions/index.js";
-import { registerSettingsScreen } from "@renderer/features/settings/index.js";
-import { registerTerminalPane } from "@renderer/features/terminal/index.js";
+} from "#renderer/features/sessions/index.js";
+import { registerSettingsScreen } from "#renderer/features/settings/index.js";
+import { registerTerminalPane } from "#renderer/features/terminal/index.js";
 import {
   registerTranscriptScreens,
   registerTranscriptPanes,
   registerTranscriptCommands,
-} from "@renderer/features/transcript/index.js";
+} from "#renderer/features/transcript/index.js";
 import {
   registerWorkflowCommands,
   registerWorkflowPanes,
   registerWorkflowScreens,
-} from "@renderer/features/workflows/index.js";
+} from "#renderer/features/workflows/index.js";
 
 /** The registries a composition writes into. */
 export interface ContributionRegistries {

@@ -7,14 +7,14 @@
 // before the first render, so an effect would paint "missing" first.
 
 import { useCallback, useMemo, useState } from "react";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { useMainProcessState } from "@renderer/store/window/hooks/useMainProcessState.js";
-import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { settingsRoute, settingsSelection } from "@renderer/routing/route-readers.js";
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
+import { useOpenSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { settingsRoute, settingsSelection } from "#renderer/routing/readers.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
-import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 import { useSettingsPageIdleWarm } from "./hooks/useSettingsPageIdleWarm.js";
 import { SettingsSearchField } from "./components/SettingsSearchField.js";
 import { SettingsPageList } from "./components/SettingsPageList.js";

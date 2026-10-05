@@ -9,10 +9,10 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { WORKFLOW_RUN_RECORDS, summaryOfRun } from "@fixtures/data/workflow/runs.js";
-import type { RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { WORKFLOW_NOTICE_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
+import { WORKFLOW_RUN_RECORDS, summaryOfRun } from "#fixtures/data/workflow/run/records.js";
+import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { WORKFLOW_NOTICE_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
 
 /** The runs list's daemon: its rows, the call arm and stream arm it answers through. */
 export class RunListDaemon {

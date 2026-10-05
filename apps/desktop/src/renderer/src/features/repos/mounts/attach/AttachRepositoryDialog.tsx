@@ -7,15 +7,15 @@ import "./attach.css";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { type AttachRequestReading } from "./attach-controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
-import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-form.js";
+import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./form.js";
 
 /** What the attach dialog is bound to: the session section, and the call it sends. */
 export interface AttachRepositoryDialogProps {

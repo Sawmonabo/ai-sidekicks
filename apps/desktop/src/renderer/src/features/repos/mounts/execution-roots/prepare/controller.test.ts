@@ -2,9 +2,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { scriptedRepoOperations } from "@renderer/features/repos/repo-operations.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
 import {
   DIRTY_BRANCH,
   preparingDaemon,

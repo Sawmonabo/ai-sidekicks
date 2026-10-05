@@ -6,7 +6,7 @@ import type {
   ArtifactReadResponse,
 } from "@ai-sidekicks/contracts/artifacts/operations";
 
-import { artifactManifestRowFrom, type ArtifactsSectionState } from "../artifact-model.js";
+import { artifactManifestRowFrom, type ArtifactsSectionState } from "../model.js";
 
 /** The call that lists a session's artifact manifests, supplied by whoever mounts the pane. */
 export type ListArtifacts = (sessionId: string) => Promise<readonly ArtifactManifest[]>;

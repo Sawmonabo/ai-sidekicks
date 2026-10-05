@@ -40,7 +40,7 @@ import type {
   DaemonConnection,
   MainProcessNegotiation,
   MainProcessState,
-} from "@shared/daemon/daemon-status-topic.js";
+} from "#shared/daemon/daemon-status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import type { DaemonLink } from "./daemon-link.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link-lifetime.js";

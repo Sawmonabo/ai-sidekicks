@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
 import { mergeSessionRows } from "./session-directory-rows.js";
 import type { SessionListRow } from "./session-rows.js";
 

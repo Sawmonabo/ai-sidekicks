@@ -15,7 +15,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "./caps.js";
-import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
@@ -29,7 +29,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./persistence-adapter.js";
-import { refusePersistence } from "./persistence-refusals.js";
+import { refusePersistence } from "./refusals.js";
 
 /** The database this build reads and writes; bumping the version is a migration. */
 export const UI_STATE_DATABASE_NAME = "sidekicks-ui-state";

@@ -3,13 +3,13 @@
 // boundary keeps that local: the event loses its entity contribution, never the batch, the
 // process or half a partition.
 
-import { RealClock } from "@renderer/lib/clock.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import type { ProjectedSessionEvent, EntityProjectorTable } from "./entities.js";
-import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./entity-partitions.js";
+import { mergeRemoval, mergeUpsert, type SessionPartitions } from "./partitions.js";
 
 /**
  * The registered projectors, and the one way to run them. A class because the registry is

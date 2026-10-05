@@ -4,8 +4,8 @@
 // approval and deleting an artifact belong to the controls that own those verbs; a control
 // here would be a second place eligibility is decided.
 
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
 import { InspectorPaneBody } from "./components/InspectorPaneBody.js";
 
 /** The inspector pane body, framed as a pane and reading one entity from its session. */

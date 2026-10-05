@@ -3,9 +3,9 @@
 
 import { useEffect } from "react";
 
-import { subscribeDaemonStatus } from "@renderer/services/daemon/daemon-status.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { WindowStore } from "@renderer/store/window/window-store.js";
+import { subscribeDaemonStatus } from "#renderer/services/daemon/status.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { WindowStore } from "#renderer/store/window/window-store.js";
 
 /** Keep main's report of the service in `frameStore` while the window holds `bridge`. */
 export function useDaemonStatusReport(bridge: PlatformBridge, frameStore: WindowStore): void {

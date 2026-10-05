@@ -4,7 +4,7 @@
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import {
   addressField,
   findRefusalBanner,

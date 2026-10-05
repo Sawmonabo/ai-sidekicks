@@ -9,7 +9,7 @@
 
 import { createContext } from "react";
 
-import { type PaneOpener } from "@renderer/routing/panes/pane-address.js";
+import { type PaneOpener } from "#renderer/routing/panes/pane-address.js";
 
 /** The acts a host can perform on the pane its chrome frames. */
 export interface PaneControls {

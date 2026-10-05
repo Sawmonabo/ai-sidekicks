@@ -10,12 +10,12 @@
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
+import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
   RUN_STATE_KINDS,
   runStateForTransitionKind,
   type RunStateTransitionKind,
-} from "@renderer/store/session-events/run/state-kinds.js";
+} from "#renderer/store/session-events/run/state-kinds.js";
 
 /**
  * The event kinds `run.subscribeState` projects: every run state a run can transition into, plus

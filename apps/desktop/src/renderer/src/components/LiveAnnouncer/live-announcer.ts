@@ -12,13 +12,13 @@
 // 4. At most one timer is armed, for the earliest lane deadline, and re-armed from its own tick.
 //    Nothing polls, and an idle announcer holds no handle.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter, type EmitterSink } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter, type EmitterSink } from "#renderer/lib/emitter.js";
 import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
 } from "./live-announcement-caps.js";
-import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 
 /**
  * The two speech channels. `assertive` interrupts the reader and is reserved for refusals and

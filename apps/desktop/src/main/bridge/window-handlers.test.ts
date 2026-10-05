@@ -9,9 +9,9 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AppearanceRecord } from "@shared/appearance.js";
-import { FULLSCREEN_VALUE_CHANNEL, type FullscreenPush } from "@shared/bridge-channels.js";
-import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+import type { AppearanceRecord } from "#shared/appearance.js";
+import { FULLSCREEN_VALUE_CHANNEL, type FullscreenPush } from "#shared/bridge-channels.js";
+import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
 
@@ -38,13 +38,13 @@ async function connectWindowBridge() {
   vi.resetModules();
   const { ipcMain, ipcRenderer, nativeTheme } = (await import("electron")) as unknown as {
     ipcMain: { handle(channel: string, answer: (...args: never[]) => unknown): void };
-    ipcRenderer: Parameters<typeof import("@preload/window-bridge.js").createWindowBridge>[0];
+    ipcRenderer: Parameters<typeof import("#preload/window-bridge.js").createWindowBridge>[0];
     nativeTheme: never;
   };
   const { windowAnswers } = await import("./window-handlers.js");
   const { KeptAppearance } = await import("../appearance/kept-appearance.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
-  const { createWindowBridge } = await import("@preload/window-bridge.js");
+  const { createWindowBridge } = await import("#preload/window-bridge.js");
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,

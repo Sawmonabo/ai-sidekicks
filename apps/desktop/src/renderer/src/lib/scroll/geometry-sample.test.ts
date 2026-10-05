@@ -1,5 +1,5 @@
 // When two geometry samples say the same thing, asserted without a scroll container. The
-// machinery that produces samples is tested in `scroll-chokepoint.test.ts`.
+// machinery that produces samples is tested in `chokepoint.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

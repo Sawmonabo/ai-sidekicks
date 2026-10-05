@@ -1,15 +1,15 @@
 // Every value and dependency the repos views are drawn against: the bridge and store they are
 // handed, and the change set no wire produces. `repos.tsx` owns how each view is mounted. Every
 // export is inert, so a tier wanting a different composition states a new mount.
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { buildDiffFixture } from "@test/helpers/diff/fixture/fixture.js";
-import { EXTENDED_HEADER_DIFF_SHAPE } from "@test/helpers/diff/fixture/diff-fixture-shapes.js";
-import type { DiffModel } from "@renderer/features/repos/diff/diff-model.js";
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { SESSION_ID } from "@renderer/features/repos/mounts/repo-mounts.test-support.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { EXTENDED_HEADER_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import type { DiffModel } from "#renderer/features/repos/diff/diff-model.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { SESSION_ID } from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "../projector-composition.js";
 
 /**

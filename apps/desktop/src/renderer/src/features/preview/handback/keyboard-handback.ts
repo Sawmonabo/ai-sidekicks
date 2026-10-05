@@ -3,16 +3,13 @@
 // A chord is claimed only with control, meta or alt AND a matching chord in the mirror. The mirror
 // lists which chords exist, never what they mean; an unreadable mirror leaves keys to the page.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import {
-  chordMatchesEvent,
-  parseChord,
-} from "@renderer/registries/keybindings/keybinding-chord.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { chordMatchesEvent, parseChord } from "#renderer/registries/keybindings/chord.js";
 import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,
   type ChordPlatform,
-} from "@renderer/lib/chord-format.js";
+} from "#renderer/lib/chord-format.js";
 import {
   carriesApplicationModifier,
   projectClaimableChords,

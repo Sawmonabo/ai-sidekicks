@@ -5,22 +5,22 @@
 // variant); reasoning is composed by the mount so a policy-withheld body stays distinguishable
 // from an unreadable one.
 
-import { readWireString } from "@renderer/lib/wire/strings.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { type InlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { type RowKindDescriptor } from "./row-kind.js";
+import { type InlineCardProps } from "#renderer/registries/inline-cards/inline-card-registry.js";
+import { type RowKindDescriptor } from "./kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { CopyButton } from "@renderer/components/CopyButton/CopyButton.js";
-import { useClipboardCopy } from "@renderer/services/platform/hooks/useClipboardCopy.js";
+import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
+import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
-import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
+import { projectedPayload, readWireCount } from "#renderer/store/session-events/wire-payload.js";
 import { outputKindOf } from "./bodies/output-kinds.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";

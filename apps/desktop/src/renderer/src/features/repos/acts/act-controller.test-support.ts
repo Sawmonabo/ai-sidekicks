@@ -1,8 +1,8 @@
 // The two waits the act suites share: draining queued continuations, and letting one scheduled
 // prerequisite read go out past the debounce.
 
-import { type ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
+import { type ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 
 /** Let every queued continuation run, so a served answer has landed. */
 export async function flush(): Promise<void> {

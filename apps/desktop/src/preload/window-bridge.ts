@@ -1,14 +1,14 @@
 // The `window` members as the preload carries them to main. A subscription keeps its handler
 // here, takes its first delivery from main's current value, and then every value main pushes.
 
-import type { AppearanceRecord } from "@shared/appearance.js";
+import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   APPEARANCE_VALUE_CHANNEL,
   BRIDGE_CHANNELS,
   FULLSCREEN_VALUE_CHANNEL,
   type FullscreenPush,
-} from "@shared/bridge-channels.js";
-import type { PreloadApi, Unsubscribe } from "@shared/preload-api.js";
+} from "#shared/bridge-channels.js";
+import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
 
 /** The part of Electron's `ipcRenderer` the `window` members use. */
 export interface WindowBridgeIpc {

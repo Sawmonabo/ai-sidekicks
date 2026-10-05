@@ -7,10 +7,10 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
+import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
-import { PRE_INITIALIZATION_BUFFER_CAP } from "./session-store-caps.js";
+import { PRE_INITIALIZATION_BUFFER_CAP } from "./store-caps.js";
 import { SessionStore } from "./session-store.js";
 
 /**

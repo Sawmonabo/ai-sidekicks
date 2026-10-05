@@ -12,10 +12,10 @@ import {
   type WorkflowSubscribeNotification,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
 import { WORKFLOW_NOTICE_STREAM } from "./session/event/session-event-streams.js";

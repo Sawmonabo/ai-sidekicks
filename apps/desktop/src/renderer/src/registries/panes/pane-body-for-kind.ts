@@ -1,6 +1,6 @@
 // Adapts a body written for one pane kind into the render the pane registry stores.
 
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 import { type PaneContext } from "./pane-context.js";
 
 /** The context a body of one pane kind is handed, narrowed to that kind's arm. */

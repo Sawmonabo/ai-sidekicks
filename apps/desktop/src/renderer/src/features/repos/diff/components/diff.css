@@ -135,7 +135,7 @@
  * One windowed entry, placed at the offset the window computed. Placed rather than spaced
  * (unlike the rows renderer) because these are `<li>` of a real `<ul>`, and a spacer `<div>`
  * would break list semantics. The height is fixed because the window estimates with it: one
- * value under one owner (`diff-measures.ts`) keeps offsets and painted rows from drifting.
+ * value under one owner (`measures.ts`) keeps offsets and painted rows from drifting.
  */
 .meridian-diff-files__row {
   position: absolute;

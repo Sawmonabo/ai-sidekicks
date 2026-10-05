@@ -1,4 +1,4 @@
-import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
 
 /**
  * Register the Settings screen.

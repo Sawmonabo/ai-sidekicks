@@ -1,4 +1,4 @@
-// What a daemon subscription's open tells this window about its transport. `transport-reconnect.ts`
+// What a daemon subscription's open tells this window about its transport. `reconnect.ts`
 // emits on `unreachable → reachable`, and the session-event subscriber acts on it. If the
 // subscriber were also the only producer, a window whose only session hit a transient
 // `daemon.subscribe` failure could never leave that state: the retry needs a returning edge and
@@ -14,8 +14,8 @@
 // that opened a stream inside one of its scripted outages would contradict its script until the
 // next advance. The fixture's own subscribe arm is where that would be refused, not a branch here.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { TransportReconnectSignal } from "./transport-reconnect.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { TransportReconnectSignal } from "./reconnect.js";
 
 /**
  * Takes one daemon subscription and reports what taking it observed. The open is a thunk because

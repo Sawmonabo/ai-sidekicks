@@ -4,7 +4,7 @@
 // is the bare verb and `title` a palette sentence; the title is written, not derived, because
 // a verb that is not a bare imperative would break concatenation.
 
-import { type GlyphName } from "@renderer/styles/glyphs.js";
+import { type GlyphName } from "#renderer/styles/glyphs.js";
 import { type RunControl } from "./services/run-control-dispatch.js";
 
 /** One control's two phrases and its mark. */

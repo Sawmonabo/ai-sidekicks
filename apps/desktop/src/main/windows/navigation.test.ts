@@ -1,4 +1,4 @@
-// The navigation classifier. `window-navigation.test.ts` asserts the policy is installed and each
+// The navigation classifier. `window.navigation.test.ts` asserts the policy is installed and each
 // verdict acted on; this asserts the classification itself. Two traps: `URL.origin` is `"null"` for
 // every non-special scheme (and `sidekicks-renderer:` is non-special in Node's parser), so
 // comparing `.origin` would admit `weird://app` and the like; and `shell.openExternal` hands a

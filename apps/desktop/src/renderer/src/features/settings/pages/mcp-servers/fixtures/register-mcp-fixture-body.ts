@@ -1,4 +1,4 @@
-import { registerSettingsPageBody } from "../../page-body-registry.js";
+import { registerSettingsPageBody } from "../../body-registry.js";
 import { McpFixtureMount } from "./McpFixtureMount.js";
 
 /**

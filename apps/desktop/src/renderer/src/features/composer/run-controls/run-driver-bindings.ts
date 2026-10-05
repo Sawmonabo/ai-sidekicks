@@ -7,11 +7,11 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/acco
 import {
   readAgentDriverNames,
   readRunAgentId,
-} from "@renderer/services/driver-capabilities/agent-driver-reads.js";
+} from "#renderer/services/driver-capabilities/agent-driver-reads.js";
 import {
   type StoredEntity,
   type ProjectedSessionEvent,
-} from "@renderer/store/session/entities/entities.js";
+} from "#renderer/store/session/entities/entities.js";
 
 /**
  * Joins the session's runs to their agents' declared drivers. A run this cannot resolve is

@@ -13,9 +13,9 @@ import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../../helpers/app/harness.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
 // The viewport's stylesheet, imported for its side effect; this tier measures what it computes to.
-import "@renderer/features/transcript/viewport/components/transcript-viewport.css";
+import "#renderer/features/transcript/viewport/components/transcript-viewport.css";
 
 /** The box the viewport is given. Every assertion below is against this number. */
 const VIEWPORT_BOX_HEIGHT_PX = 600;

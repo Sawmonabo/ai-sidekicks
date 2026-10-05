@@ -5,22 +5,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RefusalError, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { AppearanceClient } from "@renderer/services/window/appearance-client.js";
-import type { WindowStore } from "@renderer/store/window/window-store.js";
-import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
-import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
-import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
-import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
+import type { WindowStore } from "#renderer/store/window/window-store.js";
+import { subscribeToCommandContributions } from "#renderer/registries/commands/contributions.js";
+import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
+import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
+import type { CommandDefinition } from "#renderer/registries/commands/types.js";
 import {
   commandRegistry,
   registerCommands,
-} from "@renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { buildNavigationCommands } from "@renderer/layout/NavigationRail/navigation-commands.js";
-import { buildColorSchemeCommand, useBridgeCommands } from "@renderer/features/settings/index.js";
+} from "#renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { buildNavigationCommands } from "#renderer/layout/NavigationRail/navigation-commands.js";
+import { buildColorSchemeCommand, useBridgeCommands } from "#renderer/features/settings/index.js";
 import { discloseUnkeptScheme } from "./useAppearance.js";
 
 /** What the app's commands act through. */

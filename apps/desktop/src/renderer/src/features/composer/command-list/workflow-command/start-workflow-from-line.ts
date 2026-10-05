@@ -11,7 +11,7 @@ import {
   type ReadWorkflowDefinitionPage,
 } from "./definition/enumeration.js";
 import { matchWorkflowDefinition } from "./definition/match.js";
-import { readWorkflowCommandLine } from "./workflow-command-grammar.js";
+import { readWorkflowCommandLine } from "./grammar.js";
 
 /** The pinned version a start is issued against, and the session it starts in. */
 export interface WorkflowStartRequest {

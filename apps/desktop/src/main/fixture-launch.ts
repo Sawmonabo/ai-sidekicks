@@ -6,7 +6,7 @@
 
 import { parseArgs } from "node:util";
 
-import type { FixtureLaunch } from "@shared/fixture-launch.js";
+import type { FixtureLaunch } from "#shared/fixture-launch.js";
 
 const LAUNCH_OPTIONS = {
   fixture: { type: "string" },

@@ -3,10 +3,10 @@
 import { callDaemon } from "../daemon-reply.js";
 import { readSessionId } from "../wire/identifiers.js";
 import { type PlatformBridge } from "../../platform/platform-bridge.js";
-import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
 import { unwrapDaemonReply } from "../unwrap-daemon-reply.js";
-import { BASE_STATE_CURSOR, type SessionBaseState } from "@renderer/store/session/session-state.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session/open-session-entry.js";
+import { BASE_STATE_CURSOR, type SessionBaseState } from "#renderer/store/session/state.js";
+import { type SessionBaseStateReader } from "#renderer/store/session/open-session/open-session-entry.js";
 
 /** The subsystem a refusal from this read names as its author. */
 const SESSION_READ_ORIGIN = "session-read";

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
+import { ManualIdleWarmScheduler } from "#test/helpers/idle-warm.js";
 import { LazyBodyIdleWarm } from "./lazy-body-warm.js";
 import { type PreloadableRegistry } from "./lazy-body.js";
 

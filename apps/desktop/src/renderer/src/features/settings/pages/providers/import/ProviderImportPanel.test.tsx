@@ -14,9 +14,9 @@ import type {
 } from "@ai-sidekicks/contracts/provider/import";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type { ImportProgressStream, ImportProgressSubscribeCall } from "./import-progress.js";
+import type { ImportProgressStream, ImportProgressSubscribeCall } from "./progress.js";
 import { chooseProvider } from "./provider-import.test-support.js";
-import { settle } from "@test/helpers/settle.js";
+import { settle } from "#test/helpers/settle.js";
 
 /** The id the stubbed start answers with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;

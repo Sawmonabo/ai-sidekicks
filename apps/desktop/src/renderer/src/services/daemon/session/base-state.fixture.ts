@@ -9,8 +9,8 @@
 // There are no entities because every partition is projected from the delivered log.
 
 import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import { BASE_STATE_CURSOR, type SessionBaseState } from "@renderer/store/session/session-state.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import { BASE_STATE_CURSOR, type SessionBaseState } from "#renderer/store/session/state.js";
 
 /**
  * The base state one scenario establishes for one session. Another id reads as an empty session,

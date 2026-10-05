@@ -15,7 +15,7 @@ import {
   type AppearanceChoice,
   type AppearanceGrounds,
   type AppearanceRecord,
-} from "@shared/appearance.js";
+} from "#shared/appearance.js";
 import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
 
 import { KeptAppearance } from "./kept-appearance.js";

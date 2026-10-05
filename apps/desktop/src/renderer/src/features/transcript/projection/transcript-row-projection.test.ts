@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 // The row-id namespace comes from the transcript scenario that declares it: a stem
 // restated here would be a second namespace the day the scenario's own moved.
-import { EVENT_ID_STEM } from "@fixtures/scenarios/transcript-states.js";
+import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import { isContractTranscriptEventRow } from "./transcript-event-row-contract.test-support.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { deriveSupersededTurns } from "../superseded/superseded-turns.js";
 import { projectTranscriptRows } from "./transcript-row-projection.js";
 

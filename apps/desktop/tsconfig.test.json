@@ -8,7 +8,7 @@
   // `tests/launch.smoke.test.ts`, a sibling of `src/`), so it drops the `rootDir: ./src`
   // constraint, which would error on files outside `src/`, and TS infers `rootDir` as the longest
   // common ancestor of the include set.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the

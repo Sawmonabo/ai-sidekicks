@@ -4,7 +4,7 @@
 
 import type { PreviewPage, PreviewPageListFrame } from "@ai-sidekicks/contracts/preview/preview";
 
-import type { ReadingState } from "@renderer/lib/partial-read.js";
+import type { ReadingState } from "#renderer/lib/partial-read.js";
 
 /**
  * What the pane knows about the session's pages right now. Like `NavigationReading`, an ended

@@ -7,8 +7,8 @@ import "../components/WorkflowStateStrip.css";
 import { createElement } from "react";
 
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
-import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { paneBodyForKind } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
 
 /** The builder pane, narrowed to its own address arm before the body sees it. */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(

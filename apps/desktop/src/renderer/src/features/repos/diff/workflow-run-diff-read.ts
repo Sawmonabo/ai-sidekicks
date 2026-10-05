@@ -5,13 +5,13 @@
 
 import type { GitflowDiffReadRequest } from "@ai-sidekicks/contracts/gitflow/local";
 
-import type { Clock } from "@renderer/lib/clock.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
 import type { DiffModel } from "./diff-model.js";
-import { diffModelFromRead } from "./diff-read-model.js";
+import { diffModelFromRead } from "./read-model.js";
 
 /** The `gitflow.diffRead` request for a workflow run's comparison. */
 export type WorkflowRunDiffRequest = Extract<GitflowDiffReadRequest, { scope: "workflow_run" }>;

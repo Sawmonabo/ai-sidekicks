@@ -4,7 +4,7 @@
 // `scripted/reply.fixture.ts` and the scenario contract reply checks in
 // `tests/helpers/scenario-contract-check/reply-checks.ts` need no other scenario member.
 
-import type { WireErrorEnvelope } from "@renderer/lib/wire/errors.js";
+import type { WireErrorEnvelope } from "#renderer/lib/wire/errors.js";
 import type { MachineNoticeStreamName } from "../session/event/session-event-streams.js";
 
 /**

@@ -7,8 +7,8 @@ import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import { isWireRecord } from "@renderer/lib/wire/record.js";
-import { readWireNumber, readWireString } from "@renderer/lib/wire/strings.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
+import { readWireNumber, readWireString } from "#renderer/lib/wire/strings.js";
 import { RUN_QUEUED_EVENT_KIND } from "./state-kinds.js";
 
 /** Every member either registered run shape names. */

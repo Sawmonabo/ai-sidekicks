@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
-import { sampleRunRow } from "@test/helpers/transcript-event-row-samples.js";
+import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
 import { ToolRow } from "./ToolRow.js";
 
 function renderToolCard(

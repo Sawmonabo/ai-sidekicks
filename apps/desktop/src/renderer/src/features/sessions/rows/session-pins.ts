@@ -6,10 +6,10 @@
 // Only pinned sessions are written: unpinning deletes the entry, so the record grows with the
 // person's decisions, not with the sessions they have opened.
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { isWireRecord } from "@renderer/lib/wire/record.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { DurableViewState } from "@renderer/store/persistence/durable-view-state.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { DurableViewState } from "#renderer/store/persistence/durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */
 export const PINNED_SESSIONS_KEY = "session-pins";

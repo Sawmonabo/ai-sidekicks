@@ -25,21 +25,21 @@
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../../helpers/app/harness.js";
-import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
-import { scenarioLeadAgentId } from "@fixtures/data/opening-entries.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
+import { scenarioLeadAgentId } from "#fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "../../helpers/scheduled-read.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { MessageComposer } from "@renderer/features/composer/Composer.js";
-import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import { MessageComposer } from "#renderer/features/composer/Composer.js";
+import type { PaneAddress } from "#renderer/routing/panes/pane-address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { requireLabeledRegion, type MountedView } from "./mount-queries.js";
 

@@ -4,20 +4,20 @@
 import { describe, expect, it } from "vitest";
 
 import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
-import { countStoreListeners } from "@test/helpers/session/store/listeners.js";
-import { handAnsweredCall } from "@test/helpers/held-calls.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
+import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
+import { handAnsweredCall } from "#test/helpers/held-calls.js";
 import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
   SERVED_SUMMARY,
   SESSION_ID,
   artifactOperations,
   readThrough,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 
 /** A reader over a store a case drives. */
 function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactListReader {

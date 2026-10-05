@@ -3,8 +3,8 @@
 // scope row, base picker, notes or ship strip). Split from `DiffPane.tsx` so its read runs only for
 // a run's address.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useWorkflowRunDiff } from "../hooks/useWorkflowRunDiff.js";
 import type { WorkflowRunDiffRequest } from "../workflow-run-diff-read.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";

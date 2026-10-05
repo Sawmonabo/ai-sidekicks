@@ -6,8 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
 
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,
@@ -17,9 +17,9 @@ import {
 import {
   neverRead,
   settledRefusalOf,
-} from "@renderer/store/driver-capabilities/driver-capability-readout.test-support.js";
-import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
-import { declaredFlagsForDriver } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
+} from "#renderer/store/driver-capabilities/driver-capability-readout.test-support.js";
+import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
+import { declaredFlagsForDriver } from "#renderer/store/driver-capabilities/driver-capability-readings.js";
 
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   it("settles a reply that does not parse fail-closed, then re-reads on window focus", async () => {

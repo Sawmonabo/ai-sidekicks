@@ -7,9 +7,9 @@
 import {
   type Announce,
   type AnnouncementPoliteness,
-} from "@renderer/components/LiveAnnouncer/live-announcer.js";
-import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+} from "#renderer/components/LiveAnnouncer/live-announcer.js";
+import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 
 /** What a settled drop is announced as, and in which lane. */

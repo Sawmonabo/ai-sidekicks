@@ -8,15 +8,15 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { render } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { bridgeOnClock } from "./fixture/bridge.js";
-import type { ArtifactOperations } from "@renderer/features/inspector/artifacts/services/artifact-reads.js";
-import { ArtifactPayloadSection } from "@renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
+import type { ArtifactOperations } from "#renderer/features/inspector/artifacts/services/artifact-reads.js";
+import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { SESSION_ID } from "./artifact-list-readers.js";
-import { useArtifactList } from "@renderer/features/inspector/artifacts/hooks/useArtifactList.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
+import { useArtifactList } from "#renderer/features/inspector/artifacts/hooks/useArtifactList.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 
 /** The artifact the bound section opens on. */
 export const OPENED_ARTIFACT_ID = "artifact-diff-01" as ArtifactId;

@@ -34,11 +34,8 @@ import { describe, expect, it } from "vitest";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import { percentileByNearestRank } from "../helpers/sample-statistics.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture/global-names.js";
-import {
-  ENDURANCE_LAUNCH_OPTIONS,
-  openConcurrentStreamingSessionRoute,
-} from "./endurance-workload.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import { ENDURANCE_LAUNCH_OPTIONS, openConcurrentStreamingSessionRoute } from "./workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
@@ -46,7 +43,7 @@ import {
 } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { peakConcurrentStreamingRuns } from "./streaming-lanes.js";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
+import { evaluateBudget } from "../../scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 

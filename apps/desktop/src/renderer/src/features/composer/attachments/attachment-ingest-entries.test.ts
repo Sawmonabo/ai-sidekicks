@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
-import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
+import { attachmentSourceFrom, type AttachmentIngestEntry } from "./shapes.js";
 
 /** One source over an empty payload: these cases are about the record, not the bytes. */
 function sourceNamed(localId: string): ReturnType<typeof attachmentSourceFrom> {

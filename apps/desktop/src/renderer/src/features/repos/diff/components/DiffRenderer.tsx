@@ -5,17 +5,17 @@
 
 import { useMemo, useRef } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useRowWindow } from "@renderer/hooks/useRowWindow.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
   DIFF_ROW_HEIGHT_PX,
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
-} from "../diff-measures.js";
+} from "../measures.js";
 import type { DiffModel, DiffViewMode } from "../diff-model.js";
 import { DiffRowView } from "./DiffRowView.js";
-import type { DiffGapExpansion } from "../diff-row-model.js";
+import type { DiffGapExpansion } from "../row-model.js";
 import { DiffRowIndex } from "../diff-row-index.js";
 import { IntralineSegmentCache } from "../intraline-segment-cache.js";
 
@@ -104,7 +104,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       role="table"
       aria-label={props.label}
       aria-rowcount={index.rowCount}
-      // The row height has one home, `diff-measures.ts`; the sheet reads it from here so the
+      // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
         {

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import type { HighlightLanguage } from "@ai-sidekicks/contracts/highlight";
 
-import { useReadScope } from "@renderer/hooks/useReadScope.js";
+import { useReadScope } from "#renderer/hooks/useReadScope.js";
 import type { CodeSpanReader } from "../code-span-reader.js";
 
 /**

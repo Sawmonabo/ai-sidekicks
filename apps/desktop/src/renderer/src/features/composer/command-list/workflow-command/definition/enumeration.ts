@@ -5,7 +5,7 @@
 // `complete: false`. The page read is an argument: this module holds the walk, not the wire.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
-import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "@renderer/features/composer/composer-bounds.js";
+import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "#renderer/features/composer/bounds.js";
 
 /** What one walk of the enumeration read. */
 export interface WorkflowDefinitionEnumeration {

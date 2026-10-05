@@ -38,7 +38,7 @@ import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
-} from "@renderer/app/fixture/global-names.js";
+} from "#renderer/app/fixture/global-names.js";
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
@@ -46,12 +46,12 @@ import {
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-} from "./endurance-workload.js";
+} from "./workload.js";
 import { readTranscriptWindow } from "./transcript/window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own overscan, so the bound below is not a figure kept in step by hand.
-import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "#renderer/features/transcript/viewport/constants.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

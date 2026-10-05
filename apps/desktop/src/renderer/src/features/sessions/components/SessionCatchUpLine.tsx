@@ -3,14 +3,14 @@
 // names no technical cause, which goes to the window's diagnostic capture, and `Try again` reads
 // each failed read again; the screen never polls.
 
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import {
   useDependentReadFailed,
   useSessionDegraded,
-} from "@renderer/store/session/hooks/useSessionInitialized.js";
-import { type SessionStoreState } from "@renderer/store/session/session-state.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "#renderer/store/session/hooks/useSessionInitialized.js";
+import { type SessionStoreState } from "#renderer/store/session/state.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { useCatchUpLineWords, type CatchUpWords } from "../hooks/useCatchUpLineWords.js";
 
 /** What the catch-up line is handed: the session store and the retry callback. */

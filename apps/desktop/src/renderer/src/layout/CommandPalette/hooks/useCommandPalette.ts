@@ -5,19 +5,19 @@
 import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import type { RowWindow } from "@renderer/hooks/useRowWindow.js";
-import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "@renderer/lib/chord-format.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import type { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import type { RowWindow } from "#renderer/hooks/useRowWindow.js";
+import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "#renderer/lib/chord-format.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import type { CommandRegistry } from "#renderer/registries/commands/command-registry.js";
+import type { CommandSearchResult } from "#renderer/registries/commands/ranking.js";
 import {
   chordMatchesEvent,
   parseChord,
   type ChordParseResult,
-} from "@renderer/registries/keybindings/keybinding-chord.js";
-import { type KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
+} from "#renderer/registries/keybindings/chord.js";
+import { type KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/when-clause.js";
 import {
   groupResults,
   paletteRowsFromGroups,

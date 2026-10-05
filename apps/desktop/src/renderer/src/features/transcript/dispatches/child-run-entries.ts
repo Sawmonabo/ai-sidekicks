@@ -7,10 +7,10 @@ import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-r
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { readWireString } from "@renderer/lib/wire/strings.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
 // The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
 // empty record.
-import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
+import { projectedPayload } from "#renderer/store/session-events/wire-payload.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
 
 /**

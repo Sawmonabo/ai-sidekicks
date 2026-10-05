@@ -463,7 +463,7 @@ type HumanStepConfig = {
 
 ### Provider drivers (SA-15)
 
-- The provider drivers (Codex, Claude) are built inside the daemon, under `packages/runtime-daemon/src/provider/driver/drivers/`, and a workflow reaches MCP tools through the daemon's one MCP client, so there is no adapter package and no adapter contract. No `src/adapters/` folder inside core (C-6).
+- The provider drivers (Codex, Claude) are built inside the daemon, under `packages/runtime-daemon/src/provider/driver/`, and a workflow reaches MCP tools through the daemon's one MCP client, so there is no adapter package and no adapter contract. No `src/adapters/` folder inside core (C-6).
 
 ### Secrets — by reference only (C-15)
 

@@ -7,7 +7,7 @@
 // see, and a stale send would clear a draft typed later. A stale settlement is discarded, not
 // parked, so re-addressing back never resurrects a refusal that reads as current minutes later.
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** The acts whose settlements share the send bar's refusal; the refusal record derives from it. */
 const COMPOSER_SEND_OPERATIONS = ["send"] as const;

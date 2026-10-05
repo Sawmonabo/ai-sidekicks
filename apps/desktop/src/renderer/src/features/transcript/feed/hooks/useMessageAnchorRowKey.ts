@@ -6,9 +6,9 @@
 
 import { useEffect, useMemo, useRef } from "react";
 
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { selectTranscript } from "@renderer/store/session/session-selectors.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { readRunGroupKey, type RunGroup } from "../../run-groups/run-groups.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";

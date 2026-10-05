@@ -3,7 +3,7 @@
 // Its own module because `artifact-row-actions.ts` and `artifact-payload-fetch.ts` both act
 // against it; declared in either, the other would import from a peer and close a cycle.
 
-import type { CurrentGenerationClaim } from "@renderer/lib/reads/generation-latch.js";
+import type { CurrentGenerationClaim } from "#renderer/lib/reads/generation-latch.js";
 import type { ArtifactListReading } from "./artifact-list-reading.js";
 
 /**

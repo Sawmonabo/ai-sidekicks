@@ -4,9 +4,9 @@
 // and retry suites build their own harnesses.
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import { SessionEventSubscriber } from "./session-event-subscriber.js";
 
 /** The session every suite drives, named by the scenario rather than by a literal. */

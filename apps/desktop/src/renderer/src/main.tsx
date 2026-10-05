@@ -6,7 +6,7 @@
 
 import { createRoot } from "react-dom/client";
 
-import { App } from "@renderer/app/App.js";
+import { App } from "#renderer/app/App.js";
 
 import "./styles/global-sheets.js";
 

@@ -10,18 +10,18 @@ import {
   type SessionDirectoryReadCall,
   type SessionDirectoryState,
 } from "./session-directory.js";
-import { NO_TRIGGERING_EVENT_KINDS, type ReadTriggerTarget } from "../reads/read-triggers.js";
+import { NO_TRIGGERING_EVENT_KINDS, type ReadTriggerTarget } from "../reads/triggers.js";
 import { useWindowReadTriggers } from "../reads/hooks/useWindowReadTriggers.js";
-import { useSubjectRead, type SubjectReadProjection } from "@renderer/hooks/useSubjectRead.js";
-import { type RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
-import { RealClock } from "@renderer/lib/clock.js";
+import { useSubjectRead, type SubjectReadProjection } from "#renderer/hooks/useSubjectRead.js";
+import { type RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import type { TransportReconnectObservable } from "#renderer/lib/transport-reconnect.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { isReadAbandoned } from "@renderer/lib/reads/read-scope.js";
-import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { isReadAbandoned } from "#renderer/lib/reads/read-scope.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 
 /** `reading` until the service answers, then what the read settled as. */
 const SESSION_DIRECTORY_PROJECTION: SubjectReadProjection<

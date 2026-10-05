@@ -1,6 +1,6 @@
 // The pane layout's live arrangement: which panes exist, in what order, at what widths.
 //
-// Two rules live here; the persisted grammar's are in `pane-layout-snapshot.ts`.
+// Two rules live here; the persisted grammar's are in `snapshot.ts`.
 //   - One entity, one pane: a second open of the same entity focuses the pane already showing
 //     it. The pane registry (`registries/panes/pane-registry.ts`) enforces it again
 //     structurally, so neither side trusts the other.
@@ -11,13 +11,13 @@
 // `PaneLayoutState` that React reads through `useSyncExternalStore`, so `useState` never
 // becomes a second source of truth. Value shapes and width arithmetic are in `pane-layout.ts`.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
-import { isEphemeralPaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";
-import { paneEntitiesAreEqual } from "@renderer/routing/panes/pane-entity-record.js";
-import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { clampedRowIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
+import { isEphemeralPaneKind } from "#renderer/routing/panes/pane-kinds.js";
+import type { PaneAddress, PaneLink } from "#renderer/routing/panes/pane-address.js";
+import { paneEntitiesAreEqual } from "#renderer/routing/panes/pane-entity-record.js";
+import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./measures.js";
 import {
   PANE_LAYOUT_TOTAL_PERMILLE,
   addressesMatch,
@@ -38,7 +38,7 @@ import {
   encodePaneLayoutSnapshot,
   type PaneLayoutRestoreReport,
   type PaneLayoutSnapshotRecord,
-} from "./pane-layout-snapshot.js";
+} from "./snapshot.js";
 
 /**
  * Panes one saved pane layout may restore. The cap is about untrusted input, not performance:

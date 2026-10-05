@@ -3,7 +3,7 @@
 
 import { vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import type { ViewportRow } from "./viewport-snapshot.js";
 import { ViewportController } from "./viewport-controller.js";
 

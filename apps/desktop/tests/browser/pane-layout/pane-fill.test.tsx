@@ -15,15 +15,15 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../../helpers/app/harness.js";
 import { mountTerminalPaneInGridCell } from "../terminal-pane/in-grid-cell.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
-import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { TerminalPane } from "#renderer/features/terminal/pane/components/TerminalPane.js";
+import { terminalPaneContext } from "#renderer/features/terminal/pane/components/TerminalPane.test-support.js";
 // Imported for their stylesheets: the terminal's pane body carries the pane's rules, and the
 // session pane layout carries `pane-layout.css`, the other half of the arrangement under test.
-import "@renderer/features/terminal/pane/terminal-pane-body.js";
-import "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
+import "#renderer/features/terminal/pane/terminal-pane-body.js";
+import "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 
 /** The pane layout's own height. Every assertion below is against this one number. */
 const PANE_LAYOUT_HEIGHT_PX = 600;

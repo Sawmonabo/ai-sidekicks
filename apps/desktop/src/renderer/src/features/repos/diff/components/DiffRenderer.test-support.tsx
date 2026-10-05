@@ -4,11 +4,11 @@
 
 import { render } from "@testing-library/react";
 
-import { buildDiffFixture } from "@test/helpers/diff/fixture/fixture.js";
-import { liveBridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { SMALL_DIFF_SHAPE } from "@test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
 import { DiffRenderer } from "./DiffRenderer.js";
-import type { DiffGapExpansion } from "../diff-row-model.js";
+import type { DiffGapExpansion } from "../row-model.js";
 
 /** The change set every case renders unless it names another. */
 export const SMALL_DIFF: ReturnType<typeof buildDiffFixture> = buildDiffFixture(SMALL_DIFF_SHAPE);

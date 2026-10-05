@@ -1,22 +1,18 @@
 import { useId, useMemo, useRef } from "react";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { useRowWindow } from "@renderer/hooks/useRowWindow.js";
-import { useWindowedRovingIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
+import { useWindowedRovingIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
   DIFF_FILE_ROW_HEIGHT_PX,
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
-} from "../diff-measures.js";
+} from "../measures.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../caps.js";
-import {
-  HIDDEN_SELECTION_COPY,
-  diffFileListReading,
-  selectedEntryRow,
-} from "../diff-file-entries.js";
+import { HIDDEN_SELECTION_COPY, diffFileListReading, selectedEntryRow } from "../file-entries.js";
 import type { DiffModel } from "../diff-model.js";
 import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
@@ -96,7 +92,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
       </label>
       <div className="meridian-diff-files__scroller" ref={scrollerRef}>
         {/* The list holds the whole height so the scrollbar spans every entry; each row sits at
-            its own offset. Row height lives in `diff-measures.ts`, and the sheet reads it. */}
+            its own offset. Row height lives in `measures.ts`, and the sheet reads it. */}
         <ul
           className="meridian-diff-files__list"
           style={

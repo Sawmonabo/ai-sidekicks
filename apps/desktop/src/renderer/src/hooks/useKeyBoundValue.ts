@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { KeyBoundHolder, KeyBoundValue } from "@renderer/lib/key-bound-holder.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { KeyBoundHolder, KeyBoundValue } from "#renderer/lib/key-bound-holder.js";
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
 
 /** A value a view subscribes to while it is live. */

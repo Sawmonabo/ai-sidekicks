@@ -8,9 +8,9 @@ import "./diff.css";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { WorkflowRunReview } from "./WorkflowRunReview.js";
 import { type DiffModel } from "../diff-model.js";

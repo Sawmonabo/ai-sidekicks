@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 
 import * as z from "zod/mini";
 
-import { isConsoleWindowId } from "@shared/window/frame-name.js";
+import { isConsoleWindowId } from "#shared/window/frame-name.js";
 
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { isMissingPath } from "../../services/missing-path.js";

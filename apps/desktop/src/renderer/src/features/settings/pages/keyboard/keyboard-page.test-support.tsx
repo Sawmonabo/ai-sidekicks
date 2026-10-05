@@ -4,14 +4,14 @@
 // what it prints is what the frame installs and what it records reaches that seam. Each suite
 // contributes the rail's shipped chords itself, since this module may not import the layout.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 
 /**

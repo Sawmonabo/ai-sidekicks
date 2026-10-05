@@ -7,8 +7,8 @@ import {
   type MachineSettingsUpdateResponse,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
-import type { DaemonCallOutcome } from "@shared/daemon/forwarding.js";
+import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
+import type { DaemonCallOutcome } from "#shared/daemon/forwarding.js";
 import type { DaemonForwarding } from "./daemon.js";
 
 /** One channel's answer, given the asking event and the one request it carried. */

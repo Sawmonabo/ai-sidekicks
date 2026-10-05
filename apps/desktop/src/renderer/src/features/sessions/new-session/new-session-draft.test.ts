@@ -1,5 +1,5 @@
 // The draft object: the one session it may make however many times Send is pressed. What the
-// send puts on the wire is `new-session-send.test.ts`.
+// send puts on the wire is `send.test.ts`.
 //
 // Every count is of calls that reached the wire, not of ids compared: the fixture answers
 // `session.create` with the same scripted id every time, so a second session is
@@ -16,7 +16,7 @@ import {
 } from "./new-session-draft.test-support.js";
 // The method the send names, taken from the module that sends it, so the count is asserted
 // against the string that reached the wire.
-import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
+import { SESSION_CREATE_METHOD } from "./settlement.js";
 
 describe("NewSessionDraft — one draft object, at most one session", () => {
   it("coalesces two synchronous presses into one create and one result", async () => {

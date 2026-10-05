@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/mcp";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";

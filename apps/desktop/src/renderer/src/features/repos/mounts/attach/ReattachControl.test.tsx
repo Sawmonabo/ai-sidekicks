@@ -1,7 +1,7 @@
 // The re-attach a person pressed keeps being reported after the dialog shuts. The confirm
 // control is an `AlertDialog.Close`, so it sends and closes at once; a discard wired to every
 // close would fire right after `sending` was published, freeing the trigger under an attach
-// still on the wire (see also `execution-roots/RootRemovalConfirmation.test.tsx`). The popup
+// still on the wire (see also `execution-roots/removal/RootRemovalConfirmation.test.tsx`). The popup
 // is portaled, so acts are read off `document` and the settlement off the render container.
 
 import { render } from "@testing-library/react";
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { confirmationPresses } from "../repo-mounts.test-support.js";
 import { ReattachControl } from "./ReattachControl.js";

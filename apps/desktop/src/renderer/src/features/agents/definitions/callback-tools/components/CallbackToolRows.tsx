@@ -8,8 +8,8 @@ import { useMemo } from "react";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { Collapsible } from "@base-ui/react/collapsible";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { callbackToolArguments, type CallbackToolArgument } from "../callback-tool-arguments.js";
 
 /**

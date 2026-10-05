@@ -12,8 +12,8 @@
 // session's pending drain. `dispose()` is terminal: a late event cannot re-arm a timer that
 // outlives its pane.
 
-import { APPLY_COALESCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent } from "../entities/entities.js";
 
 /** The drain the queue performs. Exactly one call per coalescing window. */

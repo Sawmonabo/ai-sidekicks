@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 
-import type { CodeSpanReader } from "@renderer/components/Markdown/highlight/code-span-reader.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
+import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { DaemonCodeSpanReader } from "../daemon-code-span-reader.js";
 
 /**

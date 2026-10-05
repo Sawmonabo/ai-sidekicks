@@ -5,21 +5,21 @@
 
 import { Fragment } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
   attachmentNameReading,
 } from "../attachment-provenance.js";
-import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../attachment-policy.js";
-import { isIngestStalled } from "../attachment-presentation.js";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import type { AttachmentIngestEntry, AttachmentReading } from "../attachment-shapes.js";
+import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../policy.js";
+import { isIngestStalled } from "../presentation.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 
 import "./attachments.css";
 

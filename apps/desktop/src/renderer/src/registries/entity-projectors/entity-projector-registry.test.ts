@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ProjectedSessionEvent,
   EntityMutation,
-} from "@renderer/store/session/entities/entities.js";
+} from "#renderer/store/session/entities/entities.js";
 import { EntityProjectorRegistry } from "./entity-projector-registry.js";
 
 /** A kind no taxonomy registers, so nothing else claims it. */

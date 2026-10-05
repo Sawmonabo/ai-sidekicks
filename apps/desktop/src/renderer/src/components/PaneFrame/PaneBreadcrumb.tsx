@@ -8,8 +8,8 @@
 
 import { Glyph } from "../Glyph/Glyph.js";
 import { WireFigure } from "../WireFigure/WireFigure.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /**
  * Where a pane is, as far as its address reaches. Every member is required and may be

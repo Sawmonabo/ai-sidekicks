@@ -20,9 +20,9 @@ import {
   WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
-} from "@fixtures/data/workflow/runs.js";
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { RunGraphCanvas } from "@renderer/features/workflows/run-page/run-graph/RunGraphCanvas.js";
+} from "#fixtures/data/workflow/run/records.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { RunGraphCanvas } from "#renderer/features/workflows/runs/page/graph/RunGraphCanvas.js";
 
 /** The chip's accessible name, the one control that starts the follow again. */
 const NOW_CHIP_NAME = "Follow the live step now";

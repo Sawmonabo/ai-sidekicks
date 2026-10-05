@@ -17,7 +17,7 @@ import {
   type StoredRecord,
 } from "./persistence-adapter.js";
 import { measureRecordByteLength } from "./persisted-value-classes.js";
-import { refusePersistence } from "./persistence-refusals.js";
+import { refusePersistence } from "./refusals.js";
 
 /** Options for a `MemoryPersistenceAdapter`. */
 export interface MemoryPersistenceAdapterOptions {

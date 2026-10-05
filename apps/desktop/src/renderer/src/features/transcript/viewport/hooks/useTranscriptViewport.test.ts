@@ -9,9 +9,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../viewport-constants.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SCROLL_TAIL_TOLERANCE_PX } from "@renderer/lib/scroll/scroll-geometry-publisher.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../constants.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/scroll-geometry-publisher.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import { ViewportController } from "../viewport-controller.js";
 import type { ViewportRow } from "../viewport-snapshot.js";

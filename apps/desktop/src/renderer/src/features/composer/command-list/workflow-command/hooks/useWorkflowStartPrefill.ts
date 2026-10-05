@@ -6,15 +6,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
-import type { DraftStore } from "@renderer/store/draft-store.js";
-import { requestComposerFocus } from "@renderer/features/composer/composer-focus-requests.js";
-import {
-  WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
-} from "../workflow-command-grammar.js";
+import { useRegisterCommands } from "#renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
+import type { DraftStore } from "#renderer/store/draft-store.js";
+import { requestComposerFocus } from "#renderer/features/composer/focus-requests.js";
+import { WORKFLOW_COMMAND_ROOT, WORKFLOW_START_COMMAND_PREFILL } from "../grammar.js";
 
 /** The owner this command is contributed under. One per feature, one live at a time. */
 const WORKFLOW_START_COMMAND_OWNER = "composer-workflow-start";

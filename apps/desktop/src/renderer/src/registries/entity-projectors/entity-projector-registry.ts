@@ -6,11 +6,11 @@
 // claiming a taken kind is refused with an error naming both. The process-wide instance starts
 // empty and is seeded in `app/registrations.ts`, before any window opens a session store.
 
-import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
+import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import type {
   EntityProjector,
   EntityProjectorTable,
-} from "@renderer/store/session/entities/entities.js";
+} from "#renderer/store/session/entities/entities.js";
 
 /** The event-kind to projector table, with one claiming owner per kind. */
 export class EntityProjectorRegistry {

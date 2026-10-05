@@ -15,7 +15,7 @@ import {
   type RunControlOutcome,
 } from "../services/run-control-dispatch.js";
 import { useRunControlDispatch, type RunControlAdmission } from "./useRunControlDispatch.js";
-import { inFlightKeyFor } from "../run-control-keys.js";
+import { inFlightKeyFor } from "../keys.js";
 import { inertBridge } from "../../composer.test-support.js";
 import {
   OTHER_RUN_ID,

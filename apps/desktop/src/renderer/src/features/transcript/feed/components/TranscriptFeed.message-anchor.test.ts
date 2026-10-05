@@ -13,7 +13,7 @@ import {
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
 import { OVER_CAP_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
 import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";

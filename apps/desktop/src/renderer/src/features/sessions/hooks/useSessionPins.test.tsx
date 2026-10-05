@@ -7,12 +7,12 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { openStoreOver } from "@renderer/store/persistence/ui-state-store.test-support.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { openStoreOver } from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PINNED_SESSIONS_KEY, type SessionPins } from "../rows/session-pins.js";
 import { useSessionPins } from "./useSessionPins.js";
-import { settle as settleReactWork } from "@test/helpers/settle.js";
+import { settle as settleReactWork } from "#test/helpers/settle.js";
 
 /** Let a durable read or write settle. Both are promises the acts do not await. */
 async function settle(): Promise<void> {

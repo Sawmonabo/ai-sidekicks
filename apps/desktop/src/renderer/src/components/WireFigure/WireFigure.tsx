@@ -8,7 +8,7 @@
 //
 // `title` carries the exact wire value when the visible text is a formatted reading of it.
 
-import { formatWireString } from "@renderer/lib/wire/figures.js";
+import { formatWireString } from "#renderer/lib/wire/figures.js";
 
 /** Props for `WireFigure`. */
 export interface WireFigureProps {

@@ -5,11 +5,11 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/driver";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
-import type { Clock } from "@renderer/lib/clock.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
-import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 
 /** A bridge that answers capability reads and records every call. */
 export interface CountingBridge {

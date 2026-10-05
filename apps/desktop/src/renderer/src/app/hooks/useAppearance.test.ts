@@ -8,14 +8,14 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FrameWindows } from "@test/helpers/frame-windows.js";
-import { OpenWindowFrames } from "@renderer/lib/open-window-frames.js";
-import { OpenWindows } from "@renderer/services/window/open-windows.js";
+import { FrameWindows } from "#test/helpers/frame-windows.js";
+import { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
+import { OpenWindows } from "#renderer/services/window/open-windows.js";
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { AppearanceMembers } from "@renderer/services/window/appearance-client.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SCHEME_ATTRIBUTE, THEME_ATTRIBUTE, type AppearanceRecord } from "@shared/appearance.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { AppearanceMembers } from "#renderer/services/window/appearance-client.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { SCHEME_ATTRIBUTE, THEME_ATTRIBUTE, type AppearanceRecord } from "#shared/appearance.js";
 import { discloseUnkeptScheme, useAppearance } from "./useAppearance.js";
 
 const KEPT: AppearanceRecord = {

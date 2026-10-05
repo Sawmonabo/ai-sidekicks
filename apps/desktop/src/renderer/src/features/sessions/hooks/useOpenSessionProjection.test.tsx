@@ -7,11 +7,11 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import { worstDegradedCause } from "@renderer/store/session/degradation.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { readsNothing } from "@test/helpers/session/store/fixtures.js";
-import { countStoreListeners } from "@test/helpers/session/store/listeners.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import { worstDegradedCause } from "#renderer/store/session/degradation.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { readsNothing } from "#test/helpers/session/store/fixtures.js";
+import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 import { OpenSessionRowProjection, useOpenSessionProjection } from "./useOpenSessionProjection.js";
 import type { SessionListRow } from "../rows/session-rows.js";
 

@@ -4,17 +4,17 @@
 // evaluation order. `commandsFor` decides only what the palette offers from `when` clauses;
 // a command the daemon may refuse is still offered, and the refusal is rendered when it returns.
 
-import { lossyStringify } from "@renderer/lib/wire/errors.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
 
-import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
-import { COMMAND_PALETTE_RECENTS_CAP } from "./command-palette-caps.js";
-import type { CommandDefinition } from "./command-types.js";
+import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
+import { COMMAND_PALETTE_RECENTS_CAP } from "./palette-caps.js";
+import type { CommandDefinition } from "./types.js";
 import {
   compareCommandsForDisplay,
   rankCommandsForEmptyQuery,
   rankCommandsForQuery,
   type CommandSearchResult,
-} from "./command-ranking.js";
+} from "./ranking.js";
 import { WhenClauseCache } from "./when-clause/when-clause-cache.js";
 import { type WhenClauseContext } from "./when-clause/when-clause.js";
 

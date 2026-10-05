@@ -22,12 +22,12 @@ import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
-} from "@shared/daemon/daemon-method-bindings.js";
-import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
-import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
-import type { FilePathRef, ServedDaemonCall } from "@shared/preload-api.js";
+} from "#shared/daemon/daemon-method-bindings.js";
+import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
+import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/read-scope.js";
+import type { FilePathRef, ServedDaemonCall } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */

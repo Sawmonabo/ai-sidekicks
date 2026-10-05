@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
-import type { Clock, ScheduledHandle } from "@renderer/lib/clock.js";
-import { earliestFutureDeadline, latestPassedDeadline } from "@renderer/lib/deadlines.js";
+import type { Clock, ScheduledHandle } from "#renderer/lib/clock.js";
+import { earliestFutureDeadline, latestPassedDeadline } from "#renderer/lib/deadlines.js";
 
 /**
  * The largest delay a platform timer holds, and so the largest step this module arms.

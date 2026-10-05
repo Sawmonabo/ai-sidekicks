@@ -8,14 +8,14 @@ import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { onTestFinished } from "vitest";
 
-import { AppProviders } from "@renderer/app/AppProviders.js";
-import { createFixtureComposition } from "@renderer/app/fixture/composition.js";
-import { FIXTURE_WINDOW_ID } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { AppProviders } from "#renderer/app/AppProviders.js";
+import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
+import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { FrameWindows } from "../frame-windows.js";
 import { crossMacrotaskBoundary } from "../macrotask-boundary.js";
-import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { type ColorScheme } from "@renderer/styles/tokens.js";
+import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { type ColorScheme } from "#renderer/styles/tokens.js";
 
 /**
  * Loads every deferred body the process-wide pane and screen registries hold.

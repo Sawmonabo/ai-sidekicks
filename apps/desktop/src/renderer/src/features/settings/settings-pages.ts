@@ -11,9 +11,9 @@
 
 import { createElement } from "react";
 
-import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
+import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "#renderer/components/LazyBody/lazy-body.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
 import { GeneralPage } from "./pages/general/GeneralPage.js";
 import { KeyboardPage } from "./pages/keyboard/KeyboardPage.js";
@@ -22,8 +22,8 @@ import { NotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { ProvidersPage } from "./pages/providers/ProvidersPage.js";
 import { RuntimePage } from "./pages/runtime/RuntimePage.js";
 import type { SettingsPageBody, SettingsPageContext } from "./types.js";
-import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
+import { SETTINGS_PAGE_IDS, type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/settings-page-labels.js";
 
 /** One registered page, as the page list, the pane and search read it. */
 export interface SettingsPageDescriptor {
@@ -174,7 +174,7 @@ export class SettingsPageRegistry {
 // There is no module-scope registry of page descriptors: the screen is handed the one its
 // registrar composed, so a test rendering the screen directly composes its own set and a second
 // settings window could compose a different subset. A page's body is the exception, held at
-// module scope in `pages/page-body-registry.ts` as the composer is in the composer registry: a
+// module scope in `pages/body-registry.ts` as the composer is in the composer registry: a
 // composition fills it before any screen mounts, and the page that draws it imports no body.
 
 /**

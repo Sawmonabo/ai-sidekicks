@@ -1,6 +1,6 @@
 // Readouts and helpers the capability suites use to stand for "nothing was read".
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { DriverCapabilityReadout } from "./driver-capability-readout.js";
 
 /** The refusal a settled reading carries, or a failure naming what was found instead. */

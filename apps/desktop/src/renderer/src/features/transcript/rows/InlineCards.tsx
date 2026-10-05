@@ -1,10 +1,10 @@
 // The inline cards a message carries: a chip each, and the body registered for that kind.
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
 import {
   inlineCardRegistry,
   type InlineCardProps,
-} from "@renderer/registries/inline-cards/inline-card-registry.js";
+} from "#renderer/registries/inline-cards/inline-card-registry.js";
 
 /** The cards one message carries. */
 export interface InlineCardsProps {

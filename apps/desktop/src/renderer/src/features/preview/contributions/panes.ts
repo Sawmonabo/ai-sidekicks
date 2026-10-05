@@ -6,7 +6,7 @@
 // the body's chunk boundary instead, which is safe because every class carries the
 // `meridian-preview-` prefix and no other feature's sheet declares one.
 
-import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 
 /**
  * Registers the preview pane's kind. Takes the registry rather than a module-scope singleton so

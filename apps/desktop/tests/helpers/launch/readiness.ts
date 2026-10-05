@@ -5,8 +5,8 @@
 
 import type { ElectronApplication, Page } from "@playwright/test";
 
-import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { isConsoleWindowId } from "@shared/window/frame-name.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
+import { isConsoleWindowId } from "#shared/window/frame-name.js";
 import { FramePaintProbe, type RendererFrameSource } from "../frame-paint-probe.js";
 import {
   POST_READINESS_RESERVE_MS,
@@ -70,7 +70,7 @@ export async function awaitPaintingAppWindow(
       `the app document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
         "nothing measured in it would describe the app; the launched build must honor " +
         `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background ` +
-        `throttling (src/main/windows/window-reveal.ts)`,
+        `throttling (src/main/windows/reveal.ts)`,
     );
   }
   const frames = await new FramePaintProbe(rendererFrameSource(window)).probe();
@@ -79,7 +79,7 @@ export async function awaitPaintingAppWindow(
       `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
         "signaling ready, so it is not painting and nothing timed in it would describe the " +
         "app; an unrevealed window paints only with background throttling off " +
-        "(src/main/windows/window-reveal.ts)",
+        "(src/main/windows/reveal.ts)",
     );
   }
   // Printed on every launch, passing ones included: the bound can only be re-derived from figures

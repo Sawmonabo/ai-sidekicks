@@ -2,24 +2,24 @@
 // answers and counts, an announcer on a frozen clock, and the presses that reach a row's
 // delete. Kept beside the page so the case files hold only cases.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import type {
   AgentDefinition,
   AgentDefinitionId,
   AgentProviderBinding,
 } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { ManualClock, type Clock } from "@renderer/lib/clock.js";
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import { ManualClock, type Clock } from "#renderer/lib/clock.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { settle as settleReactWork } from "#test/helpers/settle.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { AgentLibrary } from "./AgentLibrary.js";
-import type { AgentRegistryCalls } from "./library-view.js";
+import type { AgentRegistryCalls } from "./view.js";
 
 /**
  * A registry that answers, and counts what it was asked. List replies are consumed in order

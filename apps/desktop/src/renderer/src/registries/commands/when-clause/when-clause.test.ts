@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { parseWhenClause } from "./when-clause-parser.js";
+import { parseWhenClause } from "./parser.js";
 import { evaluateWhenClause, type WhenClauseContext, type WhenClauseNode } from "./when-clause.js";
 
 /** Parses a clause the way every caller does and throws if the source is bad. */

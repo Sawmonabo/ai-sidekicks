@@ -7,7 +7,7 @@
 // - The payload of each run kind that reaches a subscriber only through `session.subscribe`,
 //   keyed by the census's `run.` kinds less those `session/event/stream-kinds.ts` narrows, so a
 //   newly excluded kind is a compile error here.
-// - The projection `run-stream-projection.fixture.ts` delivers to a `run.subscribeState`
+// - The projection `projection.fixture.ts` delivers to a `run.subscribeState`
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
 //   `priority` and `createdAt`, which only the queue rows' own read supplies.
 
@@ -30,14 +30,14 @@ import { z } from "zod";
 import type { ZodType } from "zod";
 
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
-import { projectRunStreamDelivery } from "@renderer/services/run-streams/run-stream-projection.fixture.js";
-import type { ScenarioBeat } from "@fixtures/scenario.js";
-import { RUN_STATE_EVENT_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
+import { projectRunStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
+import type { ScenarioBeat } from "#fixtures/scenario.js";
+import { RUN_STATE_EVENT_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,
   type RunStateStreamKind,
-} from "@renderer/services/daemon/session/event/stream-kinds.js";
+} from "#renderer/services/daemon/session/event/stream-kinds.js";
 
 /**
  * What one beat gets wrong about the run or queue rule its kind is under, or `undefined`.
@@ -209,7 +209,7 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
  * A run-lifecycle beat the stream that carries it cannot project, or `undefined` when the
  * projection builds a delivery out of it.
  *
- * `run-stream-projection.fixture.ts` owns the complete registered shape: it parses the candidate
+ * `projection.fixture.ts` owns the complete registered shape: it parses the candidate
  * through the schema for the arm (`RunStateChangeEventSchema` or `RunRolledBackEventSchema`) and
  * cross-checks the kind against the announced state and the envelope's session against the
  * payload's. Calling it rather than copying a fragment keeps a scenario from passing here and

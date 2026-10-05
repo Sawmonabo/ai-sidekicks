@@ -3,7 +3,7 @@
 // `evaluateBudget`, so the gate and the budget row share one number in one file.
 //
 // The instant a window is shown is a main-process act, and in an automated launch on macOS it
-// is never performed: `src/main/windows/window-reveal.ts` leaves the window hidden with
+// is never performed: `src/main/windows/reveal.ts` leaves the window hidden with
 // background throttling off, because a revealed one steals the person's focus and Space. So
 // there is no `show` timestamp, and a wall clock read in either process would compare two clocks
 // across a process boundary. The renderer records the instant itself: `revealWindow` runs from
@@ -27,17 +27,17 @@ import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
-import { SCENARIO_FIXTURE_GLOBAL } from "@renderer/app/fixture/global-names.js";
+import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
   CONCURRENT_STREAMING_SESSION_ROUTE,
   TRANSCRIPT_ROW_SELECTOR,
   SESSION_SCREEN_SELECTOR,
   concurrentStreamingDeliverySchedule,
-} from "./endurance-workload.js";
+} from "./workload.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
-import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mts";
+import { evaluateBudget } from "../../scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();
 

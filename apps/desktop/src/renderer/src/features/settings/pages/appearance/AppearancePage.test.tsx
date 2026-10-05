@@ -1,13 +1,13 @@
 // The appearance page projects the applied scheme and chooses through the window's act. It
 // reads no wire and holds no store.
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage } from "./AppearancePage.js";
-import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
+import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
+import type { SchemePreference } from "#renderer/styles/tokens.js";
 
 /** Mount the page and let its first effects land before anything is asserted. */
 async function renderAppearancePage(

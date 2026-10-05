@@ -1,6 +1,6 @@
 // How ranked results become the palette's categories, and the categories its windowed list rows.
 
-import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
+import type { CommandSearchResult } from "#renderer/registries/commands/ranking.js";
 
 /** Results for one category, in the order the best result in it appeared. */
 export interface CommandResultGroup {

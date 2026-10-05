@@ -5,11 +5,11 @@
 
 import { useEffect, useState } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 
 /** Mint one frame scheduler for a feed, and dispose it with the mount. */

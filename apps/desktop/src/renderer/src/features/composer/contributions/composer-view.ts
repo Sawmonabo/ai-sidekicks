@@ -4,7 +4,7 @@
 
 import { createElement } from "react";
 
-import { registerComposer } from "@renderer/registries/composer/composer-registry.js";
+import { registerComposer } from "#renderer/registries/composer/registry.js";
 import { MessageComposer } from "../Composer.js";
 
 /** Fill the composer registry. The owner string appears in duplicate-claim errors. */

@@ -1,14 +1,14 @@
-// Command output: the spans `ansi-spans.ts` produced, as elements in a `<pre>` because the
+// Command output: the spans `spans.ts` produced, as elements in a `<pre>` because the
 // output is preformatted. The one piece of state is the fold: `ANSI_SPAN_RENDER_CAP` withholds
 // the tail of a color-heavy log, so a control lifts the cap for this block, keyed to the source
 // it was granted for so a changed body returns to the default.
 
 import { useMemo, useState } from "react";
 
-import { ANSI_SPAN_RENDER_CAP } from "./ansi-spans.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import { ansiSpanClassNames, parseAnsiSpans } from "./ansi-spans.js";
+import { ANSI_SPAN_RENDER_CAP } from "./spans.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { ansiSpanClassNames, parseAnsiSpans } from "./spans.js";
 
 import "./ansi.css";
 

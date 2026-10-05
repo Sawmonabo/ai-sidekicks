@@ -15,7 +15,7 @@ import type {
 } from "@ai-sidekicks/contracts/machine-settings";
 import * as z from "zod/mini";
 
-import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
+import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
 import { isMissingPath } from "../services/missing-path.js";
 import { writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";
 

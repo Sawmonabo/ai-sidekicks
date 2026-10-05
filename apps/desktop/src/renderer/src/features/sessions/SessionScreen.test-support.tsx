@@ -6,21 +6,21 @@ import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "@renderer/services/platform/platform-bridge.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
-import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+} from "#renderer/services/platform/platform-bridge.fixture.js";
+import type { Scenario } from "#fixtures/scenario.js";
+import type { StoredRecord } from "#renderer/store/persistence/persistence-adapter.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { SessionScreen } from "./SessionScreen.js";

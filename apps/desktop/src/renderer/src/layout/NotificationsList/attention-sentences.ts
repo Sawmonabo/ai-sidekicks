@@ -2,13 +2,13 @@
 // person, sessions that never answered, members the boundary refused) so each fact is worded once
 // and appears exactly when it is true.
 
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import { partialReadNotices } from "@renderer/lib/partial-read.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import { partialReadNotices } from "#renderer/lib/partial-read.js";
 import {
   answeredReadingStates,
   ATTENTION_SUBJECT,
   type AnsweredAttentionReading,
-} from "@renderer/store/attention/attention-summary.js";
+} from "#renderer/store/attention/attention-summary.js";
 
 /**
  * One settled attention read, in one sentence for the polite lane, or `undefined` when

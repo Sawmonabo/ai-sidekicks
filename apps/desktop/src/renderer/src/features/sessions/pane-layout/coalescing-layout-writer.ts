@@ -4,7 +4,7 @@
 // under the session navigated to meanwhile. Retirement flushes the pending snapshot, then drops
 // later requests.
 
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
  * The shape the persistence chokepoint's `layout` value class admits: an object of objects

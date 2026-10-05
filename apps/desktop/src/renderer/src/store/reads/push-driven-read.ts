@@ -18,18 +18,18 @@
 // nothing else, so a trigger (repair, focus, reconnect, a person asking again) re-attempts the
 // open and success clears the refusal. `#opening` is the single flight, because a seam may
 // signal synchronously from inside its own `subscribe`. `dispose()` beats all of it.
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
-import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
+import { SUBSCRIBE_FAILED } from "#renderer/lib/reads/failure-codes.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 
 /** What a push-driven read has to show. Total; every arm renders something. */
 export type PushDrivenReadState<TValue> =

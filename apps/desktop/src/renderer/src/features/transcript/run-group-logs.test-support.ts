@@ -2,7 +2,7 @@
 // Each is shaped so a fold rule can fail over it. The session id, instants and row ids come from
 // `transcript-logs.test-support.ts` so there is one fixture epoch.
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import {
   LIVE_RUN_ID,
   SESSION_ID,

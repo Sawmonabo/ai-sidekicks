@@ -11,7 +11,7 @@
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 
 /** One backward window, in the shape the store's log speaks. */
 export interface EarlierTranscriptPage {

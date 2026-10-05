@@ -2,7 +2,7 @@
 
 import { createContext, type Context } from "react";
 
-import type { Clock } from "@renderer/lib/clock.js";
+import type { Clock } from "#renderer/lib/clock.js";
 import type { SessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 

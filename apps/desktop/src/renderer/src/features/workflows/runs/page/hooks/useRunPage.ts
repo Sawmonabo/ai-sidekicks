@@ -1,0 +1,142 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  WORKFLOW_NOT_FOUND_CODE,
+  type WorkflowRunId,
+  type WorkflowStep,
+  type WorkflowWaitCause,
+} from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+
+import { refuse } from "#renderer/lib/refusal/refusal.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
+import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
+import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import { createRunRead, type WorkflowReadSources } from "#renderer/features/workflows/reading.js";
+import { isPersonWaitCause, latestStepWith } from "../../steps.js";
+import { stepKeyText } from "../step/key-text.js";
+import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
+
+/** What `Answer this run` says on a run that is not waiting on a person. */
+const NOTHING_TO_ANSWER_REFUSAL = refuse(
+  "workflows",
+  "workflows.nothing_to_answer",
+  "This run is not waiting on you.",
+);
+
+/** The two members that name a step inside its run. */
+export type StepAddress = Pick<WorkflowStep, "nodeId" | "executionIndex">;
+
+/** Everything one run's page draws, and the acts on what it shows. */
+export interface RunPageHold {
+  readonly runState: PushDrivenReadState<WorkflowRunReadResponse>;
+  readonly readRunAgain: () => void;
+  readonly document: RunDocumentHold;
+  /** The node whose step the panel shows, or `undefined` while the panel is closed. */
+  readonly selectedNodeId: string | undefined;
+  readonly selectNode: (nodeId: string | undefined) => void;
+  /** The receipts this sitting's answers left, by step. */
+  readonly receipts: ReadonlyMap<string, string>;
+  /**
+   * Keep the panel on a step a person just answered, and the answer's receipt until the run reads
+   * back answered.
+   */
+  readonly holdAnswered: (step: StepAddress, receipt: string) => void;
+}
+
+/**
+ * One run's page: its record, kept current by the frames that name it; the version it pinned;
+ * which step the panel shows; and the receipts answers left. A run waiting on a person opens with
+ * the panel on the step that waits, and a failed run on the step that failed. A run the daemon
+ * does not have is reported once, so the screen can open the list with its one line.
+ */
+export function useRunPage(options: {
+  readonly sources: WorkflowReadSources;
+  readonly workflowRunId: string;
+  readonly onRunMissing: () => void;
+  readonly onAnswered: () => void;
+}): RunPageHold {
+  const { sources, workflowRunId, onRunMissing, onAnswered } = options;
+  const runRead = useMemo(
+    () => createRunRead(sources, workflowRunId as WorkflowRunId),
+    [sources, workflowRunId],
+  );
+  const runState = useWorkflowRead(runRead, sources.bridge);
+  const run = runState.kind === "loaded" ? runState.value : undefined;
+  const document = useRunDocument(sources.bridge, run?.definitionId, run?.workflowVersionId);
+  // `undefined` until a person picks or closes, so the page opens on its default.
+  const [picked, setPicked] = useState<{ readonly nodeId: string | undefined } | undefined>();
+  // The step the page opened on, kept once the run is first read: a wait answered elsewhere
+  // leaves the panel on its receipt rather than closing it.
+  const [opened, setOpened] = useState<{ readonly nodeId: string | undefined } | undefined>();
+  useEffect(() => {
+    if (run !== undefined && opened === undefined) {
+      setOpened({ nodeId: openingNode(run) });
+    }
+  }, [run, opened]);
+  const [receipts, setReceipts] = useState<ReadonlyMap<string, string>>(new Map());
+
+  const isMissing = runState.kind === "failed" && runState.refusal.code === WORKFLOW_NOT_FOUND_CODE;
+  useEffect(() => {
+    if (isMissing) {
+      onRunMissing();
+    }
+  }, [isMissing, onRunMissing]);
+
+  const selectNode = useCallback((nodeId: string | undefined) => {
+    setPicked({ nodeId });
+  }, []);
+  // `Answer this run` with no answer on screen opens the panel on the step waiting on a person,
+  // and the press goes on to that step's answer once it is offered.
+  useWorkflowCommandTarget(
+    answerThisRunTarget,
+    () => {
+      const waitingNode = personWaitNode(run);
+      // A chain wait is answered on the chain's question, which offers its own answer.
+      if (waitingNode === undefined || waitingNode.cause === "chain") {
+        return NOTHING_TO_ANSWER_REFUSAL;
+      }
+      setPicked({ nodeId: waitingNode.nodeId });
+      return undefined;
+    },
+    "fallback",
+  );
+  const holdAnswered = useCallback(
+    (step: StepAddress, receipt: string) => {
+      setReceipts((held) => new Map(held).set(stepKeyText(step), receipt));
+      // Held on the answered step: once it stops waiting, the default would close the panel.
+      setPicked({ nodeId: step.nodeId });
+      onAnswered();
+    },
+    [onAnswered],
+  );
+  return {
+    runState,
+    readRunAgain: () => {
+      runRead.refresh("user-request");
+    },
+    document,
+    selectedNodeId: (picked ?? opened ?? { nodeId: openingNode(run) }).nodeId,
+    selectNode,
+    receipts,
+    holdAnswered,
+  };
+}
+
+/** The node the panel opens on: the step waiting on a person, or a failed run's failed step. */
+function openingNode(run: WorkflowRunReadResponse | undefined): string | undefined {
+  return run?.state === "failed"
+    ? latestStepWith(run.steps, "failed")?.nodeId
+    : personWaitNode(run)?.nodeId;
+}
+
+/** The step waiting on a person: its node, and what it waits for. */
+function personWaitNode(
+  run: WorkflowRunReadResponse | undefined,
+): { readonly nodeId: string; readonly cause: WorkflowWaitCause } | undefined {
+  const waiting = run === undefined ? undefined : latestStepWith(run.steps, "waiting");
+  return waiting?.waitCause !== undefined && isPersonWaitCause(waiting.waitCause)
+    ? { nodeId: waiting.nodeId, cause: waiting.waitCause }
+    : undefined;
+}

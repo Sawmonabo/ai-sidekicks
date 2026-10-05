@@ -7,22 +7,22 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { parseRoute, formatRoute, DEFAULT_ROUTE, type AppRoute } from "@renderer/routing/routes.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type OpenWindow, type OpenWindows } from "@renderer/services/window/open-windows.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session/open-session-entry.js";
+import { parseRoute, formatRoute, DEFAULT_ROUTE, type AppRoute } from "#renderer/routing/routes.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type OpenWindow, type OpenWindows } from "#renderer/services/window/open-windows.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { type SessionBaseStateReader } from "#renderer/store/session/open-session/open-session-entry.js";
 import {
   keepWindowIds,
   readKeptWindowIds,
-} from "@renderer/store/window-layout/kept-window-layout.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { SafeStartNotice } from "@renderer/layout/AppShell/SafeStartNotice.js";
-import { SAFE_START_ATTRIBUTE } from "@shared/window/safe-start.js";
+} from "#renderer/store/window-layout/kept-window-layout.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/entity-projector-registry.js";
+import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { SafeStartNotice } from "#renderer/layout/AppShell/SafeStartNotice.js";
+import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";

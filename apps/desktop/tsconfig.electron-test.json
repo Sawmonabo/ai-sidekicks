@@ -13,7 +13,7 @@
   // The answer is a config with both libs, scoped to the directories that need it, rather than
   // widening `tsconfig.test.json`, which would hand the DOM to `launch.smoke.test.ts` and every
   // `src/main/**` unit, where reaching for `document` is a defect the compiler should still catch.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     // The budget registry's modules import each other by their real `.mts` path, because

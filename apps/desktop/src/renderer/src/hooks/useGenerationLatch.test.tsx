@@ -3,8 +3,8 @@ import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { useGenerationLatch } from "./useGenerationLatch.js";
-import type { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import { SUBJECT_ONE } from "@test/helpers/subject-fixtures.js";
+import type { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
+import { SUBJECT_ONE } from "#test/helpers/subject-fixtures.js";
 
 interface LatchProbeProps {
   readonly onReady: (latch: GenerationLatch) => void;

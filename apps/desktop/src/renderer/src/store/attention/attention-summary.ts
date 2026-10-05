@@ -2,9 +2,9 @@
 // the daemon's projection; this module holds a fold and a reading vocabulary, and derives no
 // attention of its own. When the projection is read is `hooks/useAttentionProjection.ts`.
 
-import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
+import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { unreadableDeliveryReading, type ReadingState } from "#renderer/lib/partial-read.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 
 /** One session the projection read could not cover, with the refusal it answered with. */

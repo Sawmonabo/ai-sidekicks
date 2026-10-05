@@ -3,9 +3,9 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import type { QueueFeed } from "./queue-reading.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
+import type { QueueFeed } from "./reading.js";
 import {
   QUEUE_ITEM_A,
   QUEUE_ITEM_B,
@@ -16,7 +16,7 @@ import {
   queueFeedBridge,
   queueRow,
 } from "./queue-feed.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("a queued item is canceled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {

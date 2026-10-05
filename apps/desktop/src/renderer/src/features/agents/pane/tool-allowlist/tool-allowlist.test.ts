@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { agentEntry, resolvedConfiguration } from "@test/helpers/agent-list.js";
+import { agentEntry, resolvedConfiguration } from "#test/helpers/agent-list.js";
 import { agentToolAllowlistPosition } from "./tool-allowlist.js";
 
 const IDENTITY_ONLY = agentEntry();

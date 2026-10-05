@@ -4,10 +4,10 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveRegion } from "./LiveRegion.js";
-import { regionsOf } from "@test/helpers/live-region.js";
+import { regionsOf } from "#test/helpers/live-region.js";
 
 afterEach(() => {
   cleanup();

@@ -3,8 +3,8 @@
 // `diagnosis.ts` explains a missing one. `src/main/probes/smoke-probe.ts` emits the
 // lines.
 
-import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
-import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
+import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "../electron/child/cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/child.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "../fixture/bundle.js";
@@ -208,7 +208,7 @@ export async function spawnElectron(): Promise<SpawnResult> {
           // Emit the `dom-ready` breadcrumb beside `did-finish-load`.
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the app (smoke build only; see
-          // `src/main/windows/window-reveal.ts`).
+          // `src/main/windows/reveal.ts`).
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
           // A session-bus address that fails fast: with it unset, libdbus tries an X11 autolaunch
           // on a runner that has no bus. Pairs with `--password-store=basic`.

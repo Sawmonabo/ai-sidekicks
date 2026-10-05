@@ -7,9 +7,9 @@ import "./CallbackTools.css";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import type { DriverCapabilityReading } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/driver-capability-readings.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../callback-tool-registry.js";
 

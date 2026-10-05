@@ -12,8 +12,8 @@ import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pro
 import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
-import { daemonMethodBindingFor } from "@shared/daemon/daemon-method-bindings.js";
-import { parseInstant } from "@renderer/lib/instant.js";
+import { daemonMethodBindingFor } from "#shared/daemon/daemon-method-bindings.js";
+import { parseInstant } from "#renderer/lib/instant.js";
 import type {
   RequestStampReader,
   ScenarioNotice,
@@ -154,7 +154,7 @@ export async function resolveScriptedReply(
 /**
  * Hold one resolved scripted reply to the shape the corpus registers for its method.
  *
- * Reads the same `@shared/daemon/daemon-method-bindings.ts` table `daemon-reply.ts` parses live
+ * Reads the same `#shared/daemon/daemon-method-bindings.ts` table `daemon-reply.ts` parses live
  * replies against, so an impossible reply fails in the scenario's own tests and two tables cannot
  * disagree. It asserts and does not substitute: the original value travels on, so a scenario cannot
  * lean on a coercion or default a live daemon lacks. A method the registry does not bind passes

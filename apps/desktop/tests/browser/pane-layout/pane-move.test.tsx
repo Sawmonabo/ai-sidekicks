@@ -8,18 +8,18 @@ import { userEvent } from "vitest/browser";
 import { renderSettled } from "../../helpers/app/harness.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { SessionPaneLayout } from "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import type { SessionPane } from "@renderer/features/sessions/pane-layout/pane-layout.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import type { SessionPane } from "#renderer/features/sessions/pane-layout/pane-layout.js";
 import {
   PANE_LAYOUT_RESTORED_PANE_CAP,
   PaneLayoutStore,
-} from "@renderer/features/sessions/pane-layout/pane-layout-store.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";
+} from "#renderer/features/sessions/pane-layout/pane-layout-store.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 
 /**
  * Bodies that render a button, so a real key press starts from inside a pane, as a person's

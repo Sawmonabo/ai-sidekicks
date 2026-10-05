@@ -13,7 +13,7 @@ import {
   isXdpyinfoMissing,
 } from "../display-readiness.js";
 import type { SpawnResult } from "./harness.js";
-import { SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
+import { SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
 
 /**
  * Longest a single at-deadline subprocess reading may run; healthy readings take under 100 ms, so

@@ -5,9 +5,9 @@
 import { act, render } from "@testing-library/react";
 import { onTestFinished } from "vitest";
 
-import { createFixtureComposition } from "@renderer/app/fixture/composition.js";
-import { AppProviders } from "@renderer/app/AppProviders.js";
-import { FIXTURE_WINDOW_ID } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
+import { AppProviders } from "#renderer/app/AppProviders.js";
+import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
 import { FrameWindows } from "./frame-windows.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";

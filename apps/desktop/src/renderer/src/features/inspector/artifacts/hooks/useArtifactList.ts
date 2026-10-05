@@ -7,14 +7,14 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { useCallback, useMemo } from "react";
 
-import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useStoreBoundReader } from "#renderer/hooks/subject-scoped/useStoreBoundReader.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import type { ArtifactListReading, ArtifactRowActOutcome } from "../artifact-list-reading.js";
 import type { ArtifactOperations } from "../services/artifact-reads.js";
-import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
 import { ArtifactListReader } from "../artifact-list-reader.js";
 
 /** What the hook hands its component: the reading, and the acts it can put to the port. */

@@ -6,7 +6,7 @@
 //     re-raised together, so delivery does not depend on subscription order and a defect in a
 //     diagnostic path is not hidden.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /** A subscriber to an {@link Emitter}. */
 export type EmitterSink<Event> = (event: Event) => void;

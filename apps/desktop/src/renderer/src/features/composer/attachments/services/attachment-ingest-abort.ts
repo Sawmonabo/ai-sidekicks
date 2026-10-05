@@ -3,12 +3,12 @@
 // reaper claims the bytes later. The abort is best-effort and fire-and-forget: its answer reaches
 // no entry and no card, and a refused abort goes to the window's diagnostic capture.
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { wireRejectionToError } from "@renderer/lib/wire/errors.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { wireRejectionToError } from "#renderer/lib/wire/errors.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 
 /** Asks the daemon, best-effort, to give back the spool of a stopped stream. */

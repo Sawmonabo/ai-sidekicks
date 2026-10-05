@@ -5,7 +5,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-group-body.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../body.js";
 import { RunGroupBody } from "./RunGroupBody.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";

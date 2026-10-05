@@ -9,7 +9,7 @@
 // Last writer wins, and an unregister is identity-checked: a route change remounts a pane before
 // React runs the outgoing mount's cleanup, and a blind delete would remove the incoming reader.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
  * What a transcript viewport is showing for one session, at one instant. Each figure reads one

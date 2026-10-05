@@ -11,22 +11,22 @@
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
-} from "@renderer/store/reads/read-triggers.js";
+} from "#renderer/store/reads/triggers.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
 import type {
   DeclaredDriverFlags,
   DriverCapabilityReadout,
-} from "@renderer/store/driver-capabilities/driver-capability-readout.js";
+} from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 
 /** No run has a named binding yet. */

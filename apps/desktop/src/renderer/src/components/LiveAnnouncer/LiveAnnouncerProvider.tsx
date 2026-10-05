@@ -4,7 +4,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveAnnouncerContext } from "./live-announcer-context.js";
 import { LiveRegion } from "./LiveRegion.js";

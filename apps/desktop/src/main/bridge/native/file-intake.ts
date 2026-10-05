@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { FilePathRef } from "@shared/preload-api.js";
+import type { FilePathRef } from "#shared/preload-api.js";
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import type { FilePathRefOwner, FilePathRefs } from "../file-path/file-path-refs.js";

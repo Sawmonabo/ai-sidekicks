@@ -5,8 +5,8 @@
 // registered daemon streams and their kinds live in
 // `services/daemon/session/event/session-event-streams.ts`.
 
-import type { PreloadApi } from "@shared/preload-api.js";
-import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
+import type { PreloadApi } from "#shared/preload-api.js";
+import type { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */
 export type PlatformBridgeSource = "live" | "fixture";

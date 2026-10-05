@@ -14,15 +14,11 @@
 // the newest state of each entity, and an older event's projector would replace a run's current
 // state with the state it had before the window opened.
 
-import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
+import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
-import {
-  capTranscript,
-  type SessionStoreState,
-  type TranscriptRetainedEnd,
-} from "./session-state.js";
+import { capTranscript, type SessionStoreState, type TranscriptRetainedEnd } from "./state.js";
 
 /** What one backward page added to a log, and what it could not. */
 export interface EarlierWindowMerge {

@@ -3,7 +3,7 @@
 // A name it does not recognize, a registered command that does not run here included, is sent
 // as typed and answered by the provider. The match is on the exact id, with no alias vocabulary.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** The subsystem name every refusal the composer's command zone raises carries. */
 export const CONSOLE_COMMAND_REFUSAL_ORIGIN = "composer-commands";

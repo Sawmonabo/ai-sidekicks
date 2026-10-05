@@ -10,11 +10,11 @@
 // listbox's arrow keys. A `when` clause cannot carry the guard: its vocabulary is a closed
 // set of route keys.
 
-import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
-import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
+import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
 import {
   mountedPaneLayouts,

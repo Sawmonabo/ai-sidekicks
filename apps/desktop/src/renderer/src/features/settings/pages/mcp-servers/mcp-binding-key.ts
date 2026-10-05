@@ -2,7 +2,7 @@
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/mcp";
 
-import { structuralKey } from "@renderer/lib/structural-key.js";
+import { structuralKey } from "#renderer/lib/structural-key.js";
 
 /**
  * The string one binding is keyed by: its provider, scope, scope reference and server

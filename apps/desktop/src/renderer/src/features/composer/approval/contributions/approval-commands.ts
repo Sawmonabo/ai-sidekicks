@@ -8,8 +8,8 @@ import type {
   ApprovalResolveRequest,
 } from "@ai-sidekicks/contracts/approval";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { approvalAnswer, isApprovalAnswerable } from "../offer.js";
 
 /** The owner these rows are contributed under. */
 export const APPROVAL_COMMAND_OWNER = "approval-card";

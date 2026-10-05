@@ -3,7 +3,7 @@
 import {
   type ScreenRegistration,
   type ScreenRegistry,
-} from "@renderer/registries/screens/screen-registry.js";
+} from "#renderer/registries/screens/screen-registry.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
 /** The screen this feature claims: the rail's workflows destination. */

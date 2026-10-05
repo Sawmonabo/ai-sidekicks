@@ -2,24 +2,24 @@
 
 import { render } from "@testing-library/react";
 
-import { settle } from "@test/helpers/settle.js";
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { settle } from "#test/helpers/settle.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 import { registerSettingsScreen } from "./contributions/screens.js";
 import { type SettingsPageRegistry } from "./settings-pages.js";
 import {
   ScreenRegistry,
   type ScreenDescriptor,
-} from "@renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+} from "#renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar.

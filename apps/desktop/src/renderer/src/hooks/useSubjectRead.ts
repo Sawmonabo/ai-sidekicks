@@ -13,9 +13,9 @@ import { useEffect } from "react";
 import type {
   SubjectKey,
   SubjectScopedPublish,
-} from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
+} from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
-import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/read-scope.js";
 import { useReadScope } from "./useReadScope.js";
 
 /** How a caller turns one read into the states a view renders. */

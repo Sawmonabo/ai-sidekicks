@@ -8,9 +8,9 @@
 
 import type { ReactNode } from "react";
 
-import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
+import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 

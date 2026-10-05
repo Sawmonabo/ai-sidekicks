@@ -8,11 +8,11 @@
 import { useId, useMemo } from "react";
 
 import "./TranscriptRowLayout.css";
-import { HUE_WHEEL_STEPS } from "@renderer/styles/palette.js";
-import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire/figures.js";
-import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
+import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 
 /** What one transcript row lays out. */
 export interface TranscriptRowLayoutProps {

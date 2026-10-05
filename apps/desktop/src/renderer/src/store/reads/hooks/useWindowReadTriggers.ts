@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 
-import { requestReadOnWindowFocus, type ReadTriggerTarget } from "../read-triggers.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
+import { requestReadOnWindowFocus, type ReadTriggerTarget } from "../triggers.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import type { TransportReconnectObservable } from "#renderer/lib/transport-reconnect.js";
 
 /**
  * The three triggers that are properties of the window rather than of a session.

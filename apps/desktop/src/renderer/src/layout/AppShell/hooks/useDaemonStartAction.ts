@@ -3,7 +3,7 @@
 
 import { useCallback } from "react";
 
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 
 /** The key one start is in flight under, inside the call's own key space. */
 const DAEMON_START_KEY = "daemon-start";

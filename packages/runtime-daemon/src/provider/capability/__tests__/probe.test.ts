@@ -20,12 +20,12 @@ import {
 import {
   claudeDefaultProbeReply,
   claudeSuccessReply,
-} from "../../driver/drivers/claude/__fixtures__/capability-probe-replies.js";
+} from "../../driver/claude/__fixtures__/capability-probe-replies.js";
 import {
   codexDefaultProbeReply,
   codexResultReply,
   codexUnknownMethodReply,
-} from "../../driver/drivers/codex/__fixtures__/capability-probe-replies.js";
+} from "../../driver/codex/__fixtures__/capability-probe-replies.js";
 import {
   CapabilityProbeNegativeControlError,
   CapabilityProbeProhibitedNameError,
@@ -40,14 +40,14 @@ import {
   type DeclareDriverCapabilitiesResult,
 } from "../../driver/driver-capabilities-writer.js";
 import { makeSilentDriverDiagnostics } from "../../__fixtures__/silent-driver-diagnostics.js";
-import { CLAUDE_DRIVER_NAME } from "../../driver/drivers/claude/capabilities.js";
+import { CLAUDE_DRIVER_NAME } from "../../driver/claude/capabilities.js";
 import {
   CODEX_CAPABILITY_FLAGS,
   CODEX_DRIVER_NAME,
   getCodexCapabilities,
   readCodexCapabilityDetection,
   refreshCodexCapabilities,
-} from "../../driver/drivers/codex/capabilities.js";
+} from "../../driver/codex/capabilities.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../../driver/provider-driver-descriptors.js";
 import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
 

@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent } from "../entities/entities.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
 import { ApplyQueue } from "./apply-queue.js";
 
 describe("ApplyQueue — a drain that throws", () => {

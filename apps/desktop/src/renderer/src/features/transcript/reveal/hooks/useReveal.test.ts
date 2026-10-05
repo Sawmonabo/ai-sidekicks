@@ -5,7 +5,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "../reveal.test-support.js";
 import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { useReveal, type RevealBinding } from "./useReveal.js";

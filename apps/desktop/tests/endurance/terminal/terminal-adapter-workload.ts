@@ -5,7 +5,7 @@
 // and teardown.
 //
 // The width is `TERMINAL_BUDGET_MEASUREMENT_COLUMNS` in the terminal feature's
-// `terminal-caps.ts`, beside the scrollback depth the budget is read at, because the budget's
+// `caps.ts`, beside the scrollback depth the budget is read at, because the budget's
 // meaning depends on it and the pane half is measured at the same width.
 
 import { expect } from "vitest";
@@ -13,9 +13,9 @@ import { expect } from "vitest";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
-} from "@renderer/features/terminal/terminal-caps.js";
-import type { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
-import { XtermTerminalAdapter } from "@renderer/features/terminal/emulator/xterm/adapter.js";
+} from "#renderer/features/terminal/caps.js";
+import type { TerminalRendererPool } from "#renderer/features/terminal/emulator/renderer-pool.js";
+import { XtermTerminalAdapter } from "#renderer/features/terminal/emulator/xterm/adapter.js";
 import { retainedGrowthBytes, type HeapSampler } from "../heap/sampling.js";
 
 /** Lines per `write`. Batched: a per-line await pays a task hop ten thousand times. */

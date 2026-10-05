@@ -6,7 +6,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   ACCOUNT_REGISTRY,
   mountAccountsPage,

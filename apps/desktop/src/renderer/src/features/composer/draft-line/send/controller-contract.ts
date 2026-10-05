@@ -2,9 +2,9 @@
 // `hooks/useSendController.ts` so a component can take the controller's type without importing
 // the hook.
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import type { DraftStore } from "@renderer/store/draft-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { DraftStore } from "#renderer/store/draft-store.js";
 import type { ComposerTarget } from "../../composer-target.js";
 import type { CommandExecutor } from "../../types.js";
 import type { DraftCaret } from "../draft-line.js";

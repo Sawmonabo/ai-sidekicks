@@ -4,9 +4,9 @@
 // An entry the provider declared disabled is rendered disabled and never explained, because the
 // entry has no reason member.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { isDeclaredUnavailable, type CommandListEntry } from "../command-list-entries.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { isDeclaredUnavailable, type CommandListEntry } from "../entries.js";
 
 /** The entry one row shows, with the handlers for selecting or running it. */
 export interface CommandListRowProps {

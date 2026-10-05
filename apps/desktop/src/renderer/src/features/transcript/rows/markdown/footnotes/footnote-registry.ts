@@ -6,8 +6,8 @@
 
 import type { RootContent } from "mdast";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
 
 /**
  * Footnote definitions one transcript's registry retains. A definition belongs to a message

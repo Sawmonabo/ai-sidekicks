@@ -1,8 +1,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import { useKeyBoundValue } from "@renderer/hooks/useKeyBoundValue.js";
-import { KeyBoundHolder } from "@renderer/lib/key-bound-holder.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { useKeyBoundValue } from "#renderer/hooks/useKeyBoundValue.js";
+import { KeyBoundHolder } from "#renderer/lib/key-bound-holder.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { NO_PINS, SessionPinStore, type SessionPinBinding } from "../rows/session-pins.js";
 
 /** How a pin store is minted. Module-level, because the holder reads it once. */

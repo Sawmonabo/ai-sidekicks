@@ -1,7 +1,7 @@
 // The pane layout's saved-record key, its restore gate, and its save refusals.
 
-import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal/refusal.js";
-import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
+import { refuse, type NarrowedRefusal } from "#renderer/lib/refusal/refusal.js";
+import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./snapshot.js";
 
 /** The durable record the pane layout's arrangement is saved under, per session. */
 export const PANE_LAYOUT_RECORD_KEY = "pane-layout";

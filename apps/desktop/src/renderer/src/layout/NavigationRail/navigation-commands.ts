@@ -1,14 +1,14 @@
 // The rail's own acts: one command and one chord per rail destination, walked from
 // `RAIL_DESTINATIONS` so the palette, the chord table and the rail share one closed set.
 
-import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
-import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import type {
   FrameCommand,
   FrameKeybinding,
-} from "@renderer/registries/commands/window-command-registry.js";
-import type { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+} from "#renderer/registries/commands/window-command-registry.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./rail-navigation.js";
 

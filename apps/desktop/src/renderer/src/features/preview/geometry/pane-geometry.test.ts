@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { composePaneGeometrySample, type PaneRect } from "./pane-geometry.js";
-import { rect } from "./geometry-publisher.test-support.js";
+import { rect } from "./publisher.test-support.js";
 
 describe("composePaneGeometrySample", () => {
   const visibleInput = {

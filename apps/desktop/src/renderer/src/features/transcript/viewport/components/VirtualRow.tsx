@@ -7,8 +7,8 @@
 
 import { memo, useCallback } from "react";
 
-import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { usePreservedRowSelection } from "../hooks/usePreservedRowSelection.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 

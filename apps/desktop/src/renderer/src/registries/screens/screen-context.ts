@@ -1,12 +1,12 @@
 // What a screen is handed.
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type DraftStore } from "@renderer/store/draft-store.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
-import { type WindowStore } from "@renderer/store/window/window-store.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type DraftStore } from "#renderer/store/draft-store.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
+import { type WindowStore } from "#renderer/store/window/window-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import type { SchemePreference } from "#renderer/styles/tokens.js";
 import type { PaneRegistry } from "../panes/pane-registry.js";
 
 /** Everything a screen is handed; all of it is per window. */

@@ -1,5 +1,5 @@
-import { elideText } from "@renderer/lib/elide-text.js";
-import { RESOLVED_PROSE_INLINE_CAP } from "../../agents-caps.js";
+import { elideText } from "#renderer/lib/elide-text.js";
+import { RESOLVED_PROSE_INLINE_CAP } from "../../caps.js";
 
 /**
  * One labeled row of an agent's resolved configuration, its prose clamped at the named

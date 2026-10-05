@@ -5,7 +5,7 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { classifyTranscriptRow } from "../rows/row-kind.js";
+import { classifyTranscriptRow } from "../rows/kind.js";
 
 /**
  * Each reply's rows, keyed by the row that carries the reply's foot: the last of them. A row that

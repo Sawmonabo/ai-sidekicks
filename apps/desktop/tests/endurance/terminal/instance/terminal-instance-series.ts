@@ -24,8 +24,8 @@
 // not a candidate either sentence names, since `openPaneAndAwaitWebglReadiness` fails the run
 // before any reading unless every instance reports `webgl`.
 
-import type { AppUnderTest } from "@test/helpers/electron/harness.js";
-import { medianOf } from "@test/helpers/sample-statistics.js";
+import type { AppUnderTest } from "#test/helpers/electron/harness.js";
+import { medianOf } from "#test/helpers/sample-statistics.js";
 import type { RendererHeapProbe } from "../../heap/instrument.js";
 import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "../pane-harness.js";
 

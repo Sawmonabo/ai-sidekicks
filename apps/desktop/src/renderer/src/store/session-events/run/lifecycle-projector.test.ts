@@ -9,13 +9,13 @@ import { describe, expect, it } from "vitest";
 
 import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
 
-import { SCENARIOS } from "@fixtures/index.js";
-import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
+import { SCENARIOS } from "#fixtures/index.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { SYNTHETIC_SESSION_ID } from "./lifecycle-projector.test-support.js";
-import type { Scenario } from "@fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenario.js";
 import { SessionStore } from "../../session/session-store.js";
 import { type ProjectedSessionEvent } from "../../session/entities/entities.js";
-import { type SessionBaseState } from "../../session/session-state.js";
+import { type SessionBaseState } from "../../session/state.js";
 import {
   RUN_LIFECYCLE_EVENT_KINDS,
   RUN_LIFECYCLE_PROJECTORS,

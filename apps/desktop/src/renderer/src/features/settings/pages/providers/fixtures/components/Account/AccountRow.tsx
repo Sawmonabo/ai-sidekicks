@@ -1,16 +1,16 @@
 import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "@renderer/lib/wire/figures.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import {
   BILLING_MODE_WORDS,
   CREDENTIAL_KIND_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
-} from "@renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";
+} from "#renderer/lib/account-plane-sentences.js";
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { observationAgeInDays } from "../../quota-rows.js";
 
 /**

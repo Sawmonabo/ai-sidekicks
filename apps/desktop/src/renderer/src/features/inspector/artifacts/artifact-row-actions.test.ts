@@ -4,9 +4,9 @@
 import { type Mock, describe, expect, it, vi } from "vitest";
 
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
   LISTED_ONE_ROW,
@@ -15,7 +15,7 @@ import {
   SERVED_VERSION,
   SESSION_ID,
   readThrough,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 
 /**
  * A reader whose manifest re-reads are all parked, one resolver per call.

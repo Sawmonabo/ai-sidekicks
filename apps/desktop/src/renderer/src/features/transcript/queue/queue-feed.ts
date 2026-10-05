@@ -5,16 +5,16 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
-import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import { type RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-reading.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useSessionReadTriggers } from "#renderer/store/reads/hooks/useSessionReadTriggers.js";
+import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
+import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
+import { type RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./reading.js";
 
 /**
  * Every live reading in this window, keyed by bridge and session. The `WeakMap` on the bridge

@@ -4,13 +4,13 @@
 // never rejects, is not awaited. There is no timer, backoff or automatic re-drive.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { RealClock, type Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import { RealClock, type Clock } from "#renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { AttachmentSpoolReclaimer } from "./services/attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import { AttachmentIngestStreamDriver } from "./services/attachment-ingest-stream.js";
-import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-shapes.js";
+import type { AttachmentIngestEntry, AttachmentSource } from "./shapes.js";
 
 /** The port to call through, the session, and an optional clock. */
 export interface AttachmentIngestClientOptions {

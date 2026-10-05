@@ -8,8 +8,8 @@ import type {
   MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
-import type { PreloadApi } from "@shared/preload-api.js";
+import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
+import type { PreloadApi } from "#shared/preload-api.js";
 import { settleDaemonCall, type DaemonSubscriptions, type DaemonWireIpc } from "./daemon-wire.js";
 
 /**

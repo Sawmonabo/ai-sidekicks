@@ -3,10 +3,10 @@
 // with nothing to send.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
-import { type ReadingState } from "@renderer/lib/partial-read.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
+import { type ReadingState } from "#renderer/lib/partial-read.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 
 /**

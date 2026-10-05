@@ -7,7 +7,7 @@
 // item resolves nothing: resolution lives in the daemon, and a client-side dismiss would be a
 // heuristic standing in for it.
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { settleSessionStart } from "./start/session-start.js";
 

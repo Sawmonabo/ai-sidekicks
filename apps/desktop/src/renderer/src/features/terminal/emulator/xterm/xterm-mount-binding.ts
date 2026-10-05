@@ -16,8 +16,8 @@
 
 import type { IDisposable, Terminal } from "@xterm/xterm";
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { observeElementResize } from "@renderer/lib/element-resize.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /** Inputs to the binding: the initial lease answer, the keystroke sink, and the re-fit hook. */
 export interface XtermMountBindingOptions {

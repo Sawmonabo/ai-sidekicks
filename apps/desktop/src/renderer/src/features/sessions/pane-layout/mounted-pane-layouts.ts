@@ -1,7 +1,7 @@
 // The pane layouts mounted in every window, and the one a palette act reaches: the newest in the
 // window the act runs in.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "./pane-layout-acts.js";
 
 /** What an act says when no pane layout is mounted in this window; one refusal for all acts. */

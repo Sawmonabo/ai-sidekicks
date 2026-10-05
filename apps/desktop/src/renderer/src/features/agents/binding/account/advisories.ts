@@ -11,8 +11,8 @@ import type {
 import {
   accountPlaneRemedySentence,
   PROVIDER_READINESS_STATE_WORDS,
-} from "@renderer/lib/account-plane-sentences.js";
-import { formatDateTime } from "@renderer/lib/wire/figures.js";
+} from "#renderer/lib/account-plane-sentences.js";
+import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import { advisoryChoiceIn, type AccountAxisReading, type AccountChoice } from "./axis.js";
 
 /**

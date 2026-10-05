@@ -13,7 +13,7 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";
 
 import { OverlaySelectPopup } from "../../components/OverlaySelectPopup/OverlaySelectPopup.js";
-import { RULE_SCOPE_LABELS } from "@renderer/lib/approval-vocabulary.js";
+import { RULE_SCOPE_LABELS } from "#renderer/lib/approval-vocabulary.js";
 
 /** What the person has said about remembering this answer, so far. */
 export interface RememberedRuleIntent {

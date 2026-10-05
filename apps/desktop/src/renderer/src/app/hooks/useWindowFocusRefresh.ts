@@ -7,8 +7,8 @@
 
 import { useEffect } from "react";
 
-import type { WindowStore } from "@renderer/store/window/window-store.js";
-import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { WindowStore } from "#renderer/store/window/window-store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 
 /**
  * Arm `ownerWindow`'s focus transition for the frame's lifetime.

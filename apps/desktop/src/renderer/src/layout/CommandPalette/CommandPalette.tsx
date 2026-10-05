@@ -20,8 +20,8 @@ import { Dialog } from "@base-ui/react/dialog";
 
 import "./command-palette.css";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { PaletteEmptyState } from "./PaletteEmptyState.js";
 import { PaletteResultList } from "./PaletteResultList.js";
 import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";

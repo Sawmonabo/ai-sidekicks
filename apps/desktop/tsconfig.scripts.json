@@ -8,7 +8,7 @@
   // The scripts are TypeScript run through `node --experimental-strip-types`, and this is the one
   // config that checks them: `tsconfig.test.json` covers `src/**`, `tests/**` and the scripts'
   // tests, and `tsconfig.build.json` covers `build/**`. The package `typecheck` script reaches it.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "./scripts",

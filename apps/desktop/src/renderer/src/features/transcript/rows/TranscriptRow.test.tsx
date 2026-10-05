@@ -4,9 +4,9 @@
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
 import {
@@ -16,7 +16,7 @@ import {
 import { registerTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/transcript-rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
-import { sampleRunRow } from "@test/helpers/transcript-event-row-samples.js";
+import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };

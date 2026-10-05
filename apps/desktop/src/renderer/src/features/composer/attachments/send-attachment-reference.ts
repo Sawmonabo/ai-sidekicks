@@ -2,7 +2,7 @@
 // bytes, in the user's own order. The fold never sorts, groups or de-duplicates, so the record
 // stays the one answer to which attachment is first. Nothing here puts them on a request.
 
-import type { AttachmentIngestEntry } from "./attachment-shapes.js";
+import type { AttachmentIngestEntry } from "./shapes.js";
 
 /**
  * What this staged list would put on a send. A union rather than a list plus a flag, so an

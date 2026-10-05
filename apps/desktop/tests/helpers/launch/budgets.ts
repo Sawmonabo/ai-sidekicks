@@ -3,7 +3,7 @@
 // `launch-deadline.ts` share each figure without either owning the other's. These are
 // `harness`-scoped rows: no product figure stands behind them.
 
-import { BudgetRegistry } from "../../../scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
 
 const BUDGETS = BudgetRegistry.load();
 

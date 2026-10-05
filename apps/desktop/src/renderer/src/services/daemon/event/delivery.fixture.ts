@@ -4,9 +4,9 @@
 // the record of what was delivered. Liveness stays with the engine: it guards every call, and
 // teardown reaches here as `clear()`.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter, type EmitterSink } from "@renderer/lib/emitter.js";
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter, type EmitterSink } from "#renderer/lib/emitter.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { ScenarioSessionLog } from "../session/log.fixture.js";
 
 /** A subscriber to delivered beats; the emitter's sink type under the scenario's own name. */

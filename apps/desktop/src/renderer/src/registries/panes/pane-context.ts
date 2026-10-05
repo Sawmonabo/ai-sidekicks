@@ -2,12 +2,12 @@
 // `PendingPaneBody.tsx` and `PaneFrame.tsx`, which both name this context; declaring it in the
 // registry would make a cycle through type imports, which the layering check counts. It imports
 // nothing from this folder.
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type DraftStore } from "@renderer/store/draft-store.js";
-import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { type WindowStore } from "@renderer/store/window/window-store.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type DraftStore } from "#renderer/store/draft-store.js";
+import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { type WindowStore } from "#renderer/store/window/window-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type PaneAddress } from "#renderer/routing/panes/pane-address.js";
 
 /**
  * Everything a pane body is handed; all of it is per pane, in the window the pane is mounted in.

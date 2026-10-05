@@ -22,7 +22,7 @@
 //
 // This class only consumes the returning edge; if it also produced it from its own opens, a
 // window whose only session failed to bind could never retry. The edge is reported by
-// `services/daemon/daemon-status.ts` from main's reading of the link, and by
+// `services/daemon/status.ts` from main's reading of the link, and by
 // `services/transport/observed-subscription.ts`, which every daemon subscription goes through, so
 // a window whose every stream ended with the service still sees it come back.
 //
@@ -37,16 +37,16 @@
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
 
-import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
-import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { RealClock } from "@renderer/lib/clock.js";
+import type { TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
+import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
-import { lossyStringify } from "@renderer/lib/wire/errors.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session/event/session-event-streams.js";
 import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
@@ -54,7 +54,7 @@ import { readSessionStreamFrame } from "../daemon/session/event/payload.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";
-import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 
 /** The source every diagnostic record this module captures names. */
 const DIAGNOSTIC_SOURCE = "services/session-events";

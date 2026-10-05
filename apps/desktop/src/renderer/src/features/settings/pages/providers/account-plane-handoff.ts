@@ -19,7 +19,7 @@ import type {
   ProviderRemedy,
 } from "@ai-sidekicks/contracts/provider/account/account";
 
-import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 
 /**
  * Every refusal code the account plane raises.

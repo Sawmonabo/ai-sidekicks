@@ -7,16 +7,16 @@
 // until empty lets one lane's re-arm hold the frame open; a throw is contained so delivery does
 // not depend on submission order.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@renderer/lib/wire/errors.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import {
   readPerformanceMeterTime,
   recordFrameTime,
   retireFrameTimeSeries,
   retireRevealDrainSeries,
-} from "@renderer/lib/performance-meters/performance-meters.js";
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+} from "#renderer/lib/performance-meters/performance-meters.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 
 /** The frame's phases in run order; a phase's index is its precedence. */
 export const ANIMATION_FRAME_PHASES = ["scroll-writes", "reveal-work"] as const;

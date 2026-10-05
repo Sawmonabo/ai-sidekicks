@@ -3,7 +3,7 @@
 // a predicate and a clock and touches no document, so the overlay observation and the pane's
 // position observer bound motion differently and still share it.
 
-import type { Clock, ScheduledHandle } from "@renderer/lib/clock.js";
+import type { Clock, ScheduledHandle } from "#renderer/lib/clock.js";
 
 /** What a `MotionFrameSampler` needs: the motion predicate, the frame source and the report. */
 export interface MotionFrameSamplerOptions {

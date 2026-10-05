@@ -26,14 +26,14 @@
 //      so the zeros above come from abandonment and not from a harness that never read.
 
 import { describe, expect, it } from "vitest";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
 
 /**
  * How many open / read / close cycles one claim is measured over.

@@ -11,11 +11,11 @@ import "./PaneFrame.css";
 import { useId } from "react";
 
 import { Glyph } from "../Glyph/Glyph.js";
-import { type EntityRef } from "@renderer/lib/entity-kinds.js";
-import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
+import { type EntityRef } from "#renderer/lib/entity-kinds.js";
+import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./usePaneControls.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set so a new kind fails to compile here.

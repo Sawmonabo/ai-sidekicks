@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
 import type { SessionBaseState } from "../session-store.js";
 

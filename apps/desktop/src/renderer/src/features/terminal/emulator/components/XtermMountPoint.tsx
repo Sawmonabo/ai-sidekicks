@@ -1,14 +1,14 @@
 // The emulator's mount point: a DOM box and the lifetime of one `XtermTerminalAdapter` against it.
-// The emulator's code arrives a commit after the mount (`emulator-loader.ts`), so the box reads
+// The emulator's code arrives a commit after the mount (`loader.ts`), so the box reads
 // `Loading the terminal…` until it lands, or `Could not load the terminal` with `Retry`. This
 // component names the region and leaves the live text to xterm's own `aria-live` region, since
 // announcing the grid again would read every cell twice.
 
 import { useEffect, useRef, useState } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator-loader.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../loader.js";
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
 import type { TerminalRendererMode } from "../xterm/adapter.js";
 

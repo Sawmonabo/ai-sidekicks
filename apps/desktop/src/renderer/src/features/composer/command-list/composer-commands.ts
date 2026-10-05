@@ -6,10 +6,10 @@
 import {
   commandRegistry,
   type WindowWhenClauseContext,
-} from "@renderer/registries/commands/window-command-registry.js";
-import { type CommandInvocationOutcome } from "@renderer/registries/commands/command-registry.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import type { AppRoute } from "@renderer/routing/routes.js";
+} from "#renderer/registries/commands/window-command-registry.js";
+import { type CommandInvocationOutcome } from "#renderer/registries/commands/command-registry.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import type { AppRoute } from "#renderer/routing/routes.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through. Only what

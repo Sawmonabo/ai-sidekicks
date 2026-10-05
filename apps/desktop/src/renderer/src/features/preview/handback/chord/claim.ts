@@ -10,7 +10,7 @@ import {
   splitChordTokens,
   type ChordModifierToken,
   type ChordPlatform,
-} from "@renderer/lib/chord-format.js";
+} from "#renderer/lib/chord-format.js";
 
 /** The key token the platform close-tab chord carries, in its layout-independent form. */
 const CLOSE_TAB_KEY_TOKEN = "W";
@@ -55,7 +55,7 @@ export function carriesApplicationModifier(descriptor: ChordDescriptor): boolean
 /**
  * The modifier tokens that make an authored chord claimable: every chord modifier except Shift.
  * `$mod` stays because it resolves to meta on macOS and control elsewhere. A presence test, not
- * a parser; the chord parser is `registries/keybindings/keybinding-chord.ts`.
+ * a parser; the chord parser is `registries/keybindings/chord.ts`.
  */
 export const CLAIMABLE_MODIFIER_TOKENS: readonly ChordModifierToken[] =
   CHORD_MODIFIER_TOKENS.filter((token) => token !== "Shift");

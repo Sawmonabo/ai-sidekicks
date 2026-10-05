@@ -1,13 +1,13 @@
 // The wiring driven end to end: rows in, and the reader held in place. The scroll container is a
 // real detached element and `happy-dom` geometry reads answer zero, so no case asserts a pixel;
 // the claims are about which objects were called and with what. Pixel claims live in
-// `scroll-chokepoint.test.ts` and `row-measurement-table.test.ts`; what the cap prunes is
+// `chokepoint.test.ts` and `row-measurement-table.test.ts`; what the cap prunes is
 // `viewport-controller.pruning.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import { CALM, attachedController, syntheticRows } from "./viewport-controller.test-support.js";
 
@@ -245,7 +245,7 @@ describe("the viewport controller — the tail glide and the height it lands aga
 describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
-    // An attach owes an overflow pass of its own (`scroll-chokepoint.ts` `attach`), so
+    // An attach owes an overflow pass of its own (`chokepoint.ts` `attach`), so
     // dispose has an armed frame to clear.
     expect(clock.pendingCount).toBe(1);
     controller.dispose();

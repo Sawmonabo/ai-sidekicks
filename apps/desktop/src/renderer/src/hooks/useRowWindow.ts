@@ -6,10 +6,10 @@
 import { useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 
-import { type Clock } from "@renderer/lib/clock.js";
-import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
-import { type ScrollCaller } from "@renderer/lib/scroll/scroll-callers.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type ScrollCaller } from "#renderer/lib/scroll/scroll-callers.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 
 /** One list's window over its rows, and the one way a caller scrolls it to a row. */
 export interface RowWindow {

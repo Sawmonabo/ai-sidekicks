@@ -186,15 +186,15 @@
         "src/renderer/src/features/sessions/components/SessionRowGroup.tsx",
         "src/renderer/src/features/sessions/rows/session-list-degradation.ts",
         // The session header's title read and its fixture answer.
-        "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
+        "src/renderer/src/features/sessions/header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/services/daemon/session/identity.fixture.ts",
         "src/renderer/src/services/daemon/session/reads.ts",
         // A saved workflow's row in the Workflows tab's table of definitions.
         "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
-        "src/renderer/src/features/workflows/definitions/definition-rows.ts",
+        "src/renderer/src/features/workflows/definitions/rows.ts",
         // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
         // for the run controls and the queue rows.
-        "src/renderer/src/services/daemon/daemon-streams.ts",
+        "src/renderer/src/services/daemon/streams.ts",
         // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
         // everything.
         "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DraftStore } from "@renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/draft-store.js";
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 

@@ -8,8 +8,8 @@
 // composed: a node-wide switch can withhold the page tool set regardless of the allowlist, so
 // the words state each position and leave the daemon to adjudicate.
 
-import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
+import { TOOL_ALLOWLIST_NAMED_CAP } from "../../caps.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
 
 /**

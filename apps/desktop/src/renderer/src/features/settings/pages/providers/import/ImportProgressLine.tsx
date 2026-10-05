@@ -6,10 +6,10 @@
 // service's own, and a percentage would invent a denominator nobody sent.
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
-import type { ImportProgressReading } from "./import-progress.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
+import type { ImportProgressReading } from "./progress.js";
 
 /** What the progress line draws: one provider's import reading. */
 export interface ImportProgressLineProps {

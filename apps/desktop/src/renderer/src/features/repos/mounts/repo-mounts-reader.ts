@@ -14,29 +14,29 @@ import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/re
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { type Clock } from "@renderer/lib/clock.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   RefreshScheduler,
   type RefreshReason,
-} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
-import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-triggers.js";
+import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
+import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import {
   ExecutionModeSelections,
   type RepoMountsReadingPublisher,
 } from "./execution-mode/execution-mode-selection.js";
 import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
-import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../lifecycle-events.js";
 
 /** The subsystem a refused mount read names. */
 const REPO_MOUNTS_READ_ORIGIN = "repo-mounts";
@@ -65,7 +65,7 @@ export interface RepoMountsReaderOptions {
 export class RepoMountsReader implements ReadTriggerTarget {
   /**
    * The frames whose arrival owes this section a fresh read. Declared here so two readers of one
-   * answer cannot watch different frames; `repo-lifecycle-events.ts` derives the set.
+   * answer cannot watch different frames; `lifecycle-events.ts` derives the set.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
     REPO_LIFECYCLE_EVENT_KINDS,

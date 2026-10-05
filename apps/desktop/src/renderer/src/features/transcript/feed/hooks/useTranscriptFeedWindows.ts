@@ -5,8 +5,8 @@
 
 import { useEffect } from "react";
 
-import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { transcriptWindowDiagnostics } from "#renderer/lib/transcript-window-diagnostics.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { useAnimationFrameScheduler } from "../../hooks/useAnimationFrameScheduler.js";
 import { useReveal, type RevealBinding } from "../../reveal/hooks/useReveal.js";
 import {
@@ -24,7 +24,7 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";

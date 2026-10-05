@@ -9,8 +9,8 @@ import { act, render } from "@testing-library/react";
 import { StrictMode, Suspense, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
-import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
+import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import type { NamedFixtureSubject } from "#test/helpers/subject-fixtures.js";
 import { DiscardedRenderResourceProbe } from "./DiscardedRenderResourceProbe.test-support.js";
 import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
 import { useSubjectScopedResource } from "./useSubjectScopedResource.js";

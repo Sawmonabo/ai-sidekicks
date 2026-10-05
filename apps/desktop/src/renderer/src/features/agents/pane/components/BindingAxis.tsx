@@ -1,4 +1,4 @@
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 
 /** One axis of the effective binding, with the meaning of its unset state. */
 export function BindingAxis(props: BindingAxisProps): React.JSX.Element {

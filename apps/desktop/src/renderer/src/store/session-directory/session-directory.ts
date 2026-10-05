@@ -3,10 +3,10 @@
 // and a window that opened none is not empty.
 //
 // The read is never polled. It repeats when something says the answer moved: mount, window
-// focus, reconnect (through `store/reads/read-triggers.ts`), or a settled act calling
+// focus, reconnect (through `store/reads/triggers.ts`), or a settled act calling
 // `requestSessionDirectoryRead`. `subscribe` is not routed into the revision below because the
 // mount read is the subscribe read.
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /** One session the service lists. A session with no title is shown by its identifier. */
 export interface SessionDirectoryEntry {

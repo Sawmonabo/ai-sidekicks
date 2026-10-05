@@ -10,7 +10,7 @@
 
 import type { ComponentType, SVGProps } from "react";
 
-import type { GlyphName } from "@renderer/styles/glyphs.js";
+import type { GlyphName } from "#renderer/styles/glyphs.js";
 
 // --- The top-level destinations.
 // Rail destination; Tabler stacks the same plate and two chevrons out of the same lines.

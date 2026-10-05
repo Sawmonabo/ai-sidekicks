@@ -6,11 +6,11 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ParkedDaemonCalls } from "../../hooks/parked-daemon-calls.test-support.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type { ComposerSendCalls } from "../dispatch.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import type { ComposerRunTarget } from "@renderer/features/composer/composer-target.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import type { ComposerRunTarget } from "#renderer/features/composer/composer-target.js";
 import { composerDraftKey } from "../../draft-key.js";
 import type { SendController } from "../controller-contract.js";
 import { useSendController } from "./useSendController.js";

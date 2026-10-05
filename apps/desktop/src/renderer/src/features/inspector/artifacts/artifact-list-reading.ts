@@ -3,8 +3,8 @@
 // `artifact-list-reader.ts` owns the calls and scheduling; this file owns the immutable value
 // and the total functions over it, so a reduction is testable with no bridge, clock or reader.
 
-import type { ArtifactManifestRow, ArtifactsSectionState } from "./artifact-model.js";
-import type { ArtifactPayloadReading } from "@renderer/store/artifacts/artifact-payload.js";
+import type { ArtifactManifestRow, ArtifactsSectionState } from "./model.js";
+import type { ArtifactPayloadReading } from "#renderer/store/artifacts/payload.js";
 
 /**
  * The instant of a reading nobody has published.

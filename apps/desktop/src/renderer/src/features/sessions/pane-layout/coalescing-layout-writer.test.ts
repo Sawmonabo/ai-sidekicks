@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CoalescingLayoutWriter } from "./coalescing-layout-writer.js";
-import type { PaneLayoutSnapshotRecord } from "./pane-layout-snapshot.js";
+import type { PaneLayoutSnapshotRecord } from "./snapshot.js";
 
 const SESSION_A = "session-a";
 const SESSION_B = "session-b";

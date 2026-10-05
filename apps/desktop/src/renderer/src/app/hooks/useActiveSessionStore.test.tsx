@@ -10,7 +10,7 @@ import {
   lastObservation,
   type Observation,
 } from "./session-store-hooks.test-support.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 
 /** The assertion: how many different stores answered these renders. */
 function distinctStores(stores: readonly (SessionStore | undefined)[]): number {

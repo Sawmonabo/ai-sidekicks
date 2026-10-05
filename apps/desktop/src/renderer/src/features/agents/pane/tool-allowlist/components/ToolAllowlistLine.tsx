@@ -4,7 +4,7 @@
 // agent reach", which a reader needs without opening a disclosure. It carries a count, never the
 // names, and the words come from `tool-allowlist.ts` so the echo's Tools row cannot disagree.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   namedToolAllowlistSentence,

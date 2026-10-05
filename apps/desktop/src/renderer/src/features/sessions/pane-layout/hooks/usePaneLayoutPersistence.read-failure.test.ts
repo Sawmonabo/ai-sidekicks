@@ -9,8 +9,8 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { ReadFailurePersistenceAdapter } from "#test/helpers/read-failure-persistence-adapter.js";
 import {
   createPaneLayoutStore,
   drain,

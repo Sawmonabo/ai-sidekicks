@@ -11,10 +11,10 @@ import {
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
 } from "./caps.js";
 import { diffLineText, type DiffModel, type DiffLine } from "./diff-model.js";
-import type { DiffLineRow } from "./diff-row-model.js";
+import type { DiffLineRow } from "./row-model.js";
 import { IntralineSegmentCache } from "./intraline-segment-cache.js";
 import { parseUnifiedPatch } from "./patch-parse.js";
-import { COMPARED_STATES } from "@test/helpers/patch-parsing.js";
+import { COMPARED_STATES } from "#test/helpers/patch-parsing.js";
 
 const wordDiffCalls = vi.hoisted(() => vi.fn());
 

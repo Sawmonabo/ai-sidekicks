@@ -7,26 +7,26 @@
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire/figures.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatClockTime } from "#renderer/lib/wire/figures.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import {
   readBindControlAvailability,
   mountHealthReading,
   mountLifecycleReading,
-} from "../mount-health.js";
+} from "../health.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "../bind/BindWorkspaceDialog.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 
 /** A mount's read, its workspaces, and the handlers every control on the card passes through. */
 export interface MountCardProps {

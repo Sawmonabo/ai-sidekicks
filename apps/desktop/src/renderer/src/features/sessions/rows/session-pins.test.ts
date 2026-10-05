@@ -4,12 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
-import { PERSISTENCE_GLOBAL_PARTITION } from "@renderer/store/persistence/persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { PERSISTENCE_GLOBAL_PARTITION } from "#renderer/store/persistence/persistence-adapter.js";
 import {
   openStore,
   openStoreOver,
-} from "@renderer/store/persistence/ui-state-store.test-support.js";
+} from "#renderer/store/persistence/ui-state-store.test-support.js";
 import { PINNED_SESSIONS_KEY, SessionPinStore, narrowSessionPins } from "./session-pins.js";
 
 describe("pins in the durable store", () => {

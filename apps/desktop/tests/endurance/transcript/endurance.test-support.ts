@@ -18,7 +18,7 @@
 // `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer `SessionEventSchema`, both in
 // `packages/contracts/src/event/session-event.ts`), so a reading is taken over rows the daemon could send.
 
-import { composeOpeningEntry, composeResolvedAgent } from "@fixtures/data/opening-entries.js";
+import { composeOpeningEntry, composeResolvedAgent } from "#fixtures/data/opening-entries.js";
 import {
   assistantOutputEntry,
   runTransitionEntry,
@@ -26,8 +26,8 @@ import {
   composeScriptBeats,
   toolActivityEntry,
   type ScriptEntry,
-} from "@fixtures/data/script-entries.js";
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+} from "#fixtures/data/script-entries.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 
 /** The UUID v7 time prefix every generated identifier shares. */
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";

@@ -10,7 +10,7 @@ import type {
   ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
+import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import type {
   ProviderAccountLoginCall,
   ProviderAccountLoginCancelCall,

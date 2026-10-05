@@ -21,7 +21,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 
 import type { StoredEntity } from "../entities/entities.js";
-import type { EntityKind, EntityRef } from "@renderer/lib/entity-kinds.js";
+import type { EntityKind, EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { SessionStoreRegistry } from "../session-store-registry.js";
 import {
   selectEntity,

@@ -1,4 +1,4 @@
-import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
+import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 
 /**
  * The page list's label for each settings page.

@@ -14,10 +14,10 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
-import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
-import { TRANSCRIPT_OVERSCAN_ROWS } from "../viewport-constants.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "../constants.js";
 import { ViewportController } from "../viewport-controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";

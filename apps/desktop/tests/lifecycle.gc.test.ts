@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { GC_PROBE_TAG } from "@shared/probe-tags.js";
+import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 
 import { GC_TEST_TIMEOUT_MS, spawnElectronGcProbe } from "./lifecycle.gc.test-support.js";
 import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe/harness.js";

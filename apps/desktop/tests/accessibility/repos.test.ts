@@ -18,8 +18,8 @@ import {
 import { type MountedView } from "./feature-mounts/mount-queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 /** The views this feature ships, each named as a reader would name it. */
 const AUDITED_VIEWS: readonly {

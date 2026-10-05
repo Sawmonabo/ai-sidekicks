@@ -14,7 +14,7 @@
 // - The batch is ordered first (`orderBatchBySequence`); the reconciler assumes ascending
 //   delivery.
 
-import { MAX_REPAIRABLE_SEQUENCE_GAP } from "./session-store-caps.js";
+import { MAX_REPAIRABLE_SEQUENCE_GAP } from "./store-caps.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /**

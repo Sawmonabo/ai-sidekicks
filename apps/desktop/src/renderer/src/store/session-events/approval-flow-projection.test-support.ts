@@ -1,7 +1,7 @@
 // Wire-shaped approval events the contract's payload schemas accept, for the payload shapes the
 // approval scenario does not play.
 
-import { APPROVAL_REQUEST_SCENARIO } from "@fixtures/scenarios/approval-request.js";
+import { APPROVAL_REQUEST_SCENARIO } from "#fixtures/scenarios/approval-request.js";
 import { type ProjectedSessionEvent } from "../session/entities/entities.js";
 
 /** The session id the scenario's events carry. */

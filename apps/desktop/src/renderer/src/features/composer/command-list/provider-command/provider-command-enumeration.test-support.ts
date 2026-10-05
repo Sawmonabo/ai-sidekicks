@@ -1,9 +1,9 @@
 // Shared scaffolding for the enumeration suites: a fixture bridge that records every daemon call,
 // and a composer target addressed at one agent.
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
-import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
 import type { ComposerTarget } from "../../composer-target.js";
 
 /** The wire method the enumeration calls. */

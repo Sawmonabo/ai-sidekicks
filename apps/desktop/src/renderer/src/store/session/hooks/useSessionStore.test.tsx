@@ -6,7 +6,7 @@ import { useSessionInitialized } from "./useSessionInitialized.js";
 import { type SessionBaseStateReader } from "../open-session/open-session-entry.js";
 import { SessionStoreRegistry } from "../session-store-registry.js";
 import type { SessionStore } from "../session-store.js";
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 
 const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 

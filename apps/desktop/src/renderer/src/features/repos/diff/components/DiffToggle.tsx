@@ -1,5 +1,5 @@
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 
 /**
  * One toggle button. `aria-pressed` because it is stateful over a view, not a form field; the

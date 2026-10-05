@@ -2,9 +2,9 @@
 // memory. It renders exactly the entries it is handed and has no availability flag: an unreachable
 // destination is absent, not disabled. It carries no color except the accent on the current one.
 
-import type { GlyphName } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import type { RailDestination } from "@renderer/routing/route-readers.js";
+import type { GlyphName } from "#renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import type { RailDestination } from "#renderer/routing/readers.js";
 
 import "./navigation-rail.css";
 

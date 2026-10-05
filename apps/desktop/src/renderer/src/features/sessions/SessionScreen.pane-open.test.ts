@@ -10,10 +10,10 @@ import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/l
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { openSessionPane } from "@renderer/store/window/open-session-pane.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
+import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import {
   GatedPersistenceAdapter,
   SCENARIO,

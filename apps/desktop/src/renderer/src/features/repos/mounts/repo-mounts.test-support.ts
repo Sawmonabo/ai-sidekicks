@@ -13,10 +13,10 @@ import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekic
 
 import { act } from "@testing-library/react";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { scriptedRepoOperations } from "../repo-operations.test-support.js";
 import type { PrepareOperations } from "./execution-roots/prepare/controller.js";

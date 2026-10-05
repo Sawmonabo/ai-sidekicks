@@ -9,10 +9,10 @@ import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { ReadScope } from "@renderer/lib/reads/read-scope.js";
+import { callDaemon, type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { ReadScope } from "#renderer/lib/reads/read-scope.js";
 
 /**
  * Where one child run's expansion has got to. `expand-failed` is a state, not an absence: the

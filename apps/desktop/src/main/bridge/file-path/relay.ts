@@ -8,7 +8,7 @@
 // Where each verb carries a path is named here once, by the contract's member names: a member is
 // a key, and `*` is each element of a list.
 
-import type { FilePathRef } from "@shared/preload-api.js";
+import type { FilePathRef } from "#shared/preload-api.js";
 
 import type { FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
 

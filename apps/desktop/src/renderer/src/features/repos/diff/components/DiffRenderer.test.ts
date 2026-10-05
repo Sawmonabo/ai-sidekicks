@@ -6,22 +6,22 @@
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../diff-measures.js";
-import { buildDiffFixture } from "@test/helpers/diff/fixture/fixture.js";
+import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
   TERMINAL_NEWLINE_FIXTURE_FILE,
-} from "@test/helpers/diff/fixture/diff-fixture-shapes.js";
+} from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
-} from "@test/helpers/diff/diff-layout-fixture.js";
+} from "#test/helpers/diff/diff-layout-fixture.js";
 import { SMALL_DIFF, renderDiff, reportedRowCount } from "./DiffRenderer.test-support.js";
-import { expandGap } from "../diff-row-model.js";
+import { expandGap } from "../row-model.js";
 
 /** The rendered-row ceiling one window may reach: viewport rows, overscan, and a boundary row. */
 const MAXIMUM_WINDOW_ROW_COUNT =

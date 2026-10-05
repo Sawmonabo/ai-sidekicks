@@ -4,7 +4,7 @@
 import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
 import {
   FIRST_RULE_ID,
   SECOND_RULE_ID,

@@ -6,7 +6,7 @@
   // typechecks its .tsx files under their own config. The `src/renderer/**` exclude below keeps the
   // `include: ["src/**/*"]` glob from double-counting the renderer under this config's Node
   // settings, which would re-trigger TS17004 / TS6142 / TS2584.
-  "extends": ["../../tsconfig.node.json", "./tsconfig.paths.json"],
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",

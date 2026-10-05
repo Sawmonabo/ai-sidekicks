@@ -11,7 +11,7 @@ import {
   PLAIN_PATCH,
   linesOfFirstHunk,
   parsePlainPatch,
-} from "@test/helpers/patch-parsing.js";
+} from "#test/helpers/patch-parsing.js";
 
 /**
  * A git-style patch whose header carries what a reconstruction loses: the section context

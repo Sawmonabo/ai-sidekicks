@@ -4,7 +4,7 @@
 // through `src/renderer/tsconfig.test.json`'s `src/**/*.d.ts`. The top-level `import type` makes
 // it a module, hence `declare global`.
 
-import type { PreloadApi } from "@shared/preload-api.js";
+import type { PreloadApi } from "#shared/preload-api.js";
 
 declare global {
   interface Window {

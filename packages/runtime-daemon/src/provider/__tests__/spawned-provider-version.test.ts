@@ -13,7 +13,7 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../capability/__fixtures__/probe-doubles.js";
-import { codexDefaultProbeReply } from "../driver/drivers/codex/__fixtures__/capability-probe-replies.js";
+import { codexDefaultProbeReply } from "../driver/codex/__fixtures__/capability-probe-replies.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver/driver-capabilities-writer.js";
 import { makeSilentDriverDiagnostics } from "../__fixtures__/silent-driver-diagnostics.js";
 import {
@@ -29,10 +29,7 @@ import {
   type ProviderVersionHandshakeRequest,
   type SpawnedProviderVersionReading,
 } from "../spawned-provider-version.js";
-import {
-  CODEX_DRIVER_NAME,
-  refreshCodexCapabilities,
-} from "../driver/drivers/codex/capabilities.js";
+import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../driver/codex/capabilities.js";
 import type { DriverCliVersionReport } from "../driver/provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/provider-driver-descriptors.js";
 import type { SpawnEnvPair } from "../spawn-env.js";

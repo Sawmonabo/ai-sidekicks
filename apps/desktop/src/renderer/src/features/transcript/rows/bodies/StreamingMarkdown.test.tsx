@@ -1,9 +1,9 @@
 import { render, screen, type RenderResult } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { duplicateKeyReports, reportsWhileReactRan } from "@test/helpers/react-reports.js";
+import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
-import { liveBridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */

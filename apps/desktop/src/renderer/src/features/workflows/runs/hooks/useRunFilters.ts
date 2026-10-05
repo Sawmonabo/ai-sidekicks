@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import { DurableViewState } from "@renderer/store/persistence/durable-view-state.js";
-import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { DurableViewState } from "#renderer/store/persistence/durable-view-state.js";
+import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   NO_RUN_FILTERS,
   RUN_FILTERS_KEY,

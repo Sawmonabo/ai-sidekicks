@@ -5,25 +5,25 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { inertBridge } from "@renderer/features/composer/composer.test-support.js";
-import { refuse } from "@renderer/lib/refusal/refusal.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import type { RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
-import type { ComposerSessionTarget } from "@renderer/features/composer/composer-target.js";
-import { LINE_READING_COMMAND_IDS } from "@renderer/features/composer/command-list/composer-command-line-handlers.js";
-import { readComposerCommands } from "@renderer/features/composer/command-list/composer-commands.js";
-import { createConsoleCommandExecutor } from "@renderer/features/composer/command-list/console-command/executor.js";
-import { startWorkflowFromLine } from "@renderer/features/composer/command-list/workflow-command/start-workflow-from-line.js";
+import { inertBridge } from "#renderer/features/composer/composer.test-support.js";
+import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
+import { DraftStore } from "#renderer/store/draft-store.js";
+import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import type { ComposerSessionTarget } from "#renderer/features/composer/composer-target.js";
+import { LINE_READING_COMMAND_IDS } from "#renderer/features/composer/command-list/composer-command-line-handlers.js";
+import { readComposerCommands } from "#renderer/features/composer/command-list/composer-commands.js";
+import { createConsoleCommandExecutor } from "#renderer/features/composer/command-list/console-command/executor.js";
+import { startWorkflowFromLine } from "#renderer/features/composer/command-list/workflow-command/start-workflow-from-line.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
-} from "@renderer/features/composer/command-list/workflow-command/workflow-command.test-support.js";
-import { WORKFLOW_COMMAND_ROOT } from "@renderer/features/composer/command-list/workflow-command/workflow-command-grammar.js";
-import type { CommandExecutor } from "@renderer/features/composer/types.js";
+} from "#renderer/features/composer/command-list/workflow-command/workflow-command.test-support.js";
+import { WORKFLOW_COMMAND_ROOT } from "#renderer/features/composer/command-list/workflow-command/grammar.js";
+import type { CommandExecutor } from "#renderer/features/composer/types.js";
 import { composerDraftKey } from "../../draft-key.js";
 import type { ComposerSendCalls } from "../dispatch.js";
 import type { SendController } from "../controller-contract.js";

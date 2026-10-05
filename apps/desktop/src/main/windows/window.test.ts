@@ -6,12 +6,12 @@
 // rather than two facts; the console window stays hidden and unthrottled, and a window a person
 // sees is revealed as it is built; the window takes its document's title; and the window and its
 // document close together, from either side.
-// `./window-navigation.test.ts` and `./window-load-failure.test.ts` own the rest. `electron` is
+// `./window.navigation.test.ts` and `./window-load-failure.test.ts` own the rest. `electron` is
 // mocked because a real `BaseWindow` needs a running Electron process.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import {
   asMockWindow,
   DEV_SERVER_URL,
@@ -19,7 +19,7 @@ import {
   INDEX_URL,
   LOCKED_WINDOW_OPERATIONS,
   testWindowFrame,
-} from "@test/helpers/window-test-harness.js";
+} from "#test/helpers/window-test-harness.js";
 
 // `recordOrder` is on because the ordering cases assert a sequence across operations.
 const electronMock = createElectronMock({ recordOrder: true });

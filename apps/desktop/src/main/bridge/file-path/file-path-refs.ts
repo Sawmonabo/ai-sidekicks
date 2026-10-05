@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { FilePathRef } from "@shared/preload-api.js";
+import type { FilePathRef } from "#shared/preload-api.js";
 
 /** The page a token was minted for: its id, and a way to hear that it has gone. */
 export interface FilePathRefOwner {

@@ -5,12 +5,12 @@
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { ParkedCalls } from "@test/helpers/held-calls.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { ParkedCalls } from "#test/helpers/held-calls.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import {
   HEALTHY_WORKSPACE_ID,

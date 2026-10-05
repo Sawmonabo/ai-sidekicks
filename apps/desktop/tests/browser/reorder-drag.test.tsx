@@ -16,20 +16,20 @@ import { FrameWindows } from "../helpers/frame-windows.js";
 import { renderSettled } from "../helpers/app/harness.js";
 import { FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
 import { politeText } from "../helpers/live-region.js";
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { PageTabStrip } from "@renderer/features/preview/components/PageTab/PageTabStrip.js";
-import { previewPage } from "@renderer/features/preview/page-list-reading.test-support.js";
-import { SessionPaneLayout } from "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import type { SessionPane } from "@renderer/features/sessions/pane-layout/pane-layout.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { PageTabStrip } from "#renderer/features/preview/components/PageTab/PageTabStrip.js";
+import { previewPage } from "#renderer/features/preview/page-list-reading.test-support.js";
+import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
+import type { SessionPane } from "#renderer/features/sessions/pane-layout/pane-layout.js";
 import {
   PANE_LAYOUT_RESTORED_PANE_CAP,
   PaneLayoutStore,
-} from "@renderer/features/sessions/pane-layout/pane-layout-store.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/features/sessions/pane-layout/pane-layout-store.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
 
 const frames = new FrameWindows();

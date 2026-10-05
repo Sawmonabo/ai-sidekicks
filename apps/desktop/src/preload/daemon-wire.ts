@@ -10,15 +10,15 @@ import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
-} from "@shared/bridge-channels.js";
+} from "#shared/bridge-channels.js";
 import type {
   DaemonCallOutcome,
   DaemonCallRequest,
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
   DaemonSubscriptionRequest,
-} from "@shared/daemon/forwarding.js";
-import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
+} from "#shared/daemon/forwarding.js";
+import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
 
 /** The part of Electron's `ipcRenderer` the daemon's wire uses. */
 export interface DaemonWireIpc {

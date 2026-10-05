@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
 
 /**
  * One latch for the life of a mount, superseded on unmount.

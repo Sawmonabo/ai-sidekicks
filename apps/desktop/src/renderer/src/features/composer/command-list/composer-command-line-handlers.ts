@@ -2,7 +2,7 @@
 // type and the ids it covers, shared by the executor that reads the map and the code building it.
 
 import type { CommandOutcome, ComposerCommandLine } from "../types.js";
-import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/workflow-command-grammar.js";
+import { WORKFLOW_COMMAND_ROOT } from "./workflow-command/grammar.js";
 
 /**
  * Handlers for commands that read arguments off the typed line, keyed by the registry's command id.

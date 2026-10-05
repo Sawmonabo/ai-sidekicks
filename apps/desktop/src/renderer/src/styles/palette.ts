@@ -22,8 +22,8 @@
 // and both `generate-css.ts` and `contrast.test.ts` read that record, so the number measured is
 // the number painted.
 
-import { MERIDIAN_GROUND_COLORS } from "@shared/appearance.js";
-import type { OklchColor } from "@shared/color.js";
+import { MERIDIAN_GROUND_COLORS } from "#shared/appearance.js";
+import type { OklchColor } from "#shared/color.js";
 // The enumeration row height is a product of the type scale and line height from `typography.ts`,
 // a leaf that imports nothing local, and the spacing scale here.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";

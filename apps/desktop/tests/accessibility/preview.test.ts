@@ -9,8 +9,8 @@ import { emulateSystemScheme } from "../helpers/app/harness.js";
 import { mountPreviewPane } from "./feature-mounts/preview.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 beforeEach(() => {
   document.location.hash = "";

@@ -6,11 +6,11 @@
 
 import "./WorkflowsScreen.css";
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunsStrip } from "./components/RunsStrip.js";
 import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
-import { RunPage } from "./run-page/RunPage.js";
+import { RunPage } from "./runs/page/RunPage.js";
 import { RunsTab } from "./runs/RunsTab.js";
 
 /** The workflows screen at the committed route. */

@@ -6,14 +6,14 @@
 
 import { useLayoutEffect } from "react";
 
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { refuse } from "@renderer/lib/refusal/refusal.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { AppearanceClient } from "@renderer/services/window/appearance-client.js";
-import type { OpenWindows } from "@renderer/services/window/open-windows.js";
-import type { WindowStore } from "@renderer/store/window/window-store.js";
-import type { AppearanceRecord } from "@shared/appearance.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { AppearanceClient } from "#renderer/services/window/appearance-client.js";
+import type { OpenWindows } from "#renderer/services/window/open-windows.js";
+import type { WindowStore } from "#renderer/store/window/window-store.js";
+import type { AppearanceRecord } from "#shared/appearance.js";
 import { applyAppearance } from "../token-installation.js";
 
 /** Main's appearance record kept on every open window's document root; the client for the acts. */

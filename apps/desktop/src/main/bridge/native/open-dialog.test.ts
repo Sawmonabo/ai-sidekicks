@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OpenDialogResult } from "@shared/preload-api.js";
+import type { OpenDialogResult } from "#shared/preload-api.js";
 import { FilePathRefs } from "../file-path/file-path-refs.js";
 import { pageOwner } from "../file-path/file-path-refs.test-support.js";
 import { showOpenDialog, type OpenDialogHost } from "./open-dialog.js";

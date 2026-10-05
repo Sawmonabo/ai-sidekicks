@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import {
   transcriptFixtureEventId,
   transcriptFixtureStampAt,

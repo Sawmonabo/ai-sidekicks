@@ -6,7 +6,7 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { RunGroupBodyRowWindow, countClippedHeadRows } from "./run-group-body.js";
+import { RunGroupBodyRowWindow, countClippedHeadRows } from "./body.js";
 import {
   isReopeningEventType,
   isRunStateEventType,

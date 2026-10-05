@@ -8,10 +8,10 @@
 import type {
   ProjectedSessionEvent,
   EntityProjectorTable,
-} from "@renderer/store/session/entities/entities.js";
-import type { SessionBaseStateReader } from "@renderer/store/session/open-session/open-session-entry.js";
+} from "#renderer/store/session/entities/entities.js";
+import type { SessionBaseStateReader } from "#renderer/store/session/open-session/open-session-entry.js";
 import { eventOfKind } from "../events.js";
-import { SessionStore, type SessionBaseState } from "@renderer/store/session/session-store.js";
+import { SessionStore, type SessionBaseState } from "#renderer/store/session/session-store.js";
 
 /** A reader that establishes nothing: the honest "no wire is registered" answer. */
 export const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);

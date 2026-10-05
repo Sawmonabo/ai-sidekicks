@@ -1,11 +1,11 @@
 // What the keyboard page changes and refuses to change: recording a chord onto the frame's own
 // seam, the collision it refuses by naming the holder, and the reset to the shipped chord. Reads
 // are in `KeyboardPage.reading.test.tsx`.
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { politeText } from "@test/helpers/live-region.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { politeText } from "#test/helpers/live-region.js";
 import {
   RECORDED_PRESS,
   recordChordOnto,
@@ -13,8 +13,8 @@ import {
   renderKeyboardPage,
   rowOf,
 } from "./keyboard-page.test-support.js";
-import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
+import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { registerNavigationKeybindings } from "#renderer/layout/NavigationRail/navigation-commands.js";
 
 // The rail's shipped chords, contributed the way the window's composition contributes them,
 // so the page reads the same shipped table a window has.

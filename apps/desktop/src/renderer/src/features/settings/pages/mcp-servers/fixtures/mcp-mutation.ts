@@ -12,7 +12,7 @@ import type {
   McpServerBindingRef,
   McpSetEnabledRequest,
 } from "@ai-sidekicks/contracts/mcp/mcp";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /**
  * How a mutation this fixture body sent has settled. `refused` is a send that rejected,

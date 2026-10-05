@@ -8,7 +8,7 @@ import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 // Deep import, as every `.test-support` consumer does.
-import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
+import { ManualIdleWarmScheduler } from "#test/helpers/idle-warm.js";
 import { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
 import { useSettingsPageIdleWarm } from "./useSettingsPageIdleWarm.js";

@@ -7,18 +7,18 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
-import { parseChord } from "@renderer/registries/keybindings/keybinding-chord.js";
-import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
-import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { CommandRegistry } from "#renderer/registries/commands/command-registry.js";
+import { parseChord } from "#renderer/registries/keybindings/chord.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { answerThisRunTarget, nextWaitingTarget } from "../workflow-command-target.js";
 import { mountWorkflowsScreen } from "../WorkflowsScreen.test-support.js";
 import { createWorkflowCommands } from "./commands.js";
 import { WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
-import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
+import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
 
 /** Press `commandId`'s chord on `target`, with the modifiers the chord names on this platform. */
 async function pressChordOf(commandId: string, target: EventTarget): Promise<void> {

@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 
 import type { ProviderImportProgress } from "@ai-sidekicks/contracts/provider/import";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
@@ -16,7 +16,7 @@ import type {
   ImportProgressReading,
   ImportProgressStream,
   ImportProgressSubscribeCall,
-} from "./import-progress.js";
+} from "./progress.js";
 
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 

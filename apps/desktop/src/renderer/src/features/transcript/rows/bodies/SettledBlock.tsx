@@ -7,7 +7,7 @@ import { memo } from "react";
 import {
   MarkdownNodes,
   type MarkdownRenderContext,
-} from "@renderer/components/Markdown/MarkdownNodes.js";
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 
 /** What one settled block is drawn from. */
 export interface SettledBlockProps {

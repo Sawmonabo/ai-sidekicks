@@ -3,9 +3,9 @@
 // session and not to a run asks for no reading.
 
 import { useMemo } from "react";
-import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
-import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { selectTranscript } from "@renderer/store/session/session-selectors.js";
+import type { ComposerProps } from "#renderer/registries/composer/registry.js";
+import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { useComposerAddress } from "../hooks/useComposerAddress.js";
 import { ContextRing } from "../context-ring/ContextRing.js";
 import { newestContextWindowReading } from "../context-ring/context-window-reading.js";

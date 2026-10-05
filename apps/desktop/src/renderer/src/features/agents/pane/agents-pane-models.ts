@@ -1,21 +1,21 @@
-// Who owns the Agents pane's reads, and for how long; `../agent-reads.ts` owns which method answers
+// Who owns the Agents pane's reads, and for how long; `../reads.ts` owns which method answers
 // each read and what makes it ask again. A console shows one session, so the models hold one agent
 // list (built with them) and at most one child-run links read (built on the first lease, disposed
 // with the last). Acquiring a child-run links read does not start it: render may be abandoned or
 // re-run, so the pane starts it from a mount effect, where a cleanup exists. `start()` is
 // idempotent. The clock comes from the bridge, so the fixture's frozen clock drives every debounce.
 
-import type { Clock } from "@renderer/lib/clock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionSubject } from "@renderer/store/subject-scoped/session-subject.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type SessionSubject } from "#renderer/store/subject-scoped/session-subject.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import {
   createAgentList,
   createChildRunLinks,
   type AgentsPaneCalls,
   type AgentListRead,
   type ChildRunLinksRead,
-} from "../agent-reads.js";
+} from "../reads.js";
 
 /**
  * One holder's grant of the session's child-link read, handed over unstarted. Releasing is

@@ -3,9 +3,9 @@
 // The halves are held, not inherited, so a dialog cannot reach past the subclass's own
 // members and name its own question.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import { ActController, PrerequisiteReader } from "./act-controller.js";
 import {
   ACT_NOT_STARTED,
@@ -13,9 +13,9 @@ import {
   type ActReading,
   type ActSettlementArm,
 } from "./act-reading.js";
-import type { ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import type { SessionStoreScoped } from "./hooks/useSessionStoreRebind.js";
 
 /** What a subclass hands the two halves underneath it. */

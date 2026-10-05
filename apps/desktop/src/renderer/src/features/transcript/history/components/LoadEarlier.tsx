@@ -3,7 +3,7 @@
 // `JumpToLatest.tsx` it sits outside the scroll container. A button, not a scroll trigger:
 // arriving at the top must not grow the log under someone passing through.
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { type EarlierHistoryPaging } from "../hooks/useEarlierHistory.js";
 
 /** The walk whose state the control renders and whose page it asks for. */

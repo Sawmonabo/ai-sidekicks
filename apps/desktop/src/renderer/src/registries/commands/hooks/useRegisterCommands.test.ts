@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { commandRegistry } from "../window-command-registry.js";
 import { useRegisterCommands } from "./useRegisterCommands.js";
-import type { CommandDefinition } from "../command-types.js";
+import type { CommandDefinition } from "../types.js";
 
 const OWNER = "command-registration-test";
 

@@ -2,14 +2,14 @@
 // renderer its rows are drawn with. The close control is not defaulted: a control nobody can
 // perform is left out, so a close prop is forwarded only where the caller owns the pane.
 
-import { routeSessionId, sessionMessageAnchorCursor } from "@renderer/routing/route-readers.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
+import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import {
   findTranscriptRowRenderer,
   type TranscriptRowRenderer,
 } from "./transcript-row-renderer.js";
-import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
 /** The pane context narrowed to the transcript arm, using the pane registry's own narrowing. */

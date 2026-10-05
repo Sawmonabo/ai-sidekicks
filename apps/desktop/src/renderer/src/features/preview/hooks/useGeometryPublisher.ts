@@ -4,16 +4,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
+import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/publisher.js";
 import type { PageHost } from "../geometry/page-host.js";
-import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { airspaceRegistryFor } from "@renderer/lib/airspace/registries.js";
-import { type AirspaceRegistry } from "@renderer/lib/airspace/airspace-registry.js";
-import { type Clock } from "@renderer/lib/clock.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace/registries.js";
+import { type AirspaceRegistry } from "#renderer/lib/airspace/airspace-registry.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type { PaneSubject } from "../types.js";
 
 /**

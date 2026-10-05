@@ -3,7 +3,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
+import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import type { AppUnderTest } from "../../helpers/electron/harness.js";
 
 /** The scheme a window's root carries: `null` under `system`, which writes no attribute. */

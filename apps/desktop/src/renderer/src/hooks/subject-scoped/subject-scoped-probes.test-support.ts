@@ -4,7 +4,7 @@
 // `useSubjectScopedState.test.tsx` and `useSubjectScopedResource.test.tsx` through a pass React
 // parked and superseded.
 
-import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
+import type { NamedFixtureSubject } from "#test/helpers/subject-fixtures.js";
 import type {
   OpenResource,
   ResourceOpenCloseLog,

@@ -3,19 +3,19 @@
 // at most once: a send while one runs joins it, a later send resumes at the first call not yet
 // made, and every create carries the draft's one idempotency key. A create whose reply could not
 // be read may have made a session it cannot name, so every later send answers from memory with
-// nothing on the wire. `new-session-send.ts` owns what the choices become on the wire.
+// nothing on the wire. `send.ts` owns what the choices become on the wire.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
-import { sendNewSessionDraft, type DraftRepoMount } from "./new-session-send.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import type { FirstTurnQueueCall } from "./control-contract.js";
+import { sendNewSessionDraft, type DraftRepoMount } from "./send.js";
 import {
   refuseAmbiguousCreate,
   refuseNewSessionDraft,
   type NewSessionSendResult,
-} from "./new-session-settlement.js";
+} from "./settlement.js";
 
 /** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {

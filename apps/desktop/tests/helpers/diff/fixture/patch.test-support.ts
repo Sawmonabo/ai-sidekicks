@@ -10,7 +10,7 @@ import {
   TERMINAL_NEWLINE_FIXTURE_FILE,
   type DiffFixtureShape,
 } from "./diff-fixture-shapes.js";
-import type { DiffLineKind } from "@renderer/features/repos/diff/diff-model.js";
+import type { DiffLineKind } from "#renderer/features/repos/diff/diff-model.js";
 
 /**
  * The kinds a generated hunk cycles through, so every row branch is reached.

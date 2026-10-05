@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SCENARIOS } from "@fixtures/index.js";
-import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
-import type { Scenario } from "@fixtures/scenario.js";
+import { SCENARIOS } from "#fixtures/index.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
+import type { Scenario } from "#fixtures/scenario.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 
 describe("scenario contract — the shipped scenarios", () => {

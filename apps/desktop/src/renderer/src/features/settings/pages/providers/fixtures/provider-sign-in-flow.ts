@@ -22,10 +22,10 @@ import type {
   ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";
-import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /**
  * Where a brokered sign-in has got to.

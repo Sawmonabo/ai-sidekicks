@@ -1,7 +1,7 @@
 // Does a launched window's renderer actually paint?
 //
 // Chromium throttles timers and animation frames in a hidden or occluded window, so a measurement
-// there describes a throttled renderer. `src/main/windows/window-reveal.ts` turns background
+// there describes a throttled renderer. `src/main/windows/reveal.ts` turns background
 // throttling off for these launches, and the harness checks on every launch that frames arrive.
 //
 // "Is the renderer painting at all?" and "did its first frame arrive quickly?" are separate

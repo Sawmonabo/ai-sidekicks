@@ -14,7 +14,7 @@ import { ElementHeightShim } from "../element/element-height-shim.js";
 import {
   DIFF_FILE_ROW_HEIGHT_PX,
   DIFF_ROW_HEIGHT_PX,
-} from "@renderer/features/repos/diff/diff-measures.js";
+} from "#renderer/features/repos/diff/measures.js";
 
 /** A row a wrapped line grew, and how tall it turned out. */
 export interface DiffGrownRow {

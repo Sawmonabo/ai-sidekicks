@@ -6,7 +6,7 @@
 //   2. The daemon's directory is declared stale, scheduling a read of something that happened.
 //   3. The window navigates, last: it is the step a person sees, and it ends this screen's mount.
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 /** What the destination hands this act, and everything the act touches. */
 export interface SessionStartSettlement {

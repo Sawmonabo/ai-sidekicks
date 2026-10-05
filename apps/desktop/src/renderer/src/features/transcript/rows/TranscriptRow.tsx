@@ -12,7 +12,7 @@ import { type TranscriptRowDensity, type TranscriptRowProps } from "../transcrip
 import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { MessageRow } from "./MessageRow.js";
-import { classifyTranscriptRow } from "./row-kind.js";
+import { classifyTranscriptRow } from "./kind.js";
 import { ThinkingRowWithRead } from "./thinking/ThinkingRowWithRead.js";
 import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";

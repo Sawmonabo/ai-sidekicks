@@ -4,7 +4,7 @@
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 import type { Mock } from "vitest";
-import type { RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
+import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { ComposerSessionTarget, ComposerRunTarget } from "../../composer-target.js";
 import type { ComposerSendCalls } from "./dispatch.js";
 import { ComposerSendRouter } from "./router.js";

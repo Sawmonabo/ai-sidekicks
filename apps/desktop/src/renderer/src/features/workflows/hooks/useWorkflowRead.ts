@@ -1,16 +1,16 @@
 import { useEffect, useMemo } from "react";
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type {
   PushDrivenRead,
   PushDrivenReadState,
-} from "@renderer/store/reads/push-driven-read.js";
-import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
+} from "#renderer/store/reads/push-driven-read.js";
+import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
+import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
-} from "@renderer/store/reads/read-triggers.js";
+} from "#renderer/store/reads/triggers.js";
 
 /**
  * Hold one workflows read for the life of the view that draws it: the window's triggers start it

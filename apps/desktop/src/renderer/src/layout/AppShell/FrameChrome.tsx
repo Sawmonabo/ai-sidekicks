@@ -8,13 +8,13 @@
 // This is separate from `AppFrame.tsx` because the announcement hook below must run under the
 // announcer provider that `AppFrame` mounts.
 
-import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
-import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
-import { type WindowBanner } from "@renderer/store/window/window-store.js";
+import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { type WindowBanner } from "#renderer/store/window/window-store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
-import { formatRoute, type AppRoute } from "@renderer/routing/routes.js";
-import { type RailDestination } from "@renderer/routing/route-readers.js";
+import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
+import { type RailDestination } from "#renderer/routing/readers.js";
 
 /** What a caller hands the frame chrome. */
 export interface FrameChromeProps {

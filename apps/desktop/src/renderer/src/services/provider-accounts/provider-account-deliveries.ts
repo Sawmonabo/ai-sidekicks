@@ -18,21 +18,18 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/account";
 import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts/provider/account/account";
-import { RealClock } from "@renderer/lib/clock.js";
+import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import {
-  PROVIDER_QUOTA_DELIVERY_STREAM,
-  PROVIDER_QUOTA_REFUSAL_ORIGIN,
-} from "./provider-account-refusals.js";
-import { ProviderAccountNotificationHold } from "@renderer/store/provider-accounts/provider-account-notification-hold.js";
+} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { PROVIDER_QUOTA_DELIVERY_STREAM, PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./refusals.js";
+import { ProviderAccountNotificationHold } from "#renderer/store/provider-accounts/provider-account-notification-hold.js";
 import {
   UnreadableDeliveryCounter,
   type UnreadableDeliveryReading,
 } from "../wire-reads/unreadable-deliveries.js";
-import type { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import type { ProviderAccountFold } from "#renderer/store/provider-accounts/provider-account-fold.js";
 
 /**
  * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the

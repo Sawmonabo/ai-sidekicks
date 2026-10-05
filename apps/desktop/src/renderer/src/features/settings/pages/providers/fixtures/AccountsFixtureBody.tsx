@@ -15,10 +15,10 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/account";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { BILLING_MODE_WORDS } from "#renderer/lib/account-plane-sentences.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
 import { AccountRow } from "./components/Account/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";

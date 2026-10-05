@@ -8,13 +8,13 @@
 // uses it loads in `addons.ts`.
 
 // The library's sheet is imported here so it rides the lazy emulator chunk
-// (`emulator-loader.ts`) with the code that draws the grid.
+// (`loader.ts`) with the code that draws the grid.
 import "@xterm/xterm/css/xterm.css";
 
 import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../terminal-caps.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../caps.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./addons.js";
 import { XtermMountBinding } from "./xterm-mount-binding.js";

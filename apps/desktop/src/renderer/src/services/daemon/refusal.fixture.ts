@@ -5,7 +5,7 @@
 // merging them would put a fixture-scoped code in front of every typed daemon refusal. It is its
 // own module so the daemon fixture, its subscriptions and the platform fixture each read one leaf.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with. Each is a distinct remedy:
@@ -25,7 +25,7 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
  * `beat-unprojectable` is an authoring error: the beat names a kind a narrowed stream carries but
  * cannot supply the required payload, and it refuses rather than deliver a half-built projection.
  * `reply-off-contract` is the same on the call seam: a scripted reply does not match the shape
- * `@shared/daemon/daemon-method-bindings.ts` binds to its method, or a notice it pushes does not
+ * `#shared/daemon/daemon-method-bindings.ts` binds to its method, or a notice it pushes does not
  * match the shape its stream registers, and delivering either would teach a view to render a frame
  * production never produces. The last two name a reply the frozen clock never released, or a notice
  * it could not park.

@@ -4,8 +4,8 @@
 // `durable` is false so a caller does not pretend a write stuck, and the quota gauge carries the
 // same reason so a view reading only the gauge still discloses the degradation.
 
-import { RefusalError } from "@renderer/lib/refusal/refusal.js";
-import type { PersistenceRefusal } from "./persistence-refusals.js";
+import { RefusalError } from "#renderer/lib/refusal/refusal.js";
+import type { PersistenceRefusal } from "./refusals.js";
 import type { PersistedValueClass } from "./persisted-value-classes.js";
 
 /** Which adapter is serving the store. Rendered; never inferred from behavior. */

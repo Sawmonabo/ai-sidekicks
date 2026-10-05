@@ -4,9 +4,9 @@
 // the record is written. It holds the last record heard and nothing the person chose that main has
 // not kept, so the window never shows a scheme a restart would lose.
 
-import type { AppearanceRecord, SchemePreference } from "@shared/appearance.js";
-import type { PreloadApi, Unsubscribe } from "@shared/preload-api.js";
-import { nextSchemePreference } from "@renderer/styles/tokens.js";
+import type { AppearanceRecord, SchemePreference } from "#shared/appearance.js";
+import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
+import { nextSchemePreference } from "#renderer/styles/tokens.js";
 
 /** The `window` members the client speaks. */
 export type AppearanceMembers = Pick<PreloadApi["window"], "setAppearance" | "subscribeAppearance">;

@@ -2,8 +2,8 @@
 
 import { createElement } from "react";
 
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 
 /**

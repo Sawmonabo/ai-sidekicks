@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "#renderer/store/session/entities/entities.js";
 import { resolveComposerTarget, type ComposerTargetInput } from "./composer-target.js";
 import { agentPane } from "./composer.test-support.js";
 

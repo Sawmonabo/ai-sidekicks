@@ -2,7 +2,7 @@
 // `AgentBindingCard.tsx` because it is fixed for the agent's life, where the card's binding is
 // live. It is never re-read from the definition registry, whose row may already have moved.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts/agent/definition";
 import { type AgentToolAllowlistPosition } from "../tool-allowlist/tool-allowlist.js";
 import { ToolAllowlist } from "../tool-allowlist/components/ToolAllowlist.js";

@@ -5,12 +5,12 @@
 // run's binding group renders. It speaks through its own status region, not the announcer.
 
 import { useCallback, useMemo } from "react";
-import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
+import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
 import { readComposerCommands } from "../composer-commands.js";
 import { useCommandListTrigger } from "../hooks/useCommandListTrigger.js";
-import { addressedProviderBinding } from "../command-list-entries.js";
+import { addressedProviderBinding } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandEnumeration } from "../provider-command/provider-command-enumeration.js";
 import { CommandListPopover } from "./CommandListPopover.js";

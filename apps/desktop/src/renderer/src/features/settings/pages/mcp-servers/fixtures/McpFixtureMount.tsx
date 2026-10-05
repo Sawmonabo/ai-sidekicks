@@ -5,12 +5,12 @@
 
 import { useMemo, type ReactNode } from "react";
 
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { MCP_NOTICE_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
-import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { openReopeningSubscription } from "@renderer/services/transport/reopening-subscription.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { MCP_NOTICE_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 /** The MCP fixture body, its verbs answered by the daemon this window's bridge reaches. */

@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GenerationLatch } from "./generation-latch.js";
-import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
+import { SUBJECT_ONE, SUBJECT_TWO } from "#test/helpers/subject-fixtures.js";
 
 describe("GenerationLatch — single flight, per subject and per key", () => {
   it("refuses a second claim on a held key and admits it again once released", () => {

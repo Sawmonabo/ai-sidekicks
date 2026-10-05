@@ -4,11 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  type CommandDefinition,
-  type Keybinding,
-} from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
+import { type CommandDefinition, type Keybinding } from "#renderer/registries/commands/types.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
 import {
   composeKeybindingRows,
   matchKeybindingRows,

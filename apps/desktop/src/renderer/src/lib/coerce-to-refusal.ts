@@ -4,7 +4,7 @@
 import { RefusalError, isRefusal, type Refusal } from "./refusal/refusal.js";
 import { normalizeWireRejection } from "./wire/rejection.js";
 import { wireRejectionToError } from "./wire/errors.js";
-import { READ_FAILED } from "./reads/read-failure-codes.js";
+import { READ_FAILED } from "./reads/failure-codes.js";
 
 /**
  * The refusal a rejection is, in the app's one refusal shape.

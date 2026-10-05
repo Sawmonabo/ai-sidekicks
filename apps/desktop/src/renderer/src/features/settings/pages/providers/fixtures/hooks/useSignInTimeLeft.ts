@@ -1,8 +1,8 @@
 import { useRef } from "react";
 
-import { useDeadlineWake } from "@renderer/hooks/useDeadlineWake.js";
-import { MILLISECONDS_PER_SECOND, parseInstant } from "@renderer/lib/instant.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useDeadlineWake } from "#renderer/hooks/useDeadlineWake.js";
+import { MILLISECONDS_PER_SECOND, parseInstant } from "#renderer/lib/instant.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 
 /**
  * How long a sign-in code has left, in milliseconds, counting down once a second and stopping at

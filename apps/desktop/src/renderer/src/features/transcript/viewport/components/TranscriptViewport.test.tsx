@@ -9,7 +9,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, type Clock } from "@renderer/lib/clock.js";
+import { ManualClock, type Clock } from "#renderer/lib/clock.js";
 import { TranscriptViewport } from "./TranscriptViewport.js";
 import {
   useTranscriptViewport,

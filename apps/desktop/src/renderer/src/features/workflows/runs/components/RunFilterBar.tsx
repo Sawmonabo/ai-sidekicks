@@ -8,7 +8,7 @@ import {
   type WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../../workflow-words.js";
+import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../../words.js";
 import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../run-filters.js";
 
 /** The value a select holds for "no filter". */

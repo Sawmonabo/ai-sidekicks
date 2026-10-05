@@ -6,9 +6,9 @@
 
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
 import { LeaseHolderSentence } from "./LeaseHolderSentence.js";
-import { type DrawnLeaseHolder, type TerminalLeaseState } from "../lease-model.js";
+import { type DrawnLeaseHolder, type TerminalLeaseState } from "../model.js";
 
 /** What the lease line shows: the folded state and an optional control. */
 export interface LeaseLineProps {

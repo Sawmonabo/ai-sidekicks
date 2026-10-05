@@ -8,10 +8,10 @@
 // publishes its refusal as the prerequisite, unless the question moved on or the round ended.
 // Each call is a closure the owner passes in, so nothing here touches the bridge.
 
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock } from "@renderer/lib/clock.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock } from "#renderer/lib/clock.js";
 import {
   ACT_IDLE,
   PREREQUISITE_NOT_READ,
@@ -20,13 +20,13 @@ import {
   type ActSettlementArm,
   type ActSettlementReading,
 } from "./act-reading.js";
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import { RefreshScheduler } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
-import type { ReadRound } from "@renderer/lib/reads/read-scope.js";
-import type { ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
+import { RefreshScheduler } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-triggers.js";
+import type { ReadRound } from "#renderer/lib/reads/read-scope.js";
+import type { ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 
 /** What the act half is named by. */
 export interface ActControllerOptions {

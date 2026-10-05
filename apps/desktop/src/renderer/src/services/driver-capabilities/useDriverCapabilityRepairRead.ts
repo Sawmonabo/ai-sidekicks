@@ -1,7 +1,7 @@
 // Re-reading the service's driver declarations when a session's stream is repaired.
 
-import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useSessionReadTriggers } from "#renderer/store/reads/hooks/useSessionReadTriggers.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { useBridgeClock } from "../platform/hooks/useClock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { driverCapabilityReads } from "./driver-capability-read.js";

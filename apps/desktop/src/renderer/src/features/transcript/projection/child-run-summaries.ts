@@ -10,9 +10,9 @@ import {
   RUN_INITIAL_STATE,
   RUN_QUEUED_EVENT_KIND,
   runStateForTransitionKind,
-} from "@renderer/store/session-events/run/state-kinds.js";
-import { readWireString } from "@renderer/lib/wire/strings.js";
-import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+} from "#renderer/store/session-events/run/state-kinds.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
 /**

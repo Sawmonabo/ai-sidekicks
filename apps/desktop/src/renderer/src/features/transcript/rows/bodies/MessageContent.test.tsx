@@ -3,7 +3,7 @@ import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
-import { liveBridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { MessageContent } from "./MessageContent.js";
 
 /** A markdown body drawn inside a window, which supplies its code colors. */

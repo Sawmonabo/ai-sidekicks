@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 
-import { ReorderDrag, type ReorderAxis } from "@renderer/lib/reorder-drag.js";
-import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "@renderer/styles/motion.js";
+import { ReorderDrag, type ReorderAxis } from "#renderer/lib/reorder-drag.js";
+import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import { useLatestRef } from "./useLatestRef.js";
 
 /** How long a reorder glide runs: the chrome's settle. */

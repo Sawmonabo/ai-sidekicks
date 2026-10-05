@@ -3,10 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { KeyboardMap, KeyboardMapReading } from "@shared/preload-api.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { CommandRegistry } from "../commands/command-registry.js";
-import { type Keybinding } from "../commands/command-types.js";
+import { type Keybinding } from "../commands/types.js";
 import { KeybindingTable } from "./keybinding-table.js";
 import { KeybindingOverrideStore } from "./keybinding-override-store.js";
 

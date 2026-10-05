@@ -52,7 +52,7 @@ import type {
   ScenarioNotice,
   ScenarioRefusalEnvelope,
   ScenarioReply,
-} from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
+} from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
 const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;

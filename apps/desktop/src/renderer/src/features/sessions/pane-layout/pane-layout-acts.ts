@@ -8,8 +8,8 @@
 // thing. A boundary move is not a refusal (`paneDropAnnouncement` covers "was not moved");
 // only an act with no subject is refused: no layout mounted, or no pane focused.
 
-import { TITLE_BY_PANE_KIND } from "@renderer/components/PaneFrame/PaneFrame.js";
-import type { Announce } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
+import type { Announce } from "#renderer/components/LiveAnnouncer/live-announcer.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 import { paneDropAnnouncement } from "./pane-drag.js";
 

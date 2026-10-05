@@ -7,23 +7,23 @@
 // Keyboard page's whole contract with main. The appearance record is held the same way: the default
 // appearance at first, and a chosen one reaches every subscriber, as main carries it to every window.
 
-import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "@shared/appearance.js";
-import { consoleWindowId } from "@shared/window/frame-name.js";
+import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
+import { consoleWindowId } from "#shared/window/frame-name.js";
 import type {
   KeyboardMap,
   KeyboardMapReading,
   Unsubscribe,
   UpdateState,
-} from "@shared/preload-api.js";
+} from "#shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import {
   FixtureBridgeError,
   refuseAbsentCapability,
-} from "@renderer/services/daemon/refusal.fixture.js";
-import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
-import { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
-import { createFixtureDaemon } from "@renderer/services/daemon/daemon.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
+} from "#renderer/services/daemon/refusal.fixture.js";
+import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
+import { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { createFixtureDaemon } from "#renderer/services/daemon/daemon.fixture.js";
+import type { Scenario } from "#fixtures/scenario.js";
 
 /** Fixed `app` meta, so a rendered view does not move with the machine. */
 export const FIXTURE_APP_META: PlatformBridge["app"] = {

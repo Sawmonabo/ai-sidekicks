@@ -6,14 +6,14 @@
 // The local id is this list's counter, not the file name, since two files can share a name.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { earliestFutureDeadline } from "@renderer/lib/deadlines.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
+import { earliestFutureDeadline } from "#renderer/lib/deadlines.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
 import { AttachmentIngestClient } from "./attachment-ingest-client.js";
-import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
-import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
+import { ingestStallDisclosureAtMs } from "./presentation.js";
+import { attachmentSourceFrom, type AttachmentIngestEntry } from "./shapes.js";
 
 /** What the staged list holds, and the instant it last said so. */
 export interface StagedAttachmentsSnapshot {

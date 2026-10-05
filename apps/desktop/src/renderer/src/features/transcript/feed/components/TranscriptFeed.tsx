@@ -4,7 +4,7 @@
 // walk reading a virtualizer with no element under it, a jump that scrolls nothing.
 
 import { useCallback, useMemo } from "react";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
@@ -15,7 +15,7 @@ import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";

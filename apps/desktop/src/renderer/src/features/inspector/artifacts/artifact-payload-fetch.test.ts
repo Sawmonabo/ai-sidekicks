@@ -2,9 +2,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import { ArtifactListReader } from "./artifact-list-reader.js";
 import {
@@ -16,7 +16,7 @@ import {
   SERVED_VERSION,
   readerWithHeldPayloadFetch,
   inlinePayloadRead,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 
 /** The preview text the reading holds, or an empty string while it holds another arm. */
 function fetchedText(reader: ArtifactListReader): string {

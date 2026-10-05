@@ -14,12 +14,12 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/settings-page-labels.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
-import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "@renderer/lib/account-plane-sentences.js";
+import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";
 
 /** A refusal line plus, where a console act answers it, a handoff to the settings section. */
 export function AccountPlaneRefusal(props: {

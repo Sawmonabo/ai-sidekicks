@@ -14,7 +14,7 @@
 
 import "./Nothing.css";
 
-import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_ROW, type GlyphName } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
 /** The closed set of empty-state kinds. */

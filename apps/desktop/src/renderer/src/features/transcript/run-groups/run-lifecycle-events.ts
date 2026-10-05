@@ -5,7 +5,7 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { readWireString } from "@renderer/lib/wire/strings.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
 
 /**
  * The run-lifecycle event types that end a run, wire-verbatim.

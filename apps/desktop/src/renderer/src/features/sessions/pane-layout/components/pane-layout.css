@@ -74,7 +74,7 @@
 /* --- Density presets ---------------------------------------------------- */
 
 /*
- * The preset's minimum width is carried inline by the pane, from `pane-layout-density.ts`.
+ * The preset's minimum width is carried inline by the pane, from `density.ts`.
  * The rhythm that goes with it is set here as custom properties on the pane layout, never as
  * rules on the pane's own classes: `meridian-pane__head` is `PaneFrame.css`'s, and a second
  * sheet writing against it would make the cascade answer by bundler emit order. This sheet

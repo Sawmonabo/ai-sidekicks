@@ -9,11 +9,11 @@ import type {
   ProviderAccountUsageWindow,
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/account";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,

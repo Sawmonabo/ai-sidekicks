@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpToolOverride } from "@ai-sidekicks/contracts/mcp/mcp";
 
 /**

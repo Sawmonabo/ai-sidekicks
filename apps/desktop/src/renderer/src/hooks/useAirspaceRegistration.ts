@@ -17,8 +17,8 @@
 
 import { useCallback } from "react";
 
-import { airspaceRegistryFor } from "@renderer/lib/airspace/registries.js";
-import { observeElementResize } from "@renderer/lib/element-resize.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace/registries.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /**
  * What an overlay primitive puts on the element it wants the airspace to yield to.

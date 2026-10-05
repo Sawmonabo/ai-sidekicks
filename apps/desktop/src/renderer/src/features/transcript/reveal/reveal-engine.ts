@@ -1,20 +1,20 @@
 // N reveal lanes streaming at once through a bounded per-frame character budget, so lanes move
 // continuously, none jumps, and visible text never regresses. It publishes text and how much
 // of it is safe to show; turning text into blocks belongs to the card layer. The engine's
-// published types live in `reveal-model.ts`.
+// published types live in `model.ts`.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@renderer/lib/wire/errors.js";
-import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
+import { recordRevealDrain } from "#renderer/lib/performance-meters/performance-meters.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import {
   REVEAL_CATCH_UP_MULTIPLIER,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_GATE_TAIL_CHARACTERS,
   REVEAL_LITERAL_BACKTRACK_CAP,
-} from "./reveal-caps.js";
-import { safeRevealCeiling } from "./reveal-gate.js";
+} from "./caps.js";
+import { safeRevealCeiling } from "./gate.js";
 import { RevealLane } from "./reveal-lane.js";
 import type {
   RevealDelta,
@@ -22,7 +22,7 @@ import type {
   RevealEngineState,
   RevealFrame,
   RevealLaneState,
-} from "./reveal-model.js";
+} from "./model.js";
 
 /** Options for a `RevealEngine`. */
 export interface RevealEngineOptions {

@@ -6,9 +6,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
-import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/scroll-container.test-support.js";
 import { useRowWindow } from "./useRowWindow.js";
 
 const ROW_COUNT = 1_000;

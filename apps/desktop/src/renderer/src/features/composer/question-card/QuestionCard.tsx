@@ -6,15 +6,15 @@
 // one call. The card never settles the question itself.
 
 import type { QuestionAnswer, QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
 import { SecretAnswerField } from "./SecretAnswerField.js";
 import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
   AnswerDelivery,
   QuestionReading,
-} from "@renderer/store/session-events/question-reading.js";
+} from "#renderer/store/session-events/question-reading.js";
 
 import "./question-card.css";
 

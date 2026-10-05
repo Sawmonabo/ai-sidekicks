@@ -1,5 +1,5 @@
 // The binding set, one listener and the dispatch. Chord parsing is tinykeys via
-// `keybinding-chord.ts`; `tinykeys()` itself is not used because:
+// `chord.ts`; `tinykeys()` itself is not used because:
 //
 //   1. It takes a static chord-to-handler map, but our bindings are `when`-scoped, so the handler
 //      depends on the live context.
@@ -9,22 +9,22 @@
 //
 // `install` adds exactly one `keydown` listener, not one per binding: separate listeners could
 // let two bindings on one chord both fire. Conflicts are decided before install, in
-// `keybinding-conflicts.ts`. The listener uses the capture phase so a focused widget cannot
+// `conflicts.ts`. The listener uses the capture phase so a focused widget cannot
 // `stopPropagation` a press first; the text-entry guard runs first, so the table declines
 // a press rather than stealing it.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
-import { isTextEntryTarget } from "@renderer/lib/editable-target.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
+import { isTextEntryTarget } from "#renderer/lib/editable-target.js";
 import type { CommandRegistry } from "../commands/command-registry.js";
-import type { Keybinding } from "../commands/command-types.js";
-import { chordMatchesEvent } from "./keybinding-chord.js";
+import type { Keybinding } from "../commands/types.js";
+import { chordMatchesEvent } from "./chord.js";
 import {
   detectConflicts,
   prepareBindings,
   type KeybindingConflict,
   type KeybindingDiagnostic,
   type PreparedBinding,
-} from "./keybinding-conflicts.js";
+} from "./conflicts.js";
 import { evaluateWhenClause, type WhenClauseContext } from "../commands/when-clause/when-clause.js";
 
 /** Why the table refused a binding set. Rendered verbatim; never swallowed. */

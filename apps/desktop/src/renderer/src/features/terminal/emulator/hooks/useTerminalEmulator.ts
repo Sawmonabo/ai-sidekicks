@@ -7,8 +7,8 @@
 
 import { useEffect, useState } from "react";
 
-import type { MemoizedLoad } from "@renderer/lib/memoized-load.js";
-import type { TerminalEmulatorModule } from "../emulator-loader.js";
+import type { MemoizedLoad } from "#renderer/lib/memoized-load.js";
+import type { TerminalEmulatorModule } from "../loader.js";
 
 /** Where the emulator's code is: still coming, here, or failed with a way to ask again. */
 export type TerminalEmulatorState =

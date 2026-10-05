@@ -5,9 +5,9 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { accountPlaneRemedySentence } from "@renderer/lib/account-plane-sentences.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { accountPlaneRemedySentence } from "#renderer/lib/account-plane-sentences.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type {
   ProviderAccountProbeCall,
   ProviderAccountRegisterCall,

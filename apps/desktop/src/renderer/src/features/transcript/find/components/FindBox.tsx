@@ -1,10 +1,10 @@
 // The find field. Its counts are the renderer's own reading of rows it holds, so they render
 // proportionally through `DerivedFigure` rather than in the mono the daemon's figures wear.
 
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import { type FindStepDirection, type FindResult } from "../find-model.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
+import { type FindStepDirection, type FindResult } from "../model.js";
 import { useCaretOnOpen } from "../hooks/useCaretOnOpen.js";
 
 import "./find-box.css";

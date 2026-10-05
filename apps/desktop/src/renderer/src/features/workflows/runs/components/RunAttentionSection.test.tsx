@@ -10,10 +10,10 @@ import {
   type WorkflowRunAttentionListResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { LOADING_NOTICE_DELAY_MS } from "@renderer/components/LoadingNotice/LoadingNotice.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { refuse } from "@renderer/lib/refusal/refusal.js";
-import { formatDayClock } from "@renderer/lib/wire/figures.js";
+import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
 
 // Local calendar instants, so every figure below falls on the same day as now.

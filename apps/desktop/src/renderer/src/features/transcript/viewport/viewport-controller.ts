@@ -6,14 +6,14 @@
 // holding a reading position costs no element read. The snapshot vocabulary, prune cycle,
 // publication, deferred holds, head insertion and anchor capture live in `viewport-*.ts`.
 
-import { type Clock } from "@renderer/lib/clock.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
-import { HeadInsertion } from "./viewport-head-insertion.js";
+import { HeadInsertion } from "./head-insertion.js";
 import { ViewportPruneCycle } from "./viewport-prune-cycle.js";
 import { ViewportPublication } from "./viewport-publication.js";
 import {

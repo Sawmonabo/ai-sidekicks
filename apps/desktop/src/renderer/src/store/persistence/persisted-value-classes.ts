@@ -13,7 +13,7 @@
 //
 // This module owns the closed set, each class's shape, the walk that applies the grammar, and
 // the byte measurement over a whole record. The refusal vocabulary is in
-// `persistence-refusals.ts`, because both adapters raise refusals and the grammar also settles
+// `refusals.ts`, because both adapters raise refusals and the grammar also settles
 // record addresses, which have no class.
 //
 // Drafts are absent on purpose: composer text is user-authored content, and its only durable
@@ -21,14 +21,14 @@
 // The class names are one `as const` array, the union derives from it, and the validator table
 // is keyed by the union, so the two halves cannot drift.
 
-import { isWireRecord } from "@renderer/lib/wire/record.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
 import {
   IDENTIFIER_MAX_LENGTH,
   isIdentifierShaped,
   isSingleNameIdentifierShaped,
-} from "@renderer/lib/identifier-grammar.js";
-import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
-import { refusePersistence, type PersistenceRefusal } from "./persistence-refusals.js";
+} from "#renderer/lib/identifier-grammar.js";
+import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
+import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 
 /**
  * The classes of UI state the durable store admits. Closed, and the single source

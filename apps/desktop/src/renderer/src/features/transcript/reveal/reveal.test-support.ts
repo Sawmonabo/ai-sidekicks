@@ -1,7 +1,7 @@
 // Filler prose for the reveal suites: plain text with no markdown, so the gate hands it over in
 // full and only the frame budget bounds the reveal.
 
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "./reveal-caps.js";
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "./caps.js";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 

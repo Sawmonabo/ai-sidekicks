@@ -2,8 +2,8 @@
 // session is open. It draws no body box: `PaneFrame` renders `.meridian-pane__body`, and a wrapper
 // would break the flex chain the feed's scroll container depends on.
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 

@@ -4,8 +4,8 @@
 // Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
-import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
-import { formatCount } from "@renderer/lib/wire/figures.js";
+import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/tool-allowlist.js";
 
 /**

@@ -3,7 +3,7 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import {
   RetainingRowBody,
   SHORT_LOG_EVENT_COUNT,

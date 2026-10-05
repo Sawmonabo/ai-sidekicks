@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import type { KeybindingOverrideStore } from "../keybinding-override-store.js";
-import type { KeybindingSnapshot } from "../keybinding-override-types.js";
+import type { KeybindingSnapshot } from "../override-types.js";
 
 /**
  * Reads the override store from a component and re-renders when an override is written. It uses

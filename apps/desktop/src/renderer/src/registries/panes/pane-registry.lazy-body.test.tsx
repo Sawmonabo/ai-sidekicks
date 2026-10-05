@@ -7,11 +7,11 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { settle } from "@test/helpers/settle.js";
-import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
-import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
-import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
+import { settle } from "#test/helpers/settle.js";
+import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { type LazyBodyModule } from "#renderer/components/LazyBody/lazy-body.js";
 import { countingLoader, syntheticPaneContextAt } from "./pane-registry.lazy-body.test-support.js";
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";

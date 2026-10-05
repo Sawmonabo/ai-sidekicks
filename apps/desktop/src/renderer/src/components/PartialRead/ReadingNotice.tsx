@@ -10,7 +10,7 @@ import "./PartialRead.css";
 import { Nothing } from "../Nothing/Nothing.js";
 import { DerivedFigure } from "../DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "../Refusal/InlineRefusal.js";
-import type { PartialReadNotice } from "@renderer/lib/partial-read.js";
+import type { PartialReadNotice } from "#renderer/lib/partial-read.js";
 
 /** Props for `ReadingNotice`. */
 export interface ReadingNoticeProps {

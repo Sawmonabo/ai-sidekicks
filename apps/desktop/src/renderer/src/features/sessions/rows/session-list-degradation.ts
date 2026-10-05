@@ -4,7 +4,7 @@
 // The cause comes from `store/session/degradation.ts`, folded over the open stores by
 // `hooks/useOpenSessionProjection.ts`, so nothing here polls or picks between causes.
 
-import type { SessionDegradedCause } from "@renderer/store/session/degradation.js";
+import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
 
 /** What the destination renders for one standing cause. */
 export interface SessionListDegradation {

@@ -2,15 +2,15 @@ import "./execution-mode-picker.css";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { ExecutionModeRow } from "./ExecutionModeRow.js";
 import { executionModeRows } from "../execution-mode-rows.js";
 import { selectionInFlightCopy } from "../execution-mode-selection.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
-import type { WorkspaceControlAvailability } from "../../mount-health.js";
-import { controlHoldSentence } from "../../mount-health.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { WorkspaceControlAvailability } from "../../health.js";
+import { controlHoldSentence } from "../../health.js";
 
 /** What the picker reads: a workspace's modes, its current binding, and any pending switch. */
 export interface ExecutionModePickerProps {

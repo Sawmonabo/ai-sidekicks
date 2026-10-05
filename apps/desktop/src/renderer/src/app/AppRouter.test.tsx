@@ -11,10 +11,10 @@ import { useEffect } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
-import { registerWorkflowScreens } from "@renderer/features/workflows/index.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { registerWorkflowScreens } from "#renderer/features/workflows/index.js";
 import {
   attentionOf,
   mountWorkflowsScreen,
@@ -22,17 +22,17 @@ import {
   nextWaitingControl,
   openRunId,
   press,
-} from "@renderer/features/workflows/WorkflowsScreen.test-support.js";
-import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
-import { type AppRoute } from "@renderer/routing/routes.js";
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
+} from "#renderer/features/workflows/WorkflowsScreen.test-support.js";
+import { workflowRunsRoute } from "#renderer/routing/readers.js";
+import { type AppRoute } from "#renderer/routing/routes.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
+import { WindowStore } from "#renderer/store/window/window-store.js";
 import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-screen.js";
 import { AppRouter } from "./AppRouter.js";
-import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 afterEach(cleanup);
 

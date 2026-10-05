@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import {
   SCROLL_TAIL_TOLERANCE_PX,
   ScrollGeometryPublisher,

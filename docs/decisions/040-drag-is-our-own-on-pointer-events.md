@@ -22,7 +22,7 @@ Four things in the console are dragged:
 3. the panes of a session view, each dragged by its header, which is no window drag region ([Spec-021 §The session screen](../specs/021-desktop-app-and-renderer.md#the-session-screen));
 4. the session views themselves, each dragged by its title — the session's name in the view's header, whose empty space stays the window's own drag region, as a browser's empty tab strip moves its window while a tab tears off — which swap places in a window, dock into another window, and tear off onto the desktop as a window of their own.
 
-The requirement is that a drag is smooth and has no resistance: the item sits under the pointer at every frame, its neighbors glide apart rather than jump, the drop glides into place, and a session view torn out of its window is a window that follows the pointer live, not one that appears where the drag ended.
+The requirement is that a drag is smooth and has no resistance: the item sits under the pointer at every frame, its neighbors glide apart rather than jump, the drop glides into place, and a session view torn out of its window is a window that follows the pointer live, not one that appears where the drag ended. On Linux under Wayland Electron offers no way to do that, and the view's window appears at the drag's end instead (§Decision).
 
 ## Problem Statement
 
@@ -41,7 +41,7 @@ A session view holds a row of any number of panes that reorder by their headers,
 - **Inside a window** — tabs, waiting messages, panes and session views: the drag starts on `pointerdown` and takes pointer capture on the element pressed. The real item lifts and follows the pointer through a `transform` written in the `pointermove` handler, so it is drawn under the pointer in the same frame. Neighbors make room with FLIP: their old and new boxes are measured once and the difference is played away with `element.animate` on each element's own document, so the glide runs on that window's own timeline and needs no frame clock. The drop glides the item into its slot the same way. Keyboard and menu reorder paths are our own as well — for panes, the Keyboard page's `Move pane left`, `Move pane right`, `Move terminal up` and `Move terminal down` — each announced through the console's live region.
 - **Between windows** — a session view's title: the drag keeps pointer capture after the pointer leaves its window, and each move sends its screen point to main. Main hit-tests the other windows' bounds and names the window under the pointer, and that window draws its own drop indicator. Past every window, the renderer opens a tear-off window holding the view and main moves it with the pointer on each move; a release over the desktop leaves it there as a window of its own, and a release over another window docks the view into that window's row of views. A window a drag leaves with no view closes. The screen points, the window under the pointer, the tear-off's moves and the dock cross the `window` bridge members [Spec-021 §Preload Bridge Contract](../specs/021-desktop-app-and-renderer.md#preload-bridge-contract) names (`findWindowAt`, `startTearOff`, `moveTearOff`, `endTearOff`, `dockView`), carrying window ids and points and never a view.
 - **Files from Finder and other apps into the composer**: the platform's native drop, unchanged.
-- **Linux on Wayland**: Electron cannot move a window or read the pointer outside its windows there, so the live tear-off goes through a small native add-on we build that calls the Wayland `xdg_toplevel_drag` protocol, the mechanism Chrome uses to carry a torn-off tab's window. Whether it is written in Rust through napi-rs or in C++ is decided with the Linux leg, which follows macOS in the build order.
+- **Linux on Wayland**: Electron can neither move a window nor read the pointer outside its windows there, and it offers no call for `xdg_toplevel_drag`, the Wayland protocol Chrome carries a torn-off tab's window with. An add-on of our own cannot reach that protocol either: Electron's Chromium carries its own copy of libwayland and exports none of its symbols. So on Wayland a session view's title drags with the platform's native drag from its start. A picture of the view's header follows the pointer; another of the app's windows under the pointer draws its drop place, and a drop there docks the view; a drop in its own window swaps it as elsewhere; a release outside every window opens the view in a window of its own, placed by the compositor rather than at the release point. The drag carries only the app's own data type, so no other app's drop target reads it. The app stays a native Wayland client rather than running under XWayland, where the live tear-off works but text blurs at fractional scaling and one scale covers monitors of different density, and it ships no patched Electron.
 
 ### Thesis — Why This Option
 
@@ -75,9 +75,9 @@ The four libraries that could work were run in the same harness against our own:
 
 ### Option A: Our own pointer drag, our own cross-window controller (Chosen)
 
-- **What:** Pointer capture, a `transform` on the real item, FLIP glides with `element.animate` on the element's own document, a glide on drop; between windows, main's hit test from screen points and a live tear-off window main moves; native drop for files; a Wayland add-on on `xdg_toplevel_drag`.
+- **What:** Pointer capture, a `transform` on the real item, FLIP glides with `element.animate` on the element's own document, a glide on drop; between windows, main's hit test from screen points and a live tear-off window main moves; native drop for files; on Wayland, the platform's native drag for a session view's title.
 - **Steel man:** The smoothest measured option on every axis, no frame clock, no dependency, and the only path to a live tear-off.
-- **Weaknesses:** We own the code, its edge cases (autoscroll at a list's ends, a drag canceled by Escape or a lost capture) and its tests. The Wayland add-on is native code to build, sign and ship.
+- **Weaknesses:** We own the code, its edge cases (autoscroll at a list's ends, a drag canceled by Escape or a lost capture) and its tests. On Wayland a torn-off view's window does not follow the pointer and opens where the compositor places it.
 
 ### Option B: `@atlaskit/pragmatic-drag-and-drop` (Rejected)
 
@@ -97,7 +97,7 @@ The four libraries that could work were run in the same harness against our own:
 ### Option E: Native code for the drag itself (Rejected)
 
 - **What:** Move the dragged item from Rust or C++ rather than from the page.
-- **Why rejected:** The per-frame work is one `transform` write in the page that owns the element. Native code cannot touch a DOM element and would add a process boundary to every move, while the page already draws at the display's full rate. Native code is used only where Electron has no API: the Wayland tear-off.
+- **Why rejected:** The per-frame work is one `transform` write in the page that owns the element. Native code cannot touch a DOM element and would add a process boundary to every move, while the page already draws at the display's full rate.
 
 ### Option F: Every other library surveyed (Rejected)
 
@@ -129,7 +129,7 @@ Not required for a Type 1 decision.
 - **Reversal cost:** Days. The drag core sits behind one hook per drag kind; a library could replace it list by list.
 - **Blast radius:** The four drag uses. Keyboard and menu reorder paths and the native file drop are untouched by a reversal.
 - **Migration path:** Swap the hook's internals; the stores that hold the orders are the same.
-- **Point of no return:** None. The Wayland add-on is a separate unit and stands whichever in-window drag is used.
+- **Point of no return:** None. Wayland's native drag for a view's title is a separate path, stands whichever in-window drag is used, and gives way to the live tear-off if Electron offers a call for `xdg_toplevel_drag`.
 
 ## Consequences
 
@@ -142,13 +142,13 @@ Not required for a Type 1 decision.
 ### Negative (accepted trade-offs)
 
 - The drag core, plus the cross-window controller in main, are ours to maintain and test.
-- The Wayland add-on is native code to build with the Linux leg.
+- On Linux under Wayland a torn-off view's window does not follow the drag and opens where the compositor places it, not under the pointer: sharp text on native Wayland is kept over XWayland's live tear-off, and no patched Electron is built.
 - Preview, a native page placed by main, cannot follow a moving pane frame for frame, so while its pane moves — a sideways scroll of the row of panes, a drag, a resize — it shows a still picture of itself and the live page returns when the motion stops; a video playing in the page pauses meanwhile ([Spec-021 §Pane kinds](../specs/021-desktop-app-and-renderer.md#pane-kinds)).
 
 ### Unknowns
 
 - How Windows behaves for a window main moves on each `pointermove`; Chrome uses the native move loop there. Measured with the Windows leg.
-- Which compositors carry `xdg_toplevel_drag`. A compositor without it gets the tear-off at release, where the drag ended, rather than live.
+- On Wayland, how a release over the desktop is told apart from a drag canceled with Escape, since both end the native drag with no drop. Measured with the Linux leg.
 
 ---
 
@@ -176,6 +176,7 @@ Not required for a Type 1 decision.
 | Chrome `tab_drag_controller.cc` | Source file | A torn-off tab's window follows the pointer: moved per mouse-drag event on macOS, by the native move loop on Windows | https://github.com/chromium/chromium/blob/3387abbe4b6dfd1f8172fe8c293a74d54f1b8f75/chrome/browser/ui/views/tabs/dragging/tab_drag_controller.cc |
 | Chrome `wayland_window_drag_controller.cc` | Source file | On Wayland the compositor carries the torn-off window through `xdg_toplevel_drag_v1_attach` | https://github.com/chromium/chromium/blob/3387abbe4b6dfd1f8172fe8c293a74d54f1b8f75/ui/ozone/platform/wayland/host/wayland_window_drag_controller.cc |
 | `xdg-toplevel-drag-v1` | Spec | The Wayland protocol that attaches a toplevel window to a drag so it moves with the pointer | https://wayland.app/protocols/xdg-toplevel-drag-v1 |
+| Electron 44.5.1 linux-arm64 binary | Primary research | 2026-10-05: no libwayland among its needed libraries and no `wl_` symbol exported, while the binary holds `xdg_toplevel_drag_v1`; an add-on or a hook on the system libwayland cannot reach Chromium's own copy | Local probe, recorded here |
 | Electron `screen` | Documentation | `screen.getCursorScreenPoint()`: "Not supported on Wayland (Linux)" | https://www.electronjs.org/docs/latest/api/screen |
 | Electron `BaseWindow` | Documentation | On Wayland, `getPosition` returns `[0, 0]` "as introspecting or programmatically changing the global window coordinates is prohibited" | https://www.electronjs.org/docs/latest/api/base-window |
 | Electron `BrowserWindow` | Documentation | "On Wayland (Linux) it is generally not possible … to position, move, focus, or blur windows without user input" | https://www.electronjs.org/docs/latest/api/browser-window |

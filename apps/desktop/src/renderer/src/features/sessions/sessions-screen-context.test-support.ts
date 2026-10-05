@@ -1,7 +1,7 @@
 // A faked screen context that records the routes navigated to and the sessions the registry
 // was asked to open.
 
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 /**
  * The fields the acts read, and nothing else. Cast rather than constructed, as in

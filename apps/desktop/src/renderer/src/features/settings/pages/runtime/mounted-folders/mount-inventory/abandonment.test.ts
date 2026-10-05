@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RefusalError, type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { readMountInventory, type MountInventoryCalls } from "./mount-inventory.js";
 import {
   MOUNT_A,

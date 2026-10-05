@@ -46,7 +46,7 @@ import type {
   ScenarioNotice,
   ScenarioOpeningNotice,
   ScenarioReply,
-} from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
+} from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
   WORKFLOW_FIX_SESSION,
@@ -56,7 +56,7 @@ import {
   minutesAgo,
   summaryOfRun,
   type WorkflowRunRecord,
-} from "./runs.js";
+} from "./run/records.js";
 import {
   NOW,
   asRecord,
@@ -69,7 +69,7 @@ import {
   runsBeforeBulkDeletes,
   startedAtMs,
   type WorkflowPlayback,
-} from "./run-writes.js";
+} from "./run/writes.js";
 
 /** The stream every run change is pushed on, spelled as `session-event-streams.ts` names it. */
 const WORKFLOW_STREAM = "workflow.subscribe";

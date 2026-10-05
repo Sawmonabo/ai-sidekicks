@@ -6,11 +6,11 @@ import { useCallback, useMemo } from "react";
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
 
-import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { useStoreBoundReader } from "#renderer/hooks/subject-scoped/useStoreBoundReader.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RepoMountsReader } from "../repo-mounts-reader.js";
 import type { RepoMountsReading } from "../repo-mounts-model.js";

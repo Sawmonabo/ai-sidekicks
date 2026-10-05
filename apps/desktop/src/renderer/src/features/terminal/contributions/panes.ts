@@ -1,6 +1,6 @@
 // The terminal's pane registration: one kind, loaded as its own chunk.
 
-import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 
 /** Registers the terminal pane kind; a session has one terminal pane, so a second claim errors. */
 export function registerTerminalPane(registry: PaneRegistry): void {

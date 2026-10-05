@@ -1,8 +1,8 @@
 // A bridge that fails until a case says otherwise, the count of what reached the wire, and the
 // provider `renderHook` mounts a hook under.
 
-import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
-import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture/bridge.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { bridgeAnswering, type BridgeUnderTest } from "#test/helpers/fixture/bridge.js";
 
 /** A bridge whose one scripted method fails until the case clears the flag. */
 export interface RecoverableBridge {

@@ -1,6 +1,6 @@
 // What a fixture subscriber is handed, and when. `daemon.subscribe` hands beats as they fall due on
 // the frozen clock, only to a subscriber the seam says they reach and in the shape that
-// subscription registers. `session-event-streams.ts` routes, `run-stream-projection.fixture.ts`
+// subscription registers. `session-event-streams.ts` routes, `projection.fixture.ts`
 // projects and `event/envelope.fixture.ts` composes. The whole-session stream is
 // catch up, then follow, so a store opened mid-scenario does not read the next beat as a sequence
 // gap, and one re-opened after a cursor catches up only past it. `daemon.fixture.ts` composes this
@@ -8,12 +8,12 @@
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 
-import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 import { FixtureBridgeError } from "../refusal.fixture.js";
-import { isWireRecord } from "@renderer/lib/wire/record.js";
-import { projectRunStreamDelivery } from "../../run-streams/run-stream-projection.fixture.js";
+import { isWireRecord } from "#renderer/lib/wire/record.js";
+import { projectRunStreamDelivery } from "../../run-streams/projection.fixture.js";
 import { ScenarioEngine } from "../engine.fixture.js";
 import { assertNoticeOnContract, requestStampReaderFor } from "../scripted/reply.fixture.js";
 import {
@@ -35,7 +35,7 @@ import {
  * refused, as the daemon refuses a cursor it cannot resolve. A bare event-type name carries
  * only itself, one envelope per beat. The two `run.*` streams are registered projections
  * (`RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary`) built by
- * `run-stream-projection.fixture.ts`, with no catch-up because they are live; the envelope would
+ * `projection.fixture.ts`, with no catch-up because they are live; the envelope would
  * teach subscribers a frame the live bridge cannot send. A beat the projection cannot build throws,
  * and `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
  * advanced the clock without silencing other subscribers. The presence subscription is not an

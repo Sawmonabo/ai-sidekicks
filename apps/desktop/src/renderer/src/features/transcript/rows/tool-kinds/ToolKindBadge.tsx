@@ -2,7 +2,7 @@
 // and never from the tool's name. The kind itself is wire spelling and is not drawn. It renders
 // nothing when the row declares nothing or declares a kind this build does not know.
 
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { type ToolKindReading } from "./tool-kinds.js";
 
 import "./tool-kinds.css";

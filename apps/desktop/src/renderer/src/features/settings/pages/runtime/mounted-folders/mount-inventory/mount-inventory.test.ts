@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "@renderer/lib/clock.js";
+import { ManualClock } from "#renderer/lib/clock.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./caps.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/session-store.js";
 import {
   createMountInventoryRead,
   distinctMountIds,
@@ -19,10 +19,10 @@ import {
   mountReadFor,
   workspaceListWith,
 } from "../mounted-folders.test-support.js";
-import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
-import { eventOfKind } from "@test/helpers/session/events.js";
-import { initializedStore } from "@test/helpers/session/store/fixtures.js";
-import { countStoreListeners } from "@test/helpers/session/store/listeners.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "#test/helpers/settle.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
+import { initializedStore } from "#test/helpers/session/store/fixtures.js";
+import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.

@@ -1,6 +1,6 @@
 // Who holds this window's keybinding overrides and what the frame installs because of them. They
 // live in main's keyboard map (one local file, no wire), read once per window and written whole on
-// every change through the bridge's `keyboardMap`. `keybinding-overrides.ts` decides what an
+// every change through the bridge's `keyboardMap`. `overrides.ts` decides what an
 // override means and whether it is admissible; this module is the state around it:
 //
 //   - Consumers read `snapshot.bindings`, never the raw table, so key dispatch and the Keyboard
@@ -18,31 +18,31 @@
 // listens in the capture phase, so it would swallow `$mod+1` before the recorder saw it; the frame
 // installs nothing while a chord is being recorded.
 
-import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "@shared/preload-api.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "#shared/preload-api.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import {
   contributedKeybindings,
   subscribeToCommandContributions,
-} from "../commands/command-contributions.js";
+} from "../commands/contributions.js";
 import { commandRegistry } from "../commands/window-command-registry.js";
-import { type Keybinding } from "../commands/command-types.js";
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
+import { type Keybinding } from "../commands/types.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "#renderer/lib/chord-format.js";
 import {
   type KeybindingBindResult,
   type KeybindingHydrationRefusal,
   type KeybindingOverrideStoreOptions,
   type KeybindingSnapshot,
-} from "./keybinding-override-types.js";
+} from "./override-types.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
   refuseCandidateChord,
   type KeybindingOverride,
   type KeybindingOverrideRefusal,
-} from "./keybinding-overrides.js";
+} from "./overrides.js";
 
 /** The one latch key hydration is taken under; a rebinding supersedes every key. */
 const HYDRATION_KEY = "hydrate";

@@ -25,7 +25,7 @@ import {
   renderControl,
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — what a send reports", () => {
   afterEach(cleanup);

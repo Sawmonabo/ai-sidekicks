@@ -1,13 +1,13 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure. Everything here is scoped to one manifest, and no element can hold a payload.
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire/figures.js";
-import { type ArtifactManifestRow } from "../artifact-model.js";
-import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity, formatRelativeTime } from "#renderer/lib/wire/figures.js";
+import { type ArtifactManifestRow } from "../model.js";
+import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../copy.js";
 
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {

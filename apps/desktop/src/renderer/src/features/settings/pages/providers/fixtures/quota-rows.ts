@@ -14,7 +14,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/account";
 
 import type { ProviderAccountReadout } from "../provider-account-readout.js";
-import { MILLISECONDS_PER_DAY, parseInstant } from "@renderer/lib/instant.js";
+import { MILLISECONDS_PER_DAY, parseInstant } from "#renderer/lib/instant.js";
 
 /**
  * The current reading for one `(accountId, limitId)` pair, plus whether it is behind.

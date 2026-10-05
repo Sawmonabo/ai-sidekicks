@@ -3,9 +3,9 @@
 
 import { ipcRenderer, webUtils } from "electron";
 
-import { readAppFactsSwitches } from "@shared/app-facts.js";
-import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
-import { readLastUsedWindowIdSwitch } from "@shared/window/window-id.js";
+import { readAppFactsSwitches } from "#shared/app-facts.js";
+import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
+import { readLastUsedWindowIdSwitch } from "#shared/window/id.js";
 import {
   createStubBridge,
   type EditorEntry,
@@ -17,7 +17,7 @@ import {
   type OpenDialogPurpose,
   type OpenDialogResults,
   type PreloadApi,
-} from "@shared/preload-api.js";
+} from "#shared/preload-api.js";
 import { createDaemonWire, DaemonSubscriptions } from "./daemon-wire.js";
 import { createMachineSettingsBridge } from "./machine-settings-bridge.js";
 import { createWindowBridge } from "./window-bridge.js";

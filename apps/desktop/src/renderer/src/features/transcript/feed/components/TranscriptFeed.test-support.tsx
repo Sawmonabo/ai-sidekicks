@@ -5,17 +5,17 @@
 
 import { act, render } from "@testing-library/react";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/viewport-constants.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/constants.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
-import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
-import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
+import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
 import { registerTranscriptCommands } from "../../contributions/commands.js";
 import { TRANSCRIPT_OWNER } from "../../contributions/screens.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
 import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";

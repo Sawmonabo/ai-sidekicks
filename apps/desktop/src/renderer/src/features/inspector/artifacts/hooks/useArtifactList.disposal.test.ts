@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,
@@ -10,12 +10,12 @@ import {
   artifactOperations,
   readThrough,
   settleAct,
-} from "@test/helpers/artifact-list-readers.js";
+} from "#test/helpers/artifact-list-readers.js";
 import {
   artifactPayloadSubject,
   artifactPayloadTree,
   renderArtifactPayloadSection,
-} from "@test/helpers/render-artifact-payload-section.js";
+} from "#test/helpers/render-artifact-payload-section.js";
 
 beforeEach(() => {
   vi.useFakeTimers();

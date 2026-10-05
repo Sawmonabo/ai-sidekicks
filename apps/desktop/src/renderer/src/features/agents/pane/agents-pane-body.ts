@@ -7,13 +7,13 @@ import "../binding/components/axis-field.css";
 import { createElement } from "react";
 
 import { AgentsPane, AgentsPaneFrame } from "./AgentsPane.js";
-import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import {
   paneBodyForKind,
   type PaneContextOf,
-} from "@renderer/registries/panes/pane-body-for-kind.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import type { AgentsPaneCalls } from "../agent-reads.js";
+} from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import type { AgentsPaneCalls } from "../reads.js";
 
 /** The Agents pane body over the given reads. */
 export function agentsPaneBody(calls: AgentsPaneCalls): (context: PaneContext) => React.ReactNode {

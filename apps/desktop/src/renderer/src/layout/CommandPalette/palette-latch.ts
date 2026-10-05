@@ -5,12 +5,12 @@
 // stale (a command may be unregistered while its row is on screen), so the dispatch outcome is
 // read and turned into the app's refusal shape. The registry alone decides eligibility.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type {
   CommandInvocationOutcome,
   CommandRegistry,
-} from "@renderer/registries/commands/command-registry.js";
-import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
+} from "#renderer/registries/commands/command-registry.js";
+import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/when-clause.js";
 
 /**
  * The reading captured at the open transition. `wasOpen` records which side of the transition it

@@ -9,19 +9,19 @@
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import type { Clock } from "@renderer/lib/clock.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
-import { ProviderAccountDeliveries } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
-import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
-import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { openReopeningSubscription } from "@renderer/services/transport/reopening-subscription.js";
-import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
-import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
-import { ProviderAccountFold } from "@renderer/store/provider-accounts/provider-account-fold.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { Clock } from "#renderer/lib/clock.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
+import { ProviderAccountDeliveries } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
+import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
+import { ProviderAccountFold } from "#renderer/store/provider-accounts/provider-account-fold.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,

@@ -2,8 +2,8 @@
 // empty states, only one of which is "the registry holds none"; an empty picker would report an
 // unanswered registry as an answer of nothing. A refusal renders verbatim with a way to retry.
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the empty state shows, and how it asks for a fresh read. */

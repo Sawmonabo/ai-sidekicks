@@ -6,15 +6,15 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ClipboardContent } from "@shared/preload-api.js";
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
-import { sampleRunRow } from "@test/helpers/transcript-event-row-samples.js";
-import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
+import type { ClipboardContent } from "#shared/preload-api.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { MessageRow } from "../../rows/MessageRow.js";
-import { classifyTranscriptRow } from "../../rows/row-kind.js";
+import { classifyTranscriptRow } from "../../rows/kind.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/footnote-registry.js";
 import { useConversationCopy } from "./useConversationCopy.js";
 

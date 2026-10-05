@@ -1,7 +1,7 @@
 // What a mounted view is, and how a tier finds it, for every feature mount module.
 
 import { within } from "@testing-library/react";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedView {

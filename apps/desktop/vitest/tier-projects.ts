@@ -21,7 +21,6 @@ import {
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
-import { PATH_ALIASES } from "./path-aliases.js";
 
 /**
  * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
@@ -150,13 +149,11 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
 ];
 
 /**
- * The same tiers, each resolving `~icons/*` and the path aliases. Declared as a map so no tier can
- * forget one, which would fail at import with an unplaceable specifier only for the tiers that
- * reach it. Each tier gets a fresh plugin, since a Vite plugin instance belongs to the config that
- * installs it.
+ * The same tiers, each resolving `~icons/*`. Declared as a map so no tier can forget the plugin,
+ * which would fail at import with an unplaceable specifier only for the tiers that reach it. Each
+ * tier gets a fresh plugin, since a Vite plugin instance belongs to the config that installs it.
  */
 export const TIER_PROJECTS: readonly TestProjectConfiguration[] = TIERS.map((tier) => ({
   ...tier,
-  resolve: { ...tier.resolve, alias: PATH_ALIASES },
   plugins: [iconCompilationPlugin()],
 }));

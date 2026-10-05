@@ -21,7 +21,7 @@ import {
   type AppearanceChoice,
   type AppearanceGrounds,
   type AppearanceRecord,
-} from "@shared/appearance.js";
+} from "#shared/appearance.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { isMissingPath } from "../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync, writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";

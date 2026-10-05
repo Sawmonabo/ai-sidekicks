@@ -3,7 +3,7 @@
 // methods on a namespace that is not there.
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createStubBridge } from "@shared/preload-api.js";
+import { createStubBridge } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "./platform-bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";

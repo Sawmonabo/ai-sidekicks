@@ -4,10 +4,10 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";

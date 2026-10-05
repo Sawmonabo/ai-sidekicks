@@ -5,8 +5,8 @@
 // entries are names it will not send. The partition keeps each row's flat position.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
 import { createConsoleCommandExecutor } from "../console-command/executor.js";
@@ -19,7 +19,7 @@ import {
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
   type CommandListEntry,
-} from "../command-list-entries.js";
+} from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandReadState } from "../provider-command/read.js";
 import { EnumerationState } from "./EnumerationState.js";

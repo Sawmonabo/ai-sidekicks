@@ -8,7 +8,7 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 import remend from "remend";
 
-import { ByteBoundedCache } from "@renderer/lib/byte-bounded-cache.js";
+import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
 
 /**
  * Bytes of parsed-block cache retained across every card. Bounded in bytes, not entries,

@@ -1,4 +1,4 @@
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 import { type ExecutionModeRowReading } from "../execution-mode-rows.js";

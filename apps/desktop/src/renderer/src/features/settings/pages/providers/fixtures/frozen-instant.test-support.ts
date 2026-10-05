@@ -6,7 +6,7 @@
 // by a day or the runner's offset. The refusal is raised rather than defaulted: an instant
 // nobody could read is a broken fixture.
 
-import { parseInstant } from "@renderer/lib/instant.js";
+import { parseInstant } from "#renderer/lib/instant.js";
 
 /** Any wire stamp a case names, as epoch milliseconds, through the console's reader. */
 export function instantMilliseconds(iso: string): number {

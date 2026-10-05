@@ -1,7 +1,7 @@
 // The keystroke factory and handback builder every case in this seam drives, in one place so the
 // suites cannot drift on the field a case forgot to set.
 
-import type { ChordPlatform } from "@renderer/lib/chord-format.js";
+import type { ChordPlatform } from "#renderer/lib/chord-format.js";
 import { type ChordDescriptor } from "./chord/claim.js";
 import { KeyboardHandback } from "./keyboard-handback.js";
 

@@ -9,26 +9,26 @@ import { describe, expect, it } from "vitest";
 import {
   CommandContributionRegistry,
   contributedKeybindings,
-} from "@renderer/registries/commands/command-contributions.js";
-import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
+} from "#renderer/registries/commands/contributions.js";
+import { CommandRegistry } from "#renderer/registries/commands/command-registry.js";
 import {
   EntityProjectorRegistry,
   entityProjectorRegistry,
-} from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+} from "#renderer/registries/entity-projectors/entity-projector-registry.js";
 import {
   InlineCardRegistry,
   inlineCardRegistry,
-} from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { PaneRegistry, paneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { ScreenRegistry, screenRegistry } from "@renderer/registries/screens/screen-registry.js";
+} from "#renderer/registries/inline-cards/inline-card-registry.js";
+import { PaneRegistry, paneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, screenRegistry } from "#renderer/registries/screens/screen-registry.js";
 import {
   APPROVAL_FLOW_PROJECTOR_OWNER,
   APPROVAL_FLOW_PROJECTORS,
-} from "@renderer/store/session-events/approval-flow-projection.js";
+} from "#renderer/store/session-events/approval-flow-projection.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
-} from "@renderer/store/session-events/run/lifecycle-projector.js";
+} from "#renderer/store/session-events/run/lifecycle-projector.js";
 import { registerFeatureContributions } from "./registrations.js";
 
 /** Registries a case owns outright, with the command registry the contributions write into. */

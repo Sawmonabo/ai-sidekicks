@@ -5,11 +5,11 @@
 
 import { useMemo } from "react";
 
-import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
-import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import { APPROVAL_COMMAND_GROUP } from "@renderer/lib/approval-vocabulary.js";
+import { useRegisterCommands } from "#renderer/registries/commands/hooks/useRegisterCommands.js";
+import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { APPROVAL_COMMAND_GROUP } from "#renderer/lib/approval-vocabulary.js";
 import {
   APPROVAL_COMMAND_OWNER,
   approvalCommandRows,

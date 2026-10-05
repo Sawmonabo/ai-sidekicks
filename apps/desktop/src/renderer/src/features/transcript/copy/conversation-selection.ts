@@ -6,8 +6,8 @@
 
 import { toHtml } from "hast-util-to-html";
 
-import type { ClipboardContent } from "@shared/preload-api.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
+import type { ClipboardContent } from "#shared/preload-api.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { markdownToHtml, rebuildMarkdown } from "./clipboard-flavors.js";
 
 /** The attribute a message row's body carries, naming the flavor its selected part copies as. */

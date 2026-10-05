@@ -4,7 +4,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { useDaemonStartAction, type DaemonStartCall } from "./useDaemonStartAction.js";
 
 /** A start that records every press and answers as the case says. */

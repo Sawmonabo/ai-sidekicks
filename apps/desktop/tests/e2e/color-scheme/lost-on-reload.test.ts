@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { APPEARANCE_FILE_NAME } from "@main/appearance/record-file.js";
+import { APPEARANCE_FILE_NAME } from "#main/appearance/record-file.js";
 import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
 import { clickViewMenuScheme, readPageScheme } from "./color-scheme.js";
 import { openPalette } from "../../helpers/palette-interaction.js";

@@ -1,5 +1,5 @@
 // The `when` clause: the app's visibility language, its type and semantics. Syntax is in
-// `when-clause-parser.ts`, conflict detection in `when-clause-overlap.ts`, the memo in
+// `parser.ts`, conflict detection in `when-clause-overlap.ts`, the memo in
 // `when-clause-cache.ts`. The command registry and the keybinding table both call the one
 // evaluator, so a chord never fires a command the palette hides.
 //

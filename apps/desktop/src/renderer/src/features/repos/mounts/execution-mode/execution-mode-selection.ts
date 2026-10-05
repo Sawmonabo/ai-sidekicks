@@ -7,9 +7,9 @@
 // workspace's next switch is sent.
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { RepoMountsReading } from "../repo-mounts-model.js";
 import type { RepoOperations } from "../../repo-operations.js";
 

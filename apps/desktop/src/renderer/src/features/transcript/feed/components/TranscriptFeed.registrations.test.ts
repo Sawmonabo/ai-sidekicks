@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
+import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
 import {
   SHORT_LOG_EVENT_COUNT,
   contributeTranscriptCommands,

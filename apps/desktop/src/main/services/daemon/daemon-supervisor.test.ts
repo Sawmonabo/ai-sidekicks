@@ -34,7 +34,7 @@ import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/st
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DaemonConnection } from "@shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { DaemonLink } from "./daemon-link.js";
 import {

@@ -7,8 +7,8 @@
 
 import { useCallback, useMemo, type ReactNode } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
-import type { TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
+import { type Clock } from "#renderer/lib/clock.js";
+import type { TransportReconnectObservable } from "#renderer/lib/transport-reconnect.js";
 import {
   requestSessionDirectoryRead,
   type SessionDirectoryReadCall,

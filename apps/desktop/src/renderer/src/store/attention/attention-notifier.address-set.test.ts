@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "@renderer/lib/refusal/refusal.js";
+import { refuse } from "#renderer/lib/refusal/refusal.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { AttentionSummary, type AnsweredAttentionReading } from "./attention-summary.js";
 import { AttentionNotifier } from "./attention-notifier.js";

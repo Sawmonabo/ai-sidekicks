@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import type { DaemonOperations } from "./useDaemonStatus.js";
 
 /** Which of the two controls was pressed. Closed, because the page offers two. */

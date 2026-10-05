@@ -12,7 +12,7 @@
 // not session-event streams, but still `daemon.subscribe` names. The table and each row are frozen
 // because a mutation would re-route every subscription in the renderer.
 
-import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
+import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import { RUN_QUEUE_STREAM_CARRIED_KINDS, RUN_STATE_STREAM_CARRIED_KINDS } from "./stream-kinds.js";
 
 /** The subscription name for a session's whole event stream. */

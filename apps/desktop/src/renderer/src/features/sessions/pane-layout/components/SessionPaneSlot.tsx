@@ -6,18 +6,18 @@
 import { memo, useCallback, useMemo } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { type ReorderDrag } from "@renderer/lib/reorder-drag.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type ReorderDrag } from "#renderer/lib/reorder-drag.js";
 import {
   PaneControlsContext,
   type PaneControls,
-} from "@renderer/components/PaneFrame/pane-controls.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+} from "#renderer/components/PaneFrame/pane-controls.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { PaneBody } from "./PaneBody.js";
 import { PERMILLE_PER_PERCENT, type SessionPane } from "../pane-layout.js";
-import { type PaneLayoutDensity } from "../pane-layout-measures.js";
-import { minimumPaneWidthPx } from "../pane-layout-density.js";
+import { type PaneLayoutDensity } from "../measures.js";
+import { minimumPaneWidthPx } from "../density.js";
 
 /** What a pane slot is handed: the pane, its registry, its context resolver and its handlers. */
 export interface SessionPaneSlotProps {

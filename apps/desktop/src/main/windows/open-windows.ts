@@ -23,15 +23,15 @@ import type {
   WebContents,
 } from "electron";
 
-import type { AppearanceRecord } from "@shared/appearance.js";
+import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   APPEARANCE_VALUE_CHANNEL,
   FULLSCREEN_VALUE_CHANNEL,
   type FullscreenPush,
-} from "@shared/bridge-channels.js";
-import { consoleWindowId, isConsoleWindowId } from "@shared/window/frame-name.js";
-import { lastUsedWindowIdSwitch } from "@shared/window/window-id.js";
-import type { WindowDefaultSizes } from "@shared/window/window-size.js";
+} from "#shared/bridge-channels.js";
+import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
+import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
+import type { WindowDefaultSizes } from "#shared/window/window-size.js";
 
 import type { KeptAppearance } from "../appearance/kept-appearance.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
@@ -47,7 +47,7 @@ import {
   type RendererWindow,
   type WindowFrame,
 } from "./window.js";
-import { bringWindowForward } from "./window-reveal.js";
+import { bringWindowForward } from "./reveal.js";
 
 /** What the registry is built over. */
 export interface OpenWindowsOptions {

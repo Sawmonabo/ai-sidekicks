@@ -11,11 +11,11 @@
 
 import type { ReactNode } from "react";
 
-import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
-import { ScreenRegistry, type ScreenName } from "@renderer/registries/screens/screen-registry.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry, type ScreenName } from "#renderer/registries/screens/screen-registry.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
 
 /**
  * The body the pane layout holds for a kind, with its module already loaded.

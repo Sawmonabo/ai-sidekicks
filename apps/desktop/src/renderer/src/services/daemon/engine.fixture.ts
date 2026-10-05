@@ -8,12 +8,12 @@
 // delivers, is guarded here by the disposed flag. Attaching a sink needs no guard, since
 // `dispose()` clears the emitters.
 
-import { ManualClock, type Clock } from "@renderer/lib/clock.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { parseInstant } from "@renderer/lib/instant.js";
-import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import { ManualClock, type Clock } from "#renderer/lib/clock.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { parseInstant } from "#renderer/lib/instant.js";
+import { reportTripwire } from "#renderer/lib/tripwires/tripwires.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
   ScenarioDelivery,
@@ -21,7 +21,7 @@ import {
   type ScenarioSubscribeOptions,
 } from "./event/delivery.fixture.js";
 import type { ScenarioReply } from "./scenario/scenario-reply.fixture.js";
-import type { Scenario } from "@fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenario.js";
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one

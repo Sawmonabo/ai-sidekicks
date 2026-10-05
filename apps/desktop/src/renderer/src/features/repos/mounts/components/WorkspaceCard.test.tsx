@@ -5,12 +5,12 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 
-import { readBindControlAvailability } from "../mount-health.js";
+import { readBindControlAvailability } from "../health.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
 import { buildMount, workspaceRow as workspace } from "../repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";

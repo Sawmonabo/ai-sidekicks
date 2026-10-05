@@ -13,9 +13,9 @@ import {
   SYSTEM_SCHEME_PREFERENCE,
   type ColorScheme,
   type SchemePreference,
-} from "@shared/appearance.js";
-import type { OklchColor } from "@shared/color.js";
-import { resolveEmittedColor } from "@shared/color.js";
+} from "#shared/appearance.js";
+import type { OklchColor } from "#shared/color.js";
+import { resolveEmittedColor } from "#shared/color.js";
 import type { SchemePair } from "./palette.js";
 import {
   ANSI_TOKENS,
@@ -29,14 +29,14 @@ import {
   computeHueWheelAngle,
 } from "./palette.js";
 
-// The scheme vocabulary is declared in `@shared/appearance.ts`, which main and the renderer both
+// The scheme vocabulary is declared in `#shared/appearance.ts`, which main and the renderer both
 // read, and every app reader takes it from here.
 export {
   COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
   type ColorScheme,
   type SchemePreference,
-} from "@shared/appearance.js";
+} from "#shared/appearance.js";
 
 /**
  * Every preference value, derived from the scheme list, so a scheme added there is one a page can

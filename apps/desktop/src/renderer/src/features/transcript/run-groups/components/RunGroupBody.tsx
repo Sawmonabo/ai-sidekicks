@@ -6,12 +6,12 @@ import { useMemo, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {
   listClippedHeadRowIds,
   resolveRunGroupBodyHeight,
   type CssDeclarationSupportProbe,
-} from "../run-group-body.js";
+} from "../body.js";
 import { type RunGroup } from "../run-groups.js";
 
 /** The props of a run group body. */

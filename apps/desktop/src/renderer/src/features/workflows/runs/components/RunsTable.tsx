@@ -2,17 +2,17 @@ import { useCallback, useState } from "react";
 
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { Chip } from "@renderer/components/Chip/Chip.js";
-import { formatCount, formatDayClock, formatUnitDuration } from "@renderer/lib/wire/figures.js";
-import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
+import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/wire/figures.js";
+import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowAct, type WorkflowActState } from "../../hooks/useWorkflowAct.js";
-import { costWithPayer } from "../../run-cost.js";
-import { runDurationWords } from "../../run-duration.js";
+import { costWithPayer } from "../cost.js";
+import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
-import { isGoing } from "../../run-controls.js";
-import { TRIGGER_KIND_WORDS, startedByWords } from "../../workflow-words.js";
+import { isGoing } from "../controls.js";
+import { TRIGGER_KIND_WORDS, startedByWords } from "../../words.js";
 import { useInlineConfirm } from "../hooks/useInlineConfirm.js";
 import { useInViewMarks } from "../hooks/useInViewMarks.js";
 import { RunLiveDot } from "./RunLiveDot.js";

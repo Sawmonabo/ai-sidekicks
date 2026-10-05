@@ -4,7 +4,7 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
-import type { AttachmentIngestEntry } from "./attachment-shapes.js";
+import type { AttachmentIngestEntry } from "./shapes.js";
 
 /** What a case varies. Everything omitted takes the quiet default below. */
 export interface IngestEntryOptions {

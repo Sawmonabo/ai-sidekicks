@@ -5,7 +5,7 @@
 // with it. The payload is omitted rather than emptied when a caller supplies none, since a
 // projector reading `event.payload?.[member]` treats the two as different events.
 
-import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 
 /**
  * One admitted event of the given kind, numbered so a store's cursor moves.

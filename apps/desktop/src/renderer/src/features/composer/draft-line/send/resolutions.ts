@@ -5,7 +5,7 @@
 import type { InterventionRequestPayload } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { ComposerSendPath } from "../../composer-target.js";
 
 /** The new-turn arm: a message addressed to the session. */

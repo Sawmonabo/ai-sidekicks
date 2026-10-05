@@ -10,13 +10,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   accountPlaneCalls,
   PROVIDER_SIGN_IN_ATTEMPT,
   type AccountPlaneCalls,
 } from "./account-plane-bridge.test-support.js";
-import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
+import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
 import { startProviderSignIn } from "./provider-sign-in-flow.js";
 import {
   ProviderSignInFlowTracker,

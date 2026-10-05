@@ -4,8 +4,8 @@
 
 import { Select } from "@base-ui/react/select";
 
-import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
-import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** The classes and children of the popup, and where it portals. */
 export interface OverlaySelectPopupProps {

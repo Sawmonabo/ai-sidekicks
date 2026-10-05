@@ -5,14 +5,14 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
-import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
+import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 
-import { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/session-store.js";
 import { queueFeedBridge } from "./queue-feed.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
-import type { QueueCalls } from "./queue-reading.js";
-import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { QueueCalls } from "./reading.js";
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initializedStore(): SessionStore {

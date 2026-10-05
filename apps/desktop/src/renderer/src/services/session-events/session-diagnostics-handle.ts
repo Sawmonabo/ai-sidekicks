@@ -2,7 +2,7 @@
 // from its own state and hands it to the window's registry hook, which gives it to the fixture
 // composition to put on the page; no module below `app/` writes the page.
 
-import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 
 /**
  * What a fixture build exposes to the endurance tier: four reads, no writes and no handles, so a

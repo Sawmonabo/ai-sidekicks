@@ -12,10 +12,10 @@ import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
 } from "@ai-sidekicks/contracts/provider/import";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
-import { Emitter } from "@renderer/lib/emitter.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
+import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
+import { Emitter } from "#renderer/lib/emitter.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** A start the service answered: the provider it named, and the import now running for it. */
 export type StartedImport = ProviderImportProviderRequest & ProviderImportStartResponse;

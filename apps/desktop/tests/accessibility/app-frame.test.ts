@@ -13,9 +13,9 @@ import {
   runTierAxe,
 } from "./axe-run.js";
 
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../fixtures/scenarios/first-run.js";
-import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
+import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
 
 beforeEach(() => {
   document.location.hash = "";

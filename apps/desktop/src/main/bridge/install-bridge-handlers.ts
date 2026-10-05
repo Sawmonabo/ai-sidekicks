@@ -19,9 +19,9 @@ import {
   BRIDGE_CHANNELS,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
   type InvokedBridgeChannel,
-} from "@shared/bridge-channels.js";
-import type { DaemonSubscriptionOpening } from "@shared/daemon/forwarding.js";
-import type { OpenDialogPurpose, OpenDialogResults } from "@shared/preload-api.js";
+} from "#shared/bridge-channels.js";
+import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
+import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 import type { DaemonSupervisor } from "../services/daemon/daemon-supervisor.js";

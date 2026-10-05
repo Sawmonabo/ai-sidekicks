@@ -12,7 +12,7 @@ import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
   type IdleWarmScheduler,
-} from "@renderer/components/LazyBody/lazy-body-warm.js";
+} from "#renderer/components/LazyBody/lazy-body-warm.js";
 import { type SettingsPageRegistry } from "../settings-pages.js";
 
 /**

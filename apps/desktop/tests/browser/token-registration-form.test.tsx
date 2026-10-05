@@ -14,8 +14,8 @@ import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { TokenRegistrationForm } from "@renderer/features/settings/pages/providers/fixtures/components/Token/TokenRegistrationForm.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { TokenRegistrationForm } from "#renderer/features/settings/pages/providers/fixtures/components/Token/TokenRegistrationForm.js";
 
 /** A secret no fixture, scenario, or component copy could produce by accident. */
 const TYPED_TOKEN = "zzq-never-echoed-token-8213";

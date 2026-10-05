@@ -5,7 +5,7 @@
 
 import { useCallback, useState } from "react";
 
-import type { DraftStore } from "@renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/draft-store.js";
 import { SentMessageHistories, SentMessageHistory } from "../sent-message-history.js";
 import { caretAtEnd, caretAtStart, type DraftCaret } from "../draft-line.js";
 

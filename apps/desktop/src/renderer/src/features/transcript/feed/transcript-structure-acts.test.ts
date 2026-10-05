@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { emptyFindResult } from "../find/find-model.js";
+import { emptyFindResult } from "../find/model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
 import {
   buildTranscriptStructureActs,

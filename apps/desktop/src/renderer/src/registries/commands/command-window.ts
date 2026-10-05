@@ -2,7 +2,7 @@
 // palette row runs in the window a person is using, so a feature's mounted target is looked up
 // among that window's mounts at press time. The app publishes how to read that window here.
 
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /** Publishes how to read the document of the window used last; only the app calls it. */
 export function publishCommandWindow(readDocument: () => Document | undefined): Unsubscribe {

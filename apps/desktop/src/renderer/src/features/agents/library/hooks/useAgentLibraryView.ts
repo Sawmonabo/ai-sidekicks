@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
-import {
-  AgentLibraryView,
-  type AgentRegistryCalls,
-  type AgentLibrarySnapshot,
-} from "../library-view.js";
+import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
+import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
+import { AgentLibraryView, type AgentRegistryCalls, type AgentLibrarySnapshot } from "../view.js";
 
 /**
  * Build the library view and let it read. Built in a memo and started in an effect, so a memo

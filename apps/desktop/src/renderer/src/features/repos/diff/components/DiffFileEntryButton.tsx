@@ -1,6 +1,6 @@
-import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { type WindowedRowTargetProps } from "@renderer/components/WindowedListRow/WindowedListRow.js";
-import { type DiffFileListEntry } from "../diff-file-entries.js";
+import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
+import { type WindowedRowTargetProps } from "#renderer/components/WindowedListRow/WindowedListRow.js";
+import { type DiffFileListEntry } from "../file-entries.js";
 
 /** What one file-list row's control is drawn from, plus the row's target props. */
 export type DiffFileEntryButtonProps = {

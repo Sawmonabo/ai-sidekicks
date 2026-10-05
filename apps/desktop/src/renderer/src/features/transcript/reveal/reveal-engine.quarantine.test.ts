@@ -4,14 +4,14 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire/errors.js";
-import { ManualClock } from "@renderer/lib/clock.js";
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "./reveal-caps.js";
+import { UNREPRESENTABLE_VALUE_TEXT } from "#renderer/lib/wire/errors.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "./caps.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { RevealTextRope } from "./reveal-text-rope.js";
-import type { RevealDiagnostic } from "./reveal-model.js";
+import type { RevealDiagnostic } from "./model.js";
 
 /** One engine on the test's own clock, as the sibling suite builds one. */
 function engineOn(clock: ManualClock): RevealEngine {

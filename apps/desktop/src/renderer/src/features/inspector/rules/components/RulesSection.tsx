@@ -3,9 +3,9 @@
 
 import type { RememberedRule } from "@ai-sidekicks/contracts/approval";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RememberedRules } from "./RememberedRules.js";
-import { type ReadPhase } from "@renderer/lib/reads/read-phase.js";
+import { type ReadPhase } from "#renderer/lib/reads/read-phase.js";
 
 /**
  * One standing-permission list, rendered for the phase its read is in.

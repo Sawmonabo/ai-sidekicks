@@ -8,7 +8,7 @@ import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 
-import { type GlyphName } from "@renderer/styles/glyphs.js";
+import { type GlyphName } from "#renderer/styles/glyphs.js";
 
 /**
  * Every system message the transcript draws. Closed; `SystemMessageKind` derives from this tuple

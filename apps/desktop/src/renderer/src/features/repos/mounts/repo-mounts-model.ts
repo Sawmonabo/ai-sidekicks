@@ -10,7 +10,7 @@ import type {
 } from "@ai-sidekicks/contracts/workspace";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 
-import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];

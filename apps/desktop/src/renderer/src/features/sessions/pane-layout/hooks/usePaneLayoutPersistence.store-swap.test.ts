@@ -7,8 +7,8 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,
   SESSION_ID,

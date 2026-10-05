@@ -2,9 +2,9 @@
 
 import { useMemo } from "react";
 
-import type { ComposerCommandLine } from "@renderer/features/composer/types.js";
+import type { ComposerCommandLine } from "#renderer/features/composer/types.js";
 import type { ComposerCommandLineHandlers } from "../../composer-command-line-handlers.js";
-import { WORKFLOW_COMMAND_ROOT } from "../workflow-command-grammar.js";
+import { WORKFLOW_COMMAND_ROOT } from "../grammar.js";
 import { startWorkflowFromLine, type WorkflowStartInput } from "../start-workflow-from-line.js";
 
 /**

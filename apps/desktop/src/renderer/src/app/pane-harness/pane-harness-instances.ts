@@ -2,10 +2,10 @@
 // the context its body reads. Both are testable without a DOM. It takes a `PaneDescriptor` and
 // never a pane component, so the harness measures what the pane layout would mount.
 
-import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
-import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
-import type { PaneDescriptor } from "@renderer/registries/panes/pane-registry.js";
-import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import type { PaneAddress } from "#renderer/routing/panes/pane-address.js";
+import type { PaneContext } from "#renderer/registries/panes/pane-context.js";
+import type { PaneDescriptor } from "#renderer/registries/panes/pane-registry.js";
+import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
 export interface PaneHarnessInstance {

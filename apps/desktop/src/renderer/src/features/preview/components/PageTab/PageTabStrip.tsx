@@ -9,9 +9,9 @@ import { useMemo } from "react";
 
 import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
 
-import { Glyph } from "@renderer/components/Glyph/Glyph.js";
-import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";
-import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
+import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
+import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { PageTabIcon } from "./PageTabIcon.js";
 import { activePageOf, pagesOf, type PageListReading } from "../../page-list-reading.js";
 

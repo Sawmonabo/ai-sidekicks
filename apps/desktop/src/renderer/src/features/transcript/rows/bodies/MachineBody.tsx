@@ -5,7 +5,7 @@
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
 import { withoutResidualEscapes } from "../ansi/escape-sequences.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";

@@ -11,13 +11,13 @@
 
 import type { ReactNode } from "react";
 
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { MainProcessState } from "@shared/daemon/daemon-status-topic.js";
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
   describeDaemonConnection,
-} from "@renderer/store/window/main-process-state.js";
+} from "#renderer/store/window/main-process-state.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
 import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";

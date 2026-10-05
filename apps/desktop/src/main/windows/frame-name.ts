@@ -1,10 +1,10 @@
 // The key a window's place is kept under, read off the frame name the hidden console document's
-// `window.open` carries, which is the window's id (`@shared/window/frame-name.ts`). A window of
+// `window.open` carries, which is the window's id (`#shared/window/frame-name.ts`). A window of
 // session views keeps its place under its own id; a pane in a window of its own,
 // `pane/<pane kind>/<session id>`, keeps it per pane kind, so the next pane of that kind opens
 // where the last one was. Any other name is not a window main builds.
 
-import { FRAME_NAME_IDENTIFIER, isConsoleWindowId } from "@shared/window/frame-name.js";
+import { FRAME_NAME_IDENTIFIER, isConsoleWindowId } from "#shared/window/frame-name.js";
 
 const PANE_WINDOW_ID = new RegExp(`^pane/(${FRAME_NAME_IDENTIFIER})/${FRAME_NAME_IDENTIFIER}$`);
 

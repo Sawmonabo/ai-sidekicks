@@ -16,7 +16,7 @@ import type {
   AppearanceRecord,
   ColorScheme,
   SchemePreference,
-} from "@shared/appearance.js";
+} from "#shared/appearance.js";
 
 import type { AppearanceRecordFile } from "./record-file.js";
 

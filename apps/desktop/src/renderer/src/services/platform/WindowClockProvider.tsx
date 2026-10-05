@@ -5,7 +5,7 @@
 
 import { useContext, useMemo, type ReactNode } from "react";
 
-import type { FrameScheduling } from "@renderer/lib/clock.js";
+import type { FrameScheduling } from "#renderer/lib/clock.js";
 import { BridgeContext, type BridgeResolution } from "./bridge-context.js";
 
 /** The props of {@link WindowClockProvider}. */

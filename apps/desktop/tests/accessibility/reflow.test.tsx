@@ -23,19 +23,19 @@ import {
   restoreTesterViewport,
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { installMeridianTokens } from "@renderer/app/token-installation.js";
-import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
-import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
-import { formatRoute } from "@renderer/routing/routes.js";
+import { installMeridianTokens } from "#renderer/app/token-installation.js";
+import { routeForDestination } from "#renderer/layout/NavigationRail/rail-navigation.js";
+import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
+import { formatRoute } from "#renderer/routing/routes.js";
 // Imported for its side effect: it reaches the flyout that imports the sessions stylesheet
 // the row case below measures.
-import "@renderer/features/sessions/contributions/screens.js";
-import { SessionRow } from "@renderer/features/sessions/components/SessionRow.js";
+import "#renderer/features/sessions/contributions/screens.js";
+import { SessionRow } from "#renderer/features/sessions/components/SessionRow.js";
 // Imported for its side effect: the lazily-loaded settings chunk root imports the settings
 // stylesheets the settings-page cases measure.
-import "@renderer/features/settings/settings-screen-body.js";
-import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
-import { REFLOW_MIN_WIDTH_PX } from "@renderer/styles/palette.js";
+import "#renderer/features/settings/settings-screen-body.js";
+import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
+import { REFLOW_MIN_WIDTH_PX } from "#renderer/styles/palette.js";
 
 /**
  * A wire identifier with no break opportunity anywhere in it. A UUID's hyphens are break

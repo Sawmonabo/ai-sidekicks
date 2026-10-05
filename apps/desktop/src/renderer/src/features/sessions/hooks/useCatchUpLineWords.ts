@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { type Clock } from "@renderer/lib/clock.js";
+import { type Clock } from "#renderer/lib/clock.js";
 
 /**
  * How long the window has to be behind before the catching-up line appears, and how long

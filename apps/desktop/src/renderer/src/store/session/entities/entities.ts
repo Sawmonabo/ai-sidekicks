@@ -7,7 +7,7 @@
 //     cannot heal.
 //   - Projections never persist. `persistence/` holds UI state only, and every entity here is
 //     re-derived from the daemon on reconnect.
-import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
+import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
 
 /**
  * The base every stored entity carries: identity and the wire-verbatim fields every view reads.

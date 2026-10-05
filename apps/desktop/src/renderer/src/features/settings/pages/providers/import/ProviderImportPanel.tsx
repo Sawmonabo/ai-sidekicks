@@ -19,7 +19,7 @@ import {
   type ProviderName,
 } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import type { ProviderImportModel } from "./useProviderImport.js";
 

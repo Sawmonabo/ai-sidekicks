@@ -3,8 +3,8 @@
 // region reads (the pane's `kind` and `sessionStore`), and building a bridge and stores to reach
 // those would be a fixture proving the fixture.
 
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type LazyBodyModule } from "#renderer/components/LazyBody/lazy-body.js";
 
 /** A pane context carrying only what a loader-form case and its fallback reach. */
 export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {

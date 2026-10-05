@@ -2,10 +2,10 @@
 // module so "address or refusal" is a named predicate instead of a condition inside
 // `SessionPaneSlot`'s ternary chain.
 
-import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { type Refusal } from "@renderer/lib/refusal/refusal.js";
-import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
-import { type PaneDescriptor } from "@renderer/registries/panes/pane-registry.js";
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { type PaneDescriptor } from "#renderer/registries/panes/pane-registry.js";
 
 /** The registered body, or the refusal that says why this pane has no address. */
 export function PaneBody(props: {

@@ -1,19 +1,19 @@
 // What the transcript window is showing, read from the renderer rather than counted off the
-// page. Separate from `endurance-workload.ts`, which owns the acts this tier performs on a
+// page. Separate from `workload.ts`, which owns the acts this tier performs on a
 // running app; this owns one question and the care it takes to ask it: which element is a
 // row, how long to wait for one, and what to do when the wait expires.
 
 import type { AppUnderTest } from "../../helpers/electron/harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "@renderer/app/fixture/global-names.js";
-import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
-import { type TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import type { SessionDiagnostics } from "#renderer/services/session-events/session-diagnostics-handle.js";
+import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 
 /**
  * One transcript row box: the element the window mounts, not the card drawn inside it.
  *
  * `meridian-transcript-viewport__row` is the absolutely positioned box the virtualizer places,
- * one per mounted virtual item. The selector in `endurance-workload.ts` matches
+ * one per mounted virtual item. The selector in `workload.ts` matches
  * `TranscriptRowLayout`, a primitive a row body may or may not use, so waiting on it would
  * count a fact about the card vocabulary rather than the window.
  */

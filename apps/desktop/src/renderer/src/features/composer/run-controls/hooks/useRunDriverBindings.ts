@@ -7,9 +7,9 @@ import { foldRunDriverBindings } from "../run-driver-bindings.js";
 import {
   useSessionPartition,
   useSessionStore,
-} from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { selectTranscript } from "@renderer/store/session/session-selectors.js";
+} from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { selectTranscript } from "#renderer/store/session/selectors.js";
 
 /**
  * One session's run-to-driver bindings, as its store currently has them. Folded once per
