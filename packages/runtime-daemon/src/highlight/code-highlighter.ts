@@ -54,8 +54,8 @@ const GRAMMAR_LOADERS: Readonly<Record<HighlightLanguage, GrammarLoader>> = {
 const TOKENIZE_SLICE_LENGTH = 1024;
 
 /**
- * Lines longer than this are left plain rather than tokenized (VS Code's default for the same
- * limit); a minified line is the case it exists for. A length bounds a line's work instead of a
+ * Lines longer than this are left plain rather than tokenized; a minified line is the case it
+ * exists for. A length bounds a line's work instead of a
  * clock because shiki's default cuts a line off after 500 ms, so a busy machine would color the
  * same source differently and the cache would keep the half-colored copy.
  */

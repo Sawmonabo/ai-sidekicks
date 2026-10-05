@@ -1,9 +1,8 @@
 // Where a window with no kept place opens. It is as wide as the renderer says its content needs
-// and as tall as the work area less one cascade step above and below, never past the work area. The first one opens
-// centered on the display; every further one cascades off the window used before it, a step down
-// and to the right, past any open window whose corner it would share, so a new window never lands
-// exactly over another. The step and the shared-corner check follow the cascade VS Code applies to
-// a new window (`windowsStateHandler.ts`).
+// and as tall as the work area less one cascade step above and below, never past the work area.
+// The first one opens centered on the display; every further one cascades off the window used
+// before it, a step down and to the right, past any open window whose corner it would share, so a
+// new window never lands exactly over another.
 
 import type { Rectangle } from "electron";
 
