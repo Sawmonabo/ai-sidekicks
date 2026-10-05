@@ -37,7 +37,7 @@ export interface AccountAxisFieldProps {
   readonly inheritedValue: string | undefined;
   /** Marks the field as carrying a caller edit over a definition's value. */
   readonly isOverridden: boolean;
-  /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 

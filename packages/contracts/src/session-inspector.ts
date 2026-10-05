@@ -312,8 +312,6 @@ export interface SessionInspectorMethodDescriptors {
 
 /**
  * The inspector methods' wire contract: name, procedure type and schemas.
- *
- * @consumedBy the daemon's session inspector handlers
  */
 export const SESSION_INSPECTOR_METHOD_DESCRIPTORS: SessionInspectorMethodDescriptors =
   defineMethodDescriptors({

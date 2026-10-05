@@ -33,6 +33,7 @@ function open(): OpenedReader {
     label: "prerequisite reader read round reading",
     clock,
     sessionStore: new SessionStore({ sessionId: "session-under-test" }),
+    ownerWindow: window,
     triggeringEventKinds: TRIGGERING_KINDS,
     // Captures the signal instead of consuming it, so a case can check what ended the read.
     readPrerequisite: async (question: string, signal: AbortSignal) => {

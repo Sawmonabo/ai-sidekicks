@@ -30,6 +30,8 @@ export interface FrameChromeProps {
   readonly overlays?: React.ReactNode;
   /** True while a modal overlay owns focus; the frame's background is `inert` meanwhile. */
   readonly modalOverlayOpen?: boolean;
+  /** One line about the window itself, drawn above the banners. */
+  readonly notice?: React.ReactNode;
 }
 
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
@@ -44,6 +46,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           onSelect={props.onSelectDestination}
         />
         <div className="meridian-frame__column">
+          {props.notice}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
               {props.banners.map((banner) => (

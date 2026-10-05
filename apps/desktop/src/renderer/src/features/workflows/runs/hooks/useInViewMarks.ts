@@ -1,3 +1,4 @@
+import { getWindow, isHTMLElement } from "@floating-ui/utils/dom";
 import { useEffect, useState } from "react";
 
 /**
@@ -16,7 +17,11 @@ export function useInViewMarks(): (element: HTMLElement | null) => (() => void) 
   return marks.mark;
 }
 
-/** One intersection observer for many elements, made on the first element and closed with it. */
+/**
+ * One intersection observer for many elements, made on the first element and closed with it. Made
+ * in that element's own window, since an observer measures against the viewport of the window it
+ * was made in.
+ */
 class InViewMarks {
   #observer: IntersectionObserver | undefined;
 
@@ -25,9 +30,10 @@ class InViewMarks {
     if (element === null) {
       return undefined;
     }
-    this.#observer ??= new IntersectionObserver((entries) => {
+    const ObserverConstructor = getWindow(element).IntersectionObserver;
+    this.#observer ??= new ObserverConstructor((entries) => {
       for (const entry of entries) {
-        if (entry.target instanceof HTMLElement) {
+        if (isHTMLElement(entry.target)) {
           entry.target.dataset["inView"] = String(entry.isIntersecting);
         }
       }

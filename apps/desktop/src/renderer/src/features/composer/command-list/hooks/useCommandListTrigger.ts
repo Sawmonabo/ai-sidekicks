@@ -53,7 +53,11 @@ export function useCommandListTrigger(
     setDismissedAtText(readLineText());
     // Focus follows the closed list: otherwise it drops to the body and a keyboard reader has
     // nowhere.
-    if (line !== null && element !== null && element.contains(document.activeElement)) {
+    if (
+      line !== null &&
+      element !== null &&
+      element.contains(element.ownerDocument.activeElement)
+    ) {
       line.focus();
     }
   }, [region, readLineText]);

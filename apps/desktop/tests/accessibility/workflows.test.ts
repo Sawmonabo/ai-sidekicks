@@ -1,5 +1,5 @@
 // The accessibility tier over every view the workflows feature registers, each scoped to
-// itself so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
+// itself so a violation names the view that owns it, in both schemes for `app-frame.test.ts`'s
 // reason. `registerWorkflowScreens` claims one rail destination, audited on the Runs tab and on
 // one run's page, and `registerWorkflowPanes` the builder pane.
 //

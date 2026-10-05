@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+
 import type {
   WorkflowCommandPress,
   WorkflowCommandRole,
@@ -19,12 +21,13 @@ export function useWorkflowCommandTarget(
   role: WorkflowCommandRole = "control",
   isOffered = true,
 ): void {
+  const ownerDocument = useOwnerWindow().document;
   const pressRef = useRef(press);
   useEffect(() => {
     pressRef.current = press;
   });
   useEffect(
-    () => (isOffered ? act.adopt(() => pressRef.current(), role) : undefined),
-    [act, role, isOffered],
+    () => (isOffered ? act.adopt(() => pressRef.current(), ownerDocument, role) : undefined),
+    [act, ownerDocument, role, isOffered],
   );
 }

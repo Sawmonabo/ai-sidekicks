@@ -1,106 +1,155 @@
-// The window: the stores it keeps, the bindings that keep them live, and the `AppShell` around
-// the routed screen. It runs only with a resolved bridge, because `AppBootstrap` gates it.
+// One window a person sees: its frame store, the bindings that keep it live, and the `AppShell`
+// around the routed screen, drawn into the window's own document through a portal from the console
+// document's tree. Everything below reads the window it is in from `OwnerWindowContext`, and runs
+// its frame work on that window's own paint through `WindowClockProvider`.
 
-import { useRef } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
-import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { OwnerWindowContext } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { railDestinationFor } from "@renderer/routing/route-readers.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
-import { parseRoute } from "@renderer/routing/routes.js";
-import { DraftStore } from "@renderer/store/draft-store.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
-import { WindowStore } from "@renderer/store/window/window-store.js";
-import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
+import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { WindowClockProvider } from "@renderer/services/platform/WindowClockProvider.js";
+import type { AppearanceClient } from "@renderer/services/window/appearance-client.js";
+import type { OpenWindow } from "@renderer/services/window/open-windows.js";
+import { type DraftStore } from "@renderer/store/draft-store.js";
+import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
+import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
+import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
+import { type WindowStore } from "@renderer/store/window/window-store.js";
+import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { AppShell } from "@renderer/layout/AppShell/AppShell.js";
+import { RAIL_ENTRY_TEMPLATES } from "@renderer/layout/NavigationRail/NavigationRail.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
-import { useAppearance } from "./hooks/useAppearance.js";
+import { discloseUnkeptScheme } from "./hooks/useAppearance.js";
 import { useDaemonStatusReport } from "./hooks/useDaemonStatusReport.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
-import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
-import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
-import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
 import { AppRouter } from "./AppRouter.js";
+import { windowMountPoint } from "./window-document.js";
 
-/** What the bootstrap hands the window once the bridge has resolved. */
+/** The stores every window shares, which the app keeps for as long as it runs. */
+export interface AppStores {
+  readonly sessionStoreRegistry: SessionStoreRegistry;
+  readonly uiStateStore: UiStateStore;
+  readonly draftStore: DraftStore;
+}
+
+/** What the app hands one window. */
 export interface AppWindowProps {
+  readonly openWindow: OpenWindow;
+  /** This window's frame store, which the app keeps so its commands can act on it. */
+  readonly frameStore: WindowStore;
   readonly bridge: PlatformBridge;
-  /** The call that reads one session's base state, handed to the session registry. */
-  readonly readSession: SessionBaseStateReader;
+  readonly appStores: AppStores;
+  readonly appearance: AppearanceClient;
+  /** The app's command revision, bumped when the command set changed. */
+  readonly commandRevision: number;
+  /** The app's own name, the title of a window whose route names nothing more particular. */
+  readonly appTitle: string;
+  /** One line about the window itself, drawn above its banners. */
+  readonly notice?: ReactNode;
+}
+
+/** One window: its stores and bindings and its `AppShell`, drawn in its own document. */
+export function AppWindow(props: AppWindowProps): React.JSX.Element {
+  const ownerWindow = props.openWindow.window;
+  return createPortal(
+    <OwnerWindowContext.Provider value={ownerWindow}>
+      <WindowClockProvider frames={ownerWindow}>
+        <WindowContents {...props} />
+      </WindowClockProvider>
+    </OwnerWindowContext.Provider>,
+    windowMountPoint(ownerWindow.document),
+    props.openWindow.windowId,
+  );
 }
 
 /**
- * The window: its stores and bindings, and the `AppShell` around the screen the route names.
- *
- * Refs hold the window and draft stores because a memo may be recomputed and a recreated store
- * would drop every event applied so far; the registry and UI-state stores own resources
- * (subscriptions, a database connection), so hooks hold them for teardown. The window store
- * starts on the opening hash, or it would publish its default route over that address. The
- * palette follows the retained session, so session commands stay offered from Settings.
+ * The window's bindings and chrome. The palette follows the retained session, so session commands
+ * stay offered from Settings.
  */
-export function AppWindow(props: AppWindowProps): React.JSX.Element {
-  // Read first: the window store starts on it.
-  const hash = useLocationHash();
-
-  const frameStoreRef = useRef<WindowStore>(undefined);
-  frameStoreRef.current ??= new WindowStore({ initialRoute: parseRoute(hash) });
-  const frameStore = frameStoreRef.current;
-
-  // Opening the database connection returns at once, so first paint waits on no storage.
-  const uiStateStore = useUiStateStore();
-
-  // A draft store owns only its own memory, so a ref suffices.
-  const draftStoreRef = useRef<DraftStore>(undefined);
-  draftStoreRef.current ??= new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
-  const draftStore = draftStoreRef.current;
-
-  const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
+function WindowContents(props: AppWindowProps): React.JSX.Element {
+  const { frameStore, bridge, appStores, appearance } = props;
+  const ownerWindow = props.openWindow.window;
+  const hash = useLocationHash(ownerWindow);
 
   const route = useWindowStore(frameStore, (state) => state.route);
   const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
-  // Main keeps the appearance; the window applies what main kept and asks main for a change.
-  const { chooseScheme, chooseNextScheme } = useAppearance(props.bridge, frameStore);
 
-  useHashRouteBinding(frameStore, hash);
+  useHashRouteBinding(frameStore, hash, ownerWindow);
 
-  useDaemonStatusReport(props.bridge, frameStore);
-
-  useLazyBodyIdleWarm(paneRegistry, screenRegistry);
+  useDaemonStatusReport(bridge, frameStore);
 
   // Focus triggers a refresh; nothing polls.
-  useWindowFocusRefresh(frameStore, sessionStoreRegistry);
+  useWindowFocusRefresh(frameStore, appStores.sessionStoreRegistry, ownerWindow);
+
+  useWindowTitle(ownerWindow, route, props.appTitle);
 
   const palette = useWindowCommands({
     route,
     lastOpenedSessionId,
-    windowStore: frameStore,
-    keyboardMap: props.bridge.keyboardMap,
-    chooseNextScheme,
-    screenRegistry,
+    ownerWindow,
+    revision: props.commandRevision,
   });
 
-  const sessionStore = useActiveSessionStore(sessionStoreRegistry, frameStore.activeSessionId);
+  const chooseScheme = useCallback(
+    (preference: SchemePreference) => {
+      discloseUnkeptScheme(appearance.chooseScheme(preference), frameStore);
+    },
+    [appearance, frameStore],
+  );
+
+  const sessionStore = useActiveSessionStore(
+    appStores.sessionStoreRegistry,
+    frameStore.activeSessionId,
+  );
 
   const screenContext: ScreenContext = {
     route,
-    bridge: props.bridge,
+    bridge,
     frameStore,
     sessionStore,
-    sessionStoreRegistry,
-    paneRegistry: paneRegistry,
-    uiStateStore,
-    draftStore,
+    sessionStoreRegistry: appStores.sessionStoreRegistry,
+    paneRegistry,
+    uiStateStore: appStores.uiStateStore,
+    draftStore: appStores.draftStore,
     chooseScheme,
   };
 
   return (
-    <AppShell frameStore={frameStore} screenRegistry={screenRegistry} palette={palette}>
+    <AppShell
+      frameStore={frameStore}
+      screenRegistry={screenRegistry}
+      palette={palette}
+      notice={props.notice}
+    >
       <AppRouter context={screenContext} />
     </AppShell>
   );
+}
+
+/**
+ * Title the window after what it shows: the session's id on a session's page, since no read gives
+ * a session's title yet, the destination's label elsewhere, and the app's name otherwise. Main
+ * mirrors it onto the native window, so it is what the Window menu lists.
+ */
+function useWindowTitle(ownerWindow: Window, route: AppRoute, appTitle: string): void {
+  useEffect(() => {
+    ownerWindow.document.title = windowTitleFor(route, appTitle);
+  }, [ownerWindow, route, appTitle]);
+}
+
+function windowTitleFor(route: AppRoute, appTitle: string): string {
+  if (route.kind === "session") {
+    return route.sessionId;
+  }
+  const destination = railDestinationFor(route);
+  return destination === undefined ? appTitle : RAIL_ENTRY_TEMPLATES[destination].label;
 }

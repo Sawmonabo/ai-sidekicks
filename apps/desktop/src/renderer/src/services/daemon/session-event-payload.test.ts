@@ -142,7 +142,8 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
     // The refusal is the event's; the frame's other changes are not lost with it.
     expect(reading?.events).toStrictEqual([]);
     expect(reading?.unreadableEventCount).toBe(1);
-    // A stream opened again resumes past the refused change too, so the daemon never sends it twice.
+    // A stream opened again resumes past the refused change too, so the daemon never sends it
+    // twice.
     expect(reading?.resumeCursor).toBe(CHANGE_CURSOR);
   });
 

@@ -16,6 +16,7 @@ import "./mcp-fixture-body.css";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -62,6 +63,7 @@ export function McpFixtureBody(props: {
   const mintKey = props.mintKey ?? mintIdempotencyKey;
   // The scenario's frozen clock under the fixture, the real one otherwise.
   const clock = useClock();
+  const ownerWindow = useOwnerWindow();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   // No key within the bridge: the binding is the key inside the map.
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
@@ -88,11 +90,11 @@ export function McpFixtureBody(props: {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");
     };
-    window.addEventListener("focus", onWindowFocus);
+    ownerWindow.addEventListener("focus", onWindowFocus);
     return () => {
-      window.removeEventListener("focus", onWindowFocus);
+      ownerWindow.removeEventListener("focus", onWindowFocus);
     };
-  }, [inventoryRead]);
+  }, [inventoryRead, ownerWindow]);
   // Its own effect: the focus listener is the window's and the reconnect subscription is the
   // transport's, and they release separately.
   useEffect(

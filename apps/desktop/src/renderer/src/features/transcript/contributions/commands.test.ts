@@ -1,7 +1,7 @@
 // What the transcript's palette commands do when run: each runs its own act, reaches the
 // transcript that is mounted, and says so when none is.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
@@ -13,6 +13,10 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import { createTranscriptCommands, registerTranscriptCommands } from "./commands.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
+import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
+
+// A command acts in the window used last; the test's document stands in for it.
+beforeEach(() => publishCommandWindow(() => document));
 
 /** The acts, each recording that it and only it fired. */
 function recordingActs(fired: string[]): TranscriptActs {
@@ -90,7 +94,7 @@ describe("transcript commands — the contribution reaches the palette and the k
     const fired: string[] = [];
     const transcript = new MountedTranscript();
     registerTranscriptCommands(commandContributionRegistry, transcript);
-    const release = transcript.adopt(recordingActs(fired));
+    const release = transcript.adopt(recordingActs(fired), document);
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
     release();

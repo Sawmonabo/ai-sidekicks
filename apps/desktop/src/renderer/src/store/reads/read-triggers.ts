@@ -67,14 +67,20 @@ export function isRepairEdge(
   return previousCause !== undefined && currentCause === undefined;
 }
 
-/** Ask `target` for a read each time the window regains focus. Returns the detach. */
-export function requestReadOnWindowFocus(target: ReadTriggerTarget): () => void {
+/**
+ * Ask `target` for a read each time `ownerWindow` regains focus. Returns the detach. The window is
+ * the one the reading is drawn in: the hidden page that runs the app never takes focus.
+ */
+export function requestReadOnWindowFocus(
+  target: ReadTriggerTarget,
+  ownerWindow: Window,
+): () => void {
   const onWindowFocus = (): void => {
     target.requestRead("window-focus");
   };
-  window.addEventListener("focus", onWindowFocus);
+  ownerWindow.addEventListener("focus", onWindowFocus);
   return () => {
-    window.removeEventListener("focus", onWindowFocus);
+    ownerWindow.removeEventListener("focus", onWindowFocus);
   };
 }
 

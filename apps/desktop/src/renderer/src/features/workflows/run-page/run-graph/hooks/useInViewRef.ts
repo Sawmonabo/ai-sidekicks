@@ -1,3 +1,4 @@
+import { getWindow } from "@floating-ui/utils/dom";
 import { useEffect, useRef } from "react";
 
 /**
@@ -16,7 +17,10 @@ export function useInViewRef(
     if (element === null) {
       return undefined;
     }
-    const observer = new IntersectionObserver((entries) => {
+    // The element's own window: an observer measures against the viewport of the window it was
+    // made in.
+    const ObserverConstructor = getWindow(element).IntersectionObserver;
+    const observer = new ObserverConstructor((entries) => {
       for (const entry of entries) {
         isInViewRef.current = entry.isIntersecting;
         element.dataset["inView"] = String(entry.isIntersecting);

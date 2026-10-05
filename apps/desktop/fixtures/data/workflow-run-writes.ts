@@ -1,12 +1,14 @@
 // The writes the playback has answered, applied over the fixture daemon's runs: approvals, forms
-// and questions answered, resumes, cancels, Keep, fix sessions, deletes, and the runs a start or a
-// retry mints. A run that was answered or acted on reads back that way on its next read, its
-// answered steps carrying the record of how and when.
+// and questions answered, resumes, cancels, Keep, fix sessions, deletes, and the runs a start, a
+// retry or a re-run mints. A run that was answered or acted on reads back that way on its next
+// read, its answered steps carrying the record of how and when.
 
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { RequestStampReader } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type {
   WorkflowRunId,
+  WorkflowRunMode,
   WorkflowStep,
   WorkflowStepResolutionKind,
   WorkflowTriggerKind,
@@ -62,6 +64,17 @@ export function runsBeforeBulkDeletes(answered: AnsweredRequests): readonly Work
       return mintedRun(mintedRunId("retry", index), source?.workflowVersionId ?? "", {
         mode: "retry",
         triggerKind: source?.triggerKind ?? "trigger.manual",
+      });
+    }),
+    ...answered("workflow.runRerun").map((call, index) => {
+      // A re-run runs its source's version again, in the mode and trigger kind it started on.
+      const source = WORKFLOW_RUN_RECORDS.find(
+        (run) => run.read.workflowRunId === readString(call, "workflowRunId"),
+      )?.read;
+      return mintedRun(mintedRunId("rerun", index), source?.workflowVersionId ?? "", {
+        mode: source?.mode ?? "manual",
+        triggerKind: source?.triggerKind ?? "trigger.manual",
+        ...(source === undefined ? {} : { sessionId: source.sessionId }),
       });
     }),
   ].reverse();
@@ -229,7 +242,12 @@ function canceled(run: WorkflowRunRecord): WorkflowRunRecord {
 function mintedRun(
   workflowRunId: WorkflowRunId,
   workflowVersionId: string,
-  started: { readonly mode: "manual" | "retry"; readonly triggerKind: WorkflowTriggerKind },
+  started: {
+    readonly mode: WorkflowRunMode;
+    readonly triggerKind: WorkflowTriggerKind;
+    /** The session the run lives in; the workflow's own unless the act names another. */
+    readonly sessionId?: SessionId;
+  },
 ): WorkflowRunRecord {
   const definition = WORKFLOW_DEFINITION_RECORDS.find((candidate) =>
     candidate.versions.some((version) => version.versionId === workflowVersionId),
@@ -241,7 +259,7 @@ function mintedRun(
     startedMinutesAgo: 0,
     read: {
       workflowRunId,
-      sessionId: WORKFLOW_OWN_SESSION,
+      sessionId: started.sessionId ?? WORKFLOW_OWN_SESSION,
       definitionId,
       workflowVersionId,
       state: "new",
@@ -280,9 +298,12 @@ export function isEnded(run: WorkflowRunRecord): boolean {
   );
 }
 
-/** The id the fixture daemon gives the run a start or a retry mints, by its order. */
-export function mintedRunId(kind: "start" | "retry", index: number): WorkflowRunId {
-  const stem = kind === "start" ? "6" : "7";
+/** The digit that tells apart the runs a start, a retry and a re-run mint. */
+const MINTED_RUN_STEMS = { start: "6", retry: "7", rerun: "8" } as const;
+
+/** The id the fixture daemon gives the run a start, a retry or a re-run mints, by its order. */
+export function mintedRunId(kind: keyof typeof MINTED_RUN_STEMS, index: number): WorkflowRunId {
+  const stem = MINTED_RUN_STEMS[kind];
   const serial = String(index).padStart(3, "0");
   return `019b7a30-0280-75e5-8510-ada11a5a${stem}${serial}` as WorkflowRunId;
 }

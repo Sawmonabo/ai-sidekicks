@@ -1,6 +1,6 @@
 // The readiness the accessibility and browser tiers wait on before reading a view that draws the
-// run's phase graph. The pre-fit transform named here is a fact about the graph library, so it is read
-// in one place rather than restated by each audit.
+// run's phase graph. The pre-fit transform named here is a fact about the graph library, so it is
+// read in one place rather than restated by each audit.
 //
 // The phase graph is a lazily-loaded chunk: it renders a loading placeholder at once, `import()`s
 // the renderer, and mounts the canvas when it arrives, so a mount helper's own wait does not wait

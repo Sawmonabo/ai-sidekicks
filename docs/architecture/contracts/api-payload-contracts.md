@@ -578,7 +578,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `run.intervene` {type: "interrupt"} | `Interrupt` the lead (Escape or the word): pending messages go as the next turn, and a live exchange ends on both sides | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.2, T2.4; [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) |
 | `run.pause` | `Pause` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.6, T3.3 |
 | `run.queueCancel` | Remove a pending message | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.3 |
-| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; the skills picked from the `/` list, each by its `SKILL.md` path; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1 |
+| `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; the skills picked from the `/` and `$` list, each by its name and folder; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1 |
 | `run.queueCreate` with an addressee member `to` | The person writes to another session with `@name` from the composer | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1, T2.1 |
 | `run.queueList` | The pending messages | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T1.1 |
 | `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-002](../../plans/002-queue-steer-pause-resume.md) T2.9 |
@@ -745,9 +745,10 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.runKeepSet` | Mark a run Keep, so deleting old runs leaves it | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runList` | List runs (table, count, latest run for `results <name>`) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.5 |
 | `workflow.runRead` | Read one run and its steps | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.22 |
+| `workflow.runRerun` | Re-run on a run's page: a new run of that run's own version with its input and mode | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.8 |
 | `workflow.runResume` | Resume a parked run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.21, T5.22 |
 | `workflow.runRetry` | Retry from a step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.8 |
-| `workflow.runStart` | Start a run: Run now in two places, Re-run, `/workflow run`, the inputs panel | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.9 |
+| `workflow.runStart` | Start a run: Run now in two places, `/workflow run`, the inputs panel | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.9 |
 | `workflow.runsDelete` | Delete runs older than a date; Keep runs and waiting runs are untouched | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runsDeletePreview` | Count what `Delete runs older than…` would remove, before it runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runsPauseSet` | Pause new runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.10 |
@@ -2675,7 +2676,7 @@ interface CommandWriteResponse {
 
 **Two records the flow folds.** A command's output arrives as `command.output` and streams into that command's own row as it prints; the row is the one home for the whole output, and the live view above it is a window onto the same rows rather than a second copy. A command settles as `command.ended`, carrying which of the three endings it was — it finished, it failed, or the person ended it — because a row that cannot say which of the three happened cannot be read. The taxonomy is [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
-**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process. On both providers its Skills group is the skills the daemon lists (`skill.list`), the skills off this provider grayed beside them; `skill.list` is the one inventory, and the provider's own enumeration only shows what it loaded and is never a second registry. On Claude Code the process's first frame, replaced whole by each `commands_changed` push, supplies only its own words that are not skills, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, the words are the console's own. A provider's own skill enumeration (Codex's `skills/list`) is read only for what it loaded, so a skill the provider failed to load stays listed and grayed with its load error, matched to its row by its `SKILL.md` path. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-003 above), over the daemon JSON-RPC transport only.
+**The live command list is `session.providerCommandsSubscribe`.** The `/` list a session offers is bound to the LIVE provider process. On both providers its Skills group is the skills the daemon lists (`skill.list`), a skill only the other provider can run left out, and the composer joins that list with the provider's half this subscription carries; `skill.list` is the one inventory, and the provider's own enumeration only shows what it loaded and is never a second registry. On Claude Code the process's first frame, replaced whole by each `commands_changed` push, supplies only its own words that are not skills, and a new process — a new session, a switch of provider or worktree at its boundary — brings a new frame and a new list; on Codex, whose wire parses no slash text, the words are the console's own. A provider's own skill enumeration (Codex's `skills/list`) is read only for what it loaded, so a skill the provider failed to load stays listed and grayed with its load error, which the daemon matches to its row and the composer draws as given. Each working tool server's prompts join it; Codex never asks a server for its prompts, so on a Codex session the daemon lists and reads them itself through its own MCP client, for every server it can reach. The subscription takes `ProviderCommandsSubscribeRequest` and emits `ProviderCommandsUpdate`, the whole list on every emission (§Plan-003 above), over the daemon JSON-RPC transport only.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
@@ -3210,16 +3211,16 @@ interface QueueItemCreateRequest {
   clientIdempotencyKey: string; // a UUID; a retried send returns the saved result
   content: string;
   attachments?: ArtifactId[]; // in staging order; how many a message carries is what the daemon and the provider accept
-  // Each skill the person picked from the composer's `/` list, in the order picked: the row's
-  // front-matter name and its `SKILL.md` path, both as `skill.list` gives them. The daemon writes the
+  // Each skill the person picked from the composer's `/` and `$` list, in the order picked: the row's
+  // front-matter name and its folder, both as `skill.list` gives them. The daemon writes the
   // provider's call form into the text either way; to a Codex agent each pick also travels in the
-  // turn's input as Codex's own skill item `{type: "skill", name, path}`, so of two Codex folders
-  // sharing one name the row picked is the one that runs. A Claude Code agent receives only the
-  // `/name` text. Absent when nothing was picked. The path crosses in from the client and reaches the
-  // provider as a file it loads, so the daemon accepts a pick only when its name and path match a row
-  // of this session's `skill.list`, and refuses the send otherwise (`skill.path_refused`,
-  // `not_listed`).
-  skills?: { name: string; path: string }[];
+  // turn's input as Codex's own skill item `{type: "skill", name, path}`, its `path` the `SKILL.md`
+  // file the daemon builds from the folder, so of two Codex folders sharing one name the row picked
+  // is the one that runs. A Claude Code agent receives only the `/name` text. Absent when nothing was
+  // picked. The folder crosses in from the client and reaches the provider as a file it loads, so the
+  // daemon accepts a pick only when its name and folder match a row of `skill.list`, and refuses the
+  // send otherwise (`skill.path_refused`, `not_listed`).
+  skills?: { name: string; folderPath: string }[];
   // An edit of a message still waiting, made in one call: the named item reads `superseded` and this
   // one takes its place in the order, so the edited message keeps its position. Refused once the agent
   // has taken the named message (`queue.change_refused`, `already_taken`). The daemon does the replacing
@@ -7042,9 +7043,9 @@ interface WorkflowRunStartRequest {
   workflowVersionId: string;
   // The session the run lives in. A start made from a chat names that chat's session, which is the
   // only session its progress row and its results row ever reach; a session that does not exist is
-  // refused `session.not_found`. A start from outside a chat — Run now from
-  // the Workflows screen or the builder, Re-run from a run's page — omits it, and the run lives in the
-  // one session the workflow owns, created on its first such run and reused by every later one.
+  // refused `session.not_found`. A start from outside a chat — Run now from the Workflows screen or
+  // the builder — omits it, and the run lives in the one session the workflow owns, created on its
+  // first such run and reused by every later one.
   sessionId?: SessionId;
   // The items the run starts on. A workflow declares the inputs it asks for on its trigger, each one
   // named, typed and carrying the value it starts on; the start affordance seeds a field per input and
@@ -7433,7 +7434,7 @@ interface WorkflowRunSummary {
   triggerKind: WorkflowTriggerKind; // the trigger column reads it
   startedBy: WorkflowStartedBy;
   startedAt: string;
-  durationMs?: number; // present exactly when the run is no longer `new`, `running` or `waiting`
+  durationMs?: number; // present once the run has ended; absent while it is `new`, `running` or `waiting` and on a `failed` run parked on its failed step
   stepCount: number;
   // Where the run is and what it is doing, present only while the run is going: the live step's place in
   // the run (1-based, never past `total`) and its name. It goes back to the finished step count when the
@@ -7519,6 +7520,16 @@ interface WorkflowRunRetryResponse {
   sourceWorkflowRunId: WorkflowRunId;
   state: "new" | "running";
 }
+
+// WorkflowRunRerun — workflow.runRerun. Re-run on a run's page: a NEW run of the named run's own pinned
+// version, with the input and the mode that run was started with, in the session that run lives in. The
+// daemon reads all three from the source run, so the request names only the run; the workflow's later
+// versions and current inputs play no part. It is the person's own start and passes no policy check, and
+// it is offered whatever state the source run is in. The answer is a start's answer.
+interface WorkflowRunRerunRequest {
+  workflowRunId: WorkflowRunId; // the run to re-run
+}
+// → WorkflowRunStartResponse, naming the new run
 
 // WorkflowNodeExecute — workflow.nodeExecute. Executes one node in the builder against pinned or prior
 // input. Run-this-node is the single-node case and run-from-here is the same call with the ancestors
@@ -8138,6 +8149,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.versionChainRead` | `query` | `WorkflowVersionChainReadRequest` → `WorkflowVersionChainReadResponse` | The chain one run's pinned version belongs to, addressed by that version id |
 | `workflow.stepRead` | `query` | `WorkflowStepReadRequest` → `WorkflowStepReadResponse` | One step's input, output or log by ref, paged and redacted |
 | `workflow.runRetry` | `mutation` | `WorkflowRunRetryRequest` → `WorkflowRunRetryResponse` | Re-runs from a named step with the prior run's data pinned upstream; mints a new run in `retry` mode; refuses `workflow.retry_unavailable` or `workflow.invalid_transition` |
+| `workflow.runRerun` | `mutation` | `WorkflowRunRerunRequest` → `WorkflowRunStartResponse` | Starts a new run of the named run's own pinned version with the input and mode it was started with, in its session; emits `workflow.started`; the person's own start, judged by no policy |
 | `workflow.nodeExecute` | `mutation` | `WorkflowNodeExecuteRequest` → `WorkflowNodeExecuteResponse` | Executes one node, or it and its ancestors, against pinned or prior input; the daemon computes the filtered run |
 | `workflow.resultsPost` | `mutation` | `WorkflowResultsPostRequest` → `WorkflowResultsPostResponse` | Posts a run's results into the session the verb was typed in, which the daemon checks is the caller's own; the agent's tool takes no session, the daemon deriving it from the invoking turn; refuses `workflow.invalid_transition` for an unfinished run |
 | `workflow.subscribe` | `subscription` | `WorkflowSubscribeRequest` → `WorkflowSubscribeNotification` (stream) | The scheduler hold and its count first, then run, step, schedule and definition notifications and removals, for the runs table, the Workflows tab and the canvas overlay |

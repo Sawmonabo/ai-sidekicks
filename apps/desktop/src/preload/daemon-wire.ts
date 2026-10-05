@@ -18,7 +18,7 @@ import type {
   DaemonSubscriptionOpening,
   DaemonSubscriptionRequest,
 } from "@shared/daemon-forwarding.js";
-import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
+import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
 
 /** The part of Electron's `ipcRenderer` the daemon's wire uses. */
 export interface DaemonWireIpc {
@@ -33,13 +33,16 @@ export function createDaemonWire(
   subscriptions: DaemonSubscriptions,
 ): DaemonWire {
   return {
-    call: async <M extends DaemonMethod>(method: M, params: unknown): Promise<DaemonResult<M>> =>
+    call: async <M extends DaemonMethod>(
+      method: M,
+      params: unknown,
+    ): Promise<ServedDaemonCall<DaemonResult<M>>> =>
       settleDaemonCall(
         await ipc.invoke(BRIDGE_CHANNELS.daemonCall, {
           method,
           params,
         } satisfies DaemonCallRequest),
-      ) as DaemonResult<M>,
+      ) as ServedDaemonCall<DaemonResult<M>>,
     requestStart: async (): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.requestDaemonStart);
     },
@@ -49,13 +52,15 @@ export function createDaemonWire(
 }
 
 /**
- * The value a call main forwarded was served with. Throws the daemon's refusal itself, and an
- * `Error` carrying the message of any other failure.
+ * What a call main forwarded was served with: the value, and the file tokens main minted beside
+ * it. Throws the daemon's refusal itself, and an `Error` carrying the message of any other failure.
  */
-export function settleDaemonCall(answer: unknown): unknown {
+export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
   const ended = answer as DaemonCallOutcome;
   if (ended.outcome === "served") {
-    return ended.value;
+    // The tokens cross IPC as strings; main minted each one as a `FilePathRef`.
+    const fileRefs = ended.fileRefs as ServedDaemonCall<unknown>["fileRefs"];
+    return fileRefs === undefined ? { value: ended.value } : { value: ended.value, fileRefs };
   }
   if (ended.outcome === "refused") {
     throw ended.refusal;

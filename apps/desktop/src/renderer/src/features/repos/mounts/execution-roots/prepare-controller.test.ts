@@ -27,6 +27,7 @@ function open(operations: PrepareOperations = preparingDaemon()): {
       executionMode: "provisioned-worktree",
     },
     sessionStore: new SessionStore({ sessionId: "session-repos" }),
+    ownerWindow: window,
     clock,
   });
   controllers.push(controller);

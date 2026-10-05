@@ -26,13 +26,11 @@ export function createMachineSettingsBridge(
 ): PreloadApi["machineSettings"] {
   return {
     read: async (): Promise<MachineSettingsReading> =>
-      settleDaemonCall(
-        await ipc.invoke(BRIDGE_CHANNELS.readMachineSettings),
-      ) as MachineSettingsReading,
+      settleDaemonCall(await ipc.invoke(BRIDGE_CHANNELS.readMachineSettings))
+        .value as MachineSettingsReading,
     write: async (change): Promise<MachineSettings> =>
-      settleDaemonCall(
-        await ipc.invoke(BRIDGE_CHANNELS.writeMachineSettings, change),
-      ) as MachineSettings,
+      settleDaemonCall(await ipc.invoke(BRIDGE_CHANNELS.writeMachineSettings, change))
+        .value as MachineSettings,
     subscribe: (handler, onEnded) =>
       subscriptions.open(MACHINE_SETTINGS_FEED, {}, handler as (value: unknown) => void, onEnded),
   };

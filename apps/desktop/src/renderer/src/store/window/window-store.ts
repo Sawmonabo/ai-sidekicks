@@ -65,6 +65,8 @@ export interface WindowStoreState {
 /** Construction options for {@link WindowStore}. */
 export interface WindowStoreOptions {
   readonly initialRoute?: AppRoute;
+  /** The document of the window this store is for; absent, this realm's own. */
+  readonly ownerDocument?: Document;
 }
 
 /** The per-window frame store. No setter escapes the class. */
@@ -85,7 +87,7 @@ export class WindowStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       isModalDialogOpen: false,
       banners: [],
-      isWindowFocused: documentReportsWindowFocus(),
+      isWindowFocused: documentReportsWindowFocus(options.ownerDocument ?? document),
       mainProcessState: UNREPORTED_MAIN_PROCESS_STATE,
     }));
     this.#modalDialogClaims = new ModalDialogClaims((isAnyHeld) => {
@@ -232,6 +234,6 @@ export class WindowStore {
  * readings must hold: `hasFocus()` says this document holds the keyboard and `visibilityState`
  * says it is on screen, and neither implies the other.
  */
-function documentReportsWindowFocus(): boolean {
-  return document.hasFocus() && document.visibilityState === "visible";
+function documentReportsWindowFocus(ownerDocument: Document): boolean {
+  return ownerDocument.hasFocus() && ownerDocument.visibilityState === "visible";
 }

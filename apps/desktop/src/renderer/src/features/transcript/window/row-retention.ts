@@ -1,7 +1,7 @@
-// Row objects one transcript derivation publishes, held across its own passes. Two callers, each
-// with its own instance: the unfurled projection in `transcript-window.ts` and the fold in
-// `run-group-fold.ts`. A pass keeps only what it republishes, so the table never outgrows the
-// window.
+// Row objects one transcript derivation publishes, and the reply row lists beside them, held
+// across its own passes. Two callers, each with its own instance: the unfurled projection in
+// `transcript-window.ts` and the fold in `run-group-fold.ts`. A pass keeps only what it
+// republishes, so the table never outgrows the window.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -19,6 +19,8 @@ export class TranscriptRowRetention {
   #publishedRowsById = new Map<string, TranscriptEventRow>();
   #retainedIdentitiesByKey = new Map<string, ViewportRow>();
   #publishedIdentitiesByKey = new Map<string, ViewportRow>();
+  #retainedReplyRowIdsByKey = new Map<string, readonly string[]>();
+  #publishedReplyRowIdsByKey = new Map<string, readonly string[]>();
 
   /** Start a derivation: what the last pass published becomes what this one may retain. */
   public beginPass(): void {
@@ -30,6 +32,10 @@ export class TranscriptRowRetention {
     this.#publishedIdentitiesByKey = this.#retainedIdentitiesByKey;
     this.#retainedIdentitiesByKey = identitiesToRetain;
     this.#publishedIdentitiesByKey.clear();
+    const replyRowIdsToRetain = this.#publishedReplyRowIdsByKey;
+    this.#publishedReplyRowIdsByKey = this.#retainedReplyRowIdsByKey;
+    this.#retainedReplyRowIdsByKey = replyRowIdsToRetain;
+    this.#publishedReplyRowIdsByKey.clear();
   }
 
   /** The projected row, as the last pass published it when nothing about it moved. */
@@ -54,6 +60,19 @@ export class TranscriptRowRetention {
    */
   public retainGroupHeaderIdentity(groupKey: string): ViewportRow {
     return this.#retainIdentity(groupKey, undefined, groupKey);
+  }
+
+  /** A reply's row ids, filed under its foot row, as the last pass published them when equal. */
+  public retainReplyRowIds(footRowId: string, rowIds: readonly string[]): readonly string[] {
+    const retained = this.#retainedReplyRowIdsByKey.get(footRowId);
+    const published =
+      retained !== undefined &&
+      retained.length === rowIds.length &&
+      retained.every((rowId, index) => rowId === rowIds[index])
+        ? retained
+        : rowIds;
+    this.#publishedReplyRowIdsByKey.set(footRowId, published);
+    return published;
   }
 
   #retainIdentity(key: string, parentKey: string | undefined, rootCursor: string): ViewportRow {

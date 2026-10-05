@@ -86,7 +86,8 @@ export function subscribeToScenario(
       });
       return () => undefined;
     }
-    // The catch-up is the first delivery, made before `subscribe` returns; it starts past the cursor.
+    // The catch-up is the first delivery, made before `subscribe` returns; it starts past the
+    // cursor.
     let skippedCount = resumeAt;
     return engine.subscribe(
       (events) => {

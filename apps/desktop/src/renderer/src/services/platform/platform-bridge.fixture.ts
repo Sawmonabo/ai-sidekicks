@@ -8,6 +8,7 @@
 // appearance at first, and a chosen one reaches every subscriber, as main carries it to every window.
 
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "@shared/appearance.js";
+import { consoleWindowId } from "@shared/window/frame-name.js";
 import type {
   KeyboardMap,
   KeyboardMapReading,
@@ -34,8 +35,8 @@ export const FIXTURE_APP_META: PlatformBridge["app"] = {
   physicalMemoryBytes: 17_179_869_184,
 };
 
-/** The id a fixture window carries, fixed as the `app` meta is. */
-export const FIXTURE_WINDOW_ID = "fixture-window";
+/** The window a fixture console opens first, fixed as the `app` meta is. */
+export const FIXTURE_WINDOW_ID: string = consoleWindowId("fixture");
 
 /** Options for `createFixtureBridge`. */
 export interface FixtureBridgeOptions {
@@ -103,7 +104,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       },
     },
     window: {
-      id: FIXTURE_WINDOW_ID,
+      lastUsedWindowId: FIXTURE_WINDOW_ID,
       setAppearance: async (choice, grounds): Promise<void> => {
         const record: AppearanceRecord = { ...choice, grounds };
         appearanceRecord = record;
@@ -123,12 +124,15 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         };
       },
       // A fixture window is drawn at the size the harness gives it and never goes fullscreen.
-      subscribeFullscreen: (handler): Unsubscribe => {
+      subscribeFullscreen: (_windowId, handler): Unsubscribe => {
         handler(false);
         return () => undefined;
       },
       setMinimumSize: async () => {
         // Nothing reads the floor back, and the harness sizes the fixture window itself.
+      },
+      setDefaultSizes: async () => {
+        // Nothing reads the sizes back, and the harness sizes the fixture window itself.
       },
     },
     app: FIXTURE_APP_META,

@@ -5,6 +5,8 @@
 // Carries no domain type: the scroll chokepoint imports this module, so importing its
 // vocabulary back would be a cycle. The pass is a `() => void` the caller closes over.
 
+import { getWindow } from "@floating-ui/utils/dom";
+
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
 /** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
@@ -55,7 +57,8 @@ export class OverflowMeasurementBatch {
     if (this.#disposed) {
       return;
     }
-    const observer = new ResizeObserver(() => {
+    const ObserverConstructor = getWindow(element).ResizeObserver;
+    const observer = new ObserverConstructor(() => {
       // Publish first, then arm: the window ranges against the publication, so it must not
       // wait on a frame.
       this.#publishOnResize();
@@ -65,9 +68,13 @@ export class OverflowMeasurementBatch {
     this.#resizeObserver = observer;
   }
 
-  /** Re-runs the pass once the webfonts have swapped; a clamped row's height depends on them. */
-  public observeFontLoading(): void {
-    const fonts = (globalThis as { readonly document?: FontLoadingDocument }).document?.fonts;
+  /**
+   * Re-runs the pass once the webfonts of the element's document have swapped; a clamped row's
+   * height depends on them, and each window loads its own.
+   */
+  public observeFontLoading(element: Element): void {
+    const fontLoadingDocument: FontLoadingDocument = element.ownerDocument;
+    const fonts = fontLoadingDocument.fonts;
     if (fonts === undefined) {
       return;
     }

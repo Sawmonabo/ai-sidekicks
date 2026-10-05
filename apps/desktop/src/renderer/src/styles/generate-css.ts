@@ -23,6 +23,7 @@ import {
   LEADING_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
   RADIUS_SCALE_REM,
+  RAIL_WIDTH_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
@@ -194,6 +195,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   // The reflow floor is emitted so a stylesheet reads the property instead of copying the
   // palette's number. It cannot be a media-query condition (custom properties do not reach one);

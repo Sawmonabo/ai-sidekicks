@@ -398,7 +398,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         await churnOnce(appUnderTest, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }
-      const firings = await appUnderTest.window.evaluate((globalName: string) => {
+      const firings = await appUnderTest.consolePage.evaluate((globalName: string) => {
         const registry = (
           globalThis as unknown as Record<string, { reports(): readonly unknown[] } | undefined>
         )[globalName];

@@ -1,52 +1,81 @@
-// The bridge gate, with the token sheet installed above it so the missing-bridge card is styled.
+// The bridge gate. With a bridge the app opens its windows; without one, it opens one window to say
+// so, since the console document it runs in is never shown.
 
-import { useLayoutEffect } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+
 import { useBridgeResolution } from "@renderer/services/platform/hooks/useBridgeResolution.js";
-import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { AppWindow } from "./AppWindow.js";
-import { installMeridianTokens } from "./token-installation.js";
+import type { BridgeUnavailable } from "@renderer/services/platform/bridge-context.js";
+import type { OpenWindows } from "@renderer/services/window/open-windows.js";
 import { sessionReadThroughDaemon } from "@renderer/services/daemon/session-read.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { consoleWindowId } from "@shared/window/frame-name.js";
+import { AppWindows } from "./AppWindows.js";
+import { prepareWindowDocument, windowMountPoint } from "./window-document.js";
+
+/** What the provider stack hands the gate. */
+export interface AppBootstrapProps {
+  /** The windows the console document opens. */
+  readonly openWindows: OpenWindows;
+}
 
 /**
- * Install the token sheet, then render the window once the bridge resolves.
+ * Open the app's windows once the bridge resolves, or one window saying it cannot.
  *
  * The failure card is a component boundary rather than a later `if`: everything below holds a
  * resolved bridge, and the hooks that need it throw without one and cannot be called
- * conditionally. The resolution never changes after the first, so the window never remounts.
+ * conditionally. The resolution never changes after the first, so the windows never remount.
  */
-export function AppBootstrap(): React.JSX.Element {
-  useMeridianTokenSheet();
+export function AppBootstrap(props: AppBootstrapProps): React.JSX.Element {
   const resolution = useBridgeResolution();
   if (resolution.status === "unavailable") {
     return (
-      <div className="meridian-frame meridian-frame--bare">
-        <Nothing
-          kind="error"
-          title="This window cannot reach the app."
-          detail={resolution.unavailable.detail}
-        />
-      </div>
+      <BridgeUnavailableWindow
+        openWindows={props.openWindows}
+        unavailable={resolution.unavailable}
+      />
     );
   }
   return (
-    <AppWindow
+    <AppWindows
       bridge={resolution.bridge}
       readSession={sessionReadThroughDaemon(resolution.bridge)}
+      openWindows={props.openWindows}
     />
   );
 }
 
-/**
- * Put the Meridian token sheet on the document before the first paint.
- *
- * It lives here, above the gate, so the missing-bridge card is styled too, and installing is
- * idempotent by element id, so a second window or a hot reload writes nothing. The color-scheme
- * attribute is not set here: it comes from a stored preference only a window with a bridge
- * can read, and a child's layout effect runs before this one, so a default written here
- * would overwrite the window's own value.
- */
-function useMeridianTokenSheet(): void {
-  useLayoutEffect(() => {
-    installMeridianTokens(document);
-  }, []);
+/** One window, under a new id since no bridge says which was used last, holding the card. */
+function BridgeUnavailableWindow(props: {
+  readonly openWindows: OpenWindows;
+  readonly unavailable: BridgeUnavailable;
+}): React.JSX.Element | null {
+  const { openWindows } = props;
+  const [windowId] = useState(() => consoleWindowId(crypto.randomUUID()));
+  const windows = useSyncExternalStore(
+    useCallback((onChange: () => void) => openWindows.subscribe(onChange), [openWindows]),
+    useCallback(() => openWindows.list(), [openWindows]),
+  );
+  useEffect(() => {
+    const stopPreparing = openWindows.prepareEveryDocument(prepareWindowDocument);
+    openWindows.open(windowId);
+    return () => {
+      stopPreparing();
+      openWindows.closeAll();
+    };
+  }, [openWindows, windowId]);
+  const opened = windows.find((openWindow) => openWindow.windowId === windowId);
+  if (opened === undefined) {
+    return null;
+  }
+  return createPortal(
+    <div className="meridian-frame meridian-frame--bare">
+      <Nothing
+        kind="error"
+        title="This window cannot reach the app."
+        detail={props.unavailable.detail}
+      />
+    </div>,
+    windowMountPoint(opened.window.document),
+  );
 }

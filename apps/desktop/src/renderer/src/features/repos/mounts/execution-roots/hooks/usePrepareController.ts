@@ -3,6 +3,7 @@
 // render. It also `start()`s the triggers in an effect, because the reuse question arrives late.
 
 import { useCallback, useEffect } from "react";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSessionScopedActController } from "@renderer/features/repos/acts/hooks/useActController.js";
@@ -39,11 +40,19 @@ export function usePrepareController(
   operations: PrepareOperations,
 ): PrepareBinding {
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   const { controller, reading } = useSessionScopedActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
     sessionStore,
-    () => new ExecutionRootPrepareController({ operations, subject, sessionStore, clock }),
+    () =>
+      new ExecutionRootPrepareController({
+        operations,
+        subject,
+        sessionStore,
+        ownerWindow,
+        clock,
+      }),
   );
   useEffect(() => {
     controller.start();

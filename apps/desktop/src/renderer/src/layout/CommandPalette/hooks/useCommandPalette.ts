@@ -5,6 +5,7 @@
 import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import type { RowWindow } from "@renderer/hooks/useRowWindow.js";
 import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
@@ -15,10 +16,7 @@ import {
   parseChord,
   type ChordParseResult,
 } from "@renderer/registries/keybindings/keybinding-chord.js";
-import {
-  type KeybindingTable,
-  type KeybindingTarget,
-} from "@renderer/registries/keybindings/keybinding-table.js";
+import { type KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 import {
   groupResults,
@@ -51,10 +49,8 @@ export interface CommandPaletteProps {
   readonly scopeLabel?: string | undefined;
   /** Bump to recompute results after late registration; React cannot see a registry change. */
   readonly revision?: number;
-  /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null;
-  /** Listener target for the open chord. Defaults to `window`. */
-  readonly chordTarget?: KeybindingTarget;
 }
 
 /** What the render reads; every field is settled before the component's first JSX line. */
@@ -79,7 +75,8 @@ export interface CommandPaletteState {
 
 /** Owns the palette's state, effects and derivations; the component only renders the result. */
 export function useCommandPalette(props: CommandPaletteProps): CommandPaletteState {
-  const { registry, context, open, onOpenChange, scopeLabel, revision, chordTarget } = props;
+  const { registry, context, open, onOpenChange, scopeLabel, revision } = props;
+  const ownerWindow = useOwnerWindow();
 
   const [query, setQuery] = useState("");
   const [invocationRefusal, setInvocationRefusal] = useState<PaletteInvocationRefusal | undefined>(
@@ -174,9 +171,9 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   );
 
   useEffect(() => {
-    const target: KeybindingTarget = chordTarget ?? window;
-    const listener = (event: Event): void => {
-      if (!(event instanceof KeyboardEvent) || event.repeat || event.isComposing) {
+    // Heard in the window the palette is drawn in, where its chord is pressed.
+    const listener = (event: KeyboardEvent): void => {
+      if (event.repeat || event.isComposing) {
         return;
       }
       if (!chordMatchesEvent(OPEN_CHORD.press, event)) {
@@ -187,11 +184,11 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
       // A toggle: pressing the chord again dismisses what it summoned.
       onOpenChange(!open);
     };
-    target.addEventListener("keydown", listener, { capture: true });
+    ownerWindow.addEventListener("keydown", listener, { capture: true });
     return () => {
-      target.removeEventListener("keydown", listener, { capture: true });
+      ownerWindow.removeEventListener("keydown", listener, { capture: true });
     };
-  }, [chordTarget, onOpenChange, open]);
+  }, [onOpenChange, open, ownerWindow]);
 
   const resultCountLabel =
     results.length === 1 ? "1 command" : `${formatCount(results.length)} commands`;

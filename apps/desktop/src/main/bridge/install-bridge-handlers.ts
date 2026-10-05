@@ -104,8 +104,9 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     ): Promise<OpenDialogResults[OpenDialogPurpose]> =>
       showOpenDialog(
         {
+          // Sheeted on the window the person used last, the one they asked from.
           showOpenDialog: (dialogOptions) => {
-            const owner = windowContext.openWindows.windowShowing(event.sender);
+            const owner = windowContext.openWindows.windowUsedLast();
             return owner === undefined
               ? dialog.showOpenDialog(dialogOptions)
               : dialog.showOpenDialog(owner, dialogOptions);

@@ -42,6 +42,8 @@ export interface PrerequisiteReaderOptions<TValue> {
   readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the question. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /**
    * The frames that owe the question a fresh answer. A property of the question, not of the
    * dialog that mounts it: two readings of one question must agree when it goes stale.
@@ -183,6 +185,7 @@ export class PrerequisiteReader<TValue> implements ReadTriggerTarget {
     this.#triggers = new SessionRefreshTriggers({
       target: this,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
     });
   }
 

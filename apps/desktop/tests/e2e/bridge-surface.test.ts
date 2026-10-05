@@ -1,8 +1,9 @@
-// The bridge the page holds, read from the page of an app launched beside a background service of
-// the test's own. `window.desktopBridge` has exactly the members of `PreloadApi`, each of the kind
-// the type gives it, and no member at any depth is named for auth material. The `daemon.status`
-// topic carries main's link to that service to the page, through the real preload and main, with
-// no key of what it delivers named for auth material either. Once linked,
+// The bridge the console document holds, read from the console document of an app launched beside
+// a background service of the test's own. `window.desktopBridge` has exactly the members of
+// `PreloadApi`, each of the kind the type gives it, and no member at any depth is named for auth
+// material. The `daemon.status` topic carries main's link to that service to the console document,
+// through the real preload and main, with no key of what it delivers named for auth material
+// either. Once linked,
 // `machineSettings.read()` reaches that service's settings verb and answers the defaults of its
 // fresh home folder.
 
@@ -48,7 +49,7 @@ const SAMPLE_APP_FACTS: AppFacts = {
 describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
   it("matches PreloadApi, names no member for auth material, carries main's link state, and reads the settings", async () => {
     await withLaunchedApp({}, async (appUnderTest) => {
-      const pageSurface = await appUnderTest.window.evaluate(() =>
+      const pageSurface = await appUnderTest.consolePage.evaluate(() =>
         JSON.stringify(
           (window as unknown as { desktopBridge: unknown }).desktopBridge,
           (_name: string, value: unknown) =>
@@ -67,7 +68,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
       });
       expect(memberNames.filter((name) => AUTH_MATERIAL_NAME.test(name))).toEqual([]);
 
-      const connected = await appUnderTest.window.evaluate(
+      const connected = await appUnderTest.consolePage.evaluate(
         async (timeoutMs) =>
           await new Promise<MainProcessState>((resolve, reject) => {
             const bridge = (window as unknown as { desktopBridge: PreloadApi }).desktopBridge;
@@ -102,7 +103,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
       });
       expect(deliveredKeys.filter((key) => AUTH_MATERIAL_NAME.test(key))).toEqual([]);
 
-      const reading = await appUnderTest.window.evaluate(
+      const reading = await appUnderTest.consolePage.evaluate(
         async (): Promise<MachineSettingsReading> =>
           await (
             window as unknown as { desktopBridge: PreloadApi }

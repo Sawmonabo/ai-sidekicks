@@ -5,7 +5,7 @@ import { ipcRenderer, webUtils } from "electron";
 
 import { readAppFactsSwitches } from "@shared/app-facts.js";
 import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
-import { readWindowIdSwitch } from "@shared/window/window-id.js";
+import { readLastUsedWindowIdSwitch } from "@shared/window/window-id.js";
 import {
   createStubBridge,
   type EditorEntry,
@@ -24,8 +24,8 @@ import { createWindowBridge } from "./window-bridge.js";
 
 /** The bridge object `index.ts` exposes on `window.desktopBridge`. */
 export function createPreloadApi(argv: readonly string[]): PreloadApi {
-  const windowId = readWindowIdSwitch(argv);
-  const stub = createStubBridge(readAppFactsSwitches(argv), windowId);
+  const lastUsedWindowId = readLastUsedWindowIdSwitch(argv);
+  const stub = createStubBridge(readAppFactsSwitches(argv), lastUsedWindowId);
   const subscriptions = new DaemonSubscriptions(ipcRenderer);
   return {
     ...stub,
@@ -73,6 +73,6 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
       write: async (map): Promise<KeyboardMap> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.writeKeyboardMap, map)) as KeyboardMap,
     },
-    window: createWindowBridge(ipcRenderer, windowId),
+    window: createWindowBridge(ipcRenderer, lastUsedWindowId),
   };
 }

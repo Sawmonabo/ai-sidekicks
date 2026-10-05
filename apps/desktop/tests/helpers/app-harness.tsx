@@ -6,7 +6,12 @@
 import { cdp } from "vitest/browser";
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { onTestFinished } from "vitest";
 
+import { AppProviders } from "@renderer/app/AppProviders.js";
+import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
+import { FIXTURE_WINDOW_ID } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { FrameWindows } from "./frame-windows.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
@@ -90,4 +95,20 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
     await loadRegisteredBodies();
   });
   return { container };
+}
+
+/**
+ * Mounts the app playing `scenarioId`, its windows opened as iframes over the whole page, and lets
+ * every settled promise land; answers the window the app opened first, on the page's address. The
+ * windows are removed when the test finishes.
+ */
+export async function renderAppSettled(scenarioId: string): Promise<Window> {
+  const frames = new FrameWindows();
+  onTestFinished(() => {
+    frames.removeAll();
+  });
+  await renderSettled(
+    <AppProviders composition={createFixtureComposition(scenarioId)} openWindow={frames.open} />,
+  );
+  return frames.windowNamed(FIXTURE_WINDOW_ID);
 }

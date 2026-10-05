@@ -4,7 +4,8 @@
 // one how long it took; a run that joined a chain keeps who started it beside the link to the
 // chain's first run; a control the run's state does not allow stands refused with its reason and
 // never reaches the daemon, a failed run parked on its step offers Resume and Cancel and one that
-// ended refuses both; and only a finished run opens Review, on its own start and end snapshots,
+// ended refuses both; Re-run asks the daemon to re-run that very run and opens the run it
+// starts; and only a finished run opens Review, on its own start and end snapshots,
 // its door staying in place saying why when the end snapshot could not be taken.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -22,6 +23,7 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
 } from "@fixtures/data/workflow-runs.js";
+import { mintedRunId } from "@fixtures/data/workflow-run-writes.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
 import { formatDayClock } from "@renderer/lib/wire-figures.js";
@@ -44,6 +46,13 @@ function fixtureRun(workflowRunId: string): WorkflowRunReadResponse {
 /** The two snapshot points each `Open in Review` press asked for. */
 type ReviewRequest = readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint];
 
+/** What a rendered header hands its case: the daemon calls made, and the fixture daemon's clock. */
+interface HeaderUnderTest {
+  readonly calls: readonly RecordedDaemonCall[];
+  /** Moves the fixture daemon on, so the replies it holds back arrive. */
+  readonly advanceDaemon: (deltaMs: number) => Promise<void>;
+}
+
 /** The header over `run`, on a bridge that records every call and answers each as the fixture. */
 function renderHeader(
   run: WorkflowRunReadResponse,
@@ -51,8 +60,8 @@ function renderHeader(
   openedRuns: string[] = [],
   nodeKind: (nodeId: string) => string | undefined = (nodeId) => NODE_KINDS[nodeId],
   clock: ManualClock = new ManualClock(WORKFLOW_FIXTURE_NOW_MS),
-): readonly RecordedDaemonCall[] {
-  const { bridge, calls } = bridgeAnswering(async (_call, passThrough) => passThrough());
+): HeaderUnderTest {
+  const { bridge, calls, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
   render(
     <RunHeader
       run={run}
@@ -73,7 +82,14 @@ function renderHeader(
     />,
     { wrapper: bridgeWrapper(bridge, clock) },
   );
-  return calls;
+  return {
+    calls,
+    advanceDaemon: async (deltaMs) => {
+      await act(async () => {
+        engine.advance(deltaMs);
+      });
+    },
+  };
 }
 
 function control(name: string): HTMLElement {
@@ -185,7 +201,7 @@ describe("a run's header", () => {
   });
 
   it("refuses the controls a run's state does not allow, and only an allowed press is sent", () => {
-    const endedCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.succeeded));
+    const endedCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.succeeded)).calls;
     const endedCancel = control("Cancel");
     const endedResume = control("Resume");
     expect(endedCancel).toHaveProperty("disabled", true);
@@ -200,7 +216,7 @@ describe("a run's header", () => {
     expect(endedCalls.map((call) => call.method)).toStrictEqual([]);
     cleanup();
 
-    const goingCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.running));
+    const goingCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.running)).calls;
     expect(control("Resume")).toHaveProperty("disabled", true);
     expect(screen.getByText("This run is not waiting on anything.")).toBeDefined();
     fireEvent.click(control("Resume"));
@@ -210,7 +226,7 @@ describe("a run's header", () => {
 
     // A failed run parked on its failed step has not ended: Resume picks it up, Cancel ends it.
     const parked = fixtureRun(WORKFLOW_RUN_IDS.failed);
-    const failedCalls = renderHeader(parked);
+    const failedCalls = renderHeader(parked).calls;
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
     expect(failedCalls.map((call) => call.method)).toStrictEqual([
@@ -220,7 +236,7 @@ describe("a run's header", () => {
     cleanup();
 
     // A failed run that ended refuses both, in words.
-    const endedFailedCalls = renderHeader({ ...parked, endedAt: parked.startedAt });
+    const endedFailedCalls = renderHeader({ ...parked, endedAt: parked.startedAt }).calls;
     expect(control("Resume")).toHaveProperty("disabled", true);
     expect(control("Cancel")).toHaveProperty("disabled", true);
     expect(screen.getByText("This run has ended.")).toBeDefined();
@@ -228,6 +244,19 @@ describe("a run's header", () => {
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
     expect(endedFailedCalls.map((call) => call.method)).toStrictEqual([]);
+  });
+
+  it("asks the daemon to re-run this run and opens the new run it starts", async () => {
+    const source = fixtureRun(WORKFLOW_RUN_IDS.failed);
+    const openedRuns: string[] = [];
+    const { calls, advanceDaemon } = renderHeader(source, [], openedRuns);
+    fireEvent.click(control("Re-run"));
+    await advanceDaemon(1_000);
+
+    expect(calls).toStrictEqual([
+      { method: "workflow.runRerun", params: { workflowRunId: source.workflowRunId } },
+    ]);
+    expect(openedRuns).toStrictEqual([mintedRunId("rerun", 0)]);
   });
 
   it("opens Review from start to end on a finished run, and none on a going one", () => {

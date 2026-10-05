@@ -369,7 +369,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `skill.path_refused` | `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a picked skill whose name and path match no row of the session's `skill.list`. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` from `skill.update`, `not_listed` from `run.queueCreate` | 422 |
+| `skill.path_refused` | `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a picked skill whose name and folder match no row of `skill.list`. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` from `skill.update`, `not_listed` from `run.queueCreate` | 422 |
 | `skill.name_taken` | A save would rename a folder of ours onto a name another folder of ours already holds in the same place; nothing is renamed and nothing is written. `data.fields`: `folderPath`, the folder already holding the name, which the screen names under the Name field | 409 |
 | `skill.write_refused` | A write to a skill was refused. `data.fields.reason` is one of `plugin_read_only` (every operation that writes refuses a plugin's skill, which is read-only) or `not_orphaned` (`skill.recordReattach` named a record that is not orphaned) | 409 |
 

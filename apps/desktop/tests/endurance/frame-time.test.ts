@@ -115,8 +115,9 @@ async function sampleFrameTimings(
       advanceMilliseconds,
       stallMilliseconds,
     ]: [string, number, number, number, number]) => {
+      // The scenario's handle is the console document's, which opened this window.
       const scenarioControl = (
-        globalThis as unknown as Record<
+        (window.opener ?? globalThis) as unknown as Record<
           string,
           { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
         >

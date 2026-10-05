@@ -9,7 +9,7 @@ import { observeElementResize } from "@renderer/lib/element-resize.js";
 
 /** Every ancestor whose relayout can move this element, innermost first, up to the body. */
 export function readPositionAncestry(element: Element): readonly Element[] {
-  const boundary = document.body;
+  const boundary = element.ownerDocument.body;
   const ancestors: Element[] = [];
   for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
     ancestors.push(ancestor);

@@ -1,8 +1,7 @@
 // The rejected-load recovery ladder, including the two rungs that decide whether the process
-// survives: giving up when even the failure document cannot be served (destroy, and for the
-// first window exit non-zero), and the rung that must not give up, a window the user closed while
-// its load was failing. That is an ordinary quit, and `app.exit` would skip `before-quit` and
-// `will-quit`.
+// survives: giving up when even the failure document cannot be served (destroy, and exit
+// non-zero), and the rung that must not give up, a window the user closed while its load was
+// failing. That is an ordinary quit, and `app.exit` would skip `before-quit` and `will-quit`.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -49,12 +48,12 @@ describe("a rejected document load", () => {
     vi.restoreAllMocks();
   });
 
-  it("serves the generated failure document carrying the reason", async () => {
+  it("serves the generated failure document carrying the reason, and shows it", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
-    const { openRendererWindow } = await loadWindowModule();
+    const { openConsoleWindow } = await loadWindowModule();
     const frame = testWindowFrame();
 
-    const rendererWindow = openRendererWindow({ ...frame, additionalArguments: [] });
+    const rendererWindow = openConsoleWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
       expect(asMockWindow(rendererWindow).document.loadedUrls).toHaveLength(2);
@@ -63,13 +62,17 @@ describe("a rejected document load", () => {
     expect(failureUrl).toContain("/-/load-failure");
     expect(failureUrl).toContain(encodeURIComponent("ERR_FILE_NOT_FOUND (-6)"));
     expect(rendererWindow.baseWindow.isDestroyed()).toBe(false);
+    // The console window is never shown, but the failure is: a person would see nothing else.
+    await vi.waitFor(() => {
+      expect(asMockWindow(rendererWindow).baseWindow.showCount).toBe(1);
+    });
     expect(electronMock.exitCodes).toEqual([]);
     expect(loggedMessages(frame.log)).toEqual([
       expect.stringContaining("failed to load sidekicks-renderer://app/index.html"),
     ]);
   });
 
-  it("destroys the first window and exits non-zero when no document can be served", async () => {
+  it("destroys the console window and exits non-zero when no document can be served", async () => {
     electronMock.failLoadsContaining("sidekicks-renderer://app", new Error("handler missing"));
     const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
     const frame = testWindowFrame();
@@ -79,7 +82,7 @@ describe("a rejected document load", () => {
       return Promise.resolve();
     });
 
-    const rendererWindow = windowModule.openRendererWindow({ ...frame, additionalArguments: [] });
+    const rendererWindow = windowModule.openConsoleWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
       expect(electronMock.exitCodes).toEqual([loadFailureModule.RENDERER_UNSERVABLE_EXIT_CODE]);
@@ -96,10 +99,10 @@ describe("a rejected document load", () => {
   describe("a window closed while its load was failing", () => {
     it("serves no document, and does not exit the process", async () => {
       electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_ABORTED (-3)"));
-      const { openRendererWindow } = await loadWindowModule();
+      const { openConsoleWindow } = await loadWindowModule();
       const frame = testWindowFrame();
 
-      const rendererWindow = openRendererWindow({ ...frame, additionalArguments: [] });
+      const rendererWindow = openConsoleWindow({ ...frame, additionalArguments: [] });
       // Synchronous: `loadURL`'s rejection arrives on a later microtask.
       rendererWindow.baseWindow.destroy();
 

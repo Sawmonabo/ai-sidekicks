@@ -3,8 +3,9 @@
 // `ELECTRON_RENDERER_URL` set), since a packaged build that inherited a stray variable would load
 // remote content into a locked window; the factory routes through the locked `webPreferences` at
 // runtime; `beforeLoad` runs after the window's own listeners and before `loadURL`, an order
-// rather than two facts; the window takes its document's title; and the window and its document
-// close together, from either side.
+// rather than two facts; the console window stays hidden and unthrottled, and a window a person
+// sees is revealed as it is built; the window takes its document's title; and the window and its
+// document close together, from either side.
 // `./window-navigation.test.ts` and `./window-load-failure.test.ts` own the rest. `electron` is
 // mocked because a real `BaseWindow` needs a running Electron process.
 
@@ -14,6 +15,7 @@ import { createElectronMock } from "@test/helpers/electron-mock.js";
 import {
   asMockWindow,
   DEV_SERVER_URL,
+  handedDocument,
   INDEX_URL,
   LOCKED_WINDOW_OPERATIONS,
   testWindowFrame,
@@ -32,12 +34,12 @@ async function loadWindowModule(): Promise<WindowModule> {
   return import("./window.js");
 }
 
-/** Opens a first window with the test frame and no switches. */
+/** Opens a console window with the test frame and no switches. */
 async function openTestWindow(
-  beforeLoad?: Parameters<WindowModule["openRendererWindow"]>[0]["beforeLoad"],
-): Promise<ReturnType<WindowModule["openRendererWindow"]>> {
-  const { openRendererWindow } = await loadWindowModule();
-  return openRendererWindow({
+  beforeLoad?: Parameters<WindowModule["openConsoleWindow"]>[0]["beforeLoad"],
+): Promise<ReturnType<WindowModule["openConsoleWindow"]>> {
+  const { openConsoleWindow } = await loadWindowModule();
+  return openConsoleWindow({
     ...testWindowFrame(),
     additionalArguments: [],
     ...(beforeLoad === undefined ? {} : { beforeLoad }),
@@ -122,7 +124,6 @@ describe("the window factory", () => {
       expect(electronMock.operations).toEqual([
         "construct",
         ...LOCKED_WINDOW_OPERATIONS,
-        "webContents.once:did-finish-load",
         "webContents.once:dom-ready",
         `loadURL:${INDEX_URL}`,
       ]);
@@ -147,13 +148,17 @@ describe("the window factory", () => {
     });
   });
 
-  it("reveals the window only once its document has loaded", async () => {
-    const { baseWindow, document } = asMockWindow(await openTestWindow());
+  it("keeps the console window hidden and unthrottled, and reveals a window a person sees", async () => {
+    const consoleWindow = asMockWindow(await openTestWindow());
+    consoleWindow.document.emit("did-finish-load");
 
-    expect(baseWindow.showCount).toBe(0);
-    document.emit("did-finish-load");
+    expect(consoleWindow.baseWindow.showCount).toBe(0);
+    // Its document draws every window a person sees, so its timers never slow.
+    expect(consoleWindow.document.setBackgroundThrottling).toHaveBeenCalledWith(false);
 
-    expect(baseWindow.showCount).toBe(1);
+    const { adoptRendererChild } = await import("./window.js");
+    const child = adoptRendererChild(testWindowFrame(), handedDocument() as never);
+    expect(asMockWindow(child).baseWindow.showCount).toBe(1);
   });
 
   it("takes the title its document sets, which the Window menu and the taskbar show", async () => {

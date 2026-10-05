@@ -93,7 +93,10 @@ export function describeHorizontalOverflow(root: Element): string[] {
 
 /** Whether the author has clipped this box's inline axis, so nothing in it scrolls. */
 function isHorizontallyClipped(element: Element): boolean {
-  const overflowX = window.getComputedStyle(element).overflowX;
+  // Read in the element's own window: an app window is a document of its own.
+  const overflowX = (element.ownerDocument.defaultView ?? window).getComputedStyle(
+    element,
+  ).overflowX;
   return overflowX === "hidden" || overflowX === "clip";
 }
 

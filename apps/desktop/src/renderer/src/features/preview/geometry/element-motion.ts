@@ -3,6 +3,8 @@
 // size, so motion is its own seam, caught at the document because `transitionrun` and
 // `animationstart` bubble upward and an ancestor's motion would go unheard on the element.
 
+import { isNode } from "@floating-ui/utils/dom";
+
 import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { observeElementResize } from "@renderer/lib/element-resize.js";
@@ -30,20 +32,23 @@ export interface ElementPositionObserverOptions {
   readonly onMove: () => void;
 }
 
-/** Reports the node under every transition or animation that starts in this document. */
-export function observeMotionStarts(onMotionStart: (movingNode: Node) => void): Unsubscribe {
+/** Reports the node under every transition or animation that starts in `ownerDocument`. */
+export function observeMotionStarts(
+  ownerDocument: Document,
+  onMotionStart: (movingNode: Node) => void,
+): Unsubscribe {
   const handleMotionStart = (event: Event): void => {
     const movingNode = event.target;
-    if (movingNode instanceof Node) {
+    if (isNode(movingNode)) {
       onMotionStart(movingNode);
     }
   };
   for (const eventName of MOTION_START_EVENT_NAMES) {
-    document.addEventListener(eventName, handleMotionStart, { capture: true });
+    ownerDocument.addEventListener(eventName, handleMotionStart, { capture: true });
   }
   return () => {
     for (const eventName of MOTION_START_EVENT_NAMES) {
-      document.removeEventListener(eventName, handleMotionStart, { capture: true });
+      ownerDocument.removeEventListener(eventName, handleMotionStart, { capture: true });
     }
   };
 }
@@ -77,17 +82,18 @@ export function hasRunningMotion(element: Element): boolean {
 }
 
 /**
- * Whether anything in this document that could move this element is animating: the wide reading
+ * Whether anything in the element's document that could move it is animating: the wide reading
  * for a subject whose position no containment test bounds (a fixed-size sibling animating its
  * width moves the boxes beside it while nothing containing either animates). False on a DOM
  * shim without `document.getAnimations`; the element-scoped reading still runs.
  */
 export function hasRunningDocumentMotion(element: Element): boolean {
-  if (typeof document.getAnimations !== "function") {
+  const ownerDocument = element.ownerDocument;
+  if (typeof ownerDocument.getAnimations !== "function") {
     return false;
   }
   const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
-  return isAnyMoving(document.getAnimations(), carriesSubject);
+  return isAnyMoving(ownerDocument.getAnimations(), carriesSubject);
 }
 
 /**
@@ -140,7 +146,7 @@ export function observeElementPosition(options: ElementPositionObserverOptions):
     detachers.push(observeElementResize(ancestor, noteInvalidation));
   }
   detachers.push(
-    observeMotionStarts(() => {
+    observeMotionStarts(element.ownerDocument, () => {
       sampler.startIfIdle();
     }),
     () => {

@@ -143,6 +143,7 @@ export function readerWithHeldPayloadFetch(clock: ManualClock): {
     listArtifacts: async () => LISTED_ONE_ROW,
     readArtifact: artifactRead,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+    ownerWindow: window,
     clock,
   });
   return { reader, artifactRead, releaseRead: readCall.open };

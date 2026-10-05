@@ -1,5 +1,5 @@
 // The accessibility tier over the repos feature's views, each scoped to itself so a
-// violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s reason.
+// violation names the view that owns it, in both schemes for `app-frame.test.ts`'s reason.
 // The palette tests cannot reach a mount card tinted by its health verdict or a diff row whose
 // intraline highlight is a tint inside text.
 //

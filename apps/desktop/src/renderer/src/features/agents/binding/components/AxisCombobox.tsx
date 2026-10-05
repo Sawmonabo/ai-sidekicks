@@ -15,7 +15,7 @@ export interface AxisComboboxProps {
   readonly options: readonly string[] | undefined;
   readonly value: string | undefined;
   readonly onValueChange: (value: string | undefined) => void;
-  /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where popups portal. The frame's overlay root; `undefined` is its own window's body. */
   readonly overlayContainer?: HTMLElement | null | undefined;
   /** Shown under the control, for an advisory the caller wants beside the field. */
   readonly advisory?: string | undefined;

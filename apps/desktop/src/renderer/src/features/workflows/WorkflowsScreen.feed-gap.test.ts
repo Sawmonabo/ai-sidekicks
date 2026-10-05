@@ -1,7 +1,8 @@
 // The workflow stream carries no cursor to resume from, so a stream that ends and is opened again
 // cannot replay what moved in the gap: the Runs tab reads its runs again, and a run that finished
 // while nothing was heard draws its new status. A re-open that throws is drawn on the strip in
-// place of the hold switch, over the list and a run's page alike, until a re-open works.
+// place of the hold switch, over the list and a run's page alike, until a re-open works; so is a
+// first open that throws, which is tried again rather than left down until the tab is left.
 
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,6 +26,9 @@ const LINK_FAILED: DaemonSubscriptionEnd = { reason: "failed", message: "the lin
 
 /** What the strip reads while the stream is down and a re-open threw. */
 const REOPEN_REFUSED_DETAIL = "Live updates stopped and could not start again; still trying.";
+
+/** What the strip reads while the stream's first open threw. */
+const FIRST_OPEN_REFUSED_DETAIL = "Live updates could not start; still trying.";
 
 /** The waiting run as the daemon holds it once it finished in the gap. */
 function finished(run: WorkflowRunSummary): WorkflowRunSummary {
@@ -129,6 +133,31 @@ describe("the workflows screen — a stream that ends and opens again", () => {
     });
     expect(screen.queryByText(REOPEN_REFUSED_DETAIL)).toBeNull();
     expect(screen.getByText("live through one subscription")).not.toBeNull();
+    mounted.unmount();
+  });
+
+  it("draws a first open that throws on the strip, and the hold switch once a retry works", async () => {
+    let isRefusing = true;
+    const mounted = await mountWorkflowsScreen({
+      route: workflowRunsRoute(undefined),
+      openStream: (passThrough, _handler, _request, _onEnded, event) => {
+        if (event === WORKFLOW_NOTICE_STREAM && isRefusing) {
+          throw new Error("the daemon declined the stream");
+        }
+        return passThrough();
+      },
+    });
+    await act(crossMacrotaskBoundary);
+    expect(screen.getByText(FIRST_OPEN_REFUSED_DETAIL)).not.toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+
+    isRefusing = false;
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(
+        screen.getByRole<HTMLButtonElement>("switch", { name: /Pause new runs/u }).disabled,
+      ).toBe(false);
+    });
+    expect(screen.queryByText(FIRST_OPEN_REFUSED_DETAIL)).toBeNull();
     mounted.unmount();
   });
 });

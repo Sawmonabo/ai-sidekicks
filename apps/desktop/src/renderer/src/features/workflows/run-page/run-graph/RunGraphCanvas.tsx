@@ -5,6 +5,7 @@
 import "@xyflow/react/dist/base.css";
 import "./run-graph.css";
 
+import { isHTMLElement } from "@floating-ui/utils/dom";
 import { useCallback, useRef } from "react";
 import {
   Panel,
@@ -170,7 +171,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
 
 /** The id of the node an event landed on, read from the library's node element. */
 function focusedNodeId(target: EventTarget): string | undefined {
-  if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__node")) {
+  if (!isHTMLElement(target) || !target.classList.contains("react-flow__node")) {
     return undefined;
   }
   return target.dataset["id"];

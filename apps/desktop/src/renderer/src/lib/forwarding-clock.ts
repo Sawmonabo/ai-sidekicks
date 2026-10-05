@@ -7,7 +7,7 @@
 // mints for itself, so a cancel sent elsewhere would cancel a stranger's timer. Work is not
 // re-armed on the replacement, which would fire twice on the real clock.
 
-import type { Clock, ScheduledHandle } from "./clock.js";
+import type { Clock, FrameScheduling, ScheduledHandle } from "./clock.js";
 
 /**
  * A stable `Clock` over a clock the caller may replace.
@@ -45,6 +45,11 @@ export class ForwardingClock implements Clock {
   public scheduleTimeout(callback: () => void, delayMs: number): ScheduledHandle {
     const clock = this.#clock;
     return this.#arm(clock, (settle) => clock.scheduleTimeout(settle, delayMs), callback);
+  }
+
+  /** The current clock's own clock for `frames`; it does not follow a later replacement. */
+  public withFrames(frames: FrameScheduling): Clock {
+    return this.#clock.withFrames(frames);
   }
 
   /**

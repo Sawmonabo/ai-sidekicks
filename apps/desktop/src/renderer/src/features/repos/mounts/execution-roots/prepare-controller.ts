@@ -39,6 +39,8 @@ export interface PrepareControllerOptions {
   readonly subject: PrepareSubject;
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /** The window's one clock, so this refresh coalesces on the section's time base. */
   readonly clock: Clock;
 }
@@ -56,6 +58,7 @@ export class ExecutionRootPrepareController extends ActControllerBase<
       label: "execution root prepare reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
       // The repos feature's census: a worktree appearing, being retired or changing state makes a
       // reuse verdict wrong.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),

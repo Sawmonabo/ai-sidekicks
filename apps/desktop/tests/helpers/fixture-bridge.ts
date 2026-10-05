@@ -11,7 +11,7 @@ import type {
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session";
 import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -109,11 +109,15 @@ export function subscribeToSessionStream(fixture: FixtureUnderTest): SessionStre
  * reply seam, which answers by method name, so a request that does not match the method's
  * contract is part of what they send; the casts live here once.
  */
-export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
-  return fixture.bridge.daemon.call(
+export async function callThroughBridge(
+  fixture: FixtureUnderTest,
+  method: string,
+): Promise<unknown> {
+  const served = await fixture.bridge.daemon.call(
     method as DaemonMethod,
     undefined as unknown as DaemonParams<DaemonMethod>,
   );
+  return served.value;
 }
 
 /**
@@ -133,17 +137,19 @@ export function withDaemonCall(
   const wrappedCall = bridge.daemon.call.bind(bridge.daemon) as (
     method: string,
     params: unknown,
-  ) => Promise<unknown>;
+  ) => Promise<ServedDaemonCall<unknown>>;
   return {
     calls,
     bridge: {
       ...bridge,
       daemon: {
         ...bridge.daemon,
-        call: (async (method: string, params: unknown): Promise<unknown> => {
+        call: (async (method: string, params: unknown): Promise<ServedDaemonCall<unknown>> => {
           const recorded: RecordedDaemonCall = { method, params };
           calls.push(recorded);
-          return answer(recorded, async () => wrappedCall(method, params));
+          return {
+            value: await answer(recorded, async () => (await wrappedCall(method, params)).value),
+          };
         }) as PlatformBridge["daemon"]["call"],
       },
     },

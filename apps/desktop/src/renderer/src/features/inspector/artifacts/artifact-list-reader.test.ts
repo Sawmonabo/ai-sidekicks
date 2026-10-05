@@ -24,6 +24,7 @@ function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactLis
   return new ArtifactListReader({
     ...artifactOperations(),
     sessionStore,
+    ownerWindow: window,
     clock,
   });
 }
@@ -115,6 +116,7 @@ describe("artifact list reader — an answer that outlived its section", () => {
     const reader = new ArtifactListReader({
       ...artifactOperations({ listArtifacts: listCall.invoke }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      ownerWindow: window,
       clock,
     });
     reader.start();

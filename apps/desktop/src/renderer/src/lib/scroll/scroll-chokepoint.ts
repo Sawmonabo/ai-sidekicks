@@ -95,7 +95,7 @@ export class ScrollController {
     this.#onContainerScroll = onScroll;
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
     this.#overflowBatch.observeResize(scrollContainer);
-    this.#overflowBatch.observeFontLoading();
+    this.#overflowBatch.observeFontLoading(scrollContainer);
     this.#publishGeometry("scroll");
     this.#overflowBatch.request();
   }

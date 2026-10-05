@@ -9,10 +9,11 @@
 import { Dialog } from "@base-ui/react/dialog";
 
 import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** Props for `OverlayDialogPopup`. */
 export interface OverlayDialogPopupProps {
-  /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
   readonly backdropClassName: string;
   readonly className: string;
@@ -27,9 +28,10 @@ export interface OverlayDialogPopupProps {
  * Portal, backdrop and popup for a modal dialog; registers the popup and backdrop in the airspace.
  */
 export function OverlayDialogPopup(props: OverlayDialogPopupProps): React.JSX.Element {
+  const ownerWindow = useOwnerWindow();
   const airspace = useModalOverlayAirspace();
   return (
-    <Dialog.Portal container={props.container}>
+    <Dialog.Portal container={props.container ?? ownerWindow.document.body}>
       <Dialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />
       <Dialog.Popup
         ref={airspace.popupRef}

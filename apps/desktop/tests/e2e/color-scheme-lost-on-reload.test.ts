@@ -1,11 +1,13 @@
 // The color scheme lives in one place, main's appearance record, and every surface agrees with it.
 // A pick from the palette is written to `appearance.json` before the page shows it, survives a
-// reload because main stamps the record on the document it serves, and a pick from the View menu
-// changes the open window and moves the menu's tick, so the menu and the page never disagree.
+// reload of the console document because main stamps the record on the document it serves and the
+// reloaded console draws its window from it, and a pick from the View menu changes the open window
+// and moves the menu's tick, so the menu and the page never disagree.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { APPEARANCE_FILE_NAME } from "@main/appearance/record-file.js";
@@ -19,9 +21,9 @@ import { LaunchDeadline } from "../helpers/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-/** The scheme the page's root carries: `null` under `system`, which writes no attribute. */
-async function readPageScheme(appUnderTest: AppUnderTest): Promise<string | null> {
-  return await appUnderTest.window.evaluate(
+/** The scheme a window's root carries: `null` under `system`, which writes no attribute. */
+async function readPageScheme(appWindow: Page): Promise<string | null> {
+  return await appWindow.evaluate(
     (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
     SCHEME_ATTRIBUTE,
   );
@@ -51,7 +53,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's recor
 
       // A fresh profile follows the system: no attribute, so the sheet's `prefers-color-scheme`
       // layer keeps following the OS; a resolved value here would be the defect.
-      expect(await readPageScheme(appUnderTest)).toBeNull();
+      expect(await readPageScheme(appUnderTest.window)).toBeNull();
 
       // Through the palette, the whole path a person takes: the `Color scheme` row moves to the
       // next scheme in its cycle, and the one after "system" is dark.
@@ -59,7 +61,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's recor
       await appUnderTest.window.keyboard.type("Color scheme");
       await appUnderTest.window.keyboard.press("Enter");
       await expect
-        .poll(async () => await readPageScheme(appUnderTest), {
+        .poll(async () => await readPageScheme(appUnderTest.window), {
           timeout: stepTimeout(),
           message: "the scheme did not change",
         })
@@ -68,16 +70,22 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's recor
       expect(await readKeptScheme(appUnderTest)).toBe("dark");
 
       // The reload boots the renderer a second time, which `launch-readiness` bounds, so the
-      // navigation and the frame element share one clock at that figure. Both legs are also held
-      // to what is left of the body's allowance.
+      // navigation, the window the new console document opens and its frame element share one
+      // clock at that figure. Every leg is also held to what is left of the body's allowance.
       const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);
-      await appUnderTest.window.reload({
+      // Armed before the reload: main closes the old window as the document goes, and the new
+      // console document opens the one drawn next.
+      const reopened = appUnderTest.application.waitForEvent("window", {
         timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
-      await appUnderTest.window.waitForSelector(".meridian-frame", {
+      await appUnderTest.consolePage.reload({
         timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
-      expect(await readPageScheme(appUnderTest), "the scheme did not survive a reload").toBe(
+      const reopenedWindow = await reopened;
+      await reopenedWindow.waitForSelector(".meridian-frame", {
+        timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
+      });
+      expect(await readPageScheme(reopenedWindow), "the scheme did not survive a reload").toBe(
         "dark",
       );
 
@@ -90,7 +98,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's recor
       });
       expect(isClicked, "the View menu has a Light row").toBe(true);
       await expect
-        .poll(async () => await readPageScheme(appUnderTest), {
+        .poll(async () => await readPageScheme(reopenedWindow), {
           timeout: stepTimeout(),
           message: "the View menu's pick did not reach the open window",
         })

@@ -12,15 +12,15 @@ const electronMock = createElectronMock({ recordOrder: true });
 vi.mock("electron", () => electronMock.moduleExports);
 
 /** Why the ready continuation rejects: the last step, so most of the startup is already done. */
-const STARTUP_FAILURE = new Error("the first window could not be created");
+const STARTUP_FAILURE = new Error("the console window could not be created");
 
-const openRendererWindow = vi.fn(() => {
+const openConsoleWindow = vi.fn(() => {
   throw STARTUP_FAILURE;
 });
 
 vi.mock("./windows/window.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./windows/window.js")>()),
-  openRendererWindow,
+  openConsoleWindow,
 }));
 
 /** Entries the startup log was handed, kept in memory. */
@@ -61,7 +61,7 @@ describe("a failed startup exits, whatever the record of it does first", () => {
     vi.resetModules();
     writtenEntries.length = 0;
     reportUnwrittenDiagnosticsOutcome = async () => {};
-    openRendererWindow.mockClear();
+    openConsoleWindow.mockClear();
     // Every case deliberately logs a failure; keep the run output clean.
     vi.spyOn(console, "error").mockImplementation(() => {});
     // The crash reporter reads the machine settings file under the home folder at import; one
@@ -115,7 +115,7 @@ describe("a failed startup exits, whatever the record of it does first", () => {
       process.argv = launchArguments;
     }
 
-    expect(openRendererWindow).not.toHaveBeenCalled();
+    expect(openConsoleWindow).not.toHaveBeenCalled();
     expect(writtenEntries[0]?.message).toContain("--fixture");
     expect(electronMock.exitCodes).toEqual([1]);
   });

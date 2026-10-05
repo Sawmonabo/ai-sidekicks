@@ -122,6 +122,7 @@ describe("artifact list actions: one payload fetch in flight, each with its own 
       listArtifacts: async () => LISTED_ONE_ROW,
       readArtifact: artifactRead,
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      ownerWindow: window,
       clock,
     });
     reader.start();
@@ -151,6 +152,7 @@ describe("artifact list actions: one payload fetch in flight, each with its own 
       listArtifacts: async () => LISTED_ONE_ROW,
       readArtifact: artifactRead,
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      ownerWindow: window,
       clock,
     });
     reader.start();

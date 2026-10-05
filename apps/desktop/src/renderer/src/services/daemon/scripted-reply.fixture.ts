@@ -154,9 +154,9 @@ export async function resolveScriptedReply(
 /**
  * Hold one resolved scripted reply to the shape the corpus registers for its method.
  *
- * Reads the same `@shared/daemon-method-bindings.ts` table `daemon-reply.ts` parses live replies against,
- * so an impossible reply fails in the scenario's own tests and two tables cannot disagree. It
- * asserts and does not substitute: the original value travels on, so a scenario cannot lean on a
+ * Reads the same `@shared/daemon-method-bindings.ts` table `daemon-reply.ts` parses live replies
+ * against, so an impossible reply fails in the scenario's own tests and two tables cannot disagree.
+ * It asserts and does not substitute: the original value travels on, so a scenario cannot lean on a
  * coercion or default a live daemon lacks. A method the registry does not bind passes through.
  */
 export function assertScriptedReplyOnContract(method: string, value: unknown): unknown {

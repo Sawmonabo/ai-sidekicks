@@ -10,10 +10,14 @@ import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
+import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import type { FilePathRef } from "@shared/preload-api.js";
 import { createElectronMock } from "@test/helpers/electron-mock.js";
 import type { DaemonConnection, MainProcessState } from "@shared/daemon-status-topic.js";
 import type { DaemonSubscriber } from "./daemon.js";
@@ -96,8 +100,48 @@ describe("the daemon's wire through main", () => {
     );
     const bridge = await bridgeOver(connection);
 
-    await expect(bridge.daemon.call("presence.read", {})).resolves.toEqual(NO_DEVICES);
+    await expect(bridge.daemon.call("presence.read", {})).resolves.toEqual({ value: NO_DEVICES });
     expect(connection.requests).toEqual([{ method: "presence.read", params: {} }]);
+  });
+
+  it("hands the page a token for each path a served reply offers, and opens the path by it", async () => {
+    const memoryFile = "/Users/person/.claude/projects/app/CLAUDE.md";
+    const memoryFolder = "/Users/person/.claude/projects/app/memory";
+    const memory = {
+      sessionId: SESSION_ID,
+      home: "/Users/person/.claude",
+      autoMemory: { enabled: true },
+      entries: [
+        { path: memoryFile, kind: "file" },
+        { path: memoryFolder, kind: "folder" },
+      ],
+    };
+    // No editor chosen, so `Open` goes to the system's default for the file.
+    const connection = scriptedConnection((request) =>
+      request.method === "session.memoryRead"
+        ? { result: memory }
+        : { result: { settings: MACHINE_SETTINGS_DEFAULTS } },
+    );
+    // The preload's bridge as the page holds it; `callDaemon` reads only its daemon wire.
+    const bridge = (await bridgeOver(connection)) as PlatformBridge;
+
+    const reply = await callDaemon(bridge, "session.memoryRead", { sessionId: SESSION_ID });
+    if (reply.status !== "served") {
+      throw new Error(`the read was refused: ${reply.refusal.detail}`);
+    }
+    expect(reply.value).toEqual(memory);
+    const fileRefs = reply.fileRefs ?? {};
+    expect(Object.keys(fileRefs).sort()).toEqual([memoryFile, memoryFolder].sort());
+    for (const [path, ref] of Object.entries(fileRefs)) {
+      expect(ref).not.toContain(path);
+    }
+
+    await bridge.native.openInEditor(fileRefs[memoryFile] as FilePathRef);
+    expect(electronMock.pathOpens).toEqual([memoryFile]);
+
+    // Negative control: the path itself opens nothing.
+    await expect(bridge.native.openInEditor(memoryFile as FilePathRef)).rejects.toThrow();
+    expect(electronMock.pathOpens).toEqual([memoryFile]);
   });
 
   it("sends nothing for a call off its contract, or to a method the app does not call", async () => {

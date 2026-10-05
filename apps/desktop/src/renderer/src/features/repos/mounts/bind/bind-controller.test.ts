@@ -66,6 +66,7 @@ function open(
     operations: scriptedRepoOperations(scriptedDaemon(bindRequests)),
     repoMountId,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+    ownerWindow: window,
     clock,
   });
   controllers.push(controller);

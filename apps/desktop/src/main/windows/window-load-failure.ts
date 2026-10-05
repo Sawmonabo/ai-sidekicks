@@ -29,31 +29,34 @@ export function describeLoadFailure(error: unknown): string {
 }
 
 /**
- * Starts the load, and gives a rejected load a visible outcome instead of a blank window. On
+ * Starts the load, and gives a rejected load a visible outcome instead of an unseen failure. On
  * rejection the window loads the generated failure document (`./load-failure-document.ts`),
- * which is servable because it is not read from the tree that just failed. If that load also
- * rejects, the window is destroyed and the process exits non-zero once the reason is in the log;
- * the failure document's own catch does not re-enter this path, so the recovery cannot loop.
+ * which is servable because it is not read from the tree that just failed, and `revealFailure`
+ * puts the window on screen once it has. If that load also rejects, the window is destroyed and
+ * the process exits non-zero once the reason is in the log; the failure document's own catch does
+ * not re-enter this path, so the recovery cannot loop.
  */
 export function loadDocument(
   baseWindow: BaseWindow,
   webContents: WebContents,
   documentUrl: string,
   log: LoadFailureLog,
+  revealFailure: () => void,
 ): void {
   webContents.loadURL(documentUrl).catch((error: unknown) => {
     const reason = describeLoadFailure(error);
     writeLoadFailureEntry(log, "error", `failed to load ${documentUrl}: ${reason}`);
-    serveLoadFailureDocument(baseWindow, webContents, reason, log);
+    serveLoadFailureDocument(baseWindow, webContents, reason, log, revealFailure);
   });
 }
 
-/** Loads the generated failure document, or gives up in a controlled way. */
+/** Loads the generated failure document and reveals it, or gives up in a controlled way. */
 function serveLoadFailureDocument(
   baseWindow: BaseWindow,
   webContents: WebContents,
   reason: string,
   log: LoadFailureLog,
+  revealFailure: () => void,
 ): void {
   if (baseWindow.isDestroyed()) {
     // The user usually closed the window while its first load was still failing. A plain
@@ -85,7 +88,7 @@ function serveLoadFailureDocument(
     return;
   }
 
-  webContents.loadURL(failureDocumentUrl).catch((failureDocumentError: unknown) => {
+  webContents.loadURL(failureDocumentUrl).then(revealFailure, (failureDocumentError: unknown) => {
     writeLoadFailureEntry(
       log,
       "error",
@@ -110,7 +113,7 @@ function abandonUnservableWindow(
   writeLoadFailureEntry(
     log,
     "error",
-    `no renderer document could be served for the first window (${reason}); exiting ` +
+    `no renderer document could be served for the console window (${reason}); exiting ` +
       `${String(RENDERER_UNSERVABLE_EXIT_CODE)}.`,
   );
   void log.drain().then(() => {

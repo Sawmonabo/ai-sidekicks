@@ -2,7 +2,7 @@
 // `RAIL_DESTINATIONS` so the palette, the chord table and the rail share one closed set.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
-import type { WindowStore } from "@renderer/store/window/window-store.js";
+import type { AppRoute } from "@renderer/routing/routes.js";
 import type { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import type {
   FrameCommand,
@@ -48,8 +48,8 @@ export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.ma
 
 /**
  * Contributes the rail's chords ahead of every feature's, since the table listens in the capture
- * phase and the first match wins. The commands close over a window's store, so the window
- * registers those on mount.
+ * phase and the first match wins. The commands navigate the window a chord or palette row ran
+ * in, so the app registers those once its windows are open.
  */
 export function registerNavigationKeybindings(contributions: CommandContributionRegistry): void {
   contributions.contribute({
@@ -61,10 +61,10 @@ export function registerNavigationKeybindings(contributions: CommandContribution
 
 /**
  * One command per rail destination, titled with the rail's label. Each warms the screen before
- * navigating, and again while its palette row is highlighted.
+ * handing `navigate` the destination's route, and again while its palette row is highlighted.
  */
 export function buildNavigationCommands(
-  frameStore: WindowStore,
+  navigate: (route: AppRoute) => void,
   screenRegistry: ScreenRegistry,
 ): readonly FrameCommand[] {
   return RAIL_DESTINATIONS.map((destination) => ({
@@ -74,7 +74,7 @@ export function buildNavigationCommands(
     keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
     run: () => {
       warmDestination(screenRegistry, destination);
-      frameStore.navigate(routeForDestination(destination));
+      navigate(routeForDestination(destination));
     },
     preload: () => {
       warmDestination(screenRegistry, destination);

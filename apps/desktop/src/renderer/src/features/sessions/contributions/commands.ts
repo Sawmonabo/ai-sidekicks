@@ -11,6 +11,7 @@
 // set of route keys.
 
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { WHEN_SESSION_ACTIVE } from "@renderer/registries/commands/window-command-registry.js";
@@ -125,7 +126,7 @@ function performOnMountedPaneLayout(
   mountedLayouts: MountedPaneLayouts,
   act: PaneLayoutActName,
 ): void {
-  const outcome = mountedLayouts.perform(act);
+  const outcome = mountedLayouts.perform(act, readCommandWindow());
   if (outcome.status === "refused") {
     raiseCommandRefusal(outcome.refusal);
   }

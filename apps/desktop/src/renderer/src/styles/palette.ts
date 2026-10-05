@@ -224,6 +224,12 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  */
 export const LEADING_EDGE_WIDTH_PX = 2;
 
+/**
+ * The navigation rail's width, in rem: a 2.25rem hit target with equal margins, 52 px at the
+ * default text size. Root-relative like every chrome width, so it grows with the text size.
+ */
+export const RAIL_WIDTH_REM = 3.25;
+
 // Throws on an unknown step so a typo cannot become `NaNrem`, which the browser discards
 // silently. The same stance as `schemeColor`.
 function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {

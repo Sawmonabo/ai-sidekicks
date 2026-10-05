@@ -18,8 +18,9 @@ export interface PaneControls {
   /** Opens another pane in this pane's pane layout; absent where the host opens no panes. */
   readonly openPane?: PaneOpener;
   /**
-   * A ref callback that makes the pane's head the drag handle: the drag adapter binds to an
-   * element, which only the chrome has. Absent where the host does not reorder panes.
+   * A ref callback that makes the pane's head the grip its pane is dragged by: the pane layout's
+   * reorder binds to an element, which only the chrome has. Absent where the host does not
+   * reorder panes.
    */
   readonly registerDragHandle?: (element: HTMLElement | null) => void;
 }

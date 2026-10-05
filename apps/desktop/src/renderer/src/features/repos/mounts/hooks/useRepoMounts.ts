@@ -7,6 +7,7 @@ import { useCallback, useMemo } from "react";
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
 
 import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -36,12 +37,13 @@ export function useRepoMounts(
   operations: RepoOperations,
 ): RepoMountsBinding {
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
   const { reader, reading } = useStoreBoundReader(
     subject,
     sessionStore.sessionId,
     sessionStore,
-    () => new RepoMountsReader({ operations, sessionStore, clock }),
+    () => new RepoMountsReader({ operations, sessionStore, ownerWindow, clock }),
   );
   const requestModeSelection = useCallback(
     (workspaceId: WorkspaceId, executionMode: ExecutionMode) => {

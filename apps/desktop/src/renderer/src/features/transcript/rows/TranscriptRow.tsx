@@ -75,6 +75,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           density={density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
+          replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
           thinkingRow={
             rowKind.kind === "thinking" ? (

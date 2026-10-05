@@ -67,7 +67,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
     );
   }
   // Through `TranscriptFeedRow` rather than straight into the row renderer: it is the memo
-  // boundary. The dispatch re-renders on every admitted event, but the four values below are
+  // boundary. The dispatch re-renders on every admitted event, but the five values below are
   // identity-stable when the row did not move, so only the lookups run, not the card.
   return (
     <TranscriptFeedRow
@@ -81,6 +81,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
         props.retainedRowState(projected.id)?.density ??
         densityFor(projected.id, transcriptWindow.collapsedRowIds)
       }
+      replyRowIds={transcriptWindow.replyRowIdsByFootRowId.get(projected.id)}
       renderTranscriptRow={props.renderTranscriptRow}
     />
   );

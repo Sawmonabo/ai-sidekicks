@@ -47,7 +47,7 @@ class OverlayMotionObservation {
       onFrame: onMoved,
     });
     this.#samplersByElement.set(element, sampler);
-    this.#armMotionStarts();
+    this.#armMotionStarts(element.ownerDocument);
     if (hasRunningMotion(element)) {
       // Observed mid-animation: the start event has already come and gone.
       sampler.startIfIdle();
@@ -59,11 +59,12 @@ class OverlayMotionObservation {
     };
   }
 
-  #armMotionStarts(): void {
+  /** Every watched overlay is in one document: the airspace it came from is that document's. */
+  #armMotionStarts(ownerDocument: Document): void {
     if (this.#detachMotionStarts !== undefined) {
       return;
     }
-    this.#detachMotionStarts = observeMotionStarts((movingNode) => {
+    this.#detachMotionStarts = observeMotionStarts(ownerDocument, (movingNode) => {
       for (const [element, sampler] of this.#samplersByElement) {
         if (sharesMotionWith(element, movingNode)) {
           sampler.startIfIdle();

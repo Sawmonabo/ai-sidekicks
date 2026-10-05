@@ -62,6 +62,7 @@ async function openWithHeldSelect(released: ReleasedSelect = "served"): Promise<
   const reader = new RepoMountsReader({
     operations: port.operations,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+    ownerWindow: window,
     clock,
   });
   trackReader(reader);

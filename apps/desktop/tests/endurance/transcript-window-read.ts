@@ -50,7 +50,7 @@ export async function readTranscriptWindow(
     }
     process.stdout.write("[endurance] no transcript row attached within the allowance\n");
   }
-  return appUnderTest.window.evaluate(
+  return appUnderTest.consolePage.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
       const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
         globalName

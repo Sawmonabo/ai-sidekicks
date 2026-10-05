@@ -1,31 +1,23 @@
-// This window's appearance: main's record, the one copy there is, applied to the document root as
-// each one arrives, and the acts that ask main for another color scheme. Main applies a change
-// only once its record is written, so a refused change leaves the window as it was and says so on
-// the window's banner. The client is held per bridge and closed with it, as the UI-state store is.
+// The app's appearance: main's record, the one copy there is, applied to every open window's
+// document root as each one arrives, and to each window opened after it before it draws. Main
+// applies a scheme change only once its record is written, so a refused change leaves every window
+// as it was and says so on the banner of the window that asked. The client is held per bridge and
+// closed with it, as the UI-state store is.
 
-import { useCallback, useLayoutEffect } from "react";
+import { useLayoutEffect } from "react";
 
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { AppearanceClient } from "@renderer/services/window/appearance-client.js";
+import type { OpenWindows } from "@renderer/services/window/open-windows.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
+import type { AppearanceRecord } from "@shared/appearance.js";
 import { applyAppearance } from "../token-installation.js";
 
-/** The acts that ask main to change this window's color scheme. */
-export interface UseAppearanceResult {
-  readonly chooseScheme: (preference: SchemePreference) => void;
-  /** The next scheme in the cycle a person steps through, after the one in force. */
-  readonly chooseNextScheme: () => void;
-}
-
-/** Main's appearance record kept on this window's document root, and the scheme acts. */
-export function useAppearance(
-  bridge: PlatformBridge,
-  frameStore: WindowStore,
-): UseAppearanceResult {
+/** Main's appearance record kept on every open window's document root; the client for the acts. */
+export function useAppearance(bridge: PlatformBridge, openWindows: OpenWindows): AppearanceClient {
   const { value: client } = useSubjectScopedResource<AppearanceClient>(
     bridge,
     undefined,
@@ -34,38 +26,34 @@ export function useAppearance(
   );
 
   // Before paint, so a record that arrives with the first frame is not drawn a frame late.
-  useLayoutEffect(
-    () =>
-      client.subscribe((record) => {
-        applyAppearance(document, record);
-      }),
-    [client],
-  );
-
-  const disclose = useCallback(
-    (asked: Promise<void>) => {
-      // Main's refusal crosses IPC and may name a subsystem the person cannot act on; the banner
-      // says what it means for them.
-      void asked.catch(() => {
-        frameStore.raiseRefusalBanner(UNKEPT_SCHEME);
+  useLayoutEffect(() => {
+    let stopApplying: () => void = () => undefined;
+    const stopHearing = client.subscribe((record: AppearanceRecord) => {
+      stopApplying();
+      stopApplying = openWindows.prepareEveryDocument((windowDocument) => {
+        applyAppearance(windowDocument, record);
       });
-    },
-    [frameStore],
-  );
-  const chooseScheme = useCallback(
-    (preference: SchemePreference) => {
-      disclose(client.chooseScheme(preference));
-    },
-    [client, disclose],
-  );
-  const chooseNextScheme = useCallback(() => {
-    disclose(client.chooseNextScheme());
-  }, [client, disclose]);
+    });
+    return () => {
+      stopHearing();
+      stopApplying();
+    };
+  }, [client, openWindows]);
 
-  return { chooseScheme, chooseNextScheme };
+  return client;
 }
 
-/** What the window's banner says when main could not keep a scheme. */
+/**
+ * Say on `frameStore`'s banner when main could not keep the scheme `asked` for. Main's refusal
+ * crosses IPC and may name a subsystem the person cannot act on; the banner says what it means.
+ */
+export function discloseUnkeptScheme(asked: Promise<void>, frameStore: WindowStore): void {
+  void asked.catch(() => {
+    frameStore.raiseRefusalBanner(UNKEPT_SCHEME);
+  });
+}
+
+/** What a window's banner says when main could not keep a scheme. */
 const UNKEPT_SCHEME = refuse(
   "appearance",
   "scheme-not-kept",

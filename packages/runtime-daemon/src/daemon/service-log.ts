@@ -3,7 +3,7 @@
 // started the daemon and whatever they did with its streams. Lines are written synchronously, so
 // the last line before an exit is never lost. A file that cannot be opened or written leaves
 // standard error carrying the log, says why there once, and never stops the daemon. Deleting old
-// files is the diagnostic-log retention's, which reads this folder.
+// files belongs to the diagnostic-log expiry.
 
 import { mkdirSync, openSync, writeSync } from "node:fs";
 import * as path from "node:path";

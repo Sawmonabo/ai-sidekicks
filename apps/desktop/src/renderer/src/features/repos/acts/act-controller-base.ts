@@ -26,6 +26,8 @@ export interface ActControllerBaseOptions {
   readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the prerequisite. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /** The frames that owe the prerequisite a fresh answer. */
   readonly triggeringEventKinds: ReadonlySet<string>;
 }
@@ -54,6 +56,7 @@ export abstract class ActControllerBase<TValue, TSettlement extends ActSettlemen
       label: options.label,
       clock: options.clock,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
       triggeringEventKinds: options.triggeringEventKinds,
       // Dispatches to the subclass's override. The reader calls this only after the first
       // scheduled read, when every subclass field is initialized (`this` is unusable in super()).

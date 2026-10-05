@@ -215,6 +215,22 @@ export const WorkflowRunRetryResponseSchema: z.ZodType<WorkflowRunRetryResponse>
     message: "A retry is a new run.",
   });
 
+// workflow.runRerun
+
+/**
+ * The `workflow.runRerun` input: start a new run of the named run's own pinned version, with the
+ * input and mode that run was started with, in the session it lives in. The daemon reads all
+ * three from the source run, so the caller names only the run.
+ */
+export interface WorkflowRunRerunRequest {
+  workflowRunId: WorkflowRunId;
+}
+/** Wire schema for {@link WorkflowRunRerunRequest}. */
+export const WorkflowRunRerunRequestSchema: z.ZodType<
+  WorkflowRunRerunRequest,
+  WorkflowRunRerunRequest
+> = z.object({ workflowRunId: WorkflowRunIdSchema }).strict();
+
 // workflow.nodeExecute
 
 /**
@@ -468,6 +484,11 @@ export interface WorkflowRunControlMethodDescriptors {
     WorkflowRunRetryRequest,
     WorkflowRunRetryResponse
   >;
+  readonly "workflow.runRerun": MethodDescriptor<
+    "workflow.runRerun",
+    WorkflowRunRerunRequest,
+    WorkflowRunStartResponse
+  >;
   readonly "workflow.nodeExecute": MethodDescriptor<
     "workflow.nodeExecute",
     WorkflowNodeExecuteRequest,
@@ -512,6 +533,13 @@ export const WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS: WorkflowRunControlMethodDe
       mutating: true,
       requestSchema: WorkflowRunRetryRequestSchema,
       responseSchema: WorkflowRunRetryResponseSchema,
+    },
+    "workflow.runRerun": {
+      method: "workflow.runRerun",
+      procedureType: "mutation",
+      mutating: true,
+      requestSchema: WorkflowRunRerunRequestSchema,
+      responseSchema: WorkflowRunStartResponseSchema,
     },
     "workflow.nodeExecute": {
       method: "workflow.nodeExecute",

@@ -43,7 +43,7 @@ import type {
   DaemonStatusTopic,
   MainProcessState,
 } from "./daemon-status-topic.js";
-import type { WindowSize } from "./window/window-size.js";
+import type { WindowDefaultSizes, WindowSize } from "./window/window-size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
@@ -318,13 +318,25 @@ export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonEvent
   : MainProcessState;
 
 /**
+ * What a served daemon call answers: the daemon's result, and the token main minted for each path
+ * the result offers to open, keyed by the path; absent when it offers none.
+ */
+export interface ServedDaemonCall<Value> {
+  readonly value: Value;
+  readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
+}
+
+/**
  * The daemon's own wire: its JSON-RPC calls, and its subscriptions, each opened with the
  * request its method registers. A call the daemon refuses rejects with the wire error itself
  * (`{code, message, data}`), and any other failed call with an `Error`; a subscription that
  * cannot open throws.
  */
 export interface DaemonWire {
-  call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
+  call<M extends DaemonMethod>(
+    method: M,
+    params: DaemonParams<M>,
+  ): Promise<ServedDaemonCall<DaemonResult<M>>>;
   /**
    * Open one subscription. `daemon.status` is main's own topic: it opens while no service
    * answers, its first delivery is the current state, and it never ends. A daemon subscription
@@ -420,13 +432,16 @@ export interface PreloadApi {
     write(map: KeyboardMap): Promise<KeyboardMap>;
   };
 
-  /** The window the renderer draws in: its id, its appearance, its minimum size and fullscreen. */
+  /**
+   * The windows a person sees, each named by its window id, the frame name the console document
+   * opened it under: the one used last, the appearance, each one's fullscreen and minimum size.
+   */
   readonly window: {
     /**
-     * The id main built this window under: the console window used last, or a new id on a first
-     * launch. The renderer's kept layout files this window under it.
+     * The window used last at the last quit, or a new id on a first launch. The console document
+     * opens it first, and keys its kept window layout by window ids.
      */
-    readonly id: string;
+    readonly lastUsedWindowId: string;
     /**
      * The appearance chosen and its theme's two grounds: main sets the platform scheme, ticks the
      * View menu, paints first frames from the grounds and keeps the record.
@@ -434,10 +449,15 @@ export interface PreloadApi {
     setAppearance(choice: AppearanceChoice, grounds: AppearanceGrounds): Promise<void>;
     /** The appearance record on every change, the first delivery the kept one. */
     subscribeAppearance(handler: (record: AppearanceRecord) => void): Unsubscribe;
-    /** Fullscreen starting or ending, the first delivery the current state. */
-    subscribeFullscreen(handler: (isFullScreen: boolean) => void): Unsubscribe;
-    /** The smallest size the window may shrink to. */
-    setMinimumSize(size: WindowSize): Promise<void>;
+    /** One window's fullscreen starting or ending, the first delivery the current state. */
+    subscribeFullscreen(windowId: string, handler: (isFullScreen: boolean) => void): Unsubscribe;
+    /** The smallest size one window may shrink to. */
+    setMinimumSize(windowId: string, size: WindowSize): Promise<void>;
+    /**
+     * The widths a window with no kept place opens at, handed before the first window opens and
+     * again when the text size changes.
+     */
+    setDefaultSizes(sizes: WindowDefaultSizes): Promise<void>;
   };
 
   readonly app: AppFacts;
@@ -460,10 +480,10 @@ function stubThrow(member: string): never {
 
 /**
  * The preload API with every round-trip member throwing `NotImplementedError`. The caller
- * supplies the build facts and the window's id, because only the preload can read what main
+ * supplies the build facts and the window used last, because only the preload can read what main
  * passed.
  */
-export function createStubBridge(app: AppFacts, windowId: string): PreloadApi {
+export function createStubBridge(app: AppFacts, lastUsedWindowId: string): PreloadApi {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
@@ -498,11 +518,12 @@ export function createStubBridge(app: AppFacts, windowId: string): PreloadApi {
       write: () => stubThrow("keyboardMap.write"),
     },
     window: {
-      id: windowId,
+      lastUsedWindowId,
       setAppearance: () => stubThrow("window.setAppearance"),
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
       subscribeFullscreen: () => stubThrow("window.subscribeFullscreen"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
+      setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
     },
     app,
   };

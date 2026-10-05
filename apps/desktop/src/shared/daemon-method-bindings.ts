@@ -18,6 +18,7 @@ import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
+import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-inspector";
 import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
 import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-definition-methods";
 import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-control";
@@ -44,6 +45,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "transcript.childRunExpand",
   "session.create",
   "session.read",
+  "session.memoryRead",
   "presence.read",
   "highlight.read",
   "question.resolve",
@@ -87,6 +89,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "workflow.runCancel",
   "workflow.runResume",
   "workflow.runRetry",
+  "workflow.runRerun",
   "workflow.stepRead",
   "workflow.gateResolve",
   "workflow.humanFormRead",
@@ -115,6 +118,7 @@ const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...TRANSCRIPT_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
   ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
+  ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
   ...PRESENCE_METHOD_DESCRIPTORS,
   ...HIGHLIGHT_METHOD_DESCRIPTORS,
   ...QUESTION_METHOD_DESCRIPTORS,

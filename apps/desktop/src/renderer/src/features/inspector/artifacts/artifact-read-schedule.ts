@@ -53,6 +53,8 @@ export interface ArtifactReadScheduleOptions {
    * transitions of this object, and the id is read off it.
    */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /** The clock the schedule and every published stamp run on; the binding supplies it. */
   readonly clock: Clock;
 }
@@ -95,6 +97,7 @@ export abstract class ArtifactReadSchedule implements ReadTriggerTarget {
     this.#triggers = new SessionRefreshTriggers({
       target: this,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
     });
   }
 

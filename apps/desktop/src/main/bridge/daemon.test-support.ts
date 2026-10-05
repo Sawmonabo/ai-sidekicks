@@ -14,7 +14,7 @@ import { vi } from "vitest";
 
 import { appFactsSwitches } from "@shared/app-facts.js";
 import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { windowIdSwitch } from "@shared/window/window-id.js";
+import { lastUsedWindowIdSwitch } from "@shared/window/window-id.js";
 import type { DaemonConnection, MainProcessState } from "@shared/daemon-status-topic.js";
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
@@ -137,7 +137,12 @@ export async function bridgeOverLink(
     log,
     windowContext: {
       appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
-      openWindows: { windowShowing: vi.fn() },
+      openWindows: {
+        windowWithId: vi.fn(),
+        isConsoleDocument: vi.fn(),
+        windowUsedLast: vi.fn(),
+        setDefaultSizes: vi.fn(),
+      },
     },
   });
   return createPreloadApi([
@@ -148,6 +153,6 @@ export async function bridgeOverLink(
       locale: "en-US",
       physicalMemoryBytes: 17_179_869_184,
     }),
-    windowIdSwitch("w-1"),
+    lastUsedWindowIdSwitch("w-1"),
   ]);
 }

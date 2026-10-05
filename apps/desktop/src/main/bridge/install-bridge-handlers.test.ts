@@ -47,7 +47,12 @@ beforeEach(async () => {
     log,
     windowContext: {
       appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
-      openWindows: { windowShowing: vi.fn() },
+      openWindows: {
+        windowWithId: vi.fn(),
+        isConsoleDocument: vi.fn(),
+        windowUsedLast: vi.fn(),
+        setDefaultSizes: vi.fn(),
+      },
     },
   });
 });

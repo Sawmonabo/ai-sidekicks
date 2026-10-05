@@ -8,7 +8,7 @@
 // clears it. Each re-open tells the owner, which reads afresh what the gap may have hidden. A first
 // open that throws is re-raised unchanged, as `openObservedSubscription` does, since most owners
 // already have an arm for a stream that could not open; an owner without one has it wait for the
-// returning edge.
+// returning edge, or has it reported and tried again as a re-open that throws is.
 
 import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
@@ -29,8 +29,11 @@ export type ReopenableStreamOpen<Payload = unknown> = (
   onEnded: (end: DaemonSubscriptionEnd) => void,
 ) => Unsubscribe;
 
-/** What a first open that throws does: re-raise, or wait for the transport's returning edge. */
-export type FirstOpenFailure = "rethrow" | "reopenOnReconnect";
+/**
+ * What a first open that throws does: re-raise, wait for the transport's returning edge, or reach
+ * the owner as a refusal and be tried again as a re-open that throws is.
+ */
+export type FirstOpenFailure = "rethrow" | "reopenOnReconnect" | "refuseAndRetry";
 
 /**
  * The waits before each re-open in a row of streams that ended at once or re-opens that threw, in
@@ -77,6 +80,8 @@ export function openReopeningSubscription<Payload = unknown>(options: {
   let waitHandle: ScheduledHandle | undefined;
   let isReleased = false;
   let isRefused = false;
+  /** Whether an open has worked yet, which decides whether a refused one stopped live updates. */
+  let hasOpened = false;
   /** Re-opens in a row since a stream last stayed open {@link REOPEN_SETTLED_MS}. */
   let reopensInARow = 0;
 
@@ -106,6 +111,7 @@ export function openReopeningSubscription<Payload = unknown>(options: {
         },
       ),
     );
+    hasOpened = true;
     if (!hasEnded) {
       release = handle;
     }
@@ -118,18 +124,7 @@ export function openReopeningSubscription<Payload = unknown>(options: {
     try {
       openOnce();
     } catch (openFailure: unknown) {
-      recordStreamFact("subscription-open-failed", `${subject}: ${lossyStringify(openFailure)}`);
-      isRefused = true;
-      onReopenRefusal?.(
-        normalizeWireRejection(REOPEN_REFUSAL_ORIGIN, openFailure, {
-          code: "subscription-reopen-failed",
-          detail: "Live updates stopped and could not start again; still trying.",
-        }),
-      );
-      // Never at once: an open that just threw is tried again after a wait.
-      reopensInARow = Math.max(reopensInARow, 1);
-      reopenAfterWait();
-      reopenOnReconnect();
+      refuseAndRetry(openFailure);
       return;
     }
     if (isRefused) {
@@ -137,6 +132,22 @@ export function openReopeningSubscription<Payload = unknown>(options: {
       onReopenRefusal?.(undefined);
     }
     onReopened?.();
+  };
+  const refuseAndRetry = (openFailure: unknown): void => {
+    recordStreamFact("subscription-open-failed", `${subject}: ${lossyStringify(openFailure)}`);
+    isRefused = true;
+    onReopenRefusal?.(
+      normalizeWireRejection(REOPEN_REFUSAL_ORIGIN, openFailure, {
+        code: "subscription-reopen-failed",
+        detail: hasOpened
+          ? "Live updates stopped and could not start again; still trying."
+          : "Live updates could not start; still trying.",
+      }),
+    );
+    // Never at once: an open that just threw is tried again after a wait.
+    reopensInARow = Math.max(reopensInARow, 1);
+    reopenAfterWait();
+    reopenOnReconnect();
   };
   const reopenAfterWait = (): void => {
     if (isReleased || waitHandle !== undefined) {
@@ -171,8 +182,12 @@ export function openReopeningSubscription<Payload = unknown>(options: {
     try {
       openOnce();
     } catch (openFailure: unknown) {
-      recordStreamFact("subscription-open-failed", `${subject}: ${lossyStringify(openFailure)}`);
-      reopenOnReconnect();
+      if (firstOpenFailure === "refuseAndRetry") {
+        refuseAndRetry(openFailure);
+      } else {
+        recordStreamFact("subscription-open-failed", `${subject}: ${lossyStringify(openFailure)}`);
+        reopenOnReconnect();
+      }
     }
   }
   return () => {

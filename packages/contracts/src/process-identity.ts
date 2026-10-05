@@ -46,7 +46,9 @@ export function isSameProcess(first: ProcessIdentity, second: ProcessIdentity): 
 export interface ProcessIdentitySystem {
   /** `process.platform`. */
   readonly platform: string;
-  /** Reads a text file; rejects as `fs.promises.readFile` does, with `code` `ENOENT` when absent. */
+  /**
+   * Reads a text file; rejects as `fs.promises.readFile` does, with `code` `ENOENT` when absent.
+   */
   readonly readTextFile: (path: string) => Promise<string>;
   /**
    * Runs a program with exactly `environment`; rejects as a promisified `execFile` does when it

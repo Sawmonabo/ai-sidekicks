@@ -13,8 +13,6 @@ import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow-ru
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
-import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
 import type { WorkflowNoticeFrame } from "@renderer/services/daemon/workflow-notices.js";
 
 /** Where the feed stands: opening, open with the hold as last told, or refused while it is down. */
@@ -32,13 +30,13 @@ export type WorkflowRunSignal =
   | { readonly scope: "run"; readonly workflowRunId: string; readonly isAnswered?: boolean }
   | { readonly scope: "all" };
 
-/** Opens the stream and hands each frame on; the caller's release closes it. */
+/**
+ * Opens the stream and hands each frame on; the caller's release closes it. It never throws: a
+ * stream that cannot open arrives as a `reopenRefused` frame.
+ */
 export type SubscribeWorkflowNotices = (
   onFrame: (frame: WorkflowNoticeFrame) => void,
 ) => Unsubscribe;
-
-/** Names the feed in a refusal. */
-const WORKFLOW_NOTICE_FEED_ORIGIN = "workflow-notices";
 
 /** The workflow stream as the workflows screens hear it: the hold, and which runs moved. */
 export class WorkflowNoticeFeed {
@@ -73,27 +71,16 @@ export class WorkflowNoticeFeed {
     if (this.#disposed || this.#release !== undefined) {
       return;
     }
-    try {
-      const release = this.#subscribe((frame) => {
-        this.#receive(frame);
-      });
-      if (this.#disposed) {
-        release();
-        return;
-      }
-      this.#release = release;
-    } catch (subscriptionFailure: unknown) {
-      this.#settle({
-        kind: "failed",
-        refusal: coerceToRefusal(
-          subscriptionFailure,
-          WORKFLOW_NOTICE_FEED_ORIGIN,
-          SUBSCRIBE_FAILED,
-        ),
-      });
+    const release = this.#subscribe((frame) => {
+      this.#receive(frame);
+    });
+    if (this.#disposed) {
+      release();
       return;
     }
-    if (this.#state.kind !== "open") {
+    this.#release = release;
+    // A first open refused while it was being made has already settled the feed as failed.
+    if (this.#state.kind === "opening") {
       this.#settle({ kind: "open", pause: undefined });
     }
   }

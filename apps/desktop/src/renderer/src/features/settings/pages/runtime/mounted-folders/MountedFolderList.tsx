@@ -2,6 +2,7 @@ import "./mounted-folders.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
@@ -33,6 +34,7 @@ export function MountedFolderList(props: {
   // the window's clock hook, which keeps one identity for the mount, so this read is not
   // rebuilt around a new clock when the bridge is replaced.
   const clock = useClock();
+  const ownerWindow = useOwnerWindow();
   // A dependency that moves the read's construction: a subscription that could not be
   // opened is terminal without one, because the read requests no snapshot then and the
   // effect below re-runs only when the session or the transport moves.
@@ -57,11 +59,11 @@ export function MountedFolderList(props: {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");
     };
-    window.addEventListener("focus", onWindowFocus);
+    ownerWindow.addEventListener("focus", onWindowFocus);
     return () => {
-      window.removeEventListener("focus", onWindowFocus);
+      ownerWindow.removeEventListener("focus", onWindowFocus);
     };
-  }, [inventoryRead]);
+  }, [inventoryRead, ownerWindow]);
   // Reconnect is the third, and a different fact: a window that never lost focus can still
   // have had its transport drop and come back, leaving everything read across the gap stale
   // with nothing on screen saying so. A separate effect from focus because the two release

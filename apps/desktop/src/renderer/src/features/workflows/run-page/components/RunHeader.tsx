@@ -49,12 +49,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const { run, bridge } = props;
   const workflowRunId = run.workflowRunId;
   const { review, startedBy } = run;
+  // The daemon starts the new run from this run's own version, input and mode.
   const rerun = useWorkflowAct(
-    () =>
-      callDaemon(bridge, "workflow.runStart", {
-        workflowVersionId: run.workflowVersionId,
-        mode: "manual",
-      }),
+    () => callDaemon(bridge, "workflow.runRerun", { workflowRunId }),
     (started) => {
       props.onOpenRun(started.workflowRunId);
     },

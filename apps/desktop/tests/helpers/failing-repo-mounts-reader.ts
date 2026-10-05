@@ -12,5 +12,10 @@ export function failingRepoMountsReader(
   sessionStore: SessionStore,
   clock: Clock,
 ): RepoMountsReader {
-  return new RepoMountsReader({ operations: scriptedRepoOperations(), sessionStore, clock });
+  return new RepoMountsReader({
+    operations: scriptedRepoOperations(),
+    sessionStore,
+    ownerWindow: window,
+    clock,
+  });
 }

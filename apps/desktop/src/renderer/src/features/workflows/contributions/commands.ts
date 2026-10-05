@@ -5,6 +5,7 @@
 
 import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import {
   answerThisRunTarget,
@@ -62,7 +63,7 @@ export function registerWorkflowCommands(registry: CommandContributionRegistry):
 }
 
 function pressAct(act: WorkflowCommandTarget): void {
-  const refusal = act.press();
+  const refusal = act.press(readCommandWindow());
   if (refusal !== undefined) {
     raiseCommandRefusal(refusal);
   }

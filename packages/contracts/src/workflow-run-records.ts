@@ -275,7 +275,8 @@ export const WorkflowRunListRequestSchema: z.ZodType<
  * One row of the runs table, in the order the row reads it. It names the definition
  * the run came from, because a list answers with runs nobody named, and the run's
  * session, which the row opens. While the run is going it carries its live step and no
- * duration; a waiting run names its cause. `keep` is the Keep mark the row shows.
+ * duration; a `failed` run parked on its failed step has not ended and carries none either. A
+ * waiting run names its cause. `keep` is the Keep mark the row shows.
  */
 export interface WorkflowRunSummary {
   workflowRunId: WorkflowRunId;
@@ -316,10 +317,15 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
     keep: z.boolean(),
   })
   .strict()
-  .refine((row) => GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined), {
-    path: ["durationMs"],
-    message: "A finished run carries its duration and a going one does not.",
-  })
+  .refine(
+    (row) =>
+      row.status === "failed" ||
+      GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined),
+    {
+      path: ["durationMs"],
+      message: "An ended run carries its duration and a going one does not.",
+    },
+  )
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) || row.liveStep === undefined, {
     path: ["liveStep"],
     message: "Only a going run has a live step.",

@@ -34,6 +34,8 @@ export interface BindControllerOptions {
   readonly repoMountId: string;
   /** The session a bound workspace belongs to, whose frames re-ask the pre-bind question. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /** The window's one clock, so this refresh coalesces on the section's time base. */
   readonly clock: Clock;
 }
@@ -57,6 +59,7 @@ export class BindWorkspaceController extends ActControllerBase<
       label: "workspace bind reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
       // The frames that change what a mount admits.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
     });

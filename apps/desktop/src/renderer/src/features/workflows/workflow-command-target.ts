@@ -4,7 +4,8 @@
 // control offers the act, a fallback — the open run's page — takes the press: it opens the step
 // that waits, and the press then goes to that step's control once it is offered, so a form still
 // being read is answered when it is ready. Release is by identity, so a strict-mode double mount
-// or a route change cannot leave a gone one adopted. Module scope is one window.
+// or a route change cannot leave a gone one adopted. One target serves every window, so each
+// adopter names the document it is drawn in and a press reaches only its own window's.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
@@ -20,12 +21,12 @@ export type WorkflowCommandRole = "control" | "fallback";
 export class WorkflowCommandTarget {
   readonly #notMounted: Refusal;
   readonly #reportLater: (refusal: Refusal) => void;
-  readonly #adopted: Record<WorkflowCommandRole, WorkflowCommandPress[]> = {
+  readonly #adopted: Record<WorkflowCommandRole, AdoptedPress[]> = {
     control: [],
     fallback: [],
   };
   // The fallback whose press opened a step and now waits for that step's control to be offered.
-  #awaitingControl: WorkflowCommandPress | undefined;
+  #awaitingControl: AdoptedPress | undefined;
 
   /**
    * `notMounted` is what a press says while nothing on screen offers the act; `reportLater` states
@@ -40,13 +41,19 @@ export class WorkflowCommandTarget {
   }
 
   /**
-   * Become the act's target for a mount's lifetime, and take a press that was waiting for a
-   * control. The return value releases exactly this one.
+   * Become the act's target in the window `ownerDocument` belongs to, for a mount's lifetime, and
+   * take a press in that window that was waiting for a control. The return value releases exactly
+   * this one.
    */
-  public adopt(press: WorkflowCommandPress, role: WorkflowCommandRole = "control"): Unsubscribe {
+  public adopt(
+    press: WorkflowCommandPress,
+    ownerDocument: Document,
+    role: WorkflowCommandRole = "control",
+  ): Unsubscribe {
+    const adopter: AdoptedPress = { press, ownerDocument };
     const adopted = this.#adopted[role];
-    adopted.push(press);
-    if (role === "control" && this.#awaitingControl !== undefined) {
+    adopted.push(adopter);
+    if (role === "control" && this.#awaitingControl?.ownerDocument === ownerDocument) {
       this.#awaitingControl = undefined;
       const refusal = press();
       if (refusal !== undefined) {
@@ -54,35 +61,43 @@ export class WorkflowCommandTarget {
       }
     }
     return () => {
-      const position = adopted.lastIndexOf(press);
+      const position = adopted.lastIndexOf(adopter);
       if (position >= 0) {
         adopted.splice(position, 1);
       }
-      if (this.#awaitingControl === press) {
+      if (this.#awaitingControl === adopter) {
         this.#awaitingControl = undefined;
       }
     };
   }
 
   /**
-   * Press the act on its newest control, else on its newest fallback, which leaves the press
-   * waiting for the control it opens, or answer why it could not be pressed.
+   * Press the act on the newest control in the window `windowDocument` belongs to, else on its
+   * newest fallback there, which leaves the press waiting for the control it opens, or answer why
+   * it could not be pressed. An adopter in another window never takes the press.
    */
-  public press(): Refusal | undefined {
-    const control = this.#adopted.control.at(-1);
+  public press(windowDocument: Document | undefined): Refusal | undefined {
+    const inWindow = (adopter: AdoptedPress): boolean => adopter.ownerDocument === windowDocument;
+    const control = this.#adopted.control.findLast(inWindow);
     if (control !== undefined) {
-      return control();
+      return control.press();
     }
-    const fallback = this.#adopted.fallback.at(-1);
+    const fallback = this.#adopted.fallback.findLast(inWindow);
     if (fallback === undefined) {
       return this.#notMounted;
     }
-    const refusal = fallback();
+    const refusal = fallback.press();
     if (refusal === undefined) {
       this.#awaitingControl = fallback;
     }
     return refusal;
   }
+}
+
+/** One adopter's press and the document of the window it is drawn in. */
+interface AdoptedPress {
+  readonly press: WorkflowCommandPress;
+  readonly ownerDocument: Document;
 }
 
 /** `Next waiting`: what pressing `Next waiting (N)` on the Runs tab's strip does. */

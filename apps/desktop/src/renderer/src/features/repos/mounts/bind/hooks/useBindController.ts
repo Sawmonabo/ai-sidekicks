@@ -2,6 +2,7 @@ import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
 
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -28,11 +29,19 @@ export function useBindController(
   operations: BindControllerOptions["operations"],
 ): BindBinding {
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   const { controller, reading } = useSessionScopedActController(
     bridge,
     repoMountId,
     sessionStore,
-    () => new BindWorkspaceController({ operations, repoMountId, sessionStore, clock }),
+    () =>
+      new BindWorkspaceController({
+        operations,
+        repoMountId,
+        sessionStore,
+        ownerWindow,
+        clock,
+      }),
   );
   const requestCapabilities = useCallback(() => {
     controller.requestCapabilities();

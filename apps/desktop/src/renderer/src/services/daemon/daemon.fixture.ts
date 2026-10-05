@@ -14,6 +14,7 @@ import type {
   DaemonWirePayload,
   DaemonWireRequest,
   DaemonWireTopic,
+  ServedDaemonCall,
   Unsubscribe,
 } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
@@ -38,11 +39,12 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
     call: async <MethodName extends DaemonMethod>(
       method: MethodName,
       params: DaemonParams<MethodName>,
-    ): Promise<DaemonResult<MethodName>> =>
-      assertScriptedReplyOnContract(
+    ): Promise<ServedDaemonCall<DaemonResult<MethodName>>> => ({
+      value: assertScriptedReplyOnContract(
         method,
         await resolveScriptedReply(scenarioEngine, method, params),
       ) as DaemonResult<MethodName>,
+    }),
     subscribe: <Topic extends DaemonWireTopic>(
       event: Topic,
       params: DaemonWireRequest<Topic>,

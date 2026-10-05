@@ -162,8 +162,9 @@ async function measureFirstTranscriptRow(
       if (windowShownAtMs === null) {
         return { unmeasured: "no-paint-entry" };
       }
+      // The scenario's handle is the console document's, which opened this window.
       const scenarioControl = (
-        globalThis as unknown as Record<
+        (window.opener ?? globalThis) as unknown as Record<
           string,
           { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
         >

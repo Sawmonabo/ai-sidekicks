@@ -5,58 +5,35 @@
 
 import "./PageTabStrip.css";
 
-import { useState } from "react";
+import { useMemo } from "react";
 
 import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview";
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { PageTabIcon } from "./PageTabIcon.js";
 import { activePageOf, pagesOf, type PageListReading } from "../page-list-reading.js";
-import {
-  isTabDrag,
-  pageMoveIndex,
-  readTabDragPayload,
-  writeTabDragPayload,
-} from "../tab-reorder.js";
 
 /** The page reading a strip draws and the acts its controls dispatch. */
 export interface PageTabStripProps {
   readonly reading: PageListReading;
   readonly onSelect: (pageId: PreviewPageId) => void;
   readonly onClose: (pageId: PreviewPageId) => void;
-  /** `toIndex` addresses the list without the moved page. See `tab-reorder.ts`. */
+  /**
+   * Moves a page to `toIndex` in the list without it; called once per drag, on release. The tab
+   * is drawn in its new place until the reading's page order changes.
+   */
   readonly onReorder: (pageId: PreviewPageId, toIndex: number) => void;
 }
 
-/** One tab per open page, with drag reordering; draws nothing below two pages. */
+/** One tab per open page, reordered by dragging a tab; draws nothing below two pages. */
 export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
-  // The drop position a drag is over, held only during a drag and `undefined` between drags, so
-  // the indicator cannot stay painted after a drag that ended elsewhere.
-  const [hoveredDropPosition, setHoveredDropPosition] = useState<number | undefined>(undefined);
   const pages = pagesOf(reading);
   const activePageId = activePageOf(reading)?.pageId;
-
-  const dropAt = (dropPosition: number, transfer: DataTransfer): void => {
-    setHoveredDropPosition(undefined);
-    const draggedPageId = readTabDragPayload(transfer);
-    if (draggedPageId === undefined) {
-      return;
-    }
-    const fromIndex = pages.findIndex((page) => page.pageId === draggedPageId);
-    const dragged = pages[fromIndex];
-    if (dragged === undefined) {
-      return;
-    }
-    // The drop position counts tabs as drawn; the registry's index excludes the moved page.
-    // `pageMoveIndex` is the one place that difference is spent.
-    const toIndex = pageMoveIndex(fromIndex, dropPosition);
-    if (toIndex === undefined) {
-      return;
-    }
-    onReorder(dragged.pageId, toIndex);
-  };
+  const pageIds = useMemo(() => pages.map((page) => page.pageId), [pages]);
+  const tabDrag = useReorderDrag("horizontal", pageIds, onReorder);
 
   if (pages.length < 2) {
     return null;
@@ -65,30 +42,15 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
   return (
     <div className="meridian-preview-tabs">
       <ul className="meridian-preview-tabs__list">
-        {pages.map((page, index) => (
+        {pages.map((page) => (
           <li
             key={page.pageId}
-            className={tabClassName(page.pageId === activePageId, hoveredDropPosition === index)}
-            draggable
-            onDragStart={(event) => {
-              writeTabDragPayload(event.dataTransfer, page.pageId);
-            }}
-            onDragEnd={() => {
-              setHoveredDropPosition(undefined);
-            }}
-            onDragOver={(event) => {
-              if (!isTabDrag(event.dataTransfer)) {
-                return;
-              }
-              // Preventing the default makes this element a drop target; without it no drop fires.
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setHoveredDropPosition(index);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              dropAt(index, event.dataTransfer);
-            }}
+            ref={tabDrag.itemRef(page.pageId)}
+            className={
+              page.pageId === activePageId
+                ? "meridian-preview-tab meridian-preview-tab--selected"
+                : "meridian-preview-tab"
+            }
           >
             <button
               type="button"
@@ -113,45 +75,9 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
             </button>
           </li>
         ))}
-        {/* The trailing drop position: without it the last of the `n + 1` places is
-            unreachable by drag. */}
-        <li
-          className={
-            hoveredDropPosition === pages.length
-              ? "meridian-preview-tabs__tail meridian-preview-tab--drop-before"
-              : "meridian-preview-tabs__tail"
-          }
-          onDragOver={(event) => {
-            if (!isTabDrag(event.dataTransfer)) {
-              return;
-            }
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            setHoveredDropPosition(pages.length);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            dropAt(pages.length, event.dataTransfer);
-          }}
-        />
       </ul>
     </div>
   );
-}
-
-/**
- * The tab's classes: the base, the selected mark, and the drop marker. The selected mark is a
- * class because `aria-current` sits on the face inside the item, so a rule keyed on the item's
- * `aria-current` would match nothing.
- */
-function tabClassName(isSelected: boolean, isDropTarget: boolean): string {
-  return [
-    "meridian-preview-tab",
-    isSelected ? "meridian-preview-tab--selected" : undefined,
-    isDropTarget ? "meridian-preview-tab--drop-before" : undefined,
-  ]
-    .filter((token) => token !== undefined)
-    .join(" ");
 }
 
 /** What a tab shows: the page's own title, then its host until the title arrives. */

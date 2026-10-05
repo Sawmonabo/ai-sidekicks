@@ -154,7 +154,7 @@ describe("a step's blocker", () => {
       ],
     ]);
 
-    expect(answerThisRunTarget.press()).toBeUndefined();
+    expect(answerThisRunTarget.press(document)).toBeUndefined();
     await waitFor(() => {
       expect(calls).toStrictEqual([
         {
@@ -188,7 +188,7 @@ describe("a step's blocker", () => {
     const { calls, receipts, advance } = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask");
     const field = screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt);
 
-    expect(answerThisRunTarget.press()?.code).toBe("workflows.reply_empty");
+    expect(answerThisRunTarget.press(document)?.code).toBe("workflows.reply_empty");
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
     fireEvent.change(field, { target: { value: "  needs-triage " } });
     fireEvent.click(screen.getByRole("button", { name: "Answer" }));

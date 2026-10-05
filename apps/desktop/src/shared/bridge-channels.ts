@@ -25,6 +25,7 @@ export const BRIDGE_CHANNELS = {
   readAppearance: "window.readAppearance",
   readFullscreen: "window.readFullscreen",
   setMinimumSize: "window.setMinimumSize",
+  setDefaultSizes: "window.setDefaultSizes",
 } as const;
 
 /** A channel main answers through `ipcMain.handle`. */
@@ -43,15 +44,21 @@ export const DAEMON_SUBSCRIPTION_VALUE_CHANNEL = "daemon.subscriptionValue";
 /** The channel main tells a page one of its subscriptions ended on, tagged with the subscription. */
 export const DAEMON_SUBSCRIPTION_END_CHANNEL = "daemon.subscriptionEnd";
 
-/** The channel main pushes the appearance record on, to every open window's document. */
+/** The channel main pushes the appearance record on, to the console document. */
 export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
 
-/** The channel main pushes a window's fullscreen state on, to that window's document. */
+/** The channel main pushes each window's fullscreen state on, to the console document. */
 export const FULLSCREEN_VALUE_CHANNEL = "window.fullscreen";
 
+/** One window's fullscreen starting or ending, as main pushes it. */
+export interface FullscreenPush {
+  readonly windowId: string;
+  readonly isFullScreen: boolean;
+}
+
 /**
- * Every bridge member a page calls, as `namespace.member`. The build facts and the window's id are
- * values the preload read at start, not calls.
+ * Every bridge member a page calls, as `namespace.member`. The build facts and the window used
+ * last are values the preload read at start, not calls.
  */
 type BridgeMember = Exclude<
   {
@@ -60,7 +67,7 @@ type BridgeMember = Exclude<
       string
     >}`;
   }[Exclude<keyof PreloadApi, "app">],
-  "window.id"
+  "window.lastUsedWindowId"
 >;
 
 /** The updater's members, which keep throwing until the updater is built. */
@@ -103,4 +110,5 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeAppearance": [BRIDGE_CHANNELS.readAppearance],
   "window.subscribeFullscreen": [BRIDGE_CHANNELS.readFullscreen],
   "window.setMinimumSize": [BRIDGE_CHANNELS.setMinimumSize],
+  "window.setDefaultSizes": [BRIDGE_CHANNELS.setDefaultSizes],
 };

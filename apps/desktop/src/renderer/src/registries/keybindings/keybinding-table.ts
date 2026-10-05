@@ -36,8 +36,23 @@ export type KeybindingRefusalCode = (typeof KEYBINDING_REFUSAL_CODES)[number];
 /** The subsystem name every refusal this module raises carries. */
 export const KEYBINDING_REFUSAL_ORIGIN = "keybindings";
 
-/** Anything a listener can be attached to: `Window`, `Document` or any element. */
-export type KeybindingTarget = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+/**
+ * Anything a keydown listener can be attached to: any window's `Window`, `Document` or element.
+ * Typed by the event it delivers rather than checked with `instanceof`, since each window has its
+ * own `KeyboardEvent`.
+ */
+export interface KeybindingTarget {
+  addEventListener(
+    type: "keydown",
+    listener: (event: KeyboardEvent) => void,
+    options: AddEventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: "keydown",
+    listener: (event: KeyboardEvent) => void,
+    options: EventListenerOptions,
+  ): void;
+}
 
 /** How the table reaches the world. */
 export interface KeybindingTableOptions {
@@ -139,10 +154,8 @@ export class KeybindingTable {
           "the previous installation before installing again",
       );
     }
-    const listener = (event: Event): void => {
-      if (event instanceof KeyboardEvent) {
-        this.handleKeyDown(event);
-      }
+    const listener = (event: KeyboardEvent): void => {
+      this.handleKeyDown(event);
     };
     target.addEventListener("keydown", listener, { capture: true });
     const detach = (): void => {

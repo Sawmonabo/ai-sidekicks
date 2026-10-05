@@ -1,5 +1,5 @@
 // The accessibility tier over every view the composer feature mounts, each scoped to itself
-// so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
+// so a violation names the view that owns it, in both schemes for `app-frame.test.ts`'s
 // reason. The composer is always on screen while a person types and carries the most controls
 // per pixel, and its addresses offer different ones, so a name or label lost on one address is
 // invisible on the others.

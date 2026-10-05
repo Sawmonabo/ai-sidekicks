@@ -4,10 +4,10 @@
 //
 // Cases drive the real `AppProviders` against the fixture bridge the renderer project compiles in.
 
-import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
+import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { SESSIONS_HASH, mountApp } from "@test/helpers/mount-app.js";
+import { SESSIONS_HASH, mountApp, type MountedApp } from "@test/helpers/mount-app.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 /**
@@ -17,26 +17,31 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
  * Mac user agent and `Control` elsewhere, and a press with the wrong modifiers is dropped, so the
  * test need not re-derive the platform rule.
  */
-async function pressWithModifier(key: {
-  readonly key: string;
-  readonly code: string;
-  readonly shiftKey?: boolean;
-}): Promise<void> {
+async function pressWithModifier(
+  ownerWindow: Window,
+  key: {
+    readonly key: string;
+    readonly code: string;
+    readonly shiftKey?: boolean;
+  },
+): Promise<void> {
   await act(async () => {
-    fireEvent.keyDown(window, { ...key, ctrlKey: true });
-    fireEvent.keyDown(window, { ...key, metaKey: true });
+    fireEvent.keyDown(ownerWindow, { ...key, ctrlKey: true });
+    fireEvent.keyDown(ownerWindow, { ...key, metaKey: true });
     await crossMacrotaskBoundary();
   });
 }
 
-/** Press the palette's chord: the platform modifier, Shift and P. */
-async function pressPaletteChord(): Promise<void> {
-  await pressWithModifier({ key: "P", code: "KeyP", shiftKey: true });
+/** Press the palette's chord in a window: the platform modifier, Shift and P. */
+async function pressPaletteChord(ownerWindow: Window): Promise<void> {
+  await pressWithModifier(ownerWindow, { key: "P", code: "KeyP", shiftKey: true });
 }
 
-/** The wrapper the frame inerts; throws when the frame renders none. */
-function backgroundOf(mounted: RenderResult): HTMLElement {
-  const background = mounted.container.querySelector<HTMLElement>(".meridian-frame__background");
+/** The wrapper the frame inerts in the app's window; throws when the frame renders none. */
+function backgroundOf(mounted: MountedApp): HTMLElement {
+  const background = mounted.ownerWindow.document.querySelector<HTMLElement>(
+    ".meridian-frame__background",
+  );
   if (background === null) {
     throw new Error("the frame rendered no background wrapper to inert");
   }
@@ -57,11 +62,14 @@ describe("AppProviders — the palette chord", () => {
     const mounted = await mountApp();
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
 
-    await pressPaletteChord();
+    await pressPaletteChord(mounted.ownerWindow);
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(true);
+    // The palette is drawn in the window it was opened from, never in the hidden console page.
+    expect(mounted.ownerWindow.document.querySelector('[role="listbox"]')).not.toBeNull();
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
 
     // Negative control: a frame that inerted on any keystroke, or never cleared, fails here.
-    await pressPaletteChord();
+    await pressPaletteChord(mounted.ownerWindow);
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
   });
 
@@ -70,7 +78,7 @@ describe("AppProviders — the palette chord", () => {
     // above while binding the wrong keys.
     const mounted = await mountApp();
 
-    await pressWithModifier({ key: "k", code: "KeyK" });
+    await pressWithModifier(mounted.ownerWindow, { key: "k", code: "KeyK" });
 
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
   });

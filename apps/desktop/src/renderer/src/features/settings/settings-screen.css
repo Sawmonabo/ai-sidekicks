@@ -23,7 +23,7 @@
 /* The two panes become one column before the reflow floor, because they cannot both hold a
  * measure there: the rail's fixed 216px, the 2rem gutter and the screen's own 2rem padding on
  * each side already come to 312px, and the whole viewport at the floor is 320px minus the
- * frame's 52px rail. Stacking keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops
+ * frame's rail, 52px at the default text size. Stacking keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops
  * sticking with it, since a sticky rail above a stacked pane would hold scarce vertical room
  * for a list a person has finished with.
  *

@@ -6,9 +6,9 @@
 // The acts behave as the daemon's do: an approval or a form answered elsewhere leaves the
 // attention section and moves its run on, a cancel ends a run that has not ended and replays on a
 // canceled one, a resume lifts a wait, a delete refuses a run that is still going, Keep sticks, a
-// started or retried run reads back as new, and the start hold opens the live stream with its
-// current state. Each act pushes a run change on `workflow.subscribe`, as the daemon's projector
-// does.
+// started, retried or re-run run reads back as new, and the start hold opens the live stream with
+// its current state. Each act pushes a run change on `workflow.subscribe`, as the daemon's
+// projector does.
 
 import type {
   WorkflowNodeId,
@@ -161,6 +161,14 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRetry(request, { answered, readStamp }),
     noticesFor: runChanged,
+  },
+  {
+    call: "workflow.runRerun",
+    afterMs: 200,
+    resultFor: (request, _at, _ordinal, answered, readStamp) =>
+      answerRerun(request, { answered, readStamp }),
+    // The change pushed is the new run's; the run re-run is left as it was.
+    noticesFor: (_request, answer) => runChanged(answer),
   },
   {
     call: "workflow.runKeepSet",
@@ -482,6 +490,15 @@ function answerRetry(request: unknown, playback: WorkflowPlayback): WorkflowRunR
   return {
     workflowRunId: mintedRunId("retry", playback.answered("workflow.runRetry").length),
     sourceWorkflowRunId: run.read.workflowRunId,
+    state: "new",
+  };
+}
+
+function answerRerun(request: unknown, playback: WorkflowPlayback): WorkflowRunStartResponse {
+  const run = requireRun(request, playback);
+  return {
+    workflowRunId: mintedRunId("rerun", playback.answered("workflow.runRerun").length),
+    sessionId: run.read.sessionId,
     state: "new",
   };
 }

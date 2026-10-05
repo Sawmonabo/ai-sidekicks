@@ -59,9 +59,9 @@ export interface QueueItemCreateRequest {
   content: string;
   attachments?: ArtifactId[] | undefined;
   /**
-   * Each skill picked from the composer's `/` list, in the order picked, its name and `SKILL.md`
-   * path as `skill.list` gives them. The daemon refuses a pick that matches no row of the
-   * session's `skill.list` (`skill.path_refused`, `not_listed`).
+   * Each skill picked from the composer's `/` and `$` list, in the order picked, its name and
+   * folder as `skill.list` gives them. The daemon refuses a pick that matches no row of
+   * `skill.list` (`skill.path_refused`, `not_listed`).
    */
   skills?: QueuedSkillPick[] | undefined;
   /**
@@ -76,15 +76,18 @@ export interface QueueItemCreateRequest {
   answersQuestionId?: QuestionId | undefined;
 }
 
-/** One skill a send picked: its front-matter name and its `SKILL.md` path. */
+/**
+ * One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. The
+ * daemon builds the `SKILL.md` path a Codex agent's skill input names from the folder.
+ */
 export interface QueuedSkillPick {
   name: string;
-  path: string;
+  folderPath: string;
 }
 const QueuedSkillPickSchema: z.ZodType<QueuedSkillPick, QueuedSkillPick> = z
   .object({
     name: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.name"),
-    path: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.path"),
+    folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.folderPath"),
   })
   .strict();
 /** Parses a {@link QueueItemCreateRequest}. */

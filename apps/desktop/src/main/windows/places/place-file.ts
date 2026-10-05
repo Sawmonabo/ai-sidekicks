@@ -1,7 +1,7 @@
 // `window-places.json` in the user-data folder: which console window was used last, and where each
 // window was, one entry per window keyed by its place key (`../frame-name.ts`), holding its
 // rectangle in screen coordinates (which also say which display it was on) and whether it was
-// maximized or fullscreen. It is read once, before the first window is built, and written whole
+// maximized or fullscreen. It is read once, before the console window is built, and written whole
 // when a window closes; the registry keeps in it the console windows open now, the last one
 // closed, and one place per pane kind (`../open-windows.ts`). Read defensively: a missing or
 // unreadable file reads as no window used last and no places, so the app comes up at the default
@@ -13,10 +13,11 @@ import { readFileSync } from "node:fs";
 
 import * as z from "zod/mini";
 
+import { isConsoleWindowId } from "@shared/window/frame-name.js";
+
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync } from "../../services/owner-only-file.js";
-import { isWindowId } from "../frame-name.js";
 
 /** The file's name inside the app's user-data folder. */
 export const WINDOW_PLACES_FILE_NAME = "window-places.json";
@@ -33,7 +34,7 @@ export interface WindowPlace {
 
 /** What the file keeps: the console window used last, and every window's place by place key. */
 export interface KeptWindowPlaces {
-  /** The id of the console window used last, built first at the next start. */
+  /** The id of the window of session views used last, opened first at the next start. */
   readonly windowUsedLast: string | undefined;
   readonly places: ReadonlyMap<string, WindowPlace>;
 }
@@ -93,7 +94,7 @@ export class WindowPlaceFile {
     }
     const keptWindowUsedLast = fileJson["windowUsedLast"];
     const kept: KeptWindowPlaces = {
-      windowUsedLast: isWindowId(keptWindowUsedLast) ? keptWindowUsedLast : undefined,
+      windowUsedLast: isConsoleWindowId(keptWindowUsedLast) ? keptWindowUsedLast : undefined,
       places,
     };
     const isWhole =

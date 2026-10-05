@@ -1,7 +1,8 @@
 // The check a branch-name pattern passes before it is saved, for the machine's `Branch names` and a
 // project's own pattern alike: `{title}` exactly once, then git's own branch-name rule over the
-// name the pattern fills in. `check-ref-format --branch` needs no repository; the filled name always
-// holds the title, so it is never the bare `@{-N}` that git would expand to an earlier branch.
+// name the pattern fills in. `check-ref-format --branch` needs no repository; the filled name
+// always holds the title, so it is never the bare `@{-N}` that git would expand to an earlier
+// branch.
 
 import {
   branchPatternPlaceholderRefusal,

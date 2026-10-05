@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReactFlow, useStore, type OnMoveStart } from "@xyflow/react";
 
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+import { prefersReducedMotion } from "@renderer/lib/reduced-motion.js";
 import { MOTION_DURATIONS_MS } from "@renderer/styles/motion.js";
 import type { CanvasPoint } from "../run-graph-layout.js";
 import { useInViewRef } from "./useInViewRef.js";
@@ -57,6 +59,7 @@ export function useLiveStepFollow(
   const [isFollowing, setIsFollowing] = useState(true);
   const hasPlacedRef = useRef(false);
   const isInViewRef = useInViewRef(canvasRef);
+  const ownerWindow = useOwnerWindow();
   const liveX = liveCenter?.x;
   const liveY = liveCenter?.y;
   // A boolean, so a pan re-renders the canvas only when the answer flips.
@@ -72,8 +75,8 @@ export function useLiveStepFollow(
   });
 
   const slideMs = useCallback(
-    () => (isInViewRef.current && !prefersReducedMotion() ? FOLLOW_SLIDE_MS : 0),
-    [isInViewRef],
+    () => (isInViewRef.current && !prefersReducedMotion(ownerWindow) ? FOLLOW_SLIDE_MS : 0),
+    [isInViewRef, ownerWindow],
   );
 
   useEffect(() => {
@@ -124,9 +127,4 @@ export function useLiveStepFollow(
     stopOnPersonMove,
     revealPoint,
   };
-}
-
-/** The slide is drawn by script, out of the stylesheet's reach, so it reads the setting itself. */
-function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

@@ -1,7 +1,7 @@
 // The workflows screen under the window's route: away from the Runs tab it reads only the runs
-// count, `Next waiting` walks the runs owed an answer and
-// never claims nothing is waiting before it knows, the runs a sitting answered, on their pages or
-// on a session's question card, are counted beside `Nothing waiting`, and the runs table's filters narrow the table alone, come back after a
+// count, `Next waiting` walks the runs owed an answer and never claims nothing is waiting before it
+// knows, the runs a sitting answered, on their pages or on a session's question card, are counted
+// beside `Nothing waiting`, and the runs table's filters narrow the table alone, come back after a
 // reload, and keep working, saying so, when the store fails.
 
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";

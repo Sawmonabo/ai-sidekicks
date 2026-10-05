@@ -6,6 +6,7 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
+import { isConsoleWindowId } from "@shared/window/frame-name.js";
 import { FramePaintProbe, type RendererFrameSource } from "./frame-paint-probe.js";
 import {
   POST_READINESS_RESERVE_MS,
@@ -14,8 +15,16 @@ import {
 } from "./launch-deadline.js";
 import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 
+/** The launched app's pages: the window a person sees, and the hidden console document. */
+export interface AppPages {
+  /** The first window of session views the console document opened, painting. */
+  readonly window: Page;
+  /** The hidden console document every window is drawn from; it is never shown and never paints. */
+  readonly consolePage: Page;
+}
+
 /**
- * Wait for the application's first window and hand back one that is painting.
+ * Wait for the console document and the first window it opens, and hand back that window painting.
  *
  * Every wait draws from the caller's `deadline`, so the ladder and the two guards cost the launch
  * budget once between them, and a failure at any rung is raised as a readiness failure.
@@ -23,21 +32,23 @@ import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 export async function awaitPaintingAppWindow(
   application: ElectronApplication,
   deadline: LaunchDeadline,
-): Promise<Page> {
+): Promise<AppPages> {
   let window: Page;
+  let consolePage: Page;
   let visibilityState: string;
   try {
     // Readiness first, then the frame question. Every wait draws from the cold-start budget so a
     // slow boot is charged to what is slow, and the frame paint probe is armed only once the
-    // renderer is ready. In the order the renderer reaches them: the first window; `load`, which
-    // can land after React has mounted; then the frame element, not `domcontentloaded`, since the
-    // document exists before React mounts anything and a test could assert against an empty body.
-    window = await application.firstWindow({
+    // renderer is ready. In the order the renderer reaches them: the console document, which main
+    // builds first; its `load`; the window it opens, named by a window id; then the frame element
+    // in that window, since its document exists before React draws anything into it.
+    consolePage = await application.firstWindow({
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
-    await window.waitForLoadState("load", {
+    await consolePage.waitForLoadState("load", {
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
+    window = await awaitWindowOfSessionViews(application, deadline);
     await window.waitForSelector(".meridian-frame", {
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
@@ -78,7 +89,36 @@ export async function awaitPaintingAppWindow(
       `${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
       `${String(frames.waitedMs)} ms driver-side, against a ${String(frames.budgetMs)} ms bound`,
   );
-  return window;
+  return { window, consolePage };
+}
+
+/**
+ * The first page whose frame name is a window of session views' id: the console document opens
+ * each window under its id, and its own page carries none.
+ */
+async function awaitWindowOfSessionViews(
+  application: ElectronApplication,
+  deadline: LaunchDeadline,
+): Promise<Page> {
+  for (;;) {
+    // Armed before the scan: a window opening while a frame name is read would otherwise be missed.
+    const nextWindow = application.waitForEvent("window", {
+      timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+    });
+    // Settled by the return below or by the next turn's wait; never left to reject unheard.
+    nextWindow.catch(() => undefined);
+    for (const page of application.windows()) {
+      const frameName = await deadline.settleWithin(
+        page.evaluate(() => window.name),
+        "a window's frame name read",
+        POST_READINESS_RESERVE_MS,
+      );
+      if (isConsoleWindowId(frameName)) {
+        return page;
+      }
+    }
+    await nextWindow;
+  }
 }
 
 /**

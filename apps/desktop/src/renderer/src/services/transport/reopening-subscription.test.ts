@@ -1,7 +1,8 @@
 // A stream kept open for its owner, on a manual clock: one that delivers and ends at once is
 // opened again at once and then after growing waits, and from the first wait again once a stream
 // stays open. A re-open that throws reaches the owner as a refusal, is tried again at the next
-// wait or the transport's returning edge, and is cleared by the re-open that works.
+// wait or the transport's returning edge, and is cleared by the re-open that works; an owner that
+// asks for it has a first open that throws handled the same way.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -103,5 +104,30 @@ describe("a stream kept open", () => {
     expect(refusals.at(-1)).toBeUndefined();
     expect(onReopened).toHaveBeenCalledOnce();
     expect(clock.pendingCount).toBe(0);
+  });
+
+  it("reports a first open that throws as a refusal and tries it again with no returning edge", () => {
+    const clock = new ManualClock();
+    const stream = new ScriptedStream();
+    stream.failingOpens = 1;
+    const refusals: Array<Refusal | undefined> = [];
+    openReopeningSubscription({
+      signal: new TransportReconnectSignal(),
+      subject: "test stream",
+      open: stream.open,
+      onFrame: () => undefined,
+      onReopenRefusal: (refusal) => {
+        refusals.push(refusal);
+      },
+      firstOpenFailure: "refuseAndRetry",
+      clock,
+    });
+    expect(refusals).toStrictEqual([
+      expect.objectContaining({ detail: "Live updates could not start; still trying." }),
+    ]);
+
+    clock.advance(REOPEN_WAITS_MS[1]!);
+    expect(stream.opens).toHaveLength(1);
+    expect(refusals.at(-1)).toBeUndefined();
   });
 });

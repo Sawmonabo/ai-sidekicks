@@ -3,6 +3,8 @@
 // inside resize-observer delivery drops the remaining notifications on at least one shipped
 // engine. Every source is armed, since a resize observer alone misses a pane that moves.
 
+import { getWindow } from "@floating-ui/utils/dom";
+
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
@@ -73,8 +75,8 @@ export class PaneGeometryPublisher {
     this.#hostElement = hostElement;
     this.#armResizeObserver(hostElement);
     this.#armPositionObserver(hostElement);
-    this.#armViewportListeners();
-    this.#armThemeObserver();
+    this.#armViewportListeners(hostElement);
+    this.#armThemeObserver(hostElement.ownerDocument);
     this.#armOverlaySources();
     this.invalidate("attach");
     return () => {
@@ -229,26 +231,29 @@ export class PaneGeometryPublisher {
     );
   }
 
-  #armViewportListeners(): void {
+  /** The pane's own window and document: each window resizes and scrolls on its own. */
+  #armViewportListeners(hostElement: HTMLElement): void {
+    const ownerWindow = getWindow(hostElement);
+    const ownerDocument = hostElement.ownerDocument;
     const onResize = (): void => {
       this.invalidate("window-resize");
     };
     const onScroll = (): void => {
       this.invalidate("document-scroll");
     };
-    window.addEventListener("resize", onResize);
-    document.addEventListener("scroll", onScroll, { capture: true });
+    ownerWindow.addEventListener("resize", onResize);
+    ownerDocument.addEventListener("scroll", onScroll, { capture: true });
     this.#detachers.push(() => {
-      window.removeEventListener("resize", onResize);
-      document.removeEventListener("scroll", onScroll, { capture: true });
+      ownerWindow.removeEventListener("resize", onResize);
+      ownerDocument.removeEventListener("scroll", onScroll, { capture: true });
     });
   }
 
-  #armThemeObserver(): void {
+  #armThemeObserver(ownerDocument: Document): void {
     const observer = new MutationObserver(() => {
       this.invalidate("theme-change");
     });
-    observer.observe(document.documentElement, {
+    observer.observe(ownerDocument.documentElement, {
       attributes: true,
       attributeFilter: [SCHEME_ATTRIBUTE],
     });

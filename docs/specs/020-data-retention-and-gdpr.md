@@ -242,7 +242,7 @@ Erasing a person's data spans three independent storage paths, each carried out 
 
 ### Path 3 — Bounded-retention diagnostic buckets (age bound and erase)
 
-**Mechanism.** Each diagnostic bucket listed in the [§PII Data Map](#pii-data-map) bounded-retention tier (`driver_raw_events`, `command_output`, `tool_traces` and `workflow_engine_events`) deletes a log file whole once it is past `Keep diagnostic logs for`, 7 days by default, on the service's one scheduler; the same bound drops what a provider writes into each account home and never reads back for a session. `Erase all data` deletes every file with the data folder. There is no per-person flush: the tier belongs to the one person whose machine it is, and it never outlives its bound.
+**Mechanism.** Each diagnostic bucket listed in the [§PII Data Map](#pii-data-map) bounded-retention tier (`driver_raw_events`, `command_output`, `tool_traces`, `workflow_engine_events` and the service log, `logs/service-<start time>.log`) deletes a log file whole once it is past `Keep diagnostic logs for`, 7 days by default, on the service's one scheduler; the same bound drops what a provider writes into each account home and never reads back for a session. `Erase all data` deletes every file with the data folder. There is no per-person flush: the tier belongs to the one person whose machine it is, and it never outlives its bound.
 
 **Scope.** Every file in the bounded-retention diagnostic tier, and the provider's own non-session files in each account home the app manages.
 

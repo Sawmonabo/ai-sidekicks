@@ -1,5 +1,6 @@
 // Decodes one `session.subscribe` frame into app events, the daemon's drop mark and the cursor a
-// re-opened stream resumes after, or refuses it. This is the only place that reads fields off the `unknown` the bridge delivers.
+// re-opened stream resumes after, or refuses it. This is the only place that reads fields off the
+// `unknown` the bridge delivers.
 //
 // The frame is parsed once here with the contract's frame builder over the tolerant
 // `EventEnvelope`, so a higher-minor event type still reaches the app. The tolerant layer does

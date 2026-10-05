@@ -37,17 +37,6 @@
   background: var(--meridian-surface-raised);
 }
 
-/* The drop marker is a border, not an inserted element, so a hover never reflows the strip. */
-.meridian-preview-tab--drop-before {
-  border-inline-start-color: var(--meridian-accent);
-}
-
-.meridian-preview-tabs__tail {
-  flex: 0 0 auto;
-  inline-size: var(--meridian-space-3);
-  border-inline-start: 1px solid transparent;
-}
-
 .meridian-preview-tab__face {
   display: flex;
   align-items: center;

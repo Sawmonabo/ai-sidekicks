@@ -4,6 +4,7 @@
 // on the frame's banner. Each command closes over a supplied act, so invoking `run` is the test.
 
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { readCommandWindow } from "@renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import {
@@ -95,7 +96,7 @@ export function registerTranscriptCommands(
  * transcript can show it.
  */
 function performOnMountedTranscript(transcript: MountedTranscript, act: TranscriptActName): void {
-  const outcome = transcript.perform(act);
+  const outcome = transcript.perform(act, readCommandWindow());
   if (outcome.status === "refused") {
     raiseCommandRefusal(outcome.refusal);
   }

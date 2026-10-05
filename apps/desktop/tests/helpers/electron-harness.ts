@@ -51,7 +51,10 @@ import { LAUNCH_TRACE_TAG } from "./launch-trace.js";
 /** What a settled launch produces, before the body's own allowance is minted. */
 interface LaunchedApp {
   readonly application: ElectronApplication;
+  /** The first window of session views, painting. */
   readonly window: Page;
+  /** The hidden console document every window is drawn from. */
+  readonly consolePage: Page;
   /**
    * Closes the app and removes its private profile. Safe to call twice.
    *
@@ -207,8 +210,8 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   };
 
   try {
-    const window = await awaitPaintingAppWindow(application, deadline);
-    return { application, window, close };
+    const { window, consolePage } = await awaitPaintingAppWindow(application, deadline);
+    return { application, window, consolePage, close };
   } catch (error: unknown) {
     // `close()` rejects on abnormal cleanup, but the launch already failed and its error explains
     // the run. So the rejection is swallowed and the cleanup outcome is attached to the original.

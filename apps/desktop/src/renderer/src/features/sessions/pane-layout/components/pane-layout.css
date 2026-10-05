@@ -38,26 +38,11 @@
 }
 
 /*
- * The drop indicator: a bar on the edge the pane would land against. Own-built because the
- * drag library ships no indicator, and drawn as a pseudo-element so it costs no node and no
- * React render.
+ * While a pane is lifted the panes slide and the separators stay put, so they would cut across
+ * a pane gliding past; they step aside until the panes settle in their new order.
  */
-.meridian-pane-layout__pane--drop-before::after,
-.meridian-pane-layout__pane--drop-after::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  width: 2px;
-  background: var(--meridian-accent);
-  pointer-events: none;
-}
-
-.meridian-pane-layout__pane--drop-before::after {
-  inset-inline-start: 0;
-}
-
-.meridian-pane-layout__pane--drop-after::after {
-  inset-inline-end: 0;
+.meridian-pane-layout__group:has(> [data-reorder-lifted]) > .meridian-pane-layout__separator {
+  visibility: hidden;
 }
 
 /*

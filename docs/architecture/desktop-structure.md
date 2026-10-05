@@ -35,12 +35,12 @@ apps/desktop/
 | `registries/` | The mechanisms for panes, screens, inline cards, the composer, entity projectors, commands and keybindings. The screen view is one generic `ScreenView<S extends AnyScreen>` over a typed `Screen<Id, Params>` union, each case naming a rail destination and the parameters it opens with, so the compiler checks that whatever opens a screen hands it the right parameters. |
 | `services/` | Transport, the daemon client, run streams, the per-session daemon subscription (`session-events/`), the platform bridge (`platform/`), and the other external clients (`wire-reads`, `driver-capabilities`, and `provider-accounts` for its deliveries and refusals only). The window client over the `window.*` contract, the Preview client over the `preview.*` contract and `approvals` live here once they are built. |
 | `store/` | The applied session events (`session-events/`), attention (`attention/`), the window's own state (`window/`, `WindowStore`), persistence (`persistence/`), every read trigger and push-driven read (`reads/`), `session/`, `session-directory/`, `artifacts/`, `driver-capabilities/`, `provider-accounts/` (the account fold and the notification hold) and `subject-scoped/` (the session subject and the session-scoped state hook). |
-| `hooks/` | Shared hooks, one `useThing.ts` each, and `subject-scoped/` (the subject-scoped resource and state hooks). |
+| `hooks/` | Shared hooks, one `useThing.ts` each, and `subject-scoped/` (the subject-scoped resource and state hooks). `useReorderDrag.ts` is the pointer-drag core's hook. |
 | `components/` | Shared UI, one PascalCase folder per component with its tests and CSS (`Glyph/`, `PaneFrame/`, `Refusal/` and `ErrorBoundary/` among them). |
 | `routing/` | Route addresses and their parsing: `routes.ts` (the app's routes as data), `route-readers.ts`, `settings-page-ids.ts`, `panes/` (pane addresses and kinds) and `hooks/` (`useLocationHash`). |
 | `assets/` | `assets/icons/signature/`, which the glyph map (`components/Glyph/glyph-icons.ts`) and the icon build step (`vitest/icon-compilation.ts`, the `signature` collection) read. |
 | `styles/` | The design tokens and the sheet generated from them (`tokens.ts`, `palette.ts`, `typography.ts` and `generate-css.ts` among them), and the global sheets `global-sheets.ts` imports. |
-| `lib/` | Generic non-UI code: time (`clock.ts`, `instant.ts`, `deadlines.ts`), wire figures and errors (`wire-figures.ts`, `wire-errors.ts`, `wire-rejection.ts`), refusals, the `Intl` formatter cache, keyed registries, read scheduling (`reads/`, with `reads/refresh-scheduler.ts`), the subject-scoped holders (`subject-scoped/`), the scroll chokepoint and its geometry (`scroll/`, with `scroll/scroll-chokepoint.ts`), `diagnostic-capture/` and `performance-meters/`. |
+| `lib/` | Generic non-UI code: time (`clock.ts`, `instant.ts`, `deadlines.ts`), wire figures and errors (`wire-figures.ts`, `wire-errors.ts`, `wire-rejection.ts`), refusals, the `Intl` formatter cache, keyed registries, read scheduling (`reads/`, with `reads/refresh-scheduler.ts`), the subject-scoped holders (`subject-scoped/`), the scroll chokepoint and its geometry (`scroll/`, with `scroll/scroll-chokepoint.ts`), `diagnostic-capture/` and `performance-meters/`. `reorder-drag.ts` is the pointer-drag core: the one drag every reorder inside a window uses — the terminal's and Preview's tabs, the waiting messages, the pane row and the session views — on pointer capture, the item moved by `transform` and its neighbors by FLIP, every listener on the item's own document; `reduced-motion.ts` reads a window's reduced-motion setting ([ADR-040](../decisions/040-drag-is-our-own-on-pointer-events.md)). |
 
 What some features hold:
 
@@ -80,7 +80,7 @@ features/<feature>/
   - `services/` — main's own services: the diagnostic log, the crash reporter, the renderer's scheme and protocol, and owner-only files; `services/daemon/` holds starting, supervising and linking to the background service.
   - `probes/` — the smoke and garbage-collection probes, built only into the smoke bundle.
 - **`src/preload/`** holds `index.ts`; `api.ts`, which builds the bridge object; and one module per namespace it carries to main over IPC (`daemon-wire.ts`, `machine-settings-bridge.ts`, `window-bridge.ts`).
-- **`src/shared/`** holds flat files, `preload-api.ts` (`PreloadApi` and `createStubBridge`) among them, and `window/`, the window's id switch and size.
+- **`src/shared/`** holds flat files, `preload-api.ts` (`PreloadApi` and `createStubBridge`) among them, and `window/`, the window id's form and the window's size.
 
 ## Fixtures
 

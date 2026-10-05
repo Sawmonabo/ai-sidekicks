@@ -125,6 +125,14 @@ describe("workflow.runList", () => {
     ).toBe(true);
   });
 
+  it("leaves a failed row parked on its step without a duration, and no other ended row", () => {
+    const { liveStep: _live, ...ended } = ROW;
+    expect(WorkflowRunSummarySchema.safeParse({ ...ended, status: "failed" }).success).toBe(true);
+    expect(WorkflowRunSummarySchema.safeParse({ ...ended, status: "succeeded" }).success).toBe(
+      false,
+    );
+  });
+
   it("refuses a row whose duration, live step or wait cause disagrees with its status", () => {
     expect(WorkflowRunSummarySchema.safeParse({ ...ROW, durationMs: 1_000 }).success).toBe(false);
     const finished = { ...ROW, status: "failed", durationMs: 1_000 };

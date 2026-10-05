@@ -3,14 +3,14 @@
 // reporter, then the profile keyed to the install and the single-instance lock, then the kept
 // appearance, the registry of windows and its lifecycle, so a second launch during start is heard;
 // inside `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
-// handlers, the first window and the background service's start and watch. Electron refuses a
-// scheme registered after ready, and a window created before the handler is installed loads
-// against an unhandled scheme.
+// handlers, the hidden console window, whose document opens every window a person sees, and the
+// background service's start and watch. Electron refuses a scheme registered after ready, and a
+// window created before the handler is installed loads against an unhandled scheme.
 
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
 
-import { app, crashReporter, nativeTheme, screen } from "electron";
+import { app, crashReporter, nativeTheme, screen, type WebContents } from "electron";
 import { appFactsSwitches, supportedArch, supportedPlatform } from "@shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-appearance.js";
@@ -232,14 +232,14 @@ function startApplication(): void {
       // Both conditions must hold: the compile-time smoke flag and the runtime opt-in.
       const smokeProbeRequested = __SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
 
-      // Sampled before the first window, which starts the load being timed.
+      // Sampled before the console window, which starts the load being timed.
       const probeStartedAt = Date.now();
 
       // `did-finish-load` is registered in `beforeLoad` because the load starts inside the
       // factory; a listener attached afterward would depend on Electron's event timing.
-      openWindows.openFirstWindow({
-        // The app's facts and any fixture launch reach the window as renderer switches, which
-        // the preload reads once, before the page's first render.
+      openWindows.openConsoleWindow({
+        // The app's facts and any fixture launch reach the console document as renderer switches,
+        // which the preload reads once, before the page's first render.
         additionalArguments:
           fixtureLaunch === undefined
             ? appSwitches
@@ -249,10 +249,17 @@ function startApplication(): void {
             // Registered ahead of the load so a boot that never reaches `did-finish-load`
             // still shows where it stopped.
             const traceReadiness = installReadinessBreadcrumbs(view.webContents, probeStartedAt);
+            // The console document's own contents exist already, so the next one made is the
+            // first window it opens, where the app is drawn.
+            const firstWindowContents = new Promise<WebContents>((resolve) => {
+              app.once("web-contents-created", (_event, created) => {
+                resolve(created);
+              });
+            });
             view.webContents.once("did-finish-load", () => {
               traceReadiness("did-finish-load");
               const windowMs = Date.now() - probeStartedAt;
-              void runSmokeProbe(view.webContents, windowMs);
+              void runSmokeProbe(view.webContents, firstWindowContents, windowMs);
             });
           }
         },

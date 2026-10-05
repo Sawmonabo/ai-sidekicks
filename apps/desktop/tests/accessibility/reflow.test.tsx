@@ -16,15 +16,13 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { renderSettled } from "../helpers/app-harness.js";
+import { renderAppSettled, renderSettled } from "../helpers/app-harness.js";
 import {
   describeHorizontalOverflow,
   narrowTesterViewportTo,
   restoreTesterViewport,
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "../../fixtures/scenarios/concurrent-streaming.js";
-import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
-import { AppProviders } from "@renderer/app/AppProviders.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { routeForDestination } from "@renderer/layout/NavigationRail/rail-navigation.js";
 import { RAIL_DESTINATIONS } from "@renderer/routing/route-readers.js";
@@ -60,16 +58,13 @@ describe("reflow — the console at 320 CSS px", () => {
   for (const destination of RAIL_DESTINATIONS) {
     it(`needs no horizontal scroll at the ${destination} destination`, async () => {
       document.location.hash = formatRoute(routeForDestination(destination));
-      await renderSettled(
-        <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
-      );
+      const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);
 
       // Stated before it is read, so the measured width is in the record.
-      expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
-      // The whole document, not the mounted container: the criterion is about a page scrolling
-      // in two dimensions, and a view pushes the document wider through whichever boxes sit
-      // between them.
-      expect(describeHorizontalOverflow(document.documentElement)).toStrictEqual([]);
+      expect(appWindow.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
+      // The window's whole document, not one box: the criterion is about a page scrolling in two
+      // dimensions, and a view pushes the document wider through whichever boxes sit between.
+      expect(describeHorizontalOverflow(appWindow.document.documentElement)).toStrictEqual([]);
     });
   }
 
@@ -80,12 +75,10 @@ describe("reflow — the console at 320 CSS px", () => {
   for (const page of SETTINGS_PAGE_IDS) {
     it(`needs no horizontal scroll on the ${page} settings page`, async () => {
       document.location.hash = formatRoute({ kind: "settings", page });
-      await renderSettled(
-        <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
-      );
+      const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);
 
-      expect(window.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
-      expect(describeHorizontalOverflow(document.documentElement)).toStrictEqual([]);
+      expect(appWindow.innerWidth).toBe(REFLOW_MIN_WIDTH_PX);
+      expect(describeHorizontalOverflow(appWindow.document.documentElement)).toStrictEqual([]);
     });
   }
 
@@ -96,11 +89,9 @@ describe("reflow — the console at 320 CSS px", () => {
     // viewport and this case would read it at the narrower width.
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
     document.location.hash = formatRoute(routeForDestination("settings"));
-    const { container } = await renderSettled(
-      <AppProviders composition={createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID)} />,
-    );
+    const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);
 
-    const frame = container.querySelector(".meridian-frame");
+    const frame = appWindow.document.querySelector(".meridian-frame");
     expect(frame?.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
   });
 

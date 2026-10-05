@@ -27,6 +27,7 @@ import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refus
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
+import type { FilePathRef, ServedDaemonCall } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -57,13 +58,19 @@ export const DAEMON_REPLY_REFUSAL_CODES = [
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
 
 /**
- * A parsed reply, or the refusal standing in its place. Never both, never neither.
+ * A parsed reply, or the refusal standing in its place. Never both, never neither. A served reply
+ * that offers paths to open carries main's token for each, keyed by the path, so `Open` hands
+ * `native.openInEditor` the token and never the path.
  *
  * `status` is the discriminant rather than the presence of `value`, so a response
  * type that is legitimately `undefined`-shaped still narrows.
  */
 export type DaemonReply<TValue> =
-  | { readonly status: "served"; readonly value: TValue }
+  | {
+      readonly status: "served";
+      readonly value: TValue;
+      readonly fileRefs?: Readonly<Record<string, FilePathRef>>;
+    }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
@@ -134,7 +141,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     };
   }
 
-  let reply: unknown;
+  let reply: ServedDaemonCall<unknown>;
   try {
     const settlement = await settleUnlessAbandoned(
       bridge.daemon.call(method, sendable.data),
@@ -173,7 +180,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     return abandonedRead();
   }
 
-  const readable = binding.responseSchema.safeParse(reply);
+  const readable = binding.responseSchema.safeParse(reply.value);
   if (!readable.success) {
     recordRefusedMemberPaths({
       source: DAEMON_REPLY_DIAGNOSTIC_SOURCE,
@@ -192,7 +199,9 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
   }
   // The parsed value, not the raw reply, so a member the contract does not carry cannot reach a
   // component.
-  return { status: "served", value: readable.data };
+  return reply.fileRefs === undefined
+    ? { status: "served", value: readable.data }
+    : { status: "served", value: readable.data, fileRefs: reply.fileRefs };
 }
 
 /** The abandoned-read refusal as `callDaemon`'s own answer. */

@@ -1,17 +1,22 @@
-// The window's appearance against main's record, the one copy: the document root shows what main
-// kept, a scheme act asks main over the rest of that record (waiting for main's first delivery when
-// it runs before one), and a change main refuses leaves the root as it was and says so on the
-// window's banner. Main's `window` members are a stand-in whose first delivery the case sends, as
-// the preload's arrives after a round trip.
+// The app's appearance against main's record, the one copy: every open window's document root
+// shows what main kept, a window opened later shows it before it draws, a scheme act asks main over
+// the rest of that record (waiting for main's first delivery when it runs before one), and a change
+// main refuses leaves the roots as they were and says so on the asking window's banner. Main's
+// `window` members are a stand-in whose first delivery the case sends, as the preload's arrives
+// after a round trip.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { FrameWindows } from "@test/helpers/frame-windows.js";
+import { OpenWindowFrames } from "@renderer/lib/open-window-frames.js";
+import { OpenWindows } from "@renderer/services/window/open-windows.js";
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { AppearanceMembers } from "@renderer/services/window/appearance-client.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SCHEME_ATTRIBUTE, THEME_ATTRIBUTE, type AppearanceRecord } from "@shared/appearance.js";
-import { useAppearance } from "./useAppearance.js";
+import { discloseUnkeptScheme, useAppearance } from "./useAppearance.js";
 
 const KEPT: AppearanceRecord = {
   theme: "graphite",
@@ -21,11 +26,10 @@ const KEPT: AppearanceRecord = {
   grounds: { light: "#f6f5f2", dark: "#17181a" },
 };
 
+const frameWindows = new FrameWindows();
+
 afterEach(() => {
-  const root = document.documentElement;
-  root.removeAttribute(SCHEME_ATTRIBUTE);
-  root.removeAttribute(THEME_ATTRIBUTE);
-  root.removeAttribute("style");
+  frameWindows.removeAll();
 });
 
 /** Main's `window` members, delivering only what the case sends, and the window's appearance. */
@@ -42,7 +46,13 @@ function renderAppearance(setAppearance: AppearanceMembers["setAppearance"]) {
   };
   const frameStore = new WindowStore();
   const bridge = { window: members } as unknown as PlatformBridge;
-  const { result } = renderHook(() => useAppearance(bridge, frameStore));
+  const openWindows = new OpenWindows({
+    openWindow: frameWindows.open,
+    consoleDocument: document,
+    frames: new OpenWindowFrames(),
+  });
+  const first = openWindows.open("window/first").window.document.documentElement;
+  const { result } = renderHook(() => useAppearance(bridge, openWindows));
   const deliver = (record: AppearanceRecord): void => {
     act(() => {
       for (const handler of handlers) {
@@ -50,25 +60,32 @@ function renderAppearance(setAppearance: AppearanceMembers["setAppearance"]) {
       }
     });
   };
-  return { result, frameStore, deliver };
+  const openLater = (): HTMLElement =>
+    openWindows.open("window/later").window.document.documentElement;
+  return { result, frameStore, deliver, first, openLater };
 }
 
-describe("the window's appearance", () => {
-  it("shows main's record on the root and asks for the next scheme over the rest of it", async () => {
+describe("the app's appearance", () => {
+  it("shows main's record on every window's root and asks for the next scheme over the rest of it", async () => {
     const setAppearance = vi.fn(async () => undefined);
-    const { result, deliver } = renderAppearance(setAppearance);
+    const { result, deliver, first, openLater } = renderAppearance(setAppearance);
 
     // Pressed before main's first record arrived: the act waits for it rather than guessing.
     act(() => {
-      result.current.chooseNextScheme();
+      void result.current.chooseNextScheme();
     });
     expect(setAppearance).not.toHaveBeenCalled();
 
     deliver(KEPT);
-    const root = document.documentElement;
-    expect(root.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
-    expect(root.getAttribute(THEME_ATTRIBUTE)).toBe("graphite");
-    expect(root.style.fontSize).toBe("18px");
+    const later = openLater();
+    for (const root of [first, later]) {
+      expect(root.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
+      expect(root.getAttribute(THEME_ATTRIBUTE)).toBe("graphite");
+      expect(root.style.fontSize).toBe("18px");
+    }
+    // The console document is never shown, so nothing is applied to it.
+    expect(document.documentElement.hasAttribute(THEME_ATTRIBUTE)).toBe(false);
+    const root = first;
     await vi.waitFor(() => {
       expect(setAppearance).toHaveBeenCalledWith(
         { theme: "graphite", scheme: "light", textSize: 18, transcriptWidth: 44 },
@@ -80,21 +97,22 @@ describe("the window's appearance", () => {
 
     deliver({ ...KEPT, scheme: "system" });
     expect(root.hasAttribute(SCHEME_ATTRIBUTE)).toBe(false);
+    expect(later.hasAttribute(SCHEME_ATTRIBUTE)).toBe(false);
   });
 
   it("leaves the root as main kept it and says so on the banner when main refuses", async () => {
-    const { result, frameStore, deliver } = renderAppearance(async () => {
+    const { result, frameStore, deliver, first } = renderAppearance(async () => {
       throw new Error("no space left on device");
     });
     deliver(KEPT);
 
     act(() => {
-      result.current.chooseScheme("light");
+      discloseUnkeptScheme(result.current.chooseScheme("light"), frameStore);
     });
 
     await vi.waitFor(() => {
       expect(frameStore.getState().banners).toMatchObject([{ code: "scheme-not-kept" }]);
     });
-    expect(document.documentElement.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
+    expect(first.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
   });
 });

@@ -1,7 +1,9 @@
 // The mounted-transcript holder this mount fills: a command contributed at composition time
 // reaches a feed mounted later.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
 import {
   SHORT_LOG_EVENT_COUNT,
   contributeTranscriptCommands,
@@ -15,6 +17,9 @@ import { openSessionStoreWithFeedLog } from "../../transcript-logs.test-support.
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+// A command acts in the window used last; the test's document stands in for it.
+beforeEach(() => publishCommandWindow(() => document));
 
 describe("the transcript feed — the palette acts on the mounted feed", () => {
   afterEach(() => {

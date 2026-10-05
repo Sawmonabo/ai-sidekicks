@@ -105,7 +105,7 @@ export interface MockBaseWindow {
   setBounds(bounds: MockRectangle): void;
   getContentBounds(): MockRectangle;
   getNormalBounds(): MockRectangle;
-  /** Fires `close`, then `closed`, and leaves the window destroyed. */
+  /** Fires `close`, then `closed`, and leaves the window destroyed; throws once it is, as Electron. */
   close(): void;
   /** Fires `closed` without `close`, as Electron's `destroy` does. */
   destroy(): void;
@@ -352,7 +352,8 @@ export class MockBaseWindowImpl implements MockBaseWindow {
 
   public close(): void {
     if (this.#isDestroyed) {
-      return;
+      // Electron's own answer to a call on a window already gone.
+      throw new TypeError("Object has been destroyed");
     }
     this.#owner.record("close");
     this.emit("close");

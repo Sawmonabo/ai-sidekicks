@@ -34,8 +34,8 @@ export type WorkflowNoticeFrame =
 /**
  * Open the machine's workflow stream over every run this daemon ran, handing each frame on
  * parsed, and keep it open until released. Each open is reported to the transport's reconnect
- * signal like every stream opening; a first open that throws is re-raised. `clock` times the waits
- * between re-opens.
+ * signal like every stream opening. It never throws: an open that throws, the first included,
+ * arrives as a `reopenRefused` frame and is tried again. `clock` times the waits between re-opens.
  */
 export function subscribeWorkflowNotices(
   bridge: PlatformBridge,
@@ -46,6 +46,7 @@ export function subscribeWorkflowNotices(
     signal: bridge.transportReconnect,
     clock,
     subject: WORKFLOW_NOTICE_STREAM,
+    firstOpenFailure: "refuseAndRetry",
     open: (deliver, onEnded) =>
       bridge.daemon.subscribe(WORKFLOW_NOTICE_STREAM, {}, deliver, onEnded),
     onFrame: (payload) => {

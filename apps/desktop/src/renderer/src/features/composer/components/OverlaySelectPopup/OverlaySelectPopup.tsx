@@ -5,10 +5,11 @@
 import { Select } from "@base-ui/react/select";
 
 import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** The classes and children of the popup, and where it portals. */
 export interface OverlaySelectPopupProps {
-  /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
   readonly positionerClassName?: string | undefined;
   readonly className: string;
@@ -17,9 +18,10 @@ export interface OverlaySelectPopupProps {
 
 /** The floating list of a select, anchored by its positioner and registered as a popover. */
 export function OverlaySelectPopup(props: OverlaySelectPopupProps): React.JSX.Element {
+  const ownerWindow = useOwnerWindow();
   const airspaceRef = useAirspaceRegistration();
   return (
-    <Select.Portal container={props.container}>
+    <Select.Portal container={props.container ?? ownerWindow.document.body}>
       <Select.Positioner className={props.positionerClassName}>
         <Select.Popup ref={airspaceRef} className={props.className}>
           {props.children}

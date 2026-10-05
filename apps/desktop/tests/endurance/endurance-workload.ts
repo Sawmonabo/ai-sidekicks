@@ -142,7 +142,7 @@ export async function advanceScenario(
   appUnderTest: AppUnderTest,
   milliseconds: number,
 ): Promise<number | null> {
-  return appUnderTest.window.evaluate(
+  return appUnderTest.consolePage.evaluate(
     ([globalName, deltaMs]: [string, number]) => {
       const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
         globalName
@@ -159,7 +159,7 @@ export async function advanceScenario(
 
 /** Which scenario the launched app is actually playing, or `null`. */
 export async function readPlayingScenarioId(appUnderTest: AppUnderTest): Promise<string | null> {
-  return appUnderTest.window.evaluate((globalName: string) => {
+  return appUnderTest.consolePage.evaluate((globalName: string) => {
     const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
       globalName
     ];
@@ -176,7 +176,7 @@ export async function readAppliedEventCount(
   appUnderTest: AppUnderTest,
   sessionId: string,
 ): Promise<number | null> {
-  return appUnderTest.window.evaluate(
+  return appUnderTest.consolePage.evaluate(
     ([globalName, targetSessionId]: [string, string]) => {
       const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
         globalName
@@ -191,7 +191,7 @@ export async function readAppliedEventCount(
 export async function readBoundSessionIds(
   appUnderTest: AppUnderTest,
 ): Promise<readonly string[] | null> {
-  return appUnderTest.window.evaluate((globalName: string) => {
+  return appUnderTest.consolePage.evaluate((globalName: string) => {
     const sessions = (globalThis as unknown as Record<string, SessionDiagnostics | undefined>)[
       globalName
     ];

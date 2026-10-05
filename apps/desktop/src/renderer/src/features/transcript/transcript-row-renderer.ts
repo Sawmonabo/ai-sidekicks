@@ -34,6 +34,11 @@ export interface TranscriptRowProps {
   /** Whether a rollback boundary later in the list supersedes this row. */
   readonly isSuperseded: boolean;
   readonly density: TranscriptRowDensity;
+  /**
+   * On the row that carries a reply's foot, the reply's rows in log order, whose text its Copy
+   * takes; absent on every other row.
+   */
+  readonly replyRowIds?: readonly string[] | undefined;
 }
 
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */

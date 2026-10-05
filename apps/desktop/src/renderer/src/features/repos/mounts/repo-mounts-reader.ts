@@ -48,6 +48,8 @@ export interface RepoMountsReaderOptions {
    * this object, and the id is read off it so the two never name different sessions.
    */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in; its regaining focus re-asks. */
+  readonly ownerWindow: Window;
   /**
    * The clock this section's reading is stamped with, and the scheduler measures from. Required:
    * a wall-clock default would stamp `readAtMilliseconds` on a different time base than the
@@ -94,6 +96,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
     this.#triggers = new SessionRefreshTriggers({
       target: this,
       sessionStore: options.sessionStore,
+      ownerWindow: options.ownerWindow,
     });
     this.#selections = new ExecutionModeSelections({
       operations: options.operations,

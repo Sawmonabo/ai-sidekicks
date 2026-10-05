@@ -24,11 +24,15 @@ export interface AppShellProps {
   readonly frameStore: WindowStore;
   /** The screen registry the window mounts through, for warming a destination on selection. */
   readonly screenRegistry: ScreenRegistry;
-  /** The palette's window-owned props: its `when` context, bindings, open state and revision. */
+  /**
+   * The palette's window-owned props: its `when` context, bindings, open state and revision.
+   */
   readonly palette: Pick<
     CommandPaletteProps,
     "context" | "bindings" | "revision" | "open" | "onOpenChange"
   >;
+  /** One line about the window itself, drawn above the banners. */
+  readonly notice?: React.ReactNode;
   /** The screen the route names. */
   readonly children: React.ReactNode;
 }
@@ -53,6 +57,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
         frameStore.navigate(routeForDestination(destination));
       }}
       modalOverlayOpen={palette.open || isModalDialogOpen}
+      notice={props.notice}
       banners={banners}
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);

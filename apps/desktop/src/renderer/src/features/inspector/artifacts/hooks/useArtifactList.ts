@@ -8,6 +8,7 @@ import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 import { useCallback, useMemo } from "react";
 
 import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -38,6 +39,7 @@ export function useArtifactList(
   operations: ArtifactOperations,
 ): ArtifactListBinding {
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   // The reader reads the session's whole list, so the artifact id is not passed to it: the
   // key only decides whose subject-scoped state this reader holds.
   const subject = useMemo(() => ({ bridge, operations }), [bridge, operations]);
@@ -45,7 +47,7 @@ export function useArtifactList(
     subject,
     subjectArtifactId,
     sessionStore,
-    () => new ArtifactListReader({ ...operations, sessionStore, clock }),
+    () => new ArtifactListReader({ ...operations, sessionStore, ownerWindow, clock }),
   );
   const refresh = useCallback(() => {
     reader.refresh();

@@ -1,37 +1,30 @@
-// The frame name the renderer's `window.open` carries, read as the place a window is kept under.
-// A console window is `window/<window id>`, the id the renderer's kept layout shares; a pane in a
-// window of its own is `pane/<pane kind>/<session id>`, kept per pane kind, so the next pane of
-// that kind opens where the last one was. Any other name is not a window main builds.
+// The key a window's place is kept under, read off the frame name the hidden console document's
+// `window.open` carries, which is the window's id (`@shared/window/frame-name.ts`). A window of
+// session views keeps its place under its own id; a pane in a window of its own,
+// `pane/<pane kind>/<session id>`, keeps it per pane kind, so the next pane of that kind opens
+// where the last one was. Any other name is not a window main builds.
 
-const IDENTIFIER = "[A-Za-z0-9_-]{1,128}";
-const WINDOW_ID = new RegExp(`^${IDENTIFIER}$`);
-const CONSOLE_WINDOW_FRAME = new RegExp(`^window/(${IDENTIFIER})$`);
-const PANE_WINDOW_FRAME = new RegExp(`^pane/(${IDENTIFIER})/${IDENTIFIER}$`);
+import { FRAME_NAME_IDENTIFIER, isConsoleWindowId } from "@shared/window/frame-name.js";
+
+const PANE_WINDOW_ID = new RegExp(`^pane/(${FRAME_NAME_IDENTIFIER})/${FRAME_NAME_IDENTIFIER}$`);
+
+const PANE_PLACE_KEY_PREFIX = "pane/";
 
 /** The key a window's place is kept under; `undefined` for a name main builds no window for. */
 export function placeKeyForFrameName(frameName: string): string | undefined {
-  const consoleWindow = CONSOLE_WINDOW_FRAME.exec(frameName);
-  if (consoleWindow !== null) {
-    return consoleWindowPlaceKey(consoleWindow[1] ?? "");
+  if (isConsoleWindowId(frameName)) {
+    return frameName;
   }
-  const paneWindow = PANE_WINDOW_FRAME.exec(frameName);
+  const paneWindow = PANE_WINDOW_ID.exec(frameName);
   if (paneWindow !== null) {
-    return `pane/${paneWindow[1] ?? ""}`;
+    return `${PANE_PLACE_KEY_PREFIX}${paneWindow[1] ?? ""}`;
   }
   return undefined;
 }
 
-/** The key the place of the console window with `windowId` is kept under. */
-export function consoleWindowPlaceKey(windowId: string): string {
-  return `window/${windowId}`;
-}
-
-/** The window id a console window's place key carries; `undefined` for a pane's own window. */
-export function windowIdOfPlaceKey(placeKey: string): string | undefined {
-  return CONSOLE_WINDOW_FRAME.exec(placeKey)?.[1];
-}
-
-/** Whether `value` is a window id the frame-name grammar accepts. */
-export function isWindowId(value: unknown): value is string {
-  return typeof value === "string" && WINDOW_ID.test(value);
+/** The pane kind a pane window's place key names; `undefined` for a console window's. */
+export function paneKindOfPlaceKey(placeKey: string): string | undefined {
+  return placeKey.startsWith(PANE_PLACE_KEY_PREFIX)
+    ? placeKey.slice(PANE_PLACE_KEY_PREFIX.length)
+    : undefined;
 }

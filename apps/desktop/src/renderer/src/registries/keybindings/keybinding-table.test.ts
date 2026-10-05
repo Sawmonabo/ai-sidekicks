@@ -36,7 +36,7 @@ function buildTable(): TableUnderTest {
   });
   const table = new KeybindingTable({ registry, readContext: () => ({}) });
   table.setBindings(BINDINGS);
-  return { table, target: new EventTarget(), runCount: () => runs };
+  return { table, target: document.createElement("div"), runCount: () => runs };
 }
 
 function pressChord(target: EventTarget): void {

@@ -1,7 +1,8 @@
 // The seam between a chord and a mounted feed. Commands are contributed before any feed
 // exists, so a feed adopts this holder while mounted and commands resolve their target at
 // press time. The newest mount is the target; release is by identity, so a strict-mode double
-// mount or route change cannot leave a gone feed adopted. Module scope is one window.
+// mount or route change cannot leave a gone feed adopted. One holder serves every window, so
+// each mount names the document it is drawn in and a command acts on its own window's newest.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
@@ -60,31 +61,47 @@ export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "No transcript is open in this window. Open a session and try again.",
 );
 
-/** The mounted feeds, in mount order. */
+/** The mounted feeds of every window, in mount order. */
 export class MountedTranscript {
-  readonly #adopted: TranscriptActs[] = [];
+  readonly #adopted: AdoptedTranscript[] = [];
 
-  /** Become the target for a mount's lifetime. The return value releases exactly this one. */
-  public adopt(acts: TranscriptActs): Unsubscribe {
-    this.#adopted.push(acts);
+  /**
+   * Become the target in the window `ownerDocument` belongs to, for a mount's lifetime. The return
+   * value releases exactly this one.
+   */
+  public adopt(acts: TranscriptActs, ownerDocument: Document): Unsubscribe {
+    const adopted: AdoptedTranscript = { acts, ownerDocument };
+    this.#adopted.push(adopted);
     return () => {
-      const position = this.#adopted.lastIndexOf(acts);
+      const position = this.#adopted.lastIndexOf(adopted);
       if (position >= 0) {
         this.#adopted.splice(position, 1);
       }
     };
   }
 
-  /** Perform one act on the mounted transcript, or answer why it could not be. */
-  public perform(act: TranscriptActName): TranscriptActOutcome {
-    const acts = this.#adopted.at(-1);
-    if (acts === undefined) {
+  /**
+   * Perform one act on the newest transcript mounted in the window `windowDocument` belongs to, or
+   * answer why it could not be. A transcript in another window never takes the act.
+   */
+  public perform(
+    act: TranscriptActName,
+    windowDocument: Document | undefined,
+  ): TranscriptActOutcome {
+    const adopted = this.#adopted.findLast((each) => each.ownerDocument === windowDocument);
+    if (adopted === undefined) {
       return { status: "refused", refusal: TRANSCRIPT_NOT_MOUNTED_REFUSAL };
     }
-    acts[act]();
+    adopted.acts[act]();
     return { status: "performed", act };
   }
 }
 
-/** This window's mounted transcript. */
+/** One mounted feed's acts and the document of the window it is drawn in. */
+interface AdoptedTranscript {
+  readonly acts: TranscriptActs;
+  readonly ownerDocument: Document;
+}
+
+/** Every window's mounted transcripts. */
 export const mountedTranscript: MountedTranscript = new MountedTranscript();

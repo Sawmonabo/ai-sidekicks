@@ -4,9 +4,8 @@
 //
 // `react-resizable-panels` owns the resize gesture and the window-splitter ARIA, and reports
 // back to the store, which clamps again over a freshly measured layout because upstream rescales
-// a pixel floor as a percentage across a window resize. `@atlaskit/pragmatic-drag-and-drop`
-// owns the pointer reorder as an HTML5 drag; it has no keyboard drag, so the Alt+Shift chords
-// below are the accessible path.
+// a pixel floor as a percentage across a window resize. A pane's header drags it to a new place
+// through the shared pointer reorder, and the Alt+Shift chords below move the focused pane.
 
 import "./pane-layout.css";
 
@@ -17,6 +16,7 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { isEditableTarget } from "@renderer/lib/editable-target.js";
 import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
@@ -30,9 +30,7 @@ import {
 } from "../pane-layout.js";
 import { type PaneLayoutDensity } from "../pane-layout-measures.js";
 import { minimumPaneWidthPx } from "../pane-layout-density.js";
-import { usePaneLayoutDragCoordinator } from "../hooks/usePaneLayoutDragCoordinator.js";
-import { usePaneLayoutDragMonitor } from "../hooks/usePaneLayoutDragMonitor.js";
-import { usePaneLayoutDropIndicator } from "../hooks/usePaneLayoutDropIndicator.js";
+import { commitPaneDrop } from "../pane-drag.js";
 import { SessionPaneSlot } from "./SessionPaneSlot.js";
 
 /** What the pane layout needs: its layout store, its pane registry, and each pane's context. */
@@ -53,9 +51,14 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   // Read here, in the component with the context: outside `LiveAnnouncerProvider` this throws
   // instead of reordering panes in a silence nobody can detect.
   const announce = useAnnounce();
-  const dragCoordinator = usePaneLayoutDragCoordinator();
-  usePaneLayoutDragMonitor(dragCoordinator, layout, announce);
-  const dropIndicator = usePaneLayoutDropIndicator(dragCoordinator);
+  const paneIds = useMemo(() => state.panes.map((pane) => pane.paneId), [state.panes]);
+  const onPaneDrop = useCallback(
+    (paneId: string, toPosition: number) => {
+      commitPaneDrop(layout, paneId, toPosition, announce);
+    },
+    [layout, announce],
+  );
+  const paneDrag = useReorderDrag("horizontal", paneIds, onPaneDrop);
 
   // The five acts, built once per (layout, announcer) pair and shared by this component's key
   // handler and the palette rows in `contributions/commands.ts`, so a chord and a row cannot
@@ -185,10 +188,7 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
                 density={state.density}
                 registry={props.registry}
                 paneContextFor={props.paneContextFor}
-                dragCoordinator={dragCoordinator}
-                dropIndicator={
-                  dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
-                }
+                paneDrag={paneDrag}
                 onFocus={focusPane}
                 onClose={closePane}
               />

@@ -16,8 +16,8 @@ export const COPY_FLAVOR_ATTRIBUTE = "data-copy-flavor";
 /** How a body's selected part is copied: a reply's markdown, or plain text. */
 export type CopyFlavor = "markdown" | "text";
 
-/** What joins two rows' parts: a blank line, as the conversation reads them. */
-const PART_SEPARATOR = "\n\n";
+/** What joins two rows' parts, of a selection or of a reply: a blank line, as they are read. */
+export const PART_SEPARATOR = "\n\n";
 
 /**
  * What `range` copies out of the conversation drawn in `conversation`, or `undefined` when it

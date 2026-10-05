@@ -145,14 +145,20 @@ function closeEveryWindow(): Promise<void> {
 }
 
 /**
- * Starts one probe run on a fresh tick, so the caller's `whenReady` locals unwind before the
- * heap is sampled. The scheduled arrow closes over `probe` alone, so it cannot capture and
- * root the caller's window.
+ * Starts one probe run once the first window the console document opens has loaded, on a fresh
+ * tick, so the caller's `whenReady` locals unwind before the heap is sampled and the count is
+ * not sampled while that window is still arriving. The console document's own contents exist
+ * already, so the next contents made are that window's. The scheduled arrows close over `probe`
+ * alone, so they cannot capture and root the caller's window.
  */
 export function startGcProbe(electronApp: App): void {
   const probe = new GcProbe();
   probe.observe(electronApp);
-  setImmediate(() => {
-    void probe.run(electronApp);
+  electronApp.once("web-contents-created", (_event, created) => {
+    created.once("did-finish-load", () => {
+      setImmediate(() => {
+        void probe.run(electronApp);
+      });
+    });
   });
 }

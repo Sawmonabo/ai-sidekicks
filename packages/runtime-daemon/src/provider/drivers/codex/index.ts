@@ -207,7 +207,10 @@ export class CodexDriver implements Pick<
     return this.#lifecycle.listProviderCommands(params);
   }
 
-  /** The tier the session's thread declared; see {@link CodexLifecycleManager.observedOutputSpeedFor}. */
+  /**
+   * The tier the session's thread declared; see
+   * {@link CodexLifecycleManager.observedOutputSpeedFor}.
+   */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     return this.#lifecycle.observedOutputSpeedFor(sessionId);
   }

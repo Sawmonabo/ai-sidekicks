@@ -11,13 +11,14 @@ import type { WindowStore } from "@renderer/store/window/window-store.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
 /**
- * Arm this window's focus transition for the frame's lifetime.
+ * Arm `ownerWindow`'s focus transition for the frame's lifetime.
  *
  * Both edges are bound together: the blur is what makes a focus a transition worth a re-read.
  */
 export function useWindowFocusRefresh(
   frameStore: WindowStore,
   sessionStoreRegistry: SessionStoreRegistry,
+  ownerWindow: Window,
 ): void {
   useEffect(() => {
     const onFocus = (): void => {
@@ -30,11 +31,11 @@ export function useWindowFocusRefresh(
     const onBlur = (): void => {
       frameStore.setWindowFocused(false);
     };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
+    ownerWindow.addEventListener("focus", onFocus);
+    ownerWindow.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
+      ownerWindow.removeEventListener("focus", onFocus);
+      ownerWindow.removeEventListener("blur", onBlur);
     };
-  }, [frameStore, sessionStoreRegistry]);
+  }, [frameStore, sessionStoreRegistry, ownerWindow]);
 }

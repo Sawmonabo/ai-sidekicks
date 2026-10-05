@@ -46,10 +46,10 @@ import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
 /**
  * The enclosing vitest budget, derived from the phases it must contain: the isolated service's
  * start, the spawn's blocking host queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then
- * the shared reserve. The queries lead because no spawn deadline contains them. The suite's own deadline must fire first (see
- * `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down with its timers and leaves
- * the Electron reparented to init. The settle-time kill and profile removal keep the process and
- * its directory bounded even if this arithmetic is wrong.
+ * the shared reserve. The queries lead because no spawn deadline contains them. The suite's own
+ * deadline must fire first (see `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down
+ * with its timers and leaves the Electron reparented to init. The settle-time kill and profile
+ * removal keep the process and its directory bounded even if this arithmetic is wrong.
  */
 export const GC_TEST_TIMEOUT_MS: number =
   ISOLATED_SERVICE_START_CEILING_MS +

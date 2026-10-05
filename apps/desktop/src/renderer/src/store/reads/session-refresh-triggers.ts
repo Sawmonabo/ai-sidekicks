@@ -32,6 +32,8 @@ export interface SessionRefreshTriggerOptions {
   readonly target: ReadTriggerTarget;
   /** The session whose frames and whose repair edge are two of the three reasons. */
   readonly sessionStore: SessionStore;
+  /** The window the reading is drawn in, whose regaining focus is the third. */
+  readonly ownerWindow: Window;
 }
 
 /**
@@ -42,6 +44,7 @@ export interface SessionRefreshTriggerOptions {
 export class SessionRefreshTriggers {
   readonly #target: ReadTriggerTarget;
   readonly #sessionStore: SessionStore;
+  readonly #ownerWindow: Window;
   /** One detach per attached listener, run in `dispose` and then dropped. */
   readonly #detachers: (() => void)[] = [];
   #started = false;
@@ -49,6 +52,7 @@ export class SessionRefreshTriggers {
   public constructor(options: SessionRefreshTriggerOptions) {
     this.#target = options.target;
     this.#sessionStore = options.sessionStore;
+    this.#ownerWindow = options.ownerWindow;
   }
 
   public start(): void {
@@ -60,7 +64,7 @@ export class SessionRefreshTriggers {
       this.#sessionStore.readable.subscribe((state, previous) => {
         this.#observeSessionTransition(state, previous);
       }),
-      requestReadOnWindowFocus(this.#target),
+      requestReadOnWindowFocus(this.#target, this.#ownerWindow),
     );
   }
 

@@ -10,7 +10,11 @@ import type { MainDiagnosticLog } from "@main/services/diagnostic-log.js";
 import type { WindowFrame } from "@main/windows/window.js";
 import { MERIDIAN_GROUNDS } from "@shared/appearance.js";
 
-import type { MockBaseWindow, MockWebContents } from "./electron-mock-window.js";
+import {
+  createMockWebContents,
+  type MockBaseWindow,
+  type MockWebContents,
+} from "./electron-mock-window.js";
 
 /** The dev-server origin `ELECTRON_RENDERER_URL` carries under `electron-vite dev`. */
 export const DEV_SERVER_URL = "http://localhost:5173";
@@ -76,6 +80,21 @@ export function asMockWindow(rendererWindow: unknown): MockRendererWindow {
     view: { webContents: MockWebContents };
   };
   return { baseWindow, document: view.webContents };
+}
+
+/**
+ * A document Chromium hands `createWindow` for a `window.open` child, reporting to no mock: no case
+ * reads what it records.
+ */
+export function handedDocument(): MockWebContents {
+  return createMockWebContents({
+    record: () => undefined,
+    recordConstruction: () => undefined,
+    recordView: () => undefined,
+    forgetWindow: () => undefined,
+    mintId: () => 500,
+    loadFailureFor: () => undefined,
+  });
 }
 
 /** A navigation listener as a case invokes it. */

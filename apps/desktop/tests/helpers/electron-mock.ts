@@ -101,6 +101,8 @@ export interface ElectronMock {
   readonly exitCodes: readonly number[];
   /** Every URL handed to `shell.openExternal`, in order. */
   readonly externalOpens: readonly string[];
+  /** Every path handed to `shell.openPath`, in order. */
+  readonly pathOpens: readonly string[];
   /** Every template handed to `Menu.setApplicationMenu`, in order. */
   readonly installedMenuTemplates: readonly MenuTemplateItem[][];
   /**
@@ -167,6 +169,7 @@ class ElectronMockImpl implements ElectronMock {
   public readonly operations: string[] = [];
   public readonly exitCodes: number[] = [];
   public readonly externalOpens: string[] = [];
+  public readonly pathOpens: string[] = [];
   public readonly installedMenuTemplates: MenuTemplateItem[][] = [];
   public readonly ipcHandlers = new Map<string, (event: unknown, ...args: never[]) => unknown>();
   public readonly ipcListeners = new Map<
@@ -247,6 +250,7 @@ class ElectronMockImpl implements ElectronMock {
     this.operations.length = 0;
     this.exitCodes.length = 0;
     this.externalOpens.length = 0;
+    this.pathOpens.length = 0;
     this.installedMenuTemplates.length = 0;
     this.ipcHandlers.clear();
     this.ipcListeners.clear();
@@ -400,6 +404,11 @@ class ElectronMockImpl implements ElectronMock {
         openExternal: vi.fn((url: string) => {
           this.externalOpens.push(url);
           return Promise.resolve();
+        }),
+        // Electron answers an empty message for a path it opened.
+        openPath: vi.fn((target: string) => {
+          this.pathOpens.push(target);
+          return Promise.resolve("");
         }),
       },
       protocol: {

@@ -8,6 +8,8 @@
 
 import { useLayoutEffect } from "react";
 
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
+
 import { type RevealFocusTransfer } from "./reveal-focus-transfer.js";
 
 /** Props for `LazyBodyFocusTransfer`. */
@@ -21,14 +23,15 @@ export interface LazyBodyFocusTransferProps {
 /** Carries this mount's focus across its own reveal, from whichever side it is mounted on. */
 export function LazyBodyFocusTransfer(props: LazyBodyFocusTransferProps): React.JSX.Element {
   const { handoff, phase } = props;
+  const ownerDocument = useOwnerWindow().document;
   useLayoutEffect(() => {
     if (phase === "revealed") {
       handoff.restoreAfterReveal();
       return undefined;
     }
     return () => {
-      handoff.recordReservedFocus();
+      handoff.recordReservedFocus(ownerDocument);
     };
-  }, [handoff, phase]);
+  }, [handoff, ownerDocument, phase]);
   return <></>;
 }

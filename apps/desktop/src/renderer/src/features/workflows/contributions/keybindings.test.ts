@@ -5,7 +5,7 @@
 // read submits it once it has been read.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -18,6 +18,7 @@ import { answerThisRunTarget, nextWaitingTarget } from "../workflow-command-targ
 import { mountWorkflowsScreen } from "../WorkflowsScreen.test-support.js";
 import { createWorkflowCommands } from "./commands.js";
 import { WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
+import { publishCommandWindow } from "@renderer/registries/commands/command-window.js";
 
 /** Press `commandId`'s chord on `target`, with the modifiers the chord names on this platform. */
 async function pressChordOf(commandId: string, target: EventTarget): Promise<void> {
@@ -58,6 +59,8 @@ function installWorkflowChords(): () => void {
 }
 
 afterEach(cleanup);
+// A command acts in the window used last; the test's document stands in for it.
+beforeEach(() => publishCommandWindow(() => document));
 
 describe("the workflows screen's chords", () => {
   it("leaves `Answer this run` to a text field, and from anywhere else approves the waiting step", async () => {

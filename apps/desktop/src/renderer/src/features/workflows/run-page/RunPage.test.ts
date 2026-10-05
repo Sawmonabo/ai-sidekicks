@@ -85,7 +85,9 @@ describe("a run's page", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("heading", { level: 2 })).toBeDefined();
     });
-    expect(answerThisRunTarget.press()).toMatchObject({ code: "workflows.nothing_to_answer" });
+    expect(answerThisRunTarget.press(document)).toMatchObject({
+      code: "workflows.nothing_to_answer",
+    });
     expect(stepPanel()).toBeNull();
 
     // A run held behind another run's chain question is answered there, not here.
@@ -93,7 +95,9 @@ describe("a run's page", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByText(/held behind its chain/u)).toBeDefined();
     });
-    expect(answerThisRunTarget.press()).toMatchObject({ code: "workflows.nothing_to_answer" });
+    expect(answerThisRunTarget.press(document)).toMatchObject({
+      code: "workflows.nothing_to_answer",
+    });
     mounted.unmount();
   });
 

@@ -19,6 +19,7 @@ import {
   type SystemMessageReading,
 } from "../system-messages/system-message-classifier.js";
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+import { replyRowIdsByFootRowId } from "./reply-rows.js";
 import { TranscriptRowRetention } from "./row-retention.js";
 
 /**
@@ -64,6 +65,11 @@ export interface TranscriptWindowModel {
   readonly childRunEntryByRowId: ReadonlyMap<string, ChildRunEntry>;
   /** The handoff behind each row that is one, on the same dispatch. */
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
+  /**
+   * Each reply's rows, in log order, under the row that carries the reply's foot and its Copy of
+   * the whole reply. Each list keeps its identity while the reply does not move.
+   */
+  readonly replyRowIdsByFootRowId: ReadonlyMap<string, readonly string[]>;
   /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TranscriptEventRow[];
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
@@ -111,6 +117,12 @@ export function deriveTranscriptWindow(
     ),
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
+    replyRowIdsByFootRowId: new Map(
+      [...replyRowIdsByFootRowId(rows)].map(([footRowId, rowIds]) => [
+        footRowId,
+        retention.retainReplyRowIds(footRowId, rowIds),
+      ]),
+    ),
     rows,
     // A run group with no terminal is a run the log has not seen end; the viewport asks the same
     // question before it prunes.

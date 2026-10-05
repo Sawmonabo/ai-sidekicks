@@ -1,4 +1,4 @@
-// The provider stack every window mounts through, and the composition that runs before any
+// The provider stack the console document mounts, and the composition that runs before any
 // window renders.
 //
 // Composition runs at module scope so "a window exists" and "its features are composed" are one
@@ -7,11 +7,15 @@
 // The tripwire route is armed first because a registrar can report during composition (a second
 // owner on one name, a colliding projector claim).
 
+import { useState } from "react";
+
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import { routeWindowTripwiresToDiagnosticCapture } from "@renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
 import { ForwardingClock } from "@renderer/lib/forwarding-clock.js";
+import { OpenWindowFrames } from "@renderer/lib/open-window-frames.js";
+import { OpenWindows, type WindowOpener } from "@renderer/services/window/open-windows.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { entityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
 import { inlineCardRegistry } from "@renderer/registries/inline-cards/inline-card-registry.js";
@@ -42,18 +46,29 @@ registerFeatureContributions({
 
 /** What the root hands the provider stack. */
 export interface AppProvidersProps {
-  /** How to build the bridge. Absent, the window reads the preload. */
+  /** How to build the bridge. Absent, the console document reads the preload. */
   readonly composition?: BridgeComposition;
+  /** How the console document opens a window a person sees. */
+  readonly openWindow: WindowOpener;
 }
 
-/** The provider stack: the platform bridge, then the window. */
+/**
+ * The provider stack: the platform bridge, then the windows. The real clock's frames are paced by
+ * the open windows, since the console document the stack mounts in never paints.
+ */
 export function AppProviders(props: AppProvidersProps): React.JSX.Element {
+  const { openWindow } = props;
+  const [frames] = useState(() => new OpenWindowFrames());
+  const [openWindows] = useState(
+    () => new OpenWindows({ openWindow, consoleDocument: document, frames }),
+  );
   return (
     <PlatformBridgeProvider
       {...(props.composition === undefined ? {} : { composition: props.composition })}
+      frames={frames}
       clockToRebind={tripwireRouteClock}
     >
-      <AppBootstrap />
+      <AppBootstrap openWindows={openWindows} />
     </PlatformBridgeProvider>
   );
 }

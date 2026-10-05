@@ -6,6 +6,7 @@ import {
   APPEARANCE_VALUE_CHANNEL,
   BRIDGE_CHANNELS,
   FULLSCREEN_VALUE_CHANNEL,
+  type FullscreenPush,
 } from "@shared/bridge-channels.js";
 import type { PreloadApi, Unsubscribe } from "@shared/preload-api.js";
 
@@ -15,48 +16,66 @@ export interface WindowBridgeIpc {
   on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): unknown;
 }
 
-/** The `window` member the preload exposes for the window main built under `id`, over `ipc`. */
-export function createWindowBridge(ipc: WindowBridgeIpc, id: string): PreloadApi["window"] {
-  const appearance = new PushedValue<AppearanceRecord>(ipc, APPEARANCE_VALUE_CHANNEL);
-  const fullscreen = new PushedValue<boolean>(ipc, FULLSCREEN_VALUE_CHANNEL);
+/**
+ * The `window` member the preload exposes to the console document, over `ipc`, which main
+ * started with `lastUsedWindowId`.
+ */
+export function createWindowBridge(
+  ipc: WindowBridgeIpc,
+  lastUsedWindowId: string,
+): PreloadApi["window"] {
+  const appearance = new PushedValues<AppearanceRecord>();
+  const fullscreen = new PushedValues<boolean>();
+  ipc.on(APPEARANCE_VALUE_CHANNEL, (_event, record) => {
+    appearance.deliver(APPEARANCE_VALUE_CHANNEL, record as AppearanceRecord);
+  });
+  ipc.on(FULLSCREEN_VALUE_CHANNEL, (_event, push) => {
+    const { windowId, isFullScreen } = push as FullscreenPush;
+    fullscreen.deliver(windowId, isFullScreen);
+  });
   return {
-    id,
+    lastUsedWindowId,
     setAppearance: async (choice, grounds): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.setAppearance, { choice, grounds });
     },
     subscribeAppearance: (handler) =>
       appearance.subscribe(
+        APPEARANCE_VALUE_CHANNEL,
         handler,
         async () => (await ipc.invoke(BRIDGE_CHANNELS.readAppearance)) as AppearanceRecord,
       ),
-    subscribeFullscreen: (handler) =>
+    subscribeFullscreen: (windowId, handler) =>
       fullscreen.subscribe(
+        windowId,
         handler,
-        async () => (await ipc.invoke(BRIDGE_CHANNELS.readFullscreen)) as boolean,
+        async () => (await ipc.invoke(BRIDGE_CHANNELS.readFullscreen, windowId)) as boolean,
       ),
-    setMinimumSize: async (size): Promise<void> => {
-      await ipc.invoke(BRIDGE_CHANNELS.setMinimumSize, size);
+    setMinimumSize: async (windowId, size): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.setMinimumSize, { windowId, size });
+    },
+    setDefaultSizes: async (sizes): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.setDefaultSizes, sizes);
     },
   };
 }
 
-/** One value main pushes on a channel, and the page's handlers for it. */
-class PushedValue<Value> {
-  readonly #handlers = new Set<(value: Value) => void>();
+/** Values main pushes, each under a key (a window's id, or the one appearance channel). */
+class PushedValues<Value> {
+  readonly #handlers = new Map<string, Set<(value: Value) => void>>();
 
-  public constructor(ipc: WindowBridgeIpc, channel: string) {
-    ipc.on(channel, (_event, value) => {
-      for (const handler of this.#handlers) {
-        handler(value as Value);
-      }
-    });
+  /** Hands `value` to every handler subscribed under `key`. */
+  public deliver(key: string, value: Value): void {
+    for (const handler of this.#handlers.get(key) ?? []) {
+      handler(value);
+    }
   }
 
   /**
-   * Adds `handler` and hands it the value `readCurrent` answers, unless it was removed first. A
-   * failed read is thrown on as an unhandled rejection, never dropped.
+   * Adds `handler` under `key` and hands it the value `readCurrent` answers, unless it was removed
+   * first. A failed read is thrown on as an unhandled rejection, never dropped.
    */
   public subscribe(
+    key: string,
     handler: (value: Value) => void,
     readCurrent: () => Promise<Value>,
   ): Unsubscribe {
@@ -64,14 +83,19 @@ class PushedValue<Value> {
     const subscription = (value: Value): void => {
       handler(value);
     };
-    this.#handlers.add(subscription);
+    const handlers = this.#handlers.get(key) ?? new Set<(value: Value) => void>();
+    this.#handlers.set(key, handlers);
+    handlers.add(subscription);
     void readCurrent().then((current) => {
-      if (this.#handlers.has(subscription)) {
+      if (handlers.has(subscription)) {
         subscription(current);
       }
     });
     return () => {
-      this.#handlers.delete(subscription);
+      handlers.delete(subscription);
+      if (handlers.size === 0 && this.#handlers.get(key) === handlers) {
+        this.#handlers.delete(key);
+      }
     };
   }
 }

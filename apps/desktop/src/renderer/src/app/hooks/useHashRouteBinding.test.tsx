@@ -16,8 +16,8 @@ const SETTINGS_HASH = "#/settings";
 const SESSION_HASH = "#/session/session-alpha";
 
 function BoundFrame(props: { readonly frameStore: WindowStore }): React.JSX.Element {
-  const hash = useLocationHash();
-  useHashRouteBinding(props.frameStore, hash);
+  const hash = useLocationHash(window);
+  useHashRouteBinding(props.frameStore, hash, window);
   return <div data-testid="bound" />;
 }
 

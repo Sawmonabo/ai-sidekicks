@@ -39,6 +39,7 @@ function readerWithHeldManifestReads(clock: ManualClock): {
     listArtifacts: async () => LISTED_ONE_ROW,
     readArtifact: artifactRead,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+    ownerWindow: window,
     clock,
   });
   return {
@@ -151,6 +152,7 @@ describe("artifact list actions: one manifest re-read per row, each with its own
         throw new Error("the read failed");
       },
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      ownerWindow: window,
       clock,
     });
     reader.start();

@@ -10,6 +10,7 @@ import type {
 } from "@ai-sidekicks/contracts/approval";
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
+import { isHTMLElement } from "@floating-ui/utils/dom";
 import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
@@ -78,7 +79,7 @@ export function findApprovalCardAction(
       continue;
     }
     const action = card.querySelector(`.${APPROVAL_CARD_ACTION_CLASS}`);
-    return action instanceof HTMLElement ? action : undefined;
+    return isHTMLElement(action) ? action : undefined;
   }
   return undefined;
 }
@@ -115,7 +116,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     event.preventDefault();
     const buttons = [...(actionRowRef.current?.querySelectorAll("button") ?? [])];
     const focusedAt = Math.max(
-      buttons.findIndex((button) => button === document.activeElement),
+      buttons.findIndex((button) => button === button.ownerDocument.activeElement),
       0,
     );
     // The walk stops at each end rather than wrapping around.

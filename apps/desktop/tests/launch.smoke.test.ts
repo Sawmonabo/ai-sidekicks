@@ -74,8 +74,9 @@ describe("desktop main process boot", () => {
       expect(probe.probe.indexedDB).toBe("object");
       expect(probe.probe.localStorageRoundTrip).toBe(true);
 
-      // Invariant 8: the React tree mounted. `did-finish-load` fires on the document, so a bundle
-      // whose entry chunk 404'd would pass every assertion above.
+      // Invariant 8: the React tree mounted, drawn by the console document into the first window
+      // it opens. `did-finish-load` fires on the document, so a bundle whose entry chunk 404'd
+      // would pass every assertion above.
       expect(probe.probe.rootChildren).toBeGreaterThan(0);
 
       // Invariant 9: the CSP header rides the response. It is the policy's only carrier

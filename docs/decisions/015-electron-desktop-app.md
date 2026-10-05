@@ -179,7 +179,7 @@ Plan-020's CI checks assumptions 2 and 3; release monitoring watches 1, 4 and 5.
 | Wails v3 status page | Documentation | v3 alpha status; no flagship production apps | <https://wails.io/> |
 | Chromium Embedded Framework | Documentation | Embedding Chromium in a native window: external message pump, `DoClose` life-cycle, the application protocols CEF requires of `NSApp` on macOS | <https://chromiumembedded.github.io/cef/general_usage> |
 | GPUI | Documentation | Zed's GPU-drawn Rust UI framework and its web backend drawing into one canvas | <https://www.gpui.rs/> |
-| electron-updater | Documentation | Auto-update with the GitHub provider and differential downloads | <https://www.electron.build/auto-update> |
+| electron-updater | Documentation | Auto-update with the GitHub provider and differential downloads | <https://www.electron.build/docs/features/auto-update> |
 | SignPath Foundation | Documentation | Free code signing for open-source projects | <https://signpath.org/> |
 
 ### Related ADRs

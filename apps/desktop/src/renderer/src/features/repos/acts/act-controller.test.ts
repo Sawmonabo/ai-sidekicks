@@ -50,6 +50,7 @@ function openReader(): OpenedReader {
     label: "prerequisite reader test reading",
     clock,
     sessionStore: new SessionStore({ sessionId: "session-under-test" }),
+    ownerWindow: window,
     triggeringEventKinds: TRIGGERING_KINDS,
     readPrerequisite: async (question: string) => {
       questionsAsked.push(question);

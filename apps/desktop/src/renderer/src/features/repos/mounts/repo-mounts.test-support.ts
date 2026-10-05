@@ -95,7 +95,9 @@ export function openReader(
   // Defaulted so cases that only care about the read say nothing about the store.
   sessionStore: SessionStore = new SessionStore({ sessionId: SESSION_ID }),
 ): RepoMountsReader {
-  return trackReader(new RepoMountsReader({ operations, sessionStore, clock }));
+  return trackReader(
+    new RepoMountsReader({ operations, sessionStore, ownerWindow: window, clock }),
+  );
 }
 
 /**

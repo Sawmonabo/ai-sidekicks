@@ -1,6 +1,6 @@
 /*
  * A transcript row is a flush-left line drawn as a three-column grid: the 2 px edge, a fixed
- * gutter, one measure. The edge spans both grid rows so a revealed footer leaves no gap in the
+ * gutter, one measure. The edge spans both grid rows so a footer leaves no gap in the
  * attribution. Hand-authored composition; every value comes from the generated `meridian.css`
  * as a custom property.
  */
@@ -48,9 +48,10 @@
   white-space: nowrap;
 }
 
-/* The gutter's figures are the quietest reading; ask the figure for its faint face through
-   its own custom properties. */
-.meridian-transcript-row-layout__gutter {
+/* The gutter's and the footer's figures are the quietest reading; ask the figure for its faint
+   face through its own custom properties. */
+.meridian-transcript-row-layout__gutter,
+.meridian-transcript-row-layout__footer {
   --meridian-figure-wire-color: var(--meridian-text-faint);
   --meridian-figure-wire-size: var(--meridian-text-xs);
 }
@@ -86,24 +87,27 @@
   opacity: 0.45;
 }
 
-/*
- * A row's secondary controls live in its hover footer. `:focus-within` keeps the footer
- * reachable by keyboard; `pointer-events` stops an invisible control from swallowing a click
- * while Tab still reaches it.
- */
+/* A row's secondary controls, and on a reply its time, sit in its footer under the body. */
 .meridian-transcript-row-layout__footer {
   display: flex;
   grid-area: footer;
   align-items: center;
   gap: var(--meridian-space-2);
   margin-block-start: var(--meridian-space-1);
+}
+
+/*
+ * A footer revealed on hover. `:focus-within` keeps it reachable by keyboard; `pointer-events`
+ * stops an invisible control from swallowing a click while Tab still reaches it.
+ */
+.meridian-transcript-row-layout__footer--on-hover {
   opacity: 0;
   transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
   pointer-events: none;
 }
 
-.meridian-transcript-row-layout:hover .meridian-transcript-row-layout__footer,
-.meridian-transcript-row-layout:focus-within .meridian-transcript-row-layout__footer {
+.meridian-transcript-row-layout:hover .meridian-transcript-row-layout__footer--on-hover,
+.meridian-transcript-row-layout:focus-within .meridian-transcript-row-layout__footer--on-hover {
   opacity: 1;
   pointer-events: auto;
 }
@@ -111,8 +115,8 @@
 /*
  * The same reveal as a class a row can put its own control in (a card's disclosure, say), so
  * this layout owns when a thing is revealed and the row owns what it is. `pointer-events` is
- * absent, unlike the footer: an inline control is over nothing, and a guard would break a click
- * on a disclosure a row keeps permanently visible.
+ * absent, unlike the hover footer: an inline control is over nothing, and a guard would break a
+ * click on a disclosure a row keeps permanently visible.
  */
 .meridian-transcript-row-layout__revealed {
   opacity: 0;

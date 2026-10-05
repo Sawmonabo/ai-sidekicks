@@ -7,13 +7,14 @@
 
 import "./appearance.css";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
 import {
   SYSTEM_SCHEME_PREFERENCE,
@@ -54,13 +55,15 @@ export interface AppearancePageProps {
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
-/** The appearance settings page: the color-scheme choice, read from the document root. */
+/** The appearance settings page: the color-scheme choice, read from its window's root. */
 export function AppearancePage(props: AppearancePageProps): ReactNode {
-  const appliedScheme = useSyncExternalStore(
-    subscribeToAppliedScheme,
-    readAppliedScheme,
-    readAppliedScheme,
+  const root = useOwnerWindow().document.documentElement;
+  const subscribe = useCallback(
+    (onSchemeChange: () => void) => subscribeToAppliedScheme(root, onSchemeChange),
+    [root],
   );
+  const read = useCallback(() => readAppliedScheme(root), [root]);
+  const appliedScheme = useSyncExternalStore(subscribe, read, read);
 
   return (
     <div className="meridian-settings-page">
@@ -114,9 +117,9 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
  * A `MutationObserver` rather than a poll: the attribute changes exactly when something
  * writes it.
  */
-function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
+function subscribeToAppliedScheme(root: HTMLElement, onSchemeChange: () => void): () => void {
   const observer = new MutationObserver(onSchemeChange);
-  observer.observe(document.documentElement, {
+  observer.observe(root, {
     attributes: true,
     attributeFilter: [SCHEME_ATTRIBUTE],
   });
@@ -132,8 +135,8 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
  * An unrecognized value is neither a preference nor the system choice, so the page says so
  * instead of lighting up an option nobody chose.
  */
-function readAppliedScheme(): SchemePreference | undefined {
-  const applied = document.documentElement.getAttribute(SCHEME_ATTRIBUTE);
+function readAppliedScheme(root: HTMLElement): SchemePreference | undefined {
+  const applied = root.getAttribute(SCHEME_ATTRIBUTE);
   if (applied === null) {
     return SYSTEM_SCHEME_PREFERENCE;
   }

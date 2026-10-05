@@ -4,10 +4,11 @@
 import { Menu } from "@base-ui/react/menu";
 
 import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
+import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 
 /** Props for `OverlayMenuPopup`. */
 export interface OverlayMenuPopupProps {
-  /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
+  /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
   readonly positionerClassName: string;
   /** Distance from the anchor, in pixels, as the positioner takes it. */
@@ -18,9 +19,10 @@ export interface OverlayMenuPopupProps {
 
 /** Anchored portal, positioner and popup for a menu. */
 export function OverlayMenuPopup(props: OverlayMenuPopupProps): React.JSX.Element {
+  const ownerWindow = useOwnerWindow();
   const airspaceRef = useAirspaceRegistration();
   return (
-    <Menu.Portal container={props.container}>
+    <Menu.Portal container={props.container ?? ownerWindow.document.body}>
       <Menu.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>
         <Menu.Popup ref={airspaceRef} className={props.className}>
           {props.children}
