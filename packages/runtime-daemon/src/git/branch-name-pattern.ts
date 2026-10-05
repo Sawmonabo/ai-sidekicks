@@ -16,7 +16,7 @@ import {
   readGitExitStatus,
   runGitWithExecFile,
   type GitRunner,
-} from "./git-process.js";
+} from "./process.js";
 
 // What a pattern is filled with at save, before any session exists: a short id's shape (8 hex
 // characters) and a tail's (lowercase letters), so git judges the parts the person typed.

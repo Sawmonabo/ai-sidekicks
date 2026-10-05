@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderAppSettled } from "../helpers/app-harness.js";
+import { emulateSystemScheme, renderAppSettled } from "../helpers/app/harness.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,

@@ -7,13 +7,13 @@ import type { ReactNode } from "react";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { accountPlaneRemedySentence } from "@renderer/lib/account-plane-sentences.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type {
   ProviderAccountProbeCall,
   ProviderAccountRegisterCall,
 } from "../provider-sign-in-flow.js";
-import { AccountCheckNow } from "./AccountCheckNow.js";
-import { TokenResupplyForm } from "./TokenResupplyForm.js";
+import { AccountCheckNow } from "./Account/AccountCheckNow.js";
+import { TokenResupplyForm } from "./Token/TokenResupplyForm.js";
 
 /**
  * The one remedy that applies to a readiness state, and the one action it names.

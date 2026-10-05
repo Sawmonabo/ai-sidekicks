@@ -3,7 +3,7 @@
 // here, so the strip draws no count against them.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";

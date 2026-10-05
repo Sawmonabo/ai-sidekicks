@@ -3,8 +3,8 @@
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
 import { useCodeSpanReader } from "@renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { CodeBlock, type CodeBlockProps } from "./CodeBlock.js";
 

@@ -13,7 +13,7 @@ import {
 } from "@ai-sidekicks/contracts/artifacts/operations";
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 
 /** One `artifact.read` call, made the way its caller makes calls. */

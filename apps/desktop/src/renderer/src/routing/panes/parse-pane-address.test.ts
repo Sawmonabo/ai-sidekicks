@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { IDENTIFIER_MAX_LENGTH } from "@renderer/lib/identifier-grammar.js";
-import { isRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal/refusal.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { paneEntityScopeFor } from "./pane-address.js";
 import { parsePaneAddress } from "./parse-pane-address.js";

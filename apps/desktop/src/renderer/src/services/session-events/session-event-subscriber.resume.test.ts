@@ -11,12 +11,12 @@ import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
+import { withDaemonSubscribe } from "@test/helpers/fixture/bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";

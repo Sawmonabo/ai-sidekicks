@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { executionModeRows } from "../execution-mode-rows.js";
+import { executionModeRows } from "../execution-mode/execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
 
 describe("BindModePicker", () => {

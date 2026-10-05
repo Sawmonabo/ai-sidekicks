@@ -5,12 +5,12 @@
 // sits in the head, not the effective line, whose members are all provider axes.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDateTime } from "@renderer/lib/wire-figures.js";
+import { formatDateTime } from "@renderer/lib/wire/figures.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
-import { ToolAllowlistLine } from "./ToolAllowlistLine.js";
-import { agentToolAllowlistPosition } from "../tool-allowlist.js";
+import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";
+import { agentToolAllowlistPosition } from "../tool-allowlist/tool-allowlist.js";
 
 /** What one agent card shows. */
 export interface AgentBindingCardProps {

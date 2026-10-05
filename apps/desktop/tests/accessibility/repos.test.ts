@@ -9,8 +9,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountMountList, mountWorkflowRunReview } from "./feature-mounts/repos.js";
+import { emulateSystemScheme } from "../helpers/app/harness.js";
+import {
+  mountDiffPane,
+  mountMountList,
+  mountWorkflowRunReview,
+} from "./feature-mounts/repos/repos.js";
 import { type MountedView } from "./feature-mounts/mount-queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 

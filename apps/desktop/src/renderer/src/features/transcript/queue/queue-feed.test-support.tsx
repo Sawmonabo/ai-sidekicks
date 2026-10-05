@@ -4,8 +4,8 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { createFixture } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { createFixture } from "@test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

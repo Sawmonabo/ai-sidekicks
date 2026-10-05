@@ -81,7 +81,7 @@ export interface ProjectedSessionEvent {
    * daemon named and the console never guesses its kind.
    *
    * Absent is the one no-value state: the decode boundary
-   * (`services/daemon/session-event-payload.ts`) folds present-`null` and omitted into it.
+   * (`services/daemon/session/event/payload.ts`) folds present-`null` and omitted into it.
    */
   readonly actorId?: string;
   /** The event's own payload, narrowed by the projector that claims its kind. */

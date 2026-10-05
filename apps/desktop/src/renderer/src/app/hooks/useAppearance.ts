@@ -7,7 +7,7 @@
 import { useLayoutEffect } from "react";
 
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { AppearanceClient } from "@renderer/services/window/appearance-client.js";

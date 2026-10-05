@@ -1,7 +1,7 @@
 /*
  * The emulator's mount point and its boundary, and nothing inside them. xterm.js draws inside
  * `.meridian-terminal-mount-point__mount-element` and its own sheet (imported by
- * `xterm-adapter.ts`, so it rides the lazy emulator chunk) owns everything under it. This
+ * `xterm/adapter.ts`, so it rides the lazy emulator chunk) owns everything under it. This
  * sheet must therefore stand alone: the mount point keeps its size and boundary while the
  * chunk is still in flight.
  */

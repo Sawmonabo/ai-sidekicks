@@ -15,7 +15,7 @@ import {
   type StoredEntity,
   type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import { RUN_QUEUED_EVENT_KIND } from "@renderer/store/session-events/run-state-kinds.js";
+import { RUN_QUEUED_EVENT_KIND } from "@renderer/store/session-events/run/state-kinds.js";
 
 /**
  * The event kind of the session's birth, which brings the lead into the session; a run's creation

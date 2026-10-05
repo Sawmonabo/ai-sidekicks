@@ -7,7 +7,7 @@
 //
 // An absent or wrongly-typed member reads as `undefined`, and nothing coerces: `String(value)`
 // on an object would show `[object Object]` as a tool name. The string rule lives in
-// `lib/wire-strings.ts`; a caller reads `readWireString(projectedPayload(row)["toolName"])`.
+// `lib/wire/strings.ts`; a caller reads `readWireString(projectedPayload(row)["toolName"])`.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 

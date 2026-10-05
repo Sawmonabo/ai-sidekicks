@@ -11,13 +11,13 @@ import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { ExecutionModePicker } from "./ExecutionModePicker.js";
+import { ExecutionModePicker } from "../execution-mode/components/ExecutionModePicker.js";
 import { readWorkspaceControlAvailability, type BindControlAvailability } from "../mount-health.js";
 import { PrepareExecutionRoot } from "../execution-roots/PrepareExecutionRoot.js";
-import type { PrepareOperations } from "../execution-roots/prepare-controller.js";
+import type { PrepareOperations } from "../execution-roots/prepare/controller.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { ClipboardContent } from "@shared/preload-api.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { buildBridgeCommands } from "./commands.js";
 import { FIRST_RUN_SCENARIO } from "@fixtures/scenarios/first-run.js";

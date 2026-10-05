@@ -10,12 +10,12 @@ import type {
   WorkflowRunAttentionListResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import {
   bridgeAnswering,
   withDaemonSubscribe,
   type RecordedDaemonCall,
-} from "@test/helpers/fixture-bridge.js";
+} from "@test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
@@ -27,7 +27,7 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";

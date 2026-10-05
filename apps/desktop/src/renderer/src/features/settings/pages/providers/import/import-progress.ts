@@ -11,7 +11,7 @@ import type {
   ProviderImportProgress,
   ProviderImportProviderRequest,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /** An open progress subscription: the messages, and the way to let go of it. */
 export interface ImportProgressStream {

@@ -54,7 +54,7 @@ import {
 } from "../data/opening-entries.js";
 import { GITFLOW_DIFF_REPLIES } from "../data/gitflow-diff-replies.js";
 import { SETTINGS_PAGE_REPLIES } from "../data/settings-page-replies.js";
-import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow-replies.js";
+import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.

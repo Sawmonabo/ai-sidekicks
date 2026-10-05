@@ -5,7 +5,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";

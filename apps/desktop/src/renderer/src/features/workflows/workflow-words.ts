@@ -16,7 +16,7 @@ import {
   WORKFLOW_STEP_TIMED_OUT_CODE,
 } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 
 /** A run's status as its chip reads it. */
 export const RUN_STATUS_WORDS: Readonly<Record<WorkflowRunStatus, string>> = {

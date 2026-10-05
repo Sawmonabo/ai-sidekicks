@@ -13,8 +13,8 @@ import {
 import type { McpMutationResult, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Clock } from "@renderer/lib/clock.js";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";

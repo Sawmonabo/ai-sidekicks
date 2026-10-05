@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatCount, formatDayClock } from "@renderer/lib/wire/figures.js";
 import { costFigure } from "../run-cost.js";
 import { AWAITING_RESUME_WORDS, WAIT_CAUSE_WORDS } from "../workflow-words.js";
 import { isGoing } from "../run-controls.js";

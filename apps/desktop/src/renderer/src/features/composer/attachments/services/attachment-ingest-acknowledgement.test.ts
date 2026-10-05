@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
 import {
   ATTACHMENT_ACKNOWLEDGEMENT_SITE,
   readChunkAcknowledgement,

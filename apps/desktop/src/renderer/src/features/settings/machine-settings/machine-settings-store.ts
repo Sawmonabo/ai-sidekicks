@@ -9,7 +9,7 @@ import type {
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { openReopeningSubscription } from "@renderer/services/transport/reopening-subscription.js";
 import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";

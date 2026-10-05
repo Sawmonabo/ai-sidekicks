@@ -1,7 +1,7 @@
 // What an act publishes: the shared arms, the three prerequisite states, and the pair
 // published together. A dialog renders these types and never constructs the machine.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /**
  * Where the question an act depends on stands. `not-read` means nobody has asked yet, as

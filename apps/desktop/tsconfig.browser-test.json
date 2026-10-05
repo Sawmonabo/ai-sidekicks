@@ -34,7 +34,7 @@
     "types": ["vitest/globals", "@vitest/browser-playwright"]
   },
   "include": [
-    "tests/helpers/app-harness.ts",
+    "tests/helpers/app/harness.ts",
     "tests/browser/**/*",
     "tests/accessibility/**/*",
     "src/renderer/src/**/*.d.ts"

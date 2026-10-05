@@ -22,8 +22,11 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 
 import { Emitter } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
-import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
+import {
+  RefreshScheduler,
+  type RefreshReason,
+} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import { SUBSCRIBE_FAILED } from "@renderer/lib/reads/read-failure-codes.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";

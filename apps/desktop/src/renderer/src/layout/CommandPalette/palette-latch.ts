@@ -5,7 +5,7 @@
 // stale (a command may be unregistered while its row is on screen), so the dispatch outcome is
 // read and turned into the app's refusal shape. The registry alone decides eligibility.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type {
   CommandInvocationOutcome,
   CommandRegistry,

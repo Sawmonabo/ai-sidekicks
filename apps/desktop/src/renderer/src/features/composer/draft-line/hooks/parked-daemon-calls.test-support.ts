@@ -4,10 +4,10 @@
 // issues one method twice.
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
-import type { ComposerSendCalls } from "../send-dispatch.js";
-import { interventionResponse, sendCallsAnswering } from "../send-router.test-support.js";
+import type { ComposerSendCalls } from "../send/dispatch.js";
+import { interventionResponse, sendCallsAnswering } from "../send/router.test-support.js";
 
 /** Send calls whose replies the case supplies, over the shipped fixture bridge. */
 export class ParkedDaemonCalls {

@@ -21,7 +21,7 @@
 // the branded-identifier casts. The value import of the schemas costs the release bundle nothing:
 // this module is reached only from the fixture bridge, and the fixture composition sits behind
 // the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `run-stream-shapes.ts` holds what all
-// arms share, and `lib/wire-strings.ts` the string reader every wire reader uses.
+// arms share, and `lib/wire/strings.ts` the string reader every wire reader uses.
 
 import { QueueItemSummarySchema } from "@ai-sidekicks/contracts/run/queue";
 import {
@@ -31,7 +31,7 @@ import {
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
   carriedOptionalMembers,
@@ -41,12 +41,15 @@ import {
   unprojectableFor,
 } from "./run-stream-shapes.js";
 import type { RunStreamProjection } from "./run-stream-shapes.js";
-import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "../daemon/session-event-streams.js";
-import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
+import {
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+} from "../daemon/session/event/session-event-streams.js";
+import { runStateForTransitionKind } from "@renderer/store/session-events/run/state-kinds.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,
-} from "../daemon/session-event-stream-kinds.js";
+} from "../daemon/session/event/stream-kinds.js";
 
 /**
  * The optional `RunStateChangeEvent` members this projection carries through, wire-verbatim, so a

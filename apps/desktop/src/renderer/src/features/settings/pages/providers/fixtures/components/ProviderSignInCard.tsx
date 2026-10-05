@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatDuration } from "@renderer/lib/wire-figures.js";
+import { formatDuration } from "@renderer/lib/wire/figures.js";
 import { useOpenSignInPage } from "../hooks/useOpenSignInPage.js";
 import { useSignInTimeLeft } from "../hooks/useSignInTimeLeft.js";
 import type { ProviderSignInFlowState } from "../provider-sign-in-flow.js";

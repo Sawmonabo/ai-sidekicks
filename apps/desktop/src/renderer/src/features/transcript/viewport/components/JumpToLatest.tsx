@@ -1,7 +1,7 @@
 // The "N new" pill: the way back to the tail the reading anchor shows a person.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import type { ViewportSnapshot } from "../viewport-snapshot.js";
 
 /** Props for `JumpToLatest`. */

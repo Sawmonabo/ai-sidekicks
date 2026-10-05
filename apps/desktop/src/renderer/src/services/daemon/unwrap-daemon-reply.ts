@@ -1,4 +1,4 @@
-import { RefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal/refusal.js";
 import type { DaemonReply } from "./daemon-reply.js";
 
 /**

@@ -22,7 +22,10 @@ import {
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { type Clock } from "@renderer/lib/clock.js";
-import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import {
+  RefreshScheduler,
+  type RefreshReason,
+} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
@@ -30,7 +33,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {
   ExecutionModeSelections,
   type RepoMountsReadingPublisher,
-} from "./execution-mode-selection.js";
+} from "./execution-mode/execution-mode-selection.js";
 import { REPO_MOUNTS_NOT_READ, type RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";

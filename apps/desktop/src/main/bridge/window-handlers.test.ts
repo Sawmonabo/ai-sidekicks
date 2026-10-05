@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppearanceRecord } from "@shared/appearance.js";
 import { FULLSCREEN_VALUE_CHANNEL, type FullscreenPush } from "@shared/bridge-channels.js";
-import { createElectronMock } from "@test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
 

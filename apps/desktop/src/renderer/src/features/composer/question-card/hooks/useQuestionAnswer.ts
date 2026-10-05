@@ -7,7 +7,7 @@
 import { useCallback, useState } from "react";
 
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
-import { heldIdAsWireId } from "@renderer/services/daemon/wire-ids.js";
+import { heldIdAsWireId } from "@renderer/services/daemon/wire/ids.js";
 import type {
   QuestionAnswer,
   QuestionResolveRequest,

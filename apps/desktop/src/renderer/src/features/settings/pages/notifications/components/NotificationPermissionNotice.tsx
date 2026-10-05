@@ -3,7 +3,7 @@
 
 import { type ReactNode } from "react";
 
-import type { OsNotificationPermissionReading } from "../os-notification-permission.js";
+import type { OsNotificationPermissionReading } from "../os-notification/permission.js";
 
 /**
  * Says so when the machine denied desktop notifications, and draws nothing otherwise.

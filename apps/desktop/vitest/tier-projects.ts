@@ -3,7 +3,7 @@
 //
 // No tier is configured by a Playwright runner config, and none exists. `e2e` and `endurance` are
 // Vitest projects in a Node environment, because the test file drives the app, which runs in
-// another process launched through `tests/helpers/electron-harness.ts`, the package's single
+// another process launched through `tests/helpers/electron/harness.ts`, the package's single
 // `_electron` launch. Browser mode drives Playwright for the page tiers.
 //
 // They live beside `vitest.config.ts` because the tiers share the fixture define, the
@@ -11,8 +11,8 @@
 
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
-import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../tests/helpers/launch-budgets.js";
-import { tierTimeoutFor } from "../tests/helpers/launch-deadline.js";
+import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../tests/helpers/launch/budgets.js";
+import { tierTimeoutFor } from "../tests/helpers/launch/launch-deadline.js";
 import {
   browserModeOptions,
   BROWSER_MODE_DEDUPE,

@@ -10,7 +10,7 @@
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;

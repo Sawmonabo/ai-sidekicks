@@ -1,8 +1,8 @@
 // Reading and building helpers shared by the window suites. Each suite owns its
 // `createElectronMock` instance and `vi.mock("electron", …)`, because the instance must be a
-// file-local `const` for the hoisted factory to close over (see `./electron-mock.ts`). Only the
-// reading is shared: the casts back to the mock, the listener accessors, a window's frame and the
-// URL literals.
+// file-local `const` for the hoisted factory to close over (see
+// `./electron/mock/electron-mock.ts`). Only the reading is shared: the casts back to the mock, the
+// listener accessors, a window's frame and the URL literals.
 
 import { expect, vi, type Mock } from "vitest";
 
@@ -14,14 +14,14 @@ import {
   createMockWebContents,
   type MockBaseWindow,
   type MockWebContents,
-} from "./electron-mock-window.js";
+} from "./electron/mock/window.js";
 
 /** The dev-server origin `ELECTRON_RENDERER_URL` carries under `electron-vite dev`. */
 export const DEV_SERVER_URL = "http://localhost:5173";
 
 /**
  * The document URL a window loads in a packaged build. Spelled out, not imported from
- * `src/main/services/renderer-scheme.ts`: an imported constant would agree with a typo in it.
+ * `src/main/services/renderer/scheme.ts`: an imported constant would agree with a typo in it.
  */
 export const INDEX_URL = "sidekicks-renderer://app/index.html";
 

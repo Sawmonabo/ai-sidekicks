@@ -9,18 +9,18 @@
 
 import { useCallback } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SubjectScopedPublish } from "@renderer/lib/subject-scoped/subject-scoped-holder.js";
-import type { SendControllerStatus } from "../send-controller-contract.js";
+import type { SendControllerStatus } from "../send/controller-contract.js";
 import {
   NO_COMPOSER_REFUSALS,
   renderableRefusal,
   withSettledRefusal,
   type ComposerRefusalsByOperation,
   type ComposerSettlementIdentity,
-} from "../send-settlement.js";
+} from "../send/settlement.js";
 import type { SettlementIdentities } from "./useSettlementIdentities.js";
 
 /** What the composer reads about the acts at one address, and what may write it. */

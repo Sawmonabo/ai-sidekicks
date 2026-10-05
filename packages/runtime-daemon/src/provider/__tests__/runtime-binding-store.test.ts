@@ -14,10 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
-import {
-  ProviderOutputValidationError,
-  RESUME_HANDLE_MAX_LEN,
-} from "../provider-output-validation.js";
+import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {
   composeResumeSessionParams,
   RuntimeBindingNotResumableError,
@@ -30,7 +27,7 @@ import {
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
 } from "../spawned-provider-version.js";
-import type { CallbackToolResult, DriverCliVersionReport } from "../provider-driver.js";
+import type { CallbackToolResult, DriverCliVersionReport } from "../driver/provider-driver.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";

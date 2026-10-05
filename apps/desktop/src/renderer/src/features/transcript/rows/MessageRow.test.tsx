@@ -1,7 +1,7 @@
 // Which body a message row renders, what its Copy takes, where a reply's foot stands, the inline
 // cards it hosts, and what its receipt leaves out.
 
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ import {
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ClipboardContent } from "@shared/preload-api.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";

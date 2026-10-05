@@ -4,7 +4,7 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import type { DaemonSessionRecord, StoredEvent } from "./types.js";
-import { rebuildSession as rebuildSessionFromEvents } from "./session-projector.js";
+import { rebuildSession as rebuildSessionFromEvents } from "./projector.js";
 
 // A row as better-sqlite3 returns it from the events query. `safeIntegers` applies to every
 // integer column of a statement, so `sequence` and `monotonic_ns` both arrive as bigint.

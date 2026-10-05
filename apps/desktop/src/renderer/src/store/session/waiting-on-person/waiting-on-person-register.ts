@@ -13,7 +13,7 @@
 // lifecycles have no base-state carrier, so a request raised below the window's head is
 // unreadable from here; {@link WaitingOnPersonRecords.isWindowHeadUnread} reports that.
 
-import { RUN_STATE_KINDS } from "@renderer/store/session-events/run-state-kinds.js";
+import { RUN_STATE_KINDS } from "@renderer/store/session-events/run/state-kinds.js";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/entities.js";
 import {
   ATTENTION_RUN_STATE_KINDS,

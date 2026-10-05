@@ -3,7 +3,7 @@
 // Everything here gets a probe reading out of a real Electron process: isolating a profile,
 // arranging the activation gates, spawning through the one owner, scanning the tagged line, and
 // releasing what the spawn held. Whether a reading is acceptable is the suite's decision. It
-// shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe-harness.ts`; the
+// shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe/harness.ts`; the
 // two probes read different things and carry different diagnostics.
 //
 // The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
@@ -28,11 +28,11 @@ import process from "node:process";
 import type { GcProbeReading } from "@main/probes/gc-probe.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "@main/windows/window-reveal.js";
 import { GC_PROBE_TAG } from "@shared/probe-tags.js";
-import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
-import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture-bundle.js";
+import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron/child/cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron/child/child.js";
+import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture/bundle.js";
 import { needsXvfb } from "./helpers/display-readiness.js";
-import { createLaunchProfile } from "./helpers/launch-profile.js";
+import { createLaunchProfile } from "./helpers/launch/launch-profile.js";
 import {
   ISOLATED_SERVICE_READY_TIMEOUT_MS,
   ISOLATED_SERVICE_START_CEILING_MS,
@@ -40,7 +40,7 @@ import {
 } from "./helpers/isolated-service.js";
 import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
-import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe-harness.js";
+import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe/harness.js";
 import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
 
 /**

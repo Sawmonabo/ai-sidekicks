@@ -19,7 +19,7 @@ import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provi
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
 import {

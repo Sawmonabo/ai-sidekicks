@@ -5,7 +5,7 @@ import {
   IDENTIFIER_MAX_LENGTH,
   isSingleNameIdentifierShaped,
 } from "@renderer/lib/identifier-grammar.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type EntityRef } from "@renderer/lib/entity-kinds.js";
 import {
   isEntityOptionalPaneKind,
@@ -26,7 +26,7 @@ const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
  * Admit one address that arrived untyped, or refuse it by name.
  *
  * Used where the compiler has no claim: a layout snapshot read back off disk and a route a
- * person can type. It returns a `Refusal` rather than throwing, per `lib/refusal.ts`, so a
+ * person can type. It returns a `Refusal` rather than throwing, per `lib/refusal/refusal.ts`, so a
  * restored layout drops one bad row and keeps the rest; a caller that needs an exception wraps
  * it in `RefusalError`.
  */

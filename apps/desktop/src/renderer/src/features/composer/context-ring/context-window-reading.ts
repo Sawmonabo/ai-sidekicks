@@ -7,7 +7,7 @@ import {
   CONTEXT_WINDOW_SOURCES,
   type ContextWindowSource,
 } from "@ai-sidekicks/contracts/context-window";
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** Event type of a context-window update row. */

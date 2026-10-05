@@ -7,7 +7,7 @@ import tseslint from "typescript-eslint";
 /**
  * The daemon's `randomUUID` property ban, hoisted so a second block that configures
  * `no-restricted-properties` for a daemon file can restate it. Flat config replaces a rule's
- * options at the last matching config object, so the `worktree-projector.ts` clock block below
+ * options at the last matching config object, so the `git/worktree/projector.ts` clock block below
  * would otherwise drop the v4 ban for that file.
  */
 const DAEMON_RANDOM_UUID_PROPERTY = {
@@ -470,7 +470,7 @@ const repositoryConfig = defineConfig(
   },
   // The descriptor registry is the one shared module that imports each driver's descriptor.
   {
-    files: ["packages/runtime-daemon/src/provider/provider-driver-descriptors.ts"],
+    files: ["packages/runtime-daemon/src/provider/driver/provider-driver-descriptors.ts"],
     rules: {
       "no-restricted-imports": ["error", { paths: DAEMON_RANDOM_UUID_IMPORT_PATHS }],
     },
@@ -484,7 +484,7 @@ const repositoryConfig = defineConfig(
   {
     files: [
       // Scratch git-index filename, unlinked in the same call.
-      "packages/runtime-daemon/src/git/turn-snapshot-service.ts",
+      "packages/runtime-daemon/src/git/turn-snapshot/turn-snapshot-service.ts",
       // In-memory subscription id, alive for one transport connection.
       "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
       // In-flight correlation token for one outbound frame.
@@ -514,8 +514,8 @@ const repositoryConfig = defineConfig(
   // copy is worse. A lazy import into a pure fold is a review finding.
   {
     files: [
-      "packages/runtime-daemon/src/workspace/workspace-projector.ts",
-      "packages/runtime-daemon/src/git/worktree-projector.ts",
+      "packages/runtime-daemon/src/workspace/projector.ts",
+      "packages/runtime-daemon/src/git/worktree/projector.ts",
     ],
     rules: {
       "no-restricted-imports": [
@@ -536,14 +536,14 @@ const repositoryConfig = defineConfig(
     },
   },
   // The brief projection floor makes the same purity claim as the projectors above.
-  // `hand-over-brief.ts` folds an already-read canonical projection into the brief turn and
-  // persists nothing; delivering the brief is `brief-delivery.ts`'s job. The allow-list enumerates
+  // `hand-over/brief/brief.ts` folds an already-read canonical projection into the brief turn and
+  // persists nothing; delivering the brief is `brief/delivery.ts`'s job. The allow-list enumerates
   // specifiers rather than admitting a shape: a relative-path shape would admit `../../db/`, which
   // reaches the database layer and is spelled like the sibling this module legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
-    files: ["packages/runtime-daemon/src/provider/hand-over/hand-over-brief.ts"],
+    files: ["packages/runtime-daemon/src/provider/hand-over/brief/brief.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -552,7 +552,7 @@ const repositoryConfig = defineConfig(
             {
               regex:
                 "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|" +
-                "\\./transform-pipeline\\.js|\\.\\./provider-driver\\.js)$).*$",
+                "\\.\\./transform-pipeline\\.js|\\.\\./\\.\\./driver/provider-driver\\.js)$).*$",
               message:
                 "The brief projection floor is pure: it folds an already-read " +
                 "canonical projection into a turn and persists nothing, so its " +
@@ -566,8 +566,8 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // `worktree-projector.ts` reports the expiry fields its caller read and derives no expiry of its
-  // own, so clock math must be unavailable to it, not merely unwritten. `no-restricted-globals`
+  // `git/worktree/projector.ts` reports the expiry fields its caller read and derives no expiry of
+  // its own, so clock math must be unavailable to it, not merely unwritten. `no-restricted-globals`
   // resolves the identifier, so a locally shadowed `Date` is not reported and a real global read
   // is, which a text scan cannot tell apart.
   //
@@ -576,21 +576,21 @@ const repositoryConfig = defineConfig(
   // daemon-wide `randomUUID` entry because this block sits inside that block's scope and flat
   // config would otherwise drop it here.
   {
-    files: ["packages/runtime-daemon/src/git/worktree-projector.ts"],
+    files: ["packages/runtime-daemon/src/git/worktree/projector.ts"],
     rules: {
       "no-restricted-globals": [
         "error",
         {
           name: "Date",
           message:
-            "worktree-projector.ts reads no clock — it reports the " +
+            "git/worktree/projector.ts reads no clock — it reports the " +
             "expiry fields its caller handed it and derives no expiry of " +
             "its own. Compute the instant in the caller and pass it in.",
         },
         {
           name: "performance",
           message:
-            "worktree-projector.ts reads no clock — it reports the " +
+            "git/worktree/projector.ts reads no clock — it reports the " +
             "expiry fields its caller handed it and derives no expiry of " +
             "its own. Compute the instant in the caller and pass it in.",
         },
@@ -602,7 +602,7 @@ const repositoryConfig = defineConfig(
           object: "globalThis",
           property: "Date",
           message:
-            "worktree-projector.ts reads no clock — reaching `Date` " +
+            "git/worktree/projector.ts reads no clock — reaching `Date` " +
             "through the global object is the same read the identifier ban " +
             "refuses. Compute the instant in the caller and pass it in.",
         },
@@ -610,7 +610,7 @@ const repositoryConfig = defineConfig(
           object: "globalThis",
           property: "performance",
           message:
-            "worktree-projector.ts reads no clock — reaching `performance` " +
+            "git/worktree/projector.ts reads no clock — reaching `performance` " +
             "through the global object is the same read the identifier " +
             "ban refuses. Compute the instant in the caller and pass it in.",
         },

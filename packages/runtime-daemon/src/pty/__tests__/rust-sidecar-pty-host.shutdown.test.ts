@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
+import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
 import {
@@ -14,7 +14,7 @@ import {
   parseFramesFromStdin,
   spawnAnsweredSession,
   spawnReturning,
-} from "./pty-host.test-support.js";
+} from "../host/__tests__/pty-host.test-support.js";
 
 // Distinctive, so a taskkill assertion names the sidecar's pid.
 const SIDECAR_PID = 67890;

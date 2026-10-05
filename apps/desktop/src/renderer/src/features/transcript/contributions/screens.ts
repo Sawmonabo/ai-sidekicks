@@ -4,7 +4,7 @@
 import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { type ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";

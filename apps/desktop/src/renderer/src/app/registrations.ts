@@ -19,7 +19,7 @@ import {
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
-} from "@renderer/store/session-events/run-lifecycle-projector.js";
+} from "@renderer/store/session-events/run/lifecycle-projector.js";
 import { registerAgentsPane } from "@renderer/features/agents/index.js";
 import {
   registerComposerCommands,

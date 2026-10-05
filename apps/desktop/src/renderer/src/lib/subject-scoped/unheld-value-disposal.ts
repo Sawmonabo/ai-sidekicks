@@ -19,9 +19,9 @@
 // A holder built with no disposal drops silently. The value the last commit saw is not handled
 // here: a live effect still holds it, and it is retired when a later render commits.
 
-import { wireRejectionToError } from "../wire-errors.js";
+import { wireRejectionToError } from "../wire/errors.js";
 
-import { reportTripwire } from "../tripwires.js";
+import { reportTripwire } from "../tripwires/tripwires.js";
 
 /** The site name a tripwire report from this module carries. */
 const SITE = "lib/subject-scoped/unheld-value-disposal.ts";

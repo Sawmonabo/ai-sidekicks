@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
+import { emulateSystemScheme } from "../helpers/app/harness.js";
 import { mountPreviewPane } from "./feature-mounts/preview.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 

@@ -21,7 +21,7 @@
 import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import {
   contributedKeybindings,
   subscribeToCommandContributions,

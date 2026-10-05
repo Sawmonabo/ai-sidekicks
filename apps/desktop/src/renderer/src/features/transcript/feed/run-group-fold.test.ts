@@ -5,7 +5,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/run-group-body.js";

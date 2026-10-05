@@ -7,13 +7,13 @@ import { Buffer } from "node:buffer";
 import { describe, expect, it, type Mock, vi } from "vitest";
 
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
-import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
+import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
 import {
   CRASH_BUDGET_LIMIT,
   CRASH_BUDGET_WINDOW_MS,
   type SidecarSpawnFn,
-} from "../sidecar-child-supervisor.js";
-import { MAX_FRAME_BODY_BYTES } from "../sidecar-frame-codec.js";
+} from "../sidecar/sidecar-child-supervisor.js";
+import { MAX_FRAME_BODY_BYTES } from "../sidecar/frame-codec.js";
 import {
   type FakeSidecarChild,
   flushMicrotasks,
@@ -22,7 +22,7 @@ import {
   parseFramesFromStdin,
   SHELL_SPAWN_REQUEST,
   spawnAnsweredSession,
-} from "./pty-host.test-support.js";
+} from "../host/__tests__/pty-host.test-support.js";
 
 interface HostUnderTest {
   readonly host: RustSidecarPtyHost;

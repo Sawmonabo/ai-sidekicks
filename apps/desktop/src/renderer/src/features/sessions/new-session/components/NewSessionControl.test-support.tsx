@@ -3,7 +3,7 @@
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { withDaemonCall } from "@test/helpers/fixture/bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
 import { NewSessionControl } from "./NewSessionControl.js";

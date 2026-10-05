@@ -3,7 +3,7 @@
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import type { MainProcessState } from "@shared/daemon-status-topic.js";
+import type { MainProcessState } from "@shared/daemon/daemon-status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "@renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 

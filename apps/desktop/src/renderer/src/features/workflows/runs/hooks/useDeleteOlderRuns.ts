@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

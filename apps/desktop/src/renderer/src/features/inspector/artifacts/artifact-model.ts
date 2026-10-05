@@ -15,7 +15,7 @@ import type {
   ArtifactType as ManifestType,
 } from "@ai-sidekicks/contracts/artifacts/manifest";
 
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
 
 /** One artifact state: an alias of the wire's union, so a dropped member fails the compile. */
 export type ArtifactState = ManifestState;

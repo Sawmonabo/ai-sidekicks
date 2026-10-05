@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RefusalError, type Refusal } from "@renderer/lib/refusal.js";
+import { RefusalError, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { AppearanceClient } from "@renderer/services/window/appearance-client.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";

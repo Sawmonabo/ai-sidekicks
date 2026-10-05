@@ -14,7 +14,7 @@
 // Quota exhaustion happens at write time and surfaces as a typed refusal on the write.
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
+import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "./caps.js";
 import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,

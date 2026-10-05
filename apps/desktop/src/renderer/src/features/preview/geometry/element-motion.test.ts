@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { installFakeResizeObserver } from "@test/helpers/element-resize.js";
+import { installFakeResizeObserver } from "@test/helpers/element/resize.js";
 import { observeElementPosition } from "./element-motion.js";
 import {
   attachedPair,

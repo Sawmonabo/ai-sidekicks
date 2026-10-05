@@ -6,7 +6,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminalRendererPool } from "../renderer-pool.js";
-import { XtermTerminalAdapter } from "../xterm-adapter.js";
+import { XtermTerminalAdapter } from "../xterm/adapter.js";
 import { XtermMountPoint } from "./XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,

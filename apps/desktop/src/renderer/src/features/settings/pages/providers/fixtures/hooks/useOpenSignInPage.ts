@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
 
 /**

@@ -7,7 +7,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { WorkflowRunId, WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatDayClock } from "@renderer/lib/wire/figures.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./run-graph-model.js";
 
 const RUN_ID = "019b7a10-0280-75e5-8510-ada11a5a4999" as WorkflowRunId;

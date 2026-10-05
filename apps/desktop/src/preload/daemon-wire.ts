@@ -17,7 +17,7 @@ import type {
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
   DaemonSubscriptionRequest,
-} from "@shared/daemon-forwarding.js";
+} from "@shared/daemon/forwarding.js";
 import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
 
 /** The part of Electron's `ipcRenderer` the daemon's wire uses. */

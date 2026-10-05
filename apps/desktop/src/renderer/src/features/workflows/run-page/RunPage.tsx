@@ -18,7 +18,7 @@ import type { WorkflowRunComparison } from "../workflow-run-comparison.js";
 import type { WorkflowReadSources } from "../workflows-reading.js";
 import { ChainQuestion } from "./components/ChainQuestion.js";
 import { RunHeader } from "./components/RunHeader.js";
-import { StepPanel } from "./components/StepPanel.js";
+import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
 import { RunGraph } from "./run-graph/RunGraph.js";
 import { ActionButton } from "../components/ActionButton.js";

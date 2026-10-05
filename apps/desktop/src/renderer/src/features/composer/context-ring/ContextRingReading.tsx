@@ -2,7 +2,7 @@
 // table lives here because where a figure came from is part of what it means.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ContextWindowReading } from "./context-window-reading.js";
 

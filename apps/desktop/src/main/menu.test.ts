@@ -6,7 +6,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "@shared/appearance.js";
-import { createElectronMock, type MenuTemplateItem } from "@test/helpers/electron-mock.js";
+import {
+  createElectronMock,
+  type MenuTemplateItem,
+} from "@test/helpers/electron/mock/electron-mock.js";
 
 import type { MainDiagnosticEntry } from "./services/diagnostic-log.js";
 

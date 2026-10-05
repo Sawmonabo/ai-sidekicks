@@ -7,7 +7,7 @@
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
-import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire-errors.js";
+import { readWireErrorEnvelopeWithCode } from "@renderer/lib/wire/errors.js";
 
 /**
  * What a read said about where the stream picks up next. A union rather than a cursor plus a

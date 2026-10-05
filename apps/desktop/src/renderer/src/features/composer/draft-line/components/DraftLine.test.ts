@@ -6,9 +6,9 @@
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send-router.test-support.js";
+import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send/router.test-support.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_COMMAND_PREFILL,

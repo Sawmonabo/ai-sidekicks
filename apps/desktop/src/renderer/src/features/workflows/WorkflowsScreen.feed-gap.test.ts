@@ -12,12 +12,12 @@ import type {
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
-import { WORKFLOW_NOTICE_STREAM } from "@renderer/services/daemon/session-event-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
 import { mountWorkflowsScreen } from "./WorkflowsScreen.test-support.js";
 
 afterEach(cleanup);

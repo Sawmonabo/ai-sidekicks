@@ -24,7 +24,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
-import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
+import { payloadNamesSession } from "@renderer/lib/wire/session-attribution.js";
 import type {
   ProjectedSessionEvent,
   EntityMutation,

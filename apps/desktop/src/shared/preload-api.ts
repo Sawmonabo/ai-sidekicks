@@ -37,12 +37,12 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import type { AppFacts } from "./app-facts.js";
 import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";
-import type { DaemonSubscriptionEnd } from "./daemon-forwarding.js";
+import type { DaemonSubscriptionEnd } from "./daemon/forwarding.js";
 import type {
   DaemonStatusRequest,
   DaemonStatusTopic,
   MainProcessState,
-} from "./daemon-status-topic.js";
+} from "./daemon/daemon-status-topic.js";
 import type { WindowDefaultSizes, WindowSize } from "./window/window-size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */

@@ -13,7 +13,7 @@ import {
   type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
 import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock, type BridgeOnClock } from "@test/helpers/fixture/bridge.js";
 import {
   INGEST_SESSION_ID,
   ScriptedIngestPort,

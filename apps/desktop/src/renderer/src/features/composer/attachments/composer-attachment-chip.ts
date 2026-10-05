@@ -11,7 +11,7 @@ import {
   attachmentNameReading,
 } from "./attachment-provenance.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 import { type ChipTone } from "@renderer/components/Chip/Chip.js";
 
 /** What one chip renders, and which acts it offers. */

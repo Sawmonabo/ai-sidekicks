@@ -7,12 +7,15 @@
 // would each hold half the stream. It reads no wire; the composition root supplies `read`, which
 // keeps `store/` below `services/` in the import direction.
 
-import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
-import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import {
+  OpenSessionEntry,
+  type OpenSessionEntryOptions,
+} from "./open-session/open-session-entry.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import type { SessionDegradedCause, SessionStore } from "./session-store.js";
 
 /** The origin every refusal this module raises names. */

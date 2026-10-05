@@ -10,8 +10,8 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import {
   readWorkspaceControlAvailability,
@@ -19,7 +19,7 @@ import {
 } from "../mount-health.js";
 import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
-import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
+import { REUSE_UNANSWERED_COPY } from "./prepare/form.js";
 
 const UNHELD_BRANCH = "feat/fresh-root";
 

@@ -3,7 +3,7 @@
 // attention of its own. When the projection is read is `hooks/useAttentionProjection.ts`.
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 

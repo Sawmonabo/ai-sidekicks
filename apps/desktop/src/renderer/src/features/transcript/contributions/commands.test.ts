@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";

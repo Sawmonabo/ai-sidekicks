@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PushDrivenRead } from "./push-driven-read.js";
 

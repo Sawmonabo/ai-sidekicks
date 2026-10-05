@@ -10,7 +10,7 @@
 // that owns a subscription, registry or connection takes `useSubjectScopedResource.ts`,
 // because a discarded pass still ran the seed. Not single-flight
 // (`lib/reads/generation-latch.ts`), not a cache, not a scheduler
-// (`lib/reads/refresh-scheduler.ts`).
+// (`lib/reads/refresh/refresh-scheduler.ts`).
 
 import {
   useCallback,

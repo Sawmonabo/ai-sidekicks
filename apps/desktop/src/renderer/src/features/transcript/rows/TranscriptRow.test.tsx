@@ -5,7 +5,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "@fixtures/scenarios/empty-session.js";
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";

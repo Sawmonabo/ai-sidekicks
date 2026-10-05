@@ -12,7 +12,7 @@ import { Chip } from "@renderer/components/Chip/Chip.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire-figures.js";
+import { formatClockTime } from "@renderer/lib/wire/figures.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import {
   readBindControlAvailability,
@@ -23,7 +23,7 @@ import { ReattachControl } from "../attach/ReattachControl.js";
 import { BindWorkspaceDialog } from "../bind/BindWorkspaceDialog.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";

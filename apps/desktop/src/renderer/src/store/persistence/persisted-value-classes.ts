@@ -21,7 +21,7 @@
 // The class names are one `as const` array, the union derives from it, and the validator table
 // is keyed by the union, so the two halves cannot drift.
 
-import { isWireRecord } from "@renderer/lib/wire-record.js";
+import { isWireRecord } from "@renderer/lib/wire/record.js";
 import {
   IDENTIFIER_MAX_LENGTH,
   isIdentifierShaped,
@@ -72,7 +72,7 @@ function notIdentifier(where: string, value: string): PersistenceRefusal {
 }
 
 /**
- * The record rule from `lib/wire-record.ts`, re-narrowed over the `PersistableValue` tree.
+ * The record rule from `lib/wire/record.ts`, re-narrowed over the `PersistableValue` tree.
  * Both callers hand each member back to a `PersistableValue` walk, which
  * `Readonly<Record<string, unknown>>` cannot feed.
  */

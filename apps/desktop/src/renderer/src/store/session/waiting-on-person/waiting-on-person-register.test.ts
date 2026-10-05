@@ -7,7 +7,7 @@ import {
   WaitingOnPersonRegister,
   type WaitingOnPersonRecords,
 } from "./waiting-on-person-register.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import { eventOfKind } from "@test/helpers/session/events.js";
 import { SessionStore } from "../session-store.js";
 import type { ProjectedSessionEvent } from "../entities/entities.js";
 

@@ -6,11 +6,11 @@
 import type { Clock } from "../clock.js";
 import { diagnosticStampAt, windowDiagnosticCapture } from "./diagnostic-capture.js";
 import type { DiagnosticCapture } from "./diagnostic-capture.js";
-import { windowTripwires } from "../tripwires.js";
-import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
+import { windowTripwires } from "../tripwires/tripwires.js";
+import type { TripwireRegistry, TripwireReport } from "../tripwires/tripwires.js";
 
 /** The subsystem name every routed record carries. */
-const TRIPWIRE_SOURCE = "lib/tripwires";
+const TRIPWIRE_SOURCE = "lib/tripwires/tripwires";
 
 /**
  * Route one registry's reports into one capture until the returned function is called.

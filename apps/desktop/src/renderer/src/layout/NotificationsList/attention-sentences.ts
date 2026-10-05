@@ -2,7 +2,7 @@
 // person, sessions that never answered, members the boundary refused) so each fact is worded once
 // and appears exactly when it is true.
 
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import { partialReadNotices } from "@renderer/lib/partial-read.js";
 import {
   answeredReadingStates,

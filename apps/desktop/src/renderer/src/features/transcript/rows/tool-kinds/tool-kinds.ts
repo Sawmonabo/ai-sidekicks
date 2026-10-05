@@ -3,7 +3,7 @@
 // inferred from `toolName`. The reader is fail-closed both ways: an absent declaration reads as
 // no tool kind, and an unrecognized one reads as unrecognized rather than as absent.
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 
 /** The six tool treatments. Closed; the union derives from the tuple. */
 export const TOOL_KINDS = [

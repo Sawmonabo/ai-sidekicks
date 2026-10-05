@@ -11,7 +11,7 @@
 // A leap second (`23:59:60Z`) reads as malformed because the platform's epoch cannot represent it;
 // it fails closed, as an em dash and a row sorted last, never a wrong instant.
 
-import { lossyStringify } from "./wire-errors.js";
+import { lossyStringify } from "./wire/errors.js";
 
 /**
  * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case),

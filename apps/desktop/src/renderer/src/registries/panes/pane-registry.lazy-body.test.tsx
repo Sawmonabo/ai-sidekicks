@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
 import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";

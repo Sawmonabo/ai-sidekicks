@@ -9,7 +9,7 @@ import {
   type WorkflowItem,
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { readArtifactPayload } from "./artifact-payload-read.js";

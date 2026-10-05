@@ -46,8 +46,8 @@ export function processExists(processId: number): boolean {
  *
  * A group lives as long as one member does, so on a detached spawn it is the tree's handle even
  * after the launcher shim is gone. `EPERM` counts as still there. The negative pid is safe only
- * because the detached spawn in `electron-child.ts` makes the caller's pid lead its own group;
- * for any other pid this reports on someone else's group. Never asked of `0`, which on POSIX
+ * because the detached spawn in `electron/child/child.ts` makes the caller's pid lead its own
+ * group; for any other pid this reports on someone else's group. Never asked of `0`, which on POSIX
  * addresses the caller's own group and would report this runner as the live tree.
  */
 export function processGroupExists(processId: number): boolean {

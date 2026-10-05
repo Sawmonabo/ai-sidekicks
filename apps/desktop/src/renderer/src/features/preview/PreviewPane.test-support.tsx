@@ -4,12 +4,12 @@
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { RecordingPageHost } from "./geometry/geometry-publisher.test-support.js";

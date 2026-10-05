@@ -6,11 +6,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
-import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
+import { withDaemonSubscribe } from "@test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
-import { windowTripwires } from "@renderer/lib/tripwires.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { SessionEventSubscriber } from "./session-event-subscriber.js";

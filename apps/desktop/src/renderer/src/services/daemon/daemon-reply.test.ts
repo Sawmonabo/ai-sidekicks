@@ -3,18 +3,18 @@
 // owner has gone reads nothing from its reply. Every case drives the real `callDaemon` over the
 // real registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the
 // shipped one deleted. The helpers are `daemon-reply.test-support.ts` beside this file and the
-// shared `tests/helpers/fixture-bridge.ts`.
+// shared `tests/helpers/fixture/bridge.ts`.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { vi } from "vitest";
 
 import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { isRefusal } from "@renderer/lib/refusal.js";
+import { isRefusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
-import { DAEMON_METHOD_BINDINGS } from "@shared/daemon-method-bindings.js";
+import { DAEMON_METHOD_BINDINGS } from "@shared/daemon/daemon-method-bindings.js";
 import { refusalOf } from "./daemon-reply.test-support.js";
-import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
+import { bridgeAnswering, createFixture } from "@test/helpers/fixture/bridge.js";
 
 /** A device id the response schema accepts. */
 const DEVICE_ID = "device-workstation";

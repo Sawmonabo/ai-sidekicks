@@ -5,7 +5,7 @@ import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
 

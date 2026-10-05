@@ -13,7 +13,7 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 // The kind glyph is drawn at the pane header's scale, taken from its one home.
 import { GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
-import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
+import type { SessionDegradedCause } from "@renderer/store/session/degradation.js";
 import type { EntityFacet } from "../entity-facets.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */

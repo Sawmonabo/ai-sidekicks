@@ -8,12 +8,12 @@
 // When the bound is reached the process tree is SIGKILLed and the outcome is returned, not thrown:
 // cleanup is never the first failure, so the caller attaches the verdict to the error it already
 // carries. A profile that could not be removed travels on the outcome too;
-// `cleanup-disposition.ts` decides what a caller is told.
+// `cleanup/disposition.ts` decides what a caller is told.
 
 import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "./managed-electron-child.js";
-import { type CleanupOutcome, type ClosableApplication } from "./cleanup-contract.js";
-import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
-import { type LaunchProfile, removeLaunchProfile } from "./launch-profile.js";
+import { type CleanupOutcome, type ClosableApplication } from "./cleanup/contract.js";
+import { CLEANUP_BUDGET_MS } from "./launch/budgets.js";
+import { type LaunchProfile, removeLaunchProfile } from "./launch/launch-profile.js";
 import { processHasTerminated } from "./process-tree/liveness.js";
 import { terminateProcessTree } from "./process-tree/termination.js";
 

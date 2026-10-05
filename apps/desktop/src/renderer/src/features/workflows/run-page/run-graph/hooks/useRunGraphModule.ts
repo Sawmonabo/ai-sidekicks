@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire-rejection.js";
+import { normalizeWireRejection, type WireRefusal } from "@renderer/lib/wire/rejection.js";
 import type { MemoizedLoad } from "@renderer/lib/memoized-load.js";
 import type { RunGraphModule } from "../run-graph-loader.js";
 

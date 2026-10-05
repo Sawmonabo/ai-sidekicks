@@ -7,7 +7,7 @@
 // or a route change cannot leave a gone one adopted. One target serves every window, so each
 // adopter names the document it is drawn in and a press reaches only its own window's.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 

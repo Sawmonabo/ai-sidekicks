@@ -4,7 +4,7 @@
 
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
 import type { PageHost } from "./page-host.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /** A page host that records what it was handed, and can be told to reject. */
 export class RecordingPageHost implements PageHost {

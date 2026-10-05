@@ -5,7 +5,7 @@
 // work nothing performed: it clears on `applied` only, `refused` renders beside the input,
 // `not-run` leaves the line as typed, and `send-as-typed` sends the line to the provider.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /**
  * The line an executor is handed. The name is what a registry is keyed by; the text is what

@@ -6,8 +6,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 
 import { readBindControlAvailability } from "../mount-health.js";

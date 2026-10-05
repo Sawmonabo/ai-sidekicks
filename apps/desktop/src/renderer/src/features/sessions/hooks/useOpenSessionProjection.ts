@@ -10,7 +10,7 @@
 // A subscription is taken for exactly the sessions the registry reports open and dropped when
 // one closes, and the whole fan-out is released when the last React subscriber goes, so the
 // projection is safe to hold for the life of a window. It also folds the degradation cause
-// over the stores it already subscribes to, by `store/session-degradation.ts`'s rule (the
+// over the stores it already subscribes to, by `store/session/degradation.ts`'s rule (the
 // worst standing cause wins). It projects and does not merge: `session-directory-rows.ts`
 // merges with the daemon's directory, and an empty array here claims nothing about the daemon.
 
@@ -19,7 +19,7 @@ import { useRef, useSyncExternalStore } from "react";
 import {
   worstDegradedCause,
   type SessionDegradedCause,
-} from "@renderer/store/session-degradation.js";
+} from "@renderer/store/session/degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { SessionListRow } from "../rows/session-rows.js";

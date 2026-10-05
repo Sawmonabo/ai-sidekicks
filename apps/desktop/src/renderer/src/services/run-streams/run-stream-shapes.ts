@@ -9,7 +9,7 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 import type { ZodType } from "zod";
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /** One registered payload a narrowed run stream delivers. */
@@ -17,8 +17,8 @@ export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | Queue
 
 /**
  * What one beat projects to on one narrowed stream. An outcome is returned rather than thrown,
- * per `lib/refusal.ts`; the bridge turns `unprojectable` into the named rejection, since the
- * refusal vocabulary belongs to the bridge boundary and the projection rule to this module.
+ * per `lib/refusal/refusal.ts`; the bridge turns `unprojectable` into the named rejection, since
+ * the refusal vocabulary belongs to the bridge boundary and the projection rule to this module.
  */
 export type RunStreamProjection =
   | { readonly status: "projected"; readonly delivery: RunStreamDelivery }

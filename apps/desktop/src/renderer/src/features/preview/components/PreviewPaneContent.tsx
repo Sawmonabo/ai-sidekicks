@@ -17,10 +17,10 @@ import {
   FOLLOWING_ADDRESS_FIELD,
   isFileAddress,
 } from "../address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js";
+import { describeChordEvent, isCloseTabChord } from "../handback/chord/claim.js";
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
-import { PageTabStrip } from "./PageTabStrip.js";
+import { PageTabStrip } from "./PageTab/PageTabStrip.js";
 import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";

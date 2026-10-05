@@ -20,7 +20,7 @@ import type {
   CanonicalTranscriptRole,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../provider-driver.js";
+} from "../driver/provider-driver.js";
 
 /**
  * The slice of the session store the fold reads: the signature of `SessionService.readEvents`.

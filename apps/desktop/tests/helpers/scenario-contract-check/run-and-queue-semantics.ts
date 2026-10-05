@@ -5,7 +5,7 @@
 // - The queue payload's required `state`: the `queue_item.*` kinds are census-only in the strict
 //   layer.
 // - The payload of each run kind that reaches a subscriber only through `session.subscribe`,
-//   keyed by the census's `run.` kinds less those `session-event-stream-kinds.ts` narrows, so a
+//   keyed by the census's `run.` kinds less those `session/event/stream-kinds.ts` narrows, so a
 //   newly excluded kind is a compile error here.
 // - The projection `run-stream-projection.fixture.ts` delivers to a `run.subscribeState`
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
@@ -32,12 +32,12 @@ import type { ZodType } from "zod";
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { projectRunStreamDelivery } from "@renderer/services/run-streams/run-stream-projection.fixture.js";
 import type { ScenarioBeat } from "@fixtures/scenario.js";
-import { RUN_STATE_EVENT_STREAM } from "@renderer/services/daemon/session-event-streams.js";
+import { RUN_STATE_EVENT_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,
   type RunStateStreamKind,
-} from "@renderer/services/daemon/session-event-stream-kinds.js";
+} from "@renderer/services/daemon/session/event/stream-kinds.js";
 
 /**
  * What one beat gets wrong about the run or queue rule its kind is under, or `undefined`.
@@ -91,7 +91,7 @@ const runIdentityShape = {
  * The forward rows are the only place those shapes exist, and `RunStateChangeEventSchema` is the
  * `run.subscribeState` wire projection rather than the durable payload. Not `.strict()`: what is
  * fixed for these kinds is which members are required, and refusing an invented member is
- * `beat-shape.ts`'s strict-layer leg, which reaches only kinds with a registered variant. The
+ * `beat/shape.ts`'s strict-layer leg, which reaches only kinds with a registered variant. The
  * creation row, the step and token limits and the recovery answer are registered, so their rows
  * are the contract's own schemas.
  */
@@ -179,7 +179,7 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
  * The queue payload is `{sessionId, queueItemId, state}` and no `queue_item.*` kind has a
  * registered variant, so `state` is required by the wire and enforced by nothing else. Without it
  * the projection would take the row's state from the kind alone. The kind-to-state mapping is
- * `session-event-stream-kinds.ts`'s, read here so a second copy cannot let a scenario pass this
+ * `session/event/stream-kinds.ts`'s, read here so a second copy cannot let a scenario pass this
  * leg and fail the projection. A kind it does not claim is not a queue beat.
  */
 function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {

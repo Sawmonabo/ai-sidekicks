@@ -15,7 +15,7 @@ import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
-import { withSessionAppendLock } from "../session-append-lock.js";
+import { withSessionAppendLock } from "../session/append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");

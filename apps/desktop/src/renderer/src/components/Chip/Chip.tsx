@@ -4,7 +4,7 @@ import "./Chip.css";
 
 import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
-import { formatWireString } from "@renderer/lib/wire-figures.js";
+import { formatWireString } from "@renderer/lib/wire/figures.js";
 
 /**
  * The closed tone set: `neutral` (no color, the default), `attention` (amber, a person is

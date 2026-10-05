@@ -3,7 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import type { MachineSettings } from "@ai-sidekicks/contracts/machine-settings";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useKeyBoundValue } from "@renderer/hooks/useKeyBoundValue.js";
 import type { MachineSettingsStore } from "../machine-settings-store.js";

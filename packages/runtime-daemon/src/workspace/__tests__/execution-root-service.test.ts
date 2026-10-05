@@ -18,24 +18,24 @@ import {
   WorkspaceBranchNameRequiredError,
   WorktreeCreateFailedError,
   WorktreeReuseConflictError,
-} from "../../git/worktree-errors.js";
+} from "../../git/worktree/errors.js";
 import type {
   CreateWorktreeInput,
   CreatedWorktree,
   ReusableWorktreeCandidate,
   ValidateWorktreeReuseInput,
-} from "../../git/worktree-service.js";
+} from "../../git/worktree/worktree-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { ExecutionRootService } from "../execution-root-service.js";
-import type { GitRunner } from "../../git/git-process.js";
+import type { GitRunner } from "../../git/process.js";
 import type {
   ExecutionRootServiceDeps,
   ExecutionRootWorktreeProvisioner,
   WorkspaceLifecyclePrimitives,
 } from "../execution-root-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import type { FilesystemPathProbeFn } from "../workspace-row-guards.js";
-import { WorkspaceBusyError, WorkspaceStaleError } from "../workspace-service-errors.js";
+import type { FilesystemPathProbeFn } from "../row-guards.js";
+import { WorkspaceBusyError, WorkspaceStaleError } from "../service-errors.js";
 import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
 
 import { requireWorkspaceRow } from "./workspace.test-support.js";

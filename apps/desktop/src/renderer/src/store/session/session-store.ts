@@ -16,10 +16,10 @@ import {
   recordApplyLatency,
   recordStoreSize,
 } from "@renderer/lib/performance-meters/performance-meters.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { foldAppliedBatch } from "./applied-batch-fold.js";
-import { worstDegradedCause, type SessionDegradedCause } from "../session-degradation.js";
+import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
 import { type ProjectedSessionEvent, type EntityProjectorTable } from "./entities/entities.js";
@@ -42,11 +42,11 @@ import {
   type TranscriptRetainedEnd,
 } from "./session-state.js";
 import type { SessionBaseState, SessionStoreState } from "./session-state.js";
-import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
+import { NOTHING_APPLIED, type ApplyOutcome } from "./apply/apply-outcome.js";
 
 // The store's vocabulary, re-exported so callers need not know which dependency declares it.
 // `SequenceGap` is not: nothing outside its owner imports it.
-export type { SessionDegradedCause } from "../session-degradation.js";
+export type { SessionDegradedCause } from "./degradation.js";
 export type { SessionBaseState, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./session-selectors.js";
 export type { EarlierWindowMerge } from "./earlier-window.js";

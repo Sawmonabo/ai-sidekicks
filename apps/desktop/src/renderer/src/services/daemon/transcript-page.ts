@@ -1,6 +1,6 @@
 // Reads one backward `transcript.read` window as the app's own event log. The store's log is
 // `ProjectedSessionEvent` and no feature reads a wire shape, so this is the second decode boundary
-// after `session-event-payload.ts`.
+// after `session/event/payload.ts`.
 //
 // A page is decoded into the log rather than shown as rows because the app projects the
 // daemon's derived `summary`, `position` and `epoch` itself over the whole window it holds; a row

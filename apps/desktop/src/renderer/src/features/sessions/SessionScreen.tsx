@@ -18,7 +18,7 @@ import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
-import type { Refusal } from "./refusal.js";
+import type { Refusal } from "./refusal/refusal.js";
 
 interface OwnedCommand {
   readonly owner: string;

@@ -11,10 +11,10 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
-import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
-import { makeFakeChild } from "./pty-host.test-support.js";
-import type { SpawnRequest } from "../pty-host-protocol.js";
-import type { DrainResult } from "../pty-host.js";
+import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
+import { makeFakeChild } from "../host/__tests__/pty-host.test-support.js";
+import type { SpawnRequest } from "../host/protocol.js";
+import type { DrainResult } from "../host/pty-host.js";
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",

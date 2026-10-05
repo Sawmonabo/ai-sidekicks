@@ -17,7 +17,7 @@ import type {
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 import { describe, expect, it } from "vitest";
 
-import { CLI_VERSION_REPORT, makeFlags } from "../__fixtures__/capability-results.js";
+import { CLI_VERSION_REPORT, makeFlags } from "../capability/__fixtures__/results.js";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import {
   DriverCapabilityUnsupportedError,
@@ -42,7 +42,7 @@ import type {
   ForkConversationParams,
   SetSessionGoalParams,
   StartRunParams,
-} from "../provider-driver.js";
+} from "../driver/provider-driver.js";
 
 const DRIVER_ID: ProviderName = "claude";
 

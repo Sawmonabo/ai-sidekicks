@@ -23,8 +23,8 @@ import {
   BOOT_TEST_TIMEOUT_MS,
   spawnElectron,
   WINDOW_BUDGET_MS,
-} from "./helpers/smoke-probe-harness.js";
-import { renderReadinessFailure } from "./helpers/smoke-probe-diagnosis.js";
+} from "./helpers/smoke-probe/harness.js";
+import { renderReadinessFailure } from "./helpers/smoke-probe/diagnosis.js";
 
 describe("desktop main process boot", () => {
   // Asserts the preload bridge registered and no Node global reached the renderer.

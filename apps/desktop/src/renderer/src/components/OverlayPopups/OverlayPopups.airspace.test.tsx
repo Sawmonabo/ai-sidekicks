@@ -11,8 +11,8 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import { describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
-import { type AirspaceRect } from "@renderer/lib/airspace-registry.js";
+import { airspaceRegistryFor } from "@renderer/lib/airspace/registries.js";
+import { type AirspaceRect } from "@renderer/lib/airspace/airspace-registry.js";
 import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
 import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
 

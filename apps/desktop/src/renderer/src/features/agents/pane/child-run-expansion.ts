@@ -11,7 +11,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/
 
 import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 
 /**

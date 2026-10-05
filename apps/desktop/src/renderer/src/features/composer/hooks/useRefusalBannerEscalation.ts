@@ -1,4 +1,4 @@
-// Hands a banner-class refusal (`lib/refusal-remedies.ts` names which codes) to the frame,
+// Hands a banner-class refusal (`lib/refusal/remedies.ts` names which codes) to the frame,
 // since the banner spans the session screen and is held by the window's store.
 //
 // It escalates once per condition, not per render or per refusal object: producers mint a fresh
@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type WindowStore } from "@renderer/store/window/window-store.js";
 import { isBannerClass } from "../refusal-banner-selection.js";
 

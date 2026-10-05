@@ -10,7 +10,7 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,

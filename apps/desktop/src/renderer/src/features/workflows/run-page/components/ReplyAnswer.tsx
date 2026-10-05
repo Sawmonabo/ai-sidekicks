@@ -6,11 +6,11 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import { useWorkflowCommandTarget } from "../../hooks/useWorkflowCommandTarget.js";
 import { useWorkflowAct } from "../../hooks/useWorkflowAct.js";
 import { answerThisRunTarget } from "../../workflow-command-target.js";
-import { resolutionReceipt } from "../step-receipts.js";
+import { resolutionReceipt } from "../step/receipts.js";
 import { ActionButton } from "../../components/ActionButton.js";
 
 /** What `Answer this run` says over a reply door with nothing typed in it. */

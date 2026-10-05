@@ -18,10 +18,10 @@ import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/workspace";
 import { EventLogService } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService } from "../../session/session-service.js";
-import { RepoMountService } from "../repo-mount-service.js";
+import { RepoMountService } from "../repo/repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import { WorkspaceService } from "../workspace-service.js";
-import { WorkspaceStaleError } from "../workspace-service-errors.js";
+import { WorkspaceStaleError } from "../service-errors.js";
 
 import {
   bindReadyWorkspace,

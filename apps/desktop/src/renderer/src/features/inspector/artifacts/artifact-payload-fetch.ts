@@ -8,7 +8,7 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
-import { RefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal/refusal.js";
 import { readArtifactPayload } from "@renderer/services/artifacts/artifact-payload-read.js";
 import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";

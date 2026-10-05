@@ -7,16 +7,16 @@ import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBrid
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 import { EntityProjectorRegistry } from "@renderer/registries/entity-projectors/entity-projector-registry.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionBaseStateReader } from "@renderer/store/session/open-session/open-session-entry.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import {
   RUN_LIFECYCLE_PROJECTOR_OWNER,
   RUN_LIFECYCLE_PROJECTORS,
-} from "@renderer/store/session-events/run-lifecycle-projector.js";
+} from "@renderer/store/session-events/run/lifecycle-projector.js";
 import { useActiveSessionStore } from "./useActiveSessionStore.js";
 import { useSessionStoreRegistry } from "./useSessionStoreRegistry.js";
-import { fixtureSessionBaseState } from "@renderer/services/daemon/session-base-state.fixture.js";
+import { fixtureSessionBaseState } from "@renderer/services/daemon/session/base-state.fixture.js";
 
 /** What a probe saw on one render: the window's registry and the active session's store. */
 export interface Observation {

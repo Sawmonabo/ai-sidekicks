@@ -5,7 +5,7 @@
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
 import { recordRevealDrain } from "@renderer/lib/performance-meters/performance-meters.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import {

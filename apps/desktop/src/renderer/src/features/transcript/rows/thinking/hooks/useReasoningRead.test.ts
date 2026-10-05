@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
+import { bridgeAnswering, type BridgeUnderTest } from "@test/helpers/fixture/bridge.js";
 import { settle } from "@test/helpers/settle.js";
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "./useReasoningRead.test-support.js";
 import { useReasoningRead } from "./useReasoningRead.js";

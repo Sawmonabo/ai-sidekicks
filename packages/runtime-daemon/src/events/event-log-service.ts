@@ -20,8 +20,8 @@ import {
   assertNoSeededContentDescription,
   assertRegisteredVariantParses,
   composeContentRow,
-} from "./event-content.js";
-import { withSessionAppendLock } from "./session-append-lock.js";
+} from "./content/content.js";
+import { withSessionAppendLock } from "./session/append-lock.js";
 
 /**
  * The append input: an {@link EventEnvelope} without `sequence`, which the service allocates under

@@ -1,6 +1,6 @@
 // The idle walk that leaves every loader-backed body on a board warm, so the first open is warm
 // without the launch paying for it. It is a one-shot, not a refresh, so it is not on
-// `lib/reads/refresh-scheduler.ts`; a second start on one instance is a no-op.
+// `lib/reads/refresh/refresh-scheduler.ts`; a second start on one instance is a no-op.
 //
 // One key per idle callback, so the walk never holds the main thread through a painted frame.
 // One callback per key: a board releases a key's memo when its load rejects, so without the

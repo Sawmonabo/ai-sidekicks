@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 
 /** Where one act on a run stands: not taken, in flight, refused in the daemon's words, or done. */

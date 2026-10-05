@@ -15,8 +15,8 @@
 // snapshot from an older build is expected input. The session screen records them in the
 // window's diagnostic capture.
 
-import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
-import { isWireRecord } from "@renderer/lib/wire-record.js";
+import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal/refusal.js";
+import { isWireRecord } from "@renderer/lib/wire/record.js";
 import { isEphemeralPaneKind, isPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 import {

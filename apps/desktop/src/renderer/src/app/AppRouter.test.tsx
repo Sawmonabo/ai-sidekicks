@@ -11,7 +11,7 @@ import { useEffect } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
+import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { registerWorkflowScreens } from "@renderer/features/workflows/index.js";

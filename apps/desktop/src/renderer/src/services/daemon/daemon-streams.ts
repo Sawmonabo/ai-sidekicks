@@ -4,11 +4,14 @@
 // here stays `unknown`. It sits in this folder, the lowest one that can hold a `PlatformBridge`,
 // because features that never import each other share it.
 
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import type { DaemonWireRequest, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-event-streams.js";
+import type {
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+} from "./session/event/session-event-streams.js";
 
 /**
  * One daemon subscription: the stream's method name and the registered request that scopes it.

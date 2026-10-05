@@ -3,7 +3,7 @@
 // publishes its banner sink here.
 
 import type { Unsubscribe } from "@shared/preload-api.js";
-import { RefusalError, type Refusal } from "@renderer/lib/refusal.js";
+import { RefusalError, type Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /** Publishes this window's refusal rendering; only the window calls it. */
 export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Unsubscribe {

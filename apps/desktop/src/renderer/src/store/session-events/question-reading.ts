@@ -6,8 +6,8 @@
 // terminal event: the answer lands as the person's own turn and the card closes when the
 // question's attention entry resolves.
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 import { projectedPayload, readWireCount } from "./wire-payload.js";

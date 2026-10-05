@@ -4,7 +4,7 @@
 
 import type { WorkflowRunListResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 import type { RunFilters } from "./run-filters.js";
 

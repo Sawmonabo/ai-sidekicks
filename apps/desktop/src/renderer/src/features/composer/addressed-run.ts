@@ -5,7 +5,7 @@
 
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
-import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
+import { readRunState } from "@renderer/services/daemon/wire/identifiers.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 

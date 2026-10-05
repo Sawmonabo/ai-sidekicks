@@ -10,8 +10,8 @@ import type {
   RememberedScope,
 } from "@ai-sidekicks/contracts/approval";
 
-import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { refusalRemedyFor } from "@renderer/lib/refusal/remedies.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /**
  * Whether the record's approve and reject answers are still offered: false once it leaves

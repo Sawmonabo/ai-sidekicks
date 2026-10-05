@@ -16,17 +16,17 @@ import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
 import {
   WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
-} from "@fixtures/data/workflow-runs.js";
-import { mintedRunId } from "@fixtures/data/workflow-run-writes.js";
+} from "@fixtures/data/workflow/runs.js";
+import { mintedRunId } from "@fixtures/data/workflow/run-writes.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
-import { formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatDayClock } from "@renderer/lib/wire/figures.js";
 import { RunHeader } from "./RunHeader.js";
 
 const NODE_KINDS: Readonly<Record<string, string>> = {

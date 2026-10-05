@@ -4,7 +4,7 @@
 // both read models: `durable` is false, `describe()` says preferences will not survive the
 // window, and every gauge carries the reason it is not durable.
 
-import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "../persistence-caps.js";
+import { PERSISTENCE_QUOTA_PRESSURE_RATIO } from "./caps.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PERSISTENCE_UNAVAILABLE_DESCRIPTIONS,

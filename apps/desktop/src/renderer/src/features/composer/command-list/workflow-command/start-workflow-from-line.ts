@@ -9,8 +9,8 @@ import type { CommandOutcome, ComposerCommandLine } from "../../types.js";
 import {
   readWorkflowDefinitions,
   type ReadWorkflowDefinitionPage,
-} from "./definition-enumeration.js";
-import { matchWorkflowDefinition } from "./definition-match.js";
+} from "./definition/enumeration.js";
+import { matchWorkflowDefinition } from "./definition/match.js";
 import { readWorkflowCommandLine } from "./workflow-command-grammar.js";
 
 /** The pinned version a start is issued against, and the session it starts in. */

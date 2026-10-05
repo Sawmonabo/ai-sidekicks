@@ -12,7 +12,7 @@ import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_TONES, artifactProducerLabel } from "../artifact-copy.js";
 import type { ArtifactInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";

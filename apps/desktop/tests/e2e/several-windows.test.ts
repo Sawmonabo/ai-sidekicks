@@ -15,12 +15,12 @@ import {
   UI_STATE_STORE_NAME,
 } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { consoleWindowId } from "@shared/window/frame-name.js";
-import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
-import { clickViewMenuScheme, readPageScheme } from "./color-scheme.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
-import { READINESS_BUDGET_MS } from "../helpers/launch-budgets.js";
-import { LaunchDeadline } from "../helpers/launch-deadline.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
+import { clickViewMenuScheme, readPageScheme } from "./color-scheme/color-scheme.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
+import { READINESS_BUDGET_MS } from "../helpers/launch/budgets.js";
+import { LaunchDeadline } from "../helpers/launch/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

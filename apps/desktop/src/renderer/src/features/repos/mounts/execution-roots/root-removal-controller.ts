@@ -6,7 +6,7 @@
 import type { WorktreeId, WorktreeRetireResponse } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 import type { RepoOperations } from "../../repo-operations.js";
 

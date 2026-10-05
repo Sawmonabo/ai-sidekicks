@@ -9,7 +9,7 @@
 
 import { act } from "@testing-library/react";
 
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
 /**

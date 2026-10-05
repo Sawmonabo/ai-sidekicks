@@ -2,7 +2,7 @@
 // renderer is untrusted, so a call is checked here, where it enters main: only a method the app
 // calls goes, its params checked against the method's contract before anything is sent and its
 // reply after, with each file token the method takes put back as its path and a token minted for
-// each path the reply offers to open (`file-path-relay.ts`). A subscription's params go to the
+// each path the reply offers to open (`file-path/relay.ts`). A subscription's params go to the
 // daemon, which checks them, except for the one main types itself, the machine's settings, which
 // is checked against its contract on both sides. Nothing main holds for its own connection crosses
 // back: a refusal carries only the wire
@@ -24,7 +24,7 @@ import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mac
 import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import { z, type ZodType } from "zod";
 
-import { daemonMethodBindingFor } from "@shared/daemon-method-bindings.js";
+import { daemonMethodBindingFor } from "@shared/daemon/daemon-method-bindings.js";
 import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
@@ -33,16 +33,16 @@ import type {
   DaemonCallOutcome,
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
-} from "@shared/daemon-forwarding.js";
-import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
+} from "@shared/daemon/forwarding.js";
+import { DAEMON_STATUS_TOPIC } from "@shared/daemon/daemon-status-topic.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 import type {
   DaemonSupervisor,
   ServiceEndingMethod,
 } from "../services/daemon/daemon-supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { mintTokensForPaths, swapTokensForPaths } from "./file-path-relay.js";
-import type { FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
+import { mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
+import type { FilePathRefOwner, FilePathRefs } from "./file-path/file-path-refs.js";
 
 /**
  * The page a subscription delivers to: its id, the pushes its values and its end ride on, and the

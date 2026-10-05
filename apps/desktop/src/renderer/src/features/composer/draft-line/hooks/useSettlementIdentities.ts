@@ -19,7 +19,7 @@ import {
   isSettlementCurrent,
   type ComposerSendOperation,
   type ComposerSettlementIdentity,
-} from "../send-settlement.js";
+} from "../send/settlement.js";
 
 /** What the controller asks about the act on screen. */
 export interface SettlementIdentities {

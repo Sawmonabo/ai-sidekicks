@@ -8,7 +8,7 @@ import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { wireRejectionToError } from "@renderer/lib/wire-errors.js";
+import { wireRejectionToError } from "@renderer/lib/wire/errors.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 
 /** Asks the daemon, best-effort, to give back the spool of a stopped stream. */

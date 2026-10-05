@@ -11,7 +11,7 @@
 // before that is charged to the cold-start budget and this paint probe bounds the interval after
 // it.
 
-import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch-budgets.js";
+import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch/budgets.js";
 
 /**
  * The renderer, reduced to the one question the paint probe asks it.

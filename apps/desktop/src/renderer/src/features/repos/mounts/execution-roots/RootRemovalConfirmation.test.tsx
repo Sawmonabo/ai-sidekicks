@@ -7,7 +7,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { confirmationPresses } from "../repo-mounts.test-support.js";

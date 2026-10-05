@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderSettled } from "../helpers/app-harness.js";
+import { renderSettled } from "../helpers/app/harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import "@renderer/features/agents/index.js";

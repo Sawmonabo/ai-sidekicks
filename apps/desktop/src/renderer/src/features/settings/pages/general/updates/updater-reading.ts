@@ -13,7 +13,7 @@ import type { Unsubscribe, UpdateState } from "@shared/preload-api.js";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 
 /** The updater's calls: the state read, its subscription, and its controls. */

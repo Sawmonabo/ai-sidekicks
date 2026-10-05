@@ -14,15 +14,15 @@ import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
-import { WORKTREE_STATE_TONES } from "../execution-root-model.js";
+import { formatRelativeTime } from "@renderer/lib/wire/figures.js";
+import { WORKTREE_STATE_TONES } from "../execution-roots/model.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,
   WORKTREE_SUMMARY_COLUMNS,
   worktreeColumnCell,
   type WorktreeSummaryColumnKey,
-} from "../execution-root-columns.js";
+} from "../execution-roots/columns.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
 /** A worktree status record, plus the instant the section read at. */

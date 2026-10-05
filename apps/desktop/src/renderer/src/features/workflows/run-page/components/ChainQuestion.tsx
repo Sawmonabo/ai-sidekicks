@@ -7,14 +7,14 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatCount, formatDayClock } from "@renderer/lib/wire/figures.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useWorkflowCommandTarget } from "../../hooks/useWorkflowCommandTarget.js";
 import { useWorkflowAct } from "../../hooks/useWorkflowAct.js";
 import { ActionButton } from "../../components/ActionButton.js";
 import { answerThisRunTarget } from "../../workflow-command-target.js";
-import { chainReceipt } from "../step-receipts.js";
+import { chainReceipt } from "../step/receipts.js";
 
 /** The chain question's two answers, in the order they stand, and the approval each one is. */
 const CHAIN_ANSWERS: readonly { readonly label: string; readonly decision: ApprovalDecision }[] = [

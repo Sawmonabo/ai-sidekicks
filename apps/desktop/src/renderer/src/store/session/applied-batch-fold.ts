@@ -8,7 +8,7 @@
 // state is answered, so the one writer stays one.
 
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
-import { worstDegradedCause } from "../session-degradation.js";
+import { worstDegradedCause } from "./degradation.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 import { EntityProjectionRunner } from "./entities/entity-projection-runner.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
@@ -20,7 +20,7 @@ import {
 } from "./sequence-reconciler.js";
 import { capTranscript, type TranscriptRetainedEnd } from "./session-state.js";
 import type { SessionStoreState } from "./session-state.js";
-import type { ApplyOutcome } from "./apply-outcome.js";
+import type { ApplyOutcome } from "./apply/apply-outcome.js";
 
 /** Everything one fold advances beside the state it answers with. */
 export interface AppliedBatchDependencies {

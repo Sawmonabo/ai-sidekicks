@@ -8,8 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { isRefusal } from "@renderer/lib/refusal.js";
-import { windowTripwires } from "@renderer/lib/tripwires.js";
+import { isRefusal } from "@renderer/lib/refusal/refusal.js";
+import { windowTripwires } from "@renderer/lib/tripwires/tripwires.js";
 import { ReadFailurePersistenceAdapter } from "@test/helpers/read-failure-persistence-adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";

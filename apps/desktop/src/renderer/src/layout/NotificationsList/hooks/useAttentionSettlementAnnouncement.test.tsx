@@ -8,7 +8,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {

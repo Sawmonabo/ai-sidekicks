@@ -18,8 +18,8 @@ import {
   typeIntoLine,
 } from "../command-list.test-support.js";
 import { agentPane } from "../../composer.test-support.js";
-import type { RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
-import { recordingBridge } from "../provider-command-enumeration.test-support.js";
+import type { RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
+import { recordingBridge } from "../provider-command/provider-command-enumeration.test-support.js";
 
 describe("CommandList — the list activates its active row", () => {
   function registerCountedConsoleCommand(): { runCount: () => number } {

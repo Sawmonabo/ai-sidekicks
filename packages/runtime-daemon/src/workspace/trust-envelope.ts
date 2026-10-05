@@ -13,7 +13,7 @@
 import { opendir, realpath as realpathFromFilesystem } from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import { TrustEnvelopeViolationError } from "./repo-errors.js";
+import { TrustEnvelopeViolationError } from "./repo/errors.js";
 
 /** One `WorkspaceBind` execution-root candidate; the caller supplies every root, so no lookups. */
 export interface WorkspaceExecutionRootCandidate {

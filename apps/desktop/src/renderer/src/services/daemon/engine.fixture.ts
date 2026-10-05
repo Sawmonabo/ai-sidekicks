@@ -2,7 +2,7 @@
 // renderer reads in fixture mode. `dispose()` is final; a later advance is dropped and reported on
 // the tripwire, never delivered into a torn-down subscriber.
 //
-// The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out,
+// The engine decides what is due; `event/delivery.fixture.ts` decides who gets it (fan-out,
 // catch-up and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and
 // the machine notices a settled reply pushes, against engine time. `advance`, the one reach that
 // delivers, is guarded here by the disposed flag. Attaching a sink needs no guard, since
@@ -11,7 +11,7 @@
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import { parseInstant } from "@renderer/lib/instant.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
@@ -19,8 +19,8 @@ import {
   ScenarioDelivery,
   type ScenarioSink,
   type ScenarioSubscribeOptions,
-} from "./event-delivery.fixture.js";
-import type { ScenarioReply } from "./scenario-reply.fixture.js";
+} from "./event/delivery.fixture.js";
+import type { ScenarioReply } from "./scenario/scenario-reply.fixture.js";
 import type { Scenario } from "@fixtures/scenario.js";
 
 /**
@@ -142,7 +142,7 @@ export class ScenarioEngine {
     // The contiguous due prefix: stopping at the first beat not yet due keeps
     // `deliveredBeatCount` and the set actually delivered the same claim whatever order the
     // script is written in. A filter would skip an earlier beat and re-emit a later one.
-    // `tests/helpers/scenario-contract-check/beat-order.ts` holds shipped scripts to
+    // `tests/helpers/scenario-contract-check/beat/order.ts` holds shipped scripts to
     // nondecreasing `atMs`; this makes a disordered script cost a late beat, not a duplicate.
     const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
     const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);
@@ -169,7 +169,7 @@ export class ScenarioEngine {
    * as a side effect of a request.
    *
    * Never rejects: the outcome says only that the reply came due, was abandoned or found the
-   * backlog full, and `scripted-reply.fixture.ts` turns a due rejecting reply into a rejection,
+   * backlog full, and `scripted/reply.fixture.ts` turns a due rejecting reply into a rejection,
    * since the wire's error shape is the bridge's vocabulary and not the engine's.
    */
   public holdReply(afterMs: number): Promise<ScenarioReplyOutcome> {

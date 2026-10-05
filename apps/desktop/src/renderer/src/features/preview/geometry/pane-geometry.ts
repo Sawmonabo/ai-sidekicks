@@ -1,9 +1,12 @@
 // Where the native view may be and when it yields: the pure arithmetic half of pane geometry,
 // with no DOM and nothing scheduled. The sampling half is `geometry-publisher.ts`, and samples
 // go to the page host in `page-host.ts`. `PaneOverlaySource` is the narrow port onto
-// `lib/airspace-registry.ts`, so the two modules do not cycle.
+// `lib/airspace/airspace-registry.ts`, so the two modules do not cycle.
 
-import { type AirspaceMotionObserver, type AirspaceRect } from "@renderer/lib/airspace-registry.js";
+import {
+  type AirspaceMotionObserver,
+  type AirspaceRect,
+} from "@renderer/lib/airspace/airspace-registry.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 /** Two-decimal rounding as a factor; `toFixed` would be a second number formatter. */

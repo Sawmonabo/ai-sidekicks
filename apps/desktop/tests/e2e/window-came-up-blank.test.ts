@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
 
 import { FIRST_RUN_SCENARIO } from "../../fixtures/scenarios/first-run.js";
 import { PANE_HARNESS_LABEL } from "@renderer/app/pane-harness/PaneHarnessFrame.js";
-import { withLaunchedApp } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
+import { withLaunchedApp } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

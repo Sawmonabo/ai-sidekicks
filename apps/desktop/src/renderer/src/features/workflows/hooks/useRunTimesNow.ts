@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { MILLISECONDS_PER_SECOND } from "@renderer/lib/instant.js";
-import { dayClockChangesAt } from "@renderer/lib/wire-figures.js";
+import { dayClockChangesAt } from "@renderer/lib/wire/figures.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { partOfDayChangesAt } from "../runs/part-of-day.js";
 

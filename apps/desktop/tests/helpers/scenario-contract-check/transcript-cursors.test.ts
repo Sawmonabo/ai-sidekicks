@@ -8,17 +8,17 @@ import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
 
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import { SCENARIOS } from "@fixtures/index.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
-import { SESSION_EVENT_STREAM } from "@renderer/services/daemon/session-event-streams.js";
+import { SESSION_EVENT_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
 import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
-import { readSessionId } from "@renderer/services/daemon/wire-identifiers.js";
+import { readSessionId } from "@renderer/services/daemon/wire/identifiers.js";
 import {
   createFixture,
   lastScriptedBeatMs,
   type FixtureUnderTest,
-} from "@test/helpers/fixture-bridge.js";
+} from "@test/helpers/fixture/bridge.js";
 
 /** What a whole-session subscription opened after one cursor delivered, and how it ended. */
 interface ResumedStream {

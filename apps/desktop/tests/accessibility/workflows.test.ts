@@ -10,9 +10,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
+import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
 
-import { emulateSystemScheme } from "../helpers/app-harness.js";
+import { emulateSystemScheme } from "../helpers/app/harness.js";
 import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 import {
   mountWorkflowBuilderPane,

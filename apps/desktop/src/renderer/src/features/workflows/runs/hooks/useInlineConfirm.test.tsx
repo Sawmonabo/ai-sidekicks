@@ -9,9 +9,9 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
   summaryOfRun,
-} from "@fixtures/data/workflow-runs.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+} from "@fixtures/data/workflow/runs.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 import { DeleteOlderRuns } from "../components/DeleteOlderRuns.js";
 import { RunsTable } from "../components/RunsTable.js";
 

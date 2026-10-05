@@ -3,7 +3,7 @@
 
 export { SessionService } from "./session/session-service.js";
 export { applyMigrations, applyPragmas, openDatabase } from "./session/migration-runner.js";
-export { projectEvent, rebuildSession } from "./session/session-projector.js";
+export { projectEvent, rebuildSession } from "./session/projector.js";
 export { translateSpawnCwd } from "./session/spawn-cwd-translator.js";
 export type {
   DriverStrategy,

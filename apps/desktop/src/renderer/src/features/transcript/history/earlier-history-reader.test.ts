@@ -15,7 +15,7 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/
 
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import { eventOfKind } from "@test/helpers/session/events.js";
 import { EarlierHistoryReader, type EarlierPageRead } from "./earlier-history-reader.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";

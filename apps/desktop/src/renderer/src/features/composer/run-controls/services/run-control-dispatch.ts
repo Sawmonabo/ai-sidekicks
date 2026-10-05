@@ -17,7 +17,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
-import { readRunId } from "@renderer/services/daemon/wire-identifiers.js";
+import { readRunId } from "@renderer/services/daemon/wire/identifiers.js";
 import { AnsweredRunVersions } from "../../answered-run-versions.js";
 
 /** The three daemon methods the controls reach, each taking the contract's request. */

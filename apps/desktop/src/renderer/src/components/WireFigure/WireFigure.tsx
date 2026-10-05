@@ -2,13 +2,13 @@
 // from the wire; prose never paraphrases a figure.
 //
 // Both wire classes render here: a byte-for-byte string (an id, digest, state name, error code)
-// and a quantity formatted from the exact wire value through `Intl` in `wire-figures.ts`, the
+// and a quantity formatted from the exact wire value through `Intl` in `lib/wire/figures.ts`, the
 // only module that formats. It is selectable, so a digest can be copied. `DerivedFigure` is a
 // separate module so a call site cannot pick the wrong class by omission.
 //
 // `title` carries the exact wire value when the visible text is a formatted reading of it.
 
-import { formatWireString } from "@renderer/lib/wire-figures.js";
+import { formatWireString } from "@renderer/lib/wire/figures.js";
 
 /** Props for `WireFigure`. */
 export interface WireFigureProps {

@@ -10,7 +10,7 @@ import {
   type MachineSettingsChange,
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { REOPEN_WAITS_MS } from "@renderer/services/transport/reopening-subscription.js";
 import { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";

@@ -8,10 +8,10 @@
 // It carries no script (the CSP would refuse an inline one), no link out, and no reload
 // control: a retry needs a renderer-to-main channel that does not exist, and a control that
 // claims a capability nothing implements is what the app's copy rules forbid. It is split
-// from `../services/renderer-protocol.ts` so its grammar is unit-testable with no Electron
+// from `../services/renderer/protocol.ts` so its grammar is unit-testable with no Electron
 // import.
 
-import { RENDERER_HOST, RENDERER_ORIGIN, RENDERER_SCHEME } from "../services/renderer-scheme.js";
+import { RENDERER_HOST, RENDERER_ORIGIN, RENDERER_SCHEME } from "../services/renderer/scheme.js";
 
 /** Reserved path serving the generated load-failure document. */
 export const LOAD_FAILURE_PATH = "/-/load-failure";

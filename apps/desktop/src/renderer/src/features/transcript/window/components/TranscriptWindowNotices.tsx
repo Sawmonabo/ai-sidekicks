@@ -2,7 +2,7 @@
 // loaded history, with no live region, since the app has one announcer and this is a settled fact.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 
 /** What the window cap took from this window. */
 export interface TranscriptWindowNoticesProps {

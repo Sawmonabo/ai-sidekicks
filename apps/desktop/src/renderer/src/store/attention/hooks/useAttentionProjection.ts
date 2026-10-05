@@ -7,7 +7,7 @@
 // The signal is the session projections, not a timer: interval polling is forbidden. An
 // attention item is derived from canonical session state, so a moved session store may have
 // moved the projection, and the registry's open/close emitter covers a session just opened
-// that already carries unread attention. Both come through `store/session/open-session-signal.ts`.
+// that already carries unread attention. Both come through `store/session/open-session/signal.ts`.
 //
 // Every re-read goes through `PushDrivenRead`, the console's one push-driven read discipline
 // (subscribe first, treat the push as opaque, coalesce through `RefreshScheduler`, serialize so
@@ -20,11 +20,11 @@
 import { useEffect, useMemo } from "react";
 
 import { type Clock } from "@renderer/lib/clock.js";
-import { RefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal/refusal.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
 import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
-import { subscribeToOpenSessions } from "../../session/open-session-signal.js";
+import { subscribeToOpenSessions } from "../../session/open-session/signal.js";
 import { type SessionStoreRegistry } from "../../session/session-store-registry.js";
 import {
   AttentionSummary,

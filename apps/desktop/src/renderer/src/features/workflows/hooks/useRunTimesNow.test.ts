@@ -8,15 +8,15 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import {
   WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
   summaryOfRun,
-} from "@fixtures/data/workflow-runs.js";
+} from "@fixtures/data/workflow/runs.js";
 import { useRunTimesNow } from "./useRunTimesNow.js";
 
 /** A clock whose host can sleep: its reading moves on while no timer fires. */

@@ -1,6 +1,6 @@
 // A diagnostics emitter for suites that read diagnostics from the emitter, not the console.
 
-import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
+import { DriverDiagnosticsEmitter } from "../driver/diagnostics.js";
 
 /**
  * A diagnostics emitter whose log and counter sinks discard: the default log sink writes to the

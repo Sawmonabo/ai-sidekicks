@@ -13,7 +13,7 @@ import {
   createFixture,
   lastScriptedBeatMs,
   subscribeToSessionStream,
-} from "@test/helpers/fixture-bridge.js";
+} from "@test/helpers/fixture/bridge.js";
 import type { Scenario, ScenarioBeat } from "@fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";
 

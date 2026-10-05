@@ -10,7 +10,7 @@ import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { settle } from "@test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";

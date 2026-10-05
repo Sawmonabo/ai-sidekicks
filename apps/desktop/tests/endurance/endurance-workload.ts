@@ -4,7 +4,7 @@
 // sustained use, the other what it is once the app has settled) and both need a route
 // observed, the scenario advanced and the store read back. A copy in each file would be two
 // drivers that drift silently, since a route wait that stopped waiting still passes. The heap
-// itself is read through `heap-instrument.ts`, which measures rather than drives.
+// itself is read through `heap/instrument.ts`, which measures rather than drives.
 //
 // The route waits name a screen, not the frame. `.meridian-frame` is permanent chrome, on the
 // page before and after a route change, so a wait on it returns at once and the next navigation
@@ -22,9 +22,9 @@
 
 import { expect } from "vitest";
 
-import type { AppUnderTest, LaunchAppOptions } from "../helpers/electron-harness.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
-import { ENDURANCE_BODY_ALLOWANCE_MS } from "../helpers/launch-budgets.js";
+import type { AppUnderTest, LaunchAppOptions } from "../helpers/electron/harness.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch/body.js";
+import { ENDURANCE_BODY_ALLOWANCE_MS } from "../helpers/launch/budgets.js";
 import { closePalette, openPalette } from "../helpers/palette-interaction.js";
 import {
   scenarioDeliverySchedule,
@@ -33,11 +33,11 @@ import {
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-} from "@renderer/app/fixture-global-names.js";
+} from "@renderer/app/fixture/global-names.js";
 import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
 import { formatRoute } from "@renderer/routing/routes.js";
-import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
+import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript/window-read.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
@@ -52,7 +52,7 @@ export function enduranceLaunchOptions(scenarioId: string): LaunchAppOptions {
     scenarioId,
     bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
     // Every figure this tier gates is a difference of two heap readings; see
-    // `readSettledHeapBytes` in `heap-instrument.ts` for why the default instrument cannot carry
+    // `readSettledHeapBytes` in `heap/instrument.ts` for why the default instrument cannot carry
     // one.
     isPreciseHeapReadingRequired: true,
   };

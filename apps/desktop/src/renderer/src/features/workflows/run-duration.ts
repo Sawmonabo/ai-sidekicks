@@ -2,7 +2,7 @@
 // `6 m 41 s`, `38 s`. The runs table and a run's header both read it.
 
 import { parseInstant } from "@renderer/lib/instant.js";
-import { formatUnitDuration } from "@renderer/lib/wire-figures.js";
+import { formatUnitDuration } from "@renderer/lib/wire/figures.js";
 
 /**
  * The span from `startedAt` to `untilMs`, in units; an unreadable start reads as nothing, since a

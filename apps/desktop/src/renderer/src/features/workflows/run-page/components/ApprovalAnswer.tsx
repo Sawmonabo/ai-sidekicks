@@ -9,7 +9,7 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { useWorkflowCommandTarget } from "../../hooks/useWorkflowCommandTarget.js";
 import { useWorkflowAct } from "../../hooks/useWorkflowAct.js";
 import { answerThisRunTarget } from "../../workflow-command-target.js";
-import { resolutionReceipt } from "../step-receipts.js";
+import { resolutionReceipt } from "../step/receipts.js";
 import { ActionButton } from "../../components/ActionButton.js";
 
 /**

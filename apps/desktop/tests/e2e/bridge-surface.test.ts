@@ -15,10 +15,10 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { AppFacts } from "../../src/shared/app-facts.js";
-import type { MainProcessState } from "../../src/shared/daemon-status-topic.js";
+import type { MainProcessState } from "../../src/shared/daemon/daemon-status-topic.js";
 import { createStubBridge, type PreloadApi } from "../../src/shared/preload-api.js";
-import { withLaunchedApp } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { withLaunchedApp } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

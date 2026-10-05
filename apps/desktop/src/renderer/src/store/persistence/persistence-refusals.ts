@@ -6,7 +6,7 @@
 // array and the union derives from it, so the chokepoint's caller-fault table is checked
 // against this list and a new code does not compile until it is classified.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /** Why the chokepoint refused a write. Rendered verbatim; never swallowed. */
 export const PERSISTENCE_REFUSAL_CODES = [
@@ -29,8 +29,8 @@ export type PersistenceRefusalCode = (typeof PERSISTENCE_REFUSAL_CODES)[number];
 export const PERSISTENCE_REFUSAL_ORIGIN = "persistence";
 
 /**
- * A typed refusal: the console's one refusal shape (`lib/refusal.ts`), narrowed on `code` to
- * the closed union persistence owns. It satisfies `isRefusal` and renders through the same
+ * A typed refusal: the console's one refusal shape (`lib/refusal/refusal.ts`), narrowed on `code`
+ * to the closed union persistence owns. It satisfies `isRefusal` and renders through the same
  * refusal renderings as every other producer's.
  */
 export interface PersistenceRefusal extends Refusal {

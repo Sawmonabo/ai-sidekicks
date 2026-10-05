@@ -7,11 +7,11 @@
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
+import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "@renderer/routing/route-readers.js";
-import { WORKFLOW_NOTICE_STREAM } from "@renderer/services/daemon/session-event-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "@renderer/services/daemon/session/event/session-event-streams.js";
 import {
   PersistenceAdapterError,
   type StoredRecord,

@@ -8,7 +8,7 @@
 // not re-decided here. Everything here is pure; the state is in `keybinding-override-store.ts`.
 
 import type { KeyboardMap } from "@shared/preload-api.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { Keybinding } from "../commands/command-types.js";
 import {
   formatChordForPlatform,

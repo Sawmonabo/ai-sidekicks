@@ -20,10 +20,10 @@ import {
   captureLoginShellEnvironment,
   LOGIN_SHELL_DEADLINE_MS,
 } from "./daemon/login-shell-environment.js";
-import { nodeMachineNameSources, readMachineName } from "./daemon/machine-name.js";
+import { nodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { openServiceLog } from "./daemon/service-log.js";
-import { selectPtyHost } from "./pty/pty-host-selector.js";
+import { selectPtyHost } from "./pty/host/selector.js";
 
 // The service's version is its package's; the manifest sits one folder above this file, in the
 // source tree and in the build alike.

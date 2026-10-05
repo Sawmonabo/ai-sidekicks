@@ -8,11 +8,11 @@
 // dash.
 
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
-import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
+import type { SessionDegradedCause } from "@renderer/store/session/degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { formatClockTime } from "@renderer/lib/wire-figures.js";
+import { formatClockTime } from "@renderer/lib/wire/figures.js";
 import { parseInstant } from "@renderer/lib/instant.js";
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 
 /**
  * What every per-kind detail is handed.

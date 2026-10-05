@@ -6,7 +6,7 @@
 // carry that window past its deadline. Every endurance walker, in the driver process or inside
 // the renderer, takes its steps from here.
 
-import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
 
 /** How many advances the whole script is walked in, and how many drain it. */
 const SCENARIO_DELIVERY_STEP_COUNT = 20;

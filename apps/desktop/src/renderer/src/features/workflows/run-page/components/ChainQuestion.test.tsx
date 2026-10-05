@@ -8,15 +8,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 import {
   WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
-} from "@fixtures/data/workflow-runs.js";
+} from "@fixtures/data/workflow/runs.js";
 import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
-import { formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatDayClock } from "@renderer/lib/wire/figures.js";
 import { ChainQuestion } from "./ChainQuestion.js";
 
 /** How long the fixture daemon takes to answer `workflow.gateResolve`. */

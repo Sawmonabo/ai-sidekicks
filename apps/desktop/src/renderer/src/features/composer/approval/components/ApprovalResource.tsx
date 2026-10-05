@@ -3,7 +3,7 @@
 // which is said in words.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatWireDescriptor } from "@renderer/lib/wire-figures.js";
+import { formatWireDescriptor } from "@renderer/lib/wire/figures.js";
 /** The wire descriptor of what an approval asks to act on. */
 export interface ApprovalResourceProps {
   readonly descriptor: Readonly<Record<string, unknown>>;

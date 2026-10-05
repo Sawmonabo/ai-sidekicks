@@ -1,7 +1,7 @@
 import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import type { WorkflowActState } from "../hooks/useWorkflowAct.js";
 import type { NextWaiting } from "../hooks/useWorkflowsScreen.js";
 import type { WorkflowNoticeFeedState } from "../workflow-notice-feed.js";

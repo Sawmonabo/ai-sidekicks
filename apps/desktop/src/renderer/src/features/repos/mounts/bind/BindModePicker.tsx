@@ -4,7 +4,7 @@
 // `availableModes` is the daemon's answer for this mount.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import type { ExecutionModeRowReading } from "../execution-mode-rows.js";
+import type { ExecutionModeRowReading } from "../execution-mode/execution-mode-rows.js";
 
 /** Props for the execution-mode picker. */
 export interface BindModePickerProps {

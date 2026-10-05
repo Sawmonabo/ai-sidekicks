@@ -18,7 +18,7 @@
 
 import { useMemo } from "react";
 
-import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
+import { useAnnounceOncePerSentence } from "./announce/useAnnounceOncePerSentence.js";
 
 /**
  * Announce a read's settlement, once per distinct sentence, in the polite lane.

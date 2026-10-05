@@ -43,10 +43,10 @@ import {
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { connect, type Client } from "../../ipc/__tests__/local-socket-client.test-support.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
-import type { DrainResult, PtyHost } from "../../pty/pty-host.js";
+import type { DrainResult, PtyHost } from "../../pty/host/pty-host.js";
 import { DaemonAlreadyRunningError } from "../daemon-already-running-error.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../daemon-process.js";
-import { MachineSettingsFile } from "../machine-settings/machine-settings-file.js";
+import { MachineSettingsFile } from "../machine/settings/machine-settings-file.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
 
 const EMPTY_DRAIN: DrainResult = {

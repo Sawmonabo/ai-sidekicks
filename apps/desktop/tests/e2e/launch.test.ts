@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { withLaunchedApp } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 

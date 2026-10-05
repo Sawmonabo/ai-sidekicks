@@ -31,14 +31,14 @@
 // oldest first, or the caught-up frame with none. When the daemon drops changes for this
 // connection, the next frame carries the drop mark and this asks the registry for the session's
 // re-read, which shows the catching-up line and clears the store's gap mark. Reading a frame is
-// `services/daemon/session-event-payload.ts`. The four reads the endurance tier makes
+// `services/daemon/session/event/payload.ts`. The four reads the endurance tier makes
 // (`session-diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
 
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
-import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import {
@@ -46,11 +46,11 @@ import {
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { transcriptWindowDiagnostics } from "@renderer/lib/transcript-window-diagnostics.js";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
-import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
-import { readSessionId } from "../daemon/wire-identifiers.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
+import { SESSION_EVENT_STREAM } from "../daemon/session/event/session-event-streams.js";
+import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import { readSessionStreamFrame } from "../daemon/session-event-payload.js";
+import { readSessionStreamFrame } from "../daemon/session/event/payload.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
 import { FailedSubscriptionRetry } from "./failed-subscription-retry.js";

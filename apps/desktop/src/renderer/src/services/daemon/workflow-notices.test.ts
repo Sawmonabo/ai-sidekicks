@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
-import { bridgeAnswering, withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
+import { bridgeAnswering, withDaemonSubscribe } from "@test/helpers/fixture/bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REOPEN_WAITS_MS } from "../transport/reopening-subscription.js";
 import { subscribeWorkflowNotices, type WorkflowNoticeFrame } from "./workflow-notices.js";

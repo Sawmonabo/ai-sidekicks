@@ -8,7 +8,7 @@
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { refusePersistence } from "./persistence-refusals.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";

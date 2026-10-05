@@ -13,7 +13,10 @@ import {
   GenerationLatch,
   type CurrentGenerationClaim,
 } from "@renderer/lib/reads/generation-latch.js";
-import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import {
+  RefreshScheduler,
+  type RefreshReason,
+} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";

@@ -14,7 +14,7 @@ import {
   type KeychainRefusalCause,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
-import type { WireRefusal } from "@renderer/lib/wire-rejection.js";
+import type { WireRefusal } from "@renderer/lib/wire/rejection.js";
 
 /** The remedy a refused `providerAccount.setCurrent` names for its account, where it names one. */
 export function readCarriedLoginRemedy(

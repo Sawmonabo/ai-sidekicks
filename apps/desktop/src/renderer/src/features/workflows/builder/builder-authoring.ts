@@ -1,7 +1,7 @@
 // The builder pane's address vocabulary: the one entity kind it authors, and what it says
 // when it is opened with no subject or with the wrong kind.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { WorkflowStripState } from "../strip-state.js";
 import { misaddressedPane } from "../pane-addressing.js";

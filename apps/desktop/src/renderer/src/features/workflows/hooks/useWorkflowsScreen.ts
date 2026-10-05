@@ -6,7 +6,7 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import {
   sessionRoute,

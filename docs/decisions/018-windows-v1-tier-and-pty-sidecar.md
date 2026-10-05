@@ -56,7 +56,7 @@ What is the V1 quality tier for Windows, and what PTY backend strategy on Window
 
    _Firing order, per-session sequence, and dedupe._ Per-session `fireExit` runs BEFORE the `rejectAllOutstanding` call so consumers receive the per-session `onExit` signal before per-RPC rejections, mirroring the normal-path `handleExitNotification` ordering. The per-session sequence is: set `record.exitCode = -1` and `record.signalCode = undefined`, call `fireExit(sessionId, -1, undefined)`, then `this.sessions.delete(sessionId)` — so `sessions.size === 0` holds after teardown, and any late `ExitCodeNotification` is suppressed by the `record.exitCode !== null` dedupe gate that `handleExitNotification` and `deliverBufferedSpawnEvents` also use.
 
-   _Crash-budget orthogonality and stale-event composition._ The crash-time `onExit` fire path runs regardless of `permanentlyUnavailable === true` (crash-budget exhausted) — the per-session `onExit` is the surface consumers rely on for cleanup, orthogonal to the crash-budget accounting of `SidecarChildSupervisor.recordCrashOncePerChild` in `packages/runtime-daemon/src/pty/sidecar-child-supervisor.ts`. The per-session iteration sits BELOW the stale-event guard (`if (this.child !== child) return`) so a late event from an old crashed child cannot fire `onExit` against a freshly-spawned replacement's sessions.
+   _Crash-budget orthogonality and stale-event composition._ The crash-time `onExit` fire path runs regardless of `permanentlyUnavailable === true` (crash-budget exhausted) — the per-session `onExit` is the surface consumers rely on for cleanup, orthogonal to the crash-budget accounting of `SidecarChildSupervisor.recordCrashOncePerChild` in `packages/runtime-daemon/src/pty/sidecar/sidecar-child-supervisor.ts`. The per-session iteration sits BELOW the stale-event guard (`if (this.child !== child) return`) so a late event from an old crashed child cannot fire `onExit` against a freshly-spawned replacement's sessions.
 
 10. **Orphaned child processes are contained in two layers.**
 
@@ -253,5 +253,5 @@ Both rows are items of Plan-021's Done Checklist. Row 1 is run by Plan-021 Phase
 - [Daemon Architecture](../architecture/daemon.md) — `PtyHost` interface obligation; Rust sidecar as Windows primary.
 - [Deployment Topology §Container and Packaging](../architecture/deployment-topology.md#container-and-packaging) — binary distribution surface.
 - [Vision §Add](../vision.md#add) — the Rust sidecar is a confirmed V1 component.
-- `packages/runtime-daemon/src/pty/pty-host.ts` — `PtyHost.onExit(sessionId, exitCode, signalCode?)` contract surface; §Decision item 9 codifies the crash-time emit values + ordering against this interface.
+- `packages/runtime-daemon/src/pty/host/pty-host.ts` — `PtyHost.onExit(sessionId, exitCode, signalCode?)` contract surface; §Decision item 9 codifies the crash-time emit values + ordering against this interface.
 - [`packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts`](../../packages/runtime-daemon/src/pty/rust-sidecar-pty-host.ts) — `RustSidecarPtyHost.handleChildExit` / `handleChildError`, where §Decision item 9's crash-time emit runs.

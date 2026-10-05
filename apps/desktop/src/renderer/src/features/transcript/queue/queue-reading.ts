@@ -10,7 +10,10 @@ import {
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
-import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import {
+  RefreshScheduler,
+  type RefreshReason,
+} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import {
   QueueCancellations,
   type QueueCancelCall,
@@ -19,7 +22,7 @@ import {
 import { QueueOrder } from "./queue-order.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import {
   type WireReadPhase,
   type WireReadState,

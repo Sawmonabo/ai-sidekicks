@@ -44,7 +44,7 @@ import { describe, expect, it } from "vitest";
 
 import { isFixtureOnlyModule } from "../../electron.vite.config.js";
 import { DESKTOP_PACKAGE_ROOT } from "../../scripts/budget/budget-registry.mts";
-import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture-global-names.js";
+import { FIXTURE_GLOBAL_NAMES } from "@renderer/app/fixture/global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "@shared/fixture-launch.js";
 import { type PerformanceMeterKind } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
@@ -196,8 +196,8 @@ describe("release build — the fixture code is absent, not merely unreachable",
       "fixtures/scenarios/planted.ts",
       "src/renderer/src/services/daemon/planted.fixture.ts",
       "src/renderer/src/features/settings/pages/providers/fixtures/planted.ts",
-      "src/renderer/src/app/fixture-composition.ts",
-      "src/renderer/src/app/fixture-global-names.ts",
+      "src/renderer/src/app/fixture/composition.ts",
+      "src/renderer/src/app/fixture/global-names.ts",
       "src/renderer/src/app/pane-harness/Planted.tsx",
       "src/renderer/src/features/transcript/planted.test.ts",
       "src/renderer/src/features/transcript/planted.test-support.ts",

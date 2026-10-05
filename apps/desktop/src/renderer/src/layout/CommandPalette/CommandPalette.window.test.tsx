@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
-import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { liveBridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { CommandPalette } from "./CommandPalette.js";

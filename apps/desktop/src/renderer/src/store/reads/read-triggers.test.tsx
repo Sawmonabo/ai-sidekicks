@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import { type ReadTriggerTarget } from "./read-triggers.js";
 import { useSessionReadTriggers } from "./hooks/useSessionReadTriggers.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
+import { eventOfKind } from "@test/helpers/session/events.js";
 import { SessionStore } from "../session/session-store.js";
 
 const SESSION_ID = "session-read-triggers";

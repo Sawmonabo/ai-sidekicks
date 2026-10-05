@@ -9,7 +9,7 @@
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
 import {
   readPerformanceMeterTime,
   recordFrameTime,

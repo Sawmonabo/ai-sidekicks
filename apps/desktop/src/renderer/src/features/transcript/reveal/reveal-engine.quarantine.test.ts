@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire-errors.js";
+import { UNREPRESENTABLE_VALUE_TEXT } from "@renderer/lib/wire/errors.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "./reveal-caps.js";
 import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";

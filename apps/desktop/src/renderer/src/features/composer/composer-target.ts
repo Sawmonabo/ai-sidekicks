@@ -4,7 +4,7 @@
 // the resolver can answer with an incomplete target; defaulting a missing field would assert facts
 // nobody established.
 
-import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireNumber, readWireString } from "@renderer/lib/wire/strings.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";

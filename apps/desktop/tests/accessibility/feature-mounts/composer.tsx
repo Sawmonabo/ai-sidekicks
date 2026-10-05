@@ -1,7 +1,7 @@
 // The composer feature's views, mounted once for the accessibility tier.
 //
-// Not a test file. `app-harness.ts` owns how the app is mounted; this owns what of this feature is
-// mounted into it.
+// Not a test file. `helpers/app/harness.ts` owns how the app is mounted; this owns what of this
+// feature is mounted into it.
 //
 // The composer states are addresses, not variants: `composer-target.ts` resolves the send path
 // from the focused pane and the session store's own partitions, so the composer has an address to
@@ -24,16 +24,16 @@
 
 import type { ReactElement } from "react";
 
-import { renderSettled } from "../../helpers/app-harness.js";
+import { renderSettled } from "../../helpers/app/harness.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "@fixtures/scenarios/waiting-for-input.js";
 import { scenarioLeadAgentId } from "@fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { FixtureBridgeProvider } from "../../helpers/app-frame-fixtures.js";
+import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "../../helpers/scheduled-read.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

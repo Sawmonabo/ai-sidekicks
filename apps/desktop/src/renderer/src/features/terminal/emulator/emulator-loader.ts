@@ -1,18 +1,18 @@
 // The one edge into the emulator's code, and the only asynchronous one.
 //
-// `xterm-adapter.ts` pulls in `@xterm/xterm`, its addons and its stylesheet, so it is reached
+// `xterm/adapter.ts` pulls in `@xterm/xterm`, its addons and its stylesheet, so it is reached
 // through `import()` only: a static import from anything mounted at boot would put all of
 // those bytes in the initial document.
 
 import { MemoizedLoad } from "@renderer/lib/memoized-load.js";
 
 /**
- * The adapter class and nothing else, narrowed from `xterm-adapter.ts` so a rename there fails
+ * The adapter class and nothing else, narrowed from `xterm/adapter.ts` so a rename there fails
  * here. A type-position `typeof import(...)` is erased, so it opens no runtime edge into the
  * lazy chunk.
  */
 export type TerminalEmulatorModule = Pick<
-  typeof import("./xterm-adapter.js"),
+  typeof import("./xterm/adapter.js"),
   "XtermTerminalAdapter"
 >;
 
@@ -22,7 +22,7 @@ export type TerminalEmulatorModule = Pick<
  */
 export const terminalEmulatorLoader: MemoizedLoad<TerminalEmulatorModule> = new MemoizedLoad(
   async () => {
-    const { XtermTerminalAdapter } = await import("./xterm-adapter.js");
+    const { XtermTerminalAdapter } = await import("./xterm/adapter.js");
     return { XtermTerminalAdapter };
   },
 );

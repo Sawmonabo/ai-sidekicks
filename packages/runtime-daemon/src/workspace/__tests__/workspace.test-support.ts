@@ -9,7 +9,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import type { Database } from "better-sqlite3";
 
-import { NEUTRALIZED_GIT_ENV_KEYS } from "../../git/git-process.js";
+import { NEUTRALIZED_GIT_ENV_KEYS } from "../../git/process.js";
 import { insertStoredEvent } from "../../session/__tests__/stored-event.test-support.js";
 import type { DirectoryReadabilityProbe } from "../trust-envelope.js";
 import type { WorkspaceService } from "../workspace-service.js";

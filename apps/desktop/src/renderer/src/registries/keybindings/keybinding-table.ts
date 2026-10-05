@@ -13,7 +13,7 @@
 // `stopPropagation` a press first; the text-entry guard runs first, so the table declines
 // a press rather than stealing it.
 
-import { RefusalError, refuse } from "@renderer/lib/refusal.js";
+import { RefusalError, refuse } from "@renderer/lib/refusal/refusal.js";
 import { isTextEntryTarget } from "@renderer/lib/editable-target.js";
 import type { CommandRegistry } from "../commands/command-registry.js";
 import type { Keybinding } from "../commands/command-types.js";

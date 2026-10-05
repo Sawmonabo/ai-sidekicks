@@ -14,11 +14,11 @@ import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { parseCliVersionReport } from "./capability-refresh.js";
+import { parseCliVersionReport } from "./capability/refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
-import type { DriverCliVersionReport } from "./provider-driver.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
-import { assertValidCliVersionReport } from "./provider-output-validation.js";
+import type { DriverCliVersionReport } from "./driver/provider-driver.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/provider-driver-descriptors.js";
+import { assertValidCliVersionReport } from "./output-validation.js";
 import {
   buildProviderSpawnEnv,
   hostEnvNameMatchForPlatform,

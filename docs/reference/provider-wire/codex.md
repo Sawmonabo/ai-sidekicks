@@ -537,7 +537,7 @@ These are exactly the class the [family README](README.md#versions)'s degrade-pe
 
 ## Driver fixtures
 
-The captured-wire fixtures the Codex event-normalizer is tested against live in `packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/`.
+The captured-wire fixtures the Codex event-normalizer is tested against live in `packages/runtime-daemon/src/provider/driver/drivers/codex/__fixtures__/`.
 
 ## Provenance
 

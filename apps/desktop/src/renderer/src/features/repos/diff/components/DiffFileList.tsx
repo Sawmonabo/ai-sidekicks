@@ -11,7 +11,7 @@ import {
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
 } from "../diff-measures.js";
-import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../../diff-caps.js";
+import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../caps.js";
 import {
   HIDDEN_SELECTION_COPY,
   diffFileListReading,

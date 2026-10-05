@@ -1,7 +1,7 @@
 // The receipt a settled machine turn leaves: the body's recorded size and media type, and
 // nothing metered, so no card becomes a second source of cost.
 
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 
 /** The descriptive members a row recorded about its body. */
 export interface RecordedBodyLineProps {

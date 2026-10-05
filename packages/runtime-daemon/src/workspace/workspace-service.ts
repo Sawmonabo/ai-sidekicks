@@ -6,7 +6,7 @@
  *   the prelude.
  * - `fs_root` is an approval-scope boundary: a bind and `beginRootPreparation` write NULL, and only
  *   `completeRootPreparation` writes a path.
- * - The four `workspace.*` domain errors follow the carrier pattern of `./repo-errors.js`; every
+ * - The four `workspace.*` domain errors follow the carrier pattern of `./repo/errors.js`; every
  *   code comes from the error registry, and this module mints none.
  */
 
@@ -26,7 +26,7 @@ import type {
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/workspace";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
-import { RepoMountNotFoundError } from "./repo-errors.js";
+import { RepoMountNotFoundError } from "./repo/errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
@@ -37,7 +37,7 @@ import {
   PROBE_BEARING_WORKSPACE_STATES,
   type FilesystemPathProbe,
   type WorkspaceHealthProjection,
-} from "./workspace-projector.js";
+} from "./projector.js";
 import {
   assertAbsoluteExecutionRoot,
   assertSingleRowChanged,
@@ -50,7 +50,7 @@ import {
   readLastError,
   type WorkspaceRow,
   wrapRowFailure,
-} from "./workspace-row-guards.js";
+} from "./row-guards.js";
 import {
   StaleTransitionRaceError,
   WorkspaceBusyError,
@@ -58,8 +58,8 @@ import {
   WorkspaceNotFoundError,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
-} from "./workspace-service-errors.js";
-import { normalizeWorkspaceLastError } from "./workspace-last-error.js";
+} from "./service-errors.js";
+import { normalizeWorkspaceLastError } from "./last-error.js";
 
 /**
  * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies
@@ -104,7 +104,7 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 
 /**
  * Owns every workspace lifecycle transition and statement against `workspaces`, except the detach
- * cascade's read and archive write in `./repo-mount-service.js`, which share the mount flip's
+ * cascade's read and archive write in `./repo/repo-mount-service.js`, which share the mount flip's
  * transaction. Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
  */
 export class WorkspaceService {

@@ -7,7 +7,7 @@ import {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
-} from "../diff-caps.js";
+} from "./caps.js";
 import {
   diffLineText,
   wholeLineSegments,
@@ -15,7 +15,7 @@ import {
   type DiffIntralineSegment,
 } from "./diff-model.js";
 import { diffHunkAt, diffLineAt } from "./diff-row-index.js";
-import { pairedLineIndexFor } from "./hunk-row-layout.js";
+import { pairedLineIndexFor } from "./hunk/row-layout.js";
 import type { DiffLineRow } from "./diff-row-model.js";
 import { intralineSegments } from "./patch-parse.js";
 

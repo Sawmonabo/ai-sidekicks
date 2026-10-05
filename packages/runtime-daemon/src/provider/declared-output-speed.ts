@@ -9,7 +9,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import type { DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 /** One declaration as the provider made it: the state, and its reason or `null` if it gave none. */
 export interface DeclaredOutputSpeed {

@@ -1,6 +1,6 @@
 //! Tests for the daemon-to-sidecar wire protocol. Every [`Envelope`] variant is serialized and
 //! deserialized back unchanged. The rest pin the wire format the daemon's TS mirror
-//! (`runtime-daemon/src/pty/pty-host-protocol.ts`) depends on: `kind` is a top-level snake_case
+//! (`runtime-daemon/src/pty/host/protocol.ts`) depends on: `kind` is a top-level snake_case
 //! key on every envelope the daemon reads, `bytes` fields travel as base64 strings, a `None` error
 //! is absent while a `None` signal code is `null`, and a payload written the way the TS producer
 //! writes it deserializes.
@@ -299,7 +299,7 @@ fn outbound_envelope_kind_is_top_level_snake_case() {
 #[test]
 fn hand_rolled_spawn_request_json_deserializes_to_envelope() {
     // A hand-built payload as the TS producer writes it (mirroring the daemon's
-    // `pty-host-protocol.ts`): top-level `kind` and payload fields at the same depth.
+    // `pty/host/protocol.ts`): top-level `kind` and payload fields at the same depth.
     let raw = json!({
         "kind": "spawn_request",
         "command": "ls",

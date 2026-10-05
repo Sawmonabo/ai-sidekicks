@@ -4,7 +4,7 @@
 import { useCallback, useMemo } from "react";
 
 import { AgentBindingCard } from "./AgentBindingCard.js";
-import { ToolAllowlistCeiling } from "./ToolAllowlistCeiling.js";
+import { ToolAllowlistCeiling } from "../tool-allowlist/components/ToolAllowlistCeiling.js";
 import { type AgentsPaneModels } from "../agents-pane-models.js";
 import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

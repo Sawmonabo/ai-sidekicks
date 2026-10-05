@@ -16,8 +16,8 @@
 import {
   daemonMethodBindingFor,
   REGISTERED_DAEMON_METHODS,
-} from "@shared/daemon-method-bindings.js";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
+} from "@shared/daemon/daemon-method-bindings.js";
+import type { ScenarioReply } from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "@fixtures/scenario.js";
 
@@ -87,12 +87,12 @@ function describeResultDefect(reply: ScenarioReply): string | undefined {
  * A scripted latency the frozen clock cannot spend, or `undefined` when it can.
  *
  * Admitted: absent, and every finite value at or above zero (zero settles as an absent `afterMs`
- * does). The split follows the engine's own test: `scripted-reply.fixture.ts` spends a latency
- * only when `afterMs !== undefined && afterMs > 0`, and `held-reply-queue.fixture.ts` releases a
- * reply parked at `elapsedMs + afterMs` when an advance reaches its due time. `Infinity` passes
- * the test and parks at a tick no finite advance reaches, so the view awaiting it loads until
- * teardown. `NaN`, negatives and `-Infinity` fail `afterMs > 0`, so the reply is never parked and
- * the loading state is never observable. No other leg reports either, since a reply carries no
+ * does). The split follows the engine's own test: `daemon/scripted/reply.fixture.ts` spends a
+ * latency only when `afterMs !== undefined && afterMs > 0`, and `held-reply-queue.fixture.ts`
+ * releases a reply parked at `elapsedMs + afterMs` when an advance reaches its due time. `Infinity`
+ * passes the test and parks at a tick no finite advance reaches, so the view awaiting it loads
+ * until teardown. `NaN`, negatives and `-Infinity` fail `afterMs > 0`, so the reply is never parked
+ * and the loading state is never observable. No other leg reports either, since a reply carries no
  * event and meets no schema.
  */
 function describeLatencyDefect(afterMs: number | undefined): string | undefined {

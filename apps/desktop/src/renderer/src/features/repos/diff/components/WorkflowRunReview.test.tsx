@@ -5,9 +5,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
-import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture/bridge.js";
 import { paneContext } from "@test/helpers/pane-context.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import type { WorkflowRunComparisonRef } from "@renderer/routing/panes/pane-address.js";

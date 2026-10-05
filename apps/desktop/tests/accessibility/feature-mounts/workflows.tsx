@@ -14,15 +14,15 @@ import type { FunctionComponent } from "react";
 
 import { act } from "@testing-library/react";
 
-import { renderSettled } from "../../helpers/app-harness.js";
+import { renderSettled } from "../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { unscriptedScenario } from "../../helpers/fixture-bridge.js";
-import { FixtureBridgeProvider } from "../../helpers/app-frame-fixtures.js";
+import { unscriptedScenario } from "../../helpers/fixture/bridge.js";
+import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import {
   PROBE_SESSION_ID,
@@ -31,7 +31,7 @@ import {
 import { type AppRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";

@@ -21,8 +21,8 @@ import {
   type AppearanceRecord,
 } from "@shared/appearance.js";
 import { APPEARANCE_VALUE_CHANNEL, FULLSCREEN_VALUE_CHANNEL } from "@shared/bridge-channels.js";
-import { createElectronMock } from "@test/helpers/electron-mock.js";
-import type { MockBaseWindow } from "@test/helpers/electron-mock-window.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+import type { MockBaseWindow } from "@test/helpers/electron/mock/window.js";
 import {
   asMockWindow,
   handedDocument,

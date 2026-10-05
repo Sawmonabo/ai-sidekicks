@@ -1,6 +1,6 @@
 // The generated load-failure document. No `electron` mock: the module imports only
-// `../services/renderer-scheme.ts`. What the handler does with it (the 200, content type, locked
-// headers, host match) is asserted in `../services/renderer-protocol.test.ts`.
+// `../services/renderer/scheme.ts`. What the handler does with it (the 200, content type, locked
+// headers, host match) is asserted in `../services/renderer/protocol.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

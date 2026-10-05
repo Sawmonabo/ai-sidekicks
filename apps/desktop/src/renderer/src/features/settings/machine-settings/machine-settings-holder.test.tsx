@@ -7,10 +7,10 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import { machineSettingsHolder } from "./machine-settings-holder.js";
 import type { MachineSettingsStore } from "./machine-settings-store.js";

@@ -9,8 +9,8 @@
 // The subject is a caller-written noun phrase of unknown number ("the queue", "these quotas"), so
 // no arm puts it in front of a verb.
 
-import type { Refusal } from "./refusal.js";
-import { formatCount } from "./wire-figures.js";
+import type { Refusal } from "./refusal/refusal.js";
+import { formatCount } from "./wire/figures.js";
 
 /**
  * How completely a view's reading answered the question it put. `served` is the only member

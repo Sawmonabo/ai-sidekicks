@@ -9,7 +9,7 @@ import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubj
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
-import { ProviderCommandEnumeration } from "./command-list/provider-command-enumeration.js";
+import { ProviderCommandEnumeration } from "./command-list/provider-command/provider-command-enumeration.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
 

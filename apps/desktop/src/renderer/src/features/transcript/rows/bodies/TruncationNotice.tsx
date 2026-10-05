@@ -2,7 +2,7 @@
 // the rest. A prefix alone would read as a complete short answer.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { formatByteQuantity } from "@renderer/lib/wire/figures.js";
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
 /**

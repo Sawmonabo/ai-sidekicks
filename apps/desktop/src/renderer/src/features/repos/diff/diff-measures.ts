@@ -1,5 +1,5 @@
 // Named measures the diff pane, renderer and inline card compute with. Nothing is checked
-// against them; ceilings live in `features/repos/diff-caps.ts`.
+// against them; ceilings live in `features/repos/diff/caps.ts`.
 
 /**
  * The height of one rendered diff row, in CSS pixels. The sheet gives every row this as its

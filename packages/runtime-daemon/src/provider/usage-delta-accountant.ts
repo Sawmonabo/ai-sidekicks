@@ -30,7 +30,7 @@
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 // --------------------------------------------------------------------------
 // Axes and readings.

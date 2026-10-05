@@ -6,7 +6,7 @@
 import { memo, useCallback, useMemo } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type ReorderDrag } from "@renderer/lib/reorder-drag.js";
 import {
   PaneControlsContext,

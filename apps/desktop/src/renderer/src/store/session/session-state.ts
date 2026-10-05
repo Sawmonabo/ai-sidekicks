@@ -2,7 +2,7 @@
 // because the selectors, the hooks and the store all read it, and a shape declared inside the
 // writing class would force every reader to import the writer.
 
-import type { SessionDegradedCause } from "../session-degradation.js";
+import type { SessionDegradedCause } from "./degradation.js";
 import {
   emptyPartitions,
   type StoredEntity,

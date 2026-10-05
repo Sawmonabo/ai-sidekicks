@@ -12,7 +12,7 @@ import type {
 } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";

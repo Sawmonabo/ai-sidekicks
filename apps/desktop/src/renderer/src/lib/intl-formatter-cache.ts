@@ -1,7 +1,7 @@
 // The `Intl` objects the app holds, and the bounds on holding them. Constructing an `Intl`
 // formatter resolves a locale and builds a message table while formatting is cheap, so every
 // figure is formatted through a held instance, one per named style and locale, under a cap.
-// A sibling of `wire-figures.ts`, which owns the formatting policy and is the only importer.
+// A sibling of `wire/figures.ts`, which owns the formatting policy and is the only importer.
 
 /**
  * Make room in a cache at its cap by dropping the oldest inserted entry. Insertion order rather

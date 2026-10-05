@@ -20,26 +20,26 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { EventLogService } from "../../events/event-log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { TrustEnvelopeViolationError } from "../repo-errors.js";
+import { TrustEnvelopeViolationError } from "../repo/errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import type { FilesystemPathProbe } from "../workspace-projector.js";
+import type { FilesystemPathProbe } from "../projector.js";
 import {
   normalizeWorkspaceLastError,
   scrubCredentials,
   WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
-} from "../workspace-last-error.js";
+} from "../last-error.js";
 import {
   WorkspaceBusyError,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
-} from "../workspace-service-errors.js";
+} from "../service-errors.js";
 import {
   WorkspaceService,
   type SessionExistenceReader,
   type WorkspaceServiceDeps,
 } from "../workspace-service.js";
-import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
+import { type FilesystemPathProbeFn } from "../row-guards.js";
 
 import {
   bindReadyWorkspace,

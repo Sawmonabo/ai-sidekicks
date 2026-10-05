@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { CallbackToolInvocation } from "../provider-driver.js";
+import type { CallbackToolInvocation } from "../driver/provider-driver.js";
 import {
   bindSpawn,
   buildCallbackToolHostHarness,

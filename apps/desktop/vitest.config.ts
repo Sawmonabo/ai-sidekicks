@@ -7,7 +7,7 @@
 //
 // The renderer's tiers are declared in `vitest/tier-projects.ts` and spread below. Playwright is a
 // library here, not a second runner: browser mode drives it for the page tiers, and
-// `tests/helpers/electron-harness.ts` drives it for the window tiers.
+// `tests/helpers/electron/harness.ts` drives it for the window tiers.
 
 import { configDefaults, defineConfig } from "vitest/config";
 

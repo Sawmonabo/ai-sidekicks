@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
+import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow/runs.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";

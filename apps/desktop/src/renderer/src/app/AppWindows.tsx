@@ -10,9 +10,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { parseRoute, formatRoute, DEFAULT_ROUTE, type AppRoute } from "@renderer/routing/routes.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type OpenWindow, type OpenWindows } from "@renderer/services/window/open-windows.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { type SessionBaseStateReader } from "@renderer/store/session/open-session-entry.js";
+import { type SessionBaseStateReader } from "@renderer/store/session/open-session/open-session-entry.js";
 import {
   keepWindowIds,
   readKeptWindowIds,

@@ -7,7 +7,7 @@
 // (session-scoped kinds carry no `entity`, entity-keyed kinds require one) are enforced at the call
 // site.
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";

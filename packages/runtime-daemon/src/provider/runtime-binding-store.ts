@@ -2,7 +2,7 @@
 // `session/daemon-schema.ts`; binding state never touches a remote provider.
 //
 // - `contract_version`, `resume_handle` and the `cli_version_raw` / `cli_version_semver` pair are
-//   provider-declared: the SQL CHECKs bound length and NULs, `provider-output-validation.ts` adds
+//   provider-declared: the SQL CHECKs bound length and NULs, `output-validation.ts` adds
 //   the semantic layer. The pair is spawn-scoped, so it is validated at INSERT only.
 // - `spawn_config` is required at create; recovery re-reads it to rebuild `ResumeSessionParams`
 //   without the original client request. `cliVersion` is one optional member, so the DDL's rule
@@ -22,10 +22,7 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
-import {
-  assertValidContractVersion,
-  assertValidResumeHandle,
-} from "./provider-output-validation.js";
+import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
 import { isPlainObject } from "./record-readers.js";
 import {
@@ -36,7 +33,7 @@ import {
   type ResumeSessionParams,
   type SubagentPolicy,
   readCliVersionColumns,
-} from "./provider-driver.js";
+} from "./driver/provider-driver.js";
 
 /**
  * The daemon-owned record of the spawn-bound configuration, persisted at every binding write.

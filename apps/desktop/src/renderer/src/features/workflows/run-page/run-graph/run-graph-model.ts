@@ -15,7 +15,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatCount, formatDayClock } from "@renderer/lib/wire/figures.js";
 import { isLaterStep, isPersonWaitCause } from "../../run-steps.js";
 import { STEP_STATUS_WORDS, WAIT_CAUSE_WORDS, itemCountWords } from "../../workflow-words.js";
 

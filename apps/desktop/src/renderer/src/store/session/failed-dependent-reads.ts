@@ -9,7 +9,7 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 
 /** A read the session screen depends on: the one method that asks it again. */

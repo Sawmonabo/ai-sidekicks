@@ -6,7 +6,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 

@@ -9,7 +9,7 @@ import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import { type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import { type RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";

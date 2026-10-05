@@ -7,7 +7,7 @@
 import "./WorkflowsScreen.css";
 
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import { RunsStrip } from "./components/RunsStrip.js";
 import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
 import { RunPage } from "./run-page/RunPage.js";

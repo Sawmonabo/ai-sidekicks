@@ -4,7 +4,7 @@
 // evaluation order. `commandsFor` decides only what the palette offers from `when` clauses;
 // a command the daemon may refuse is still offered, and the refusal is rendered when it returns.
 
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { COMMAND_PALETTE_RECENTS_CAP } from "./command-palette-caps.js";

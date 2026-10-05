@@ -10,7 +10,7 @@ import { join, posix as posixPath, win32 as win32Path } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { TrustEnvelopeViolationError } from "../repo-errors.js";
+import { TrustEnvelopeViolationError } from "../repo/errors.js";
 import {
   TrustEnvelopeValidator,
   type PathRealpathResolver,

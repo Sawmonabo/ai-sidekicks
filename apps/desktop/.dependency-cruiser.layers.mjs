@@ -96,7 +96,7 @@ export const FIXTURES = "^fixtures/";
 export const FIXTURE_READERS = [
   "\\.fixture\\.tsx?$",
   `${FEATURES}.+/fixtures/`,
-  `${APP}fixture-composition\\.tsx?$`,
+  `${APP}fixture/composition\\.tsx?$`,
   `${APP}pane-harness/`,
   "^src/main/fixture-launch\\.ts$",
 ];

@@ -5,7 +5,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 
 import { SessionStore } from "@renderer/store/session/session-store.js";

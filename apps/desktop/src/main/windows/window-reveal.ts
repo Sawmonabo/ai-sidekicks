@@ -10,7 +10,7 @@
 //
 // The split in (2) is measured: with throttling off, Electron keeps frames running for a hidden
 // window on macOS but not on Windows (electron/electron#31016). Linux runs under Xvfb and takes
-// the inactive reveal. `tests/helpers/launch-readiness.ts` checks on every launch that the
+// the inactive reveal. `tests/helpers/launch/readiness.ts` checks on every launch that the
 // document stays visible and draws. A release bundle carries none of this: all three sit behind
 // the compile-time build flag.
 

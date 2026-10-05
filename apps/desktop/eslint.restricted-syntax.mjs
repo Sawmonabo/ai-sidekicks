@@ -94,7 +94,7 @@ export const TIME_READING_SELECTORS = [
   {
     // The named form, inverted: a `new Date` whose argument is a name is refused unless the name
     // says it is a number. Keying on stamp-shaped names (`…At`, `…Iso`) fails because
-    // `formatClockTime(iso: string)` in `lib/wire-figures.ts` carries a wire stamp under a
+    // `formatClockTime(iso: string)` in `lib/wire/figures.ts` carries a wire stamp under a
     // lower-case name. Inverted, a new stamp name is caught, and a new numeric name is a one-word
     // edit to `NUMERIC_INSTANT_NAME_SUFFIX` that a reviewer sees. A sum or a call is not a name and
     // is outside the arm, so `new Date(base + offsetMs)` and `new Date(Date.UTC(...))` still pass.
@@ -290,18 +290,18 @@ export const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
-      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
-      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
-      "timer. Spawn through that module; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/child.ts` " +
+      "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
+      "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
+      "a timer. Spawn through that module; `spawnSync` is untouched.",
   },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron-child.ts` is the " +
-      "only module that reaches `spawn` from `node:child_process`, and it registers the kill on " +
-      "`onTestFinished` so a spawned child's lifetime belongs to the test rather than to a " +
-      "timer. Spawn through that module; `spawnSync` is untouched.",
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/child.ts` " +
+      "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
+      "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
+      "a timer. Spawn through that module; `spawnSync` is untouched.",
   },
 ];
 

@@ -3,7 +3,7 @@
 // `SessionPaneSlot`'s ternary chain.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneDescriptor } from "@renderer/registries/panes/pane-registry.js";
 

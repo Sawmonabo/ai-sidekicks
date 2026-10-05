@@ -16,7 +16,7 @@ import { fixtureLaunchSwitches, type FixtureLaunch } from "@shared/fixture-launc
 import { KeptAppearance } from "./appearance/kept-appearance.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
-import { FilePathRefs } from "./bridge/file-path-refs.js";
+import { FilePathRefs } from "./bridge/file-path/file-path-refs.js";
 import { installBridgeHandlers } from "./bridge/install-bridge-handlers.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { installApplicationMenu } from "./menu.js";
@@ -26,16 +26,16 @@ import { processCrashReporterHost, startCrashReporter } from "./services/crash-r
 import { DaemonLink } from "./services/daemon/daemon-link.js";
 import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/daemon-supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
-import { attachToServiceProcess } from "./services/daemon/service-process.js";
-import { resolveServiceProgram } from "./services/daemon/service-program.js";
-import { startServiceDetached } from "./services/daemon/service-start.js";
+import { attachToServiceProcess } from "./services/daemon/service/service-process.js";
+import { resolveServiceProgram } from "./services/daemon/service/service-program.js";
+import { startServiceDetached } from "./services/daemon/service/start.js";
 import {
   createMainDiagnosticLog,
   reportUnwrittenDiagnostics,
   type MainDiagnosticLog,
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
-import { installRendererProtocol, registerRendererScheme } from "./services/renderer-protocol.js";
+import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { OpenWindows } from "./windows/open-windows.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/place-file.js";
 import { installActivationPolicy } from "./windows/window-reveal.js";

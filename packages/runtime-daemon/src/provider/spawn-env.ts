@@ -10,7 +10,7 @@
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/provider-driver-descriptors.js";
 
 /** One child-environment entry, in the pair shape the PTY spawn surface takes. */
 export type SpawnEnvPair = readonly [name: string, value: string];

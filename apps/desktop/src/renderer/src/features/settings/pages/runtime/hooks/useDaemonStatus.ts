@@ -14,10 +14,10 @@ import { useEffect } from "react";
 
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { DaemonConnection } from "@shared/daemon-status-topic.js";
+import type { DaemonConnection } from "@shared/daemon/daemon-status-topic.js";
 
 /**
  * The daemon verbs this page drives.

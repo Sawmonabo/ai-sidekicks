@@ -4,7 +4,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import {

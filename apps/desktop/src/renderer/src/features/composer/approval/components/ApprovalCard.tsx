@@ -16,8 +16,8 @@ import { Chip } from "@renderer/components/Chip/Chip.js";
 import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "@renderer/lib/wire-figures.js";
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { formatClockTime } from "@renderer/lib/wire/figures.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import {

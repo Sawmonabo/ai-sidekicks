@@ -2,7 +2,7 @@
 //
 // One predicate over every scenario in `fixtures/scenarios/`, so a scenario added with a defect
 // fails here without its author knowing this module exists. Every beat meets the three schemas in
-// `@ai-sidekicks/contracts` (`beat-shape.ts`), then the rules those schemas do not carry,
+// `@ai-sidekicks/contracts` (`beat/shape.ts`), then the rules those schemas do not carry,
 // each read off the module that owns it: run and queue semantics, beat order and replies,
 // one module per axis.
 //
@@ -10,8 +10,8 @@
 // "the contracts package names no members for this type" never justifies a partial row: a scenario
 // scripting such a type carries every member the taxonomy requires of an emitter.
 
-import { describeBeatDefect } from "./beat-shape.js";
-import { findBeatOrderDefects } from "./beat-order.js";
+import { describeBeatDefect } from "./beat/shape.js";
+import { findBeatOrderDefects } from "./beat/order.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { findReplyDefects } from "./reply-checks.js";
 import type { Scenario } from "@fixtures/scenario.js";

@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import {
   AttentionSummary,
   type RefusedAttentionSession,

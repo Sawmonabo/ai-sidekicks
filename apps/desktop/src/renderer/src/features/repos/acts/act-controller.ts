@@ -21,11 +21,11 @@ import {
   type ActSettlementReading,
 } from "./act-reading.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
-import { RefreshScheduler } from "@renderer/lib/reads/refresh-scheduler.js";
+import { RefreshScheduler } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { SessionRefreshTriggers } from "@renderer/store/reads/session-refresh-triggers.js";
 import type { ReadRound } from "@renderer/lib/reads/read-scope.js";
 import type { ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 
 /** What the act half is named by. */

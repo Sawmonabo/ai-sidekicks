@@ -15,7 +15,7 @@ import { useState } from "react";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import { RULE_SCOPE_LABELS, RULE_SENSE_LABELS } from "@renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
 import { offersRevoke } from "../contributions/revoke-rule-commands.js";

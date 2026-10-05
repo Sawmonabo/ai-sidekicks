@@ -4,7 +4,7 @@
 // app open over a sustained workload and gates the steady-state heap: the reading after the
 // application has settled against the reading after a long stretch of the same work, near zero
 // whatever happened in between. It asserts no ceiling on the heap itself; that is
-// `heap-at-rest.test.ts`'s budget, and one number must not have two owners.
+// `heap/at-rest.test.ts`'s budget, and one number must not have two owners.
 //
 // The workload is the fixture bridge's scenario engine: deterministic, driving the store paths a
 // daemon would, on a frozen clock. That clock does not advance itself, so the run names the
@@ -23,7 +23,7 @@
 // that once a cycle found a mounted row no later cycle finds the transcript emptied, and the
 // count of cycles that found one is asserted non-zero. Absence of the diagnostics handle fails,
 // never skips. The last case snapshots the renderer over the same workload and reads what named
-// constructors retained (`heap-snapshot-analysis.ts`).
+// constructors retained (`heap/snapshot-analysis.ts`).
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,13 +32,13 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedApp } from "../helpers/electron-harness.js";
-import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
+import { withLaunchedApp } from "../helpers/electron/harness.js";
+import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
-} from "@renderer/app/fixture-global-names.js";
+} from "@renderer/app/fixture/global-names.js";
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
@@ -47,8 +47,8 @@ import {
   readBoundSessionIds,
   readPlayingScenarioId,
 } from "./endurance-workload.js";
-import { readTranscriptWindow } from "./transcript-window-read.js";
-import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
+import { readTranscriptWindow } from "./transcript/window-read.js";
+import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own overscan, so the bound below is not a figure kept in step by hand.
 import { TRANSCRIPT_OVERSCAN_ROWS } from "@renderer/features/transcript/viewport/viewport-constants.js";

@@ -8,7 +8,7 @@
 // to when it goes stale.
 //
 // The repair edge is the reconnect signal. Nothing publishes a bridge-level "reconnected"
-// event, but the store sets `degradedCause` when the stream fails (`session-degradation.ts`)
+// event, but the store sets `degradedCause` when the stream fails (`session/degradation.ts`)
 // and clears it only by a completed re-pull, so the clearing edge is the moment the projection
 // is whole again. A base state is not a frame: `initialize()` backfill is already reflected by
 // the reader's first read, so the scan runs only over an initialized store's transitions.

@@ -3,11 +3,11 @@
 import { render } from "@testing-library/react";
 
 import { settle } from "@test/helpers/settle.js";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";

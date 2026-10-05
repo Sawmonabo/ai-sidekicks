@@ -4,14 +4,14 @@
 // No tool kind is read from the tool's name; `ToolKindBadge` draws what a row declares.
 
 import { elideText } from "@renderer/lib/elide-text.js";
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { formatDuration } from "@renderer/lib/wire-figures.js";
+import { formatDuration } from "@renderer/lib/wire/figures.js";
 import { describeRowKind, toolResultState, type ToolResultState } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";

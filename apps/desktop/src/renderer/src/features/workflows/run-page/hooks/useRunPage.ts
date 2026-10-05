@@ -8,14 +8,14 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { refuse } from "@renderer/lib/refusal.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
 import type { PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";
 import { useWorkflowCommandTarget } from "../../hooks/useWorkflowCommandTarget.js";
 import { useWorkflowRead } from "../../hooks/useWorkflowRead.js";
 import { answerThisRunTarget } from "../../workflow-command-target.js";
 import { createRunRead, type WorkflowReadSources } from "../../workflows-reading.js";
 import { isPersonWaitCause, latestStepWith } from "../../run-steps.js";
-import { stepKeyText } from "../step-key-text.js";
+import { stepKeyText } from "../step/step-key-text.js";
 import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
 
 /** What `Answer this run` says on a run that is not waiting on a person. */

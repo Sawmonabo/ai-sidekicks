@@ -34,7 +34,7 @@ import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
 import { app, shell, type WebContents } from "electron";
 
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer-scheme.js";
+import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer/scheme.js";
 
 /** Where a refused navigation or an outside address that did not open is recorded. */
 type NavigationLog = Pick<MainDiagnosticLog, "write">;

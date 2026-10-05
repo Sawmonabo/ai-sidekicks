@@ -7,7 +7,7 @@ import type { ExecutionMode, RepoMountHealth } from "@ai-sidekicks/contracts/rep
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountState } from "@ai-sidekicks/contracts/repo/repo";
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
-import { selectionInFlightCopy } from "./execution-mode-selection.js";
+import { selectionInFlightCopy } from "./execution-mode/execution-mode-selection.js";
 
 /**
  * One axis reading as a card renders it. `label` is the wire word, rendered verbatim so it can

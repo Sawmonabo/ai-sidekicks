@@ -17,7 +17,7 @@ import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
 import type { Clock } from "@renderer/lib/clock.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

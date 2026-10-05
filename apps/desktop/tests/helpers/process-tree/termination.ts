@@ -2,11 +2,11 @@
 // entry and the dispatch between the arms in `platform-termination.ts`, binding their
 // dependencies to one shared deadline.
 //
-// - POSIX: `electron-child.ts` and `playwright-core` spawn with `detached: process.platform !==
-//   "win32"`, so Electron leads its own process group and `-pid` reaches the browser, zygote and
-//   renderers. A pid leading someone else's group would take that group down, so the POSIX arm
-//   narrows to the leader and never widens; an attached child leads no group, so `-pid` fails
-//   `ESRCH` and falls through.
+// - POSIX: `electron/child/child.ts` and `playwright-core` spawn with `detached:
+//   process.platform !== "win32"`, so Electron leads its own process group and `-pid` reaches the
+//   browser, zygote and renderers. A pid leading someone else's group would take that group down,
+//   so the POSIX arm narrows to the leader and never widens; an attached child leads no group, so
+//   `-pid` fails `ESRCH` and falls through.
 // - Windows: no process group, and its "signals" are `TerminateProcess` calls that are never
 //   forwarded, so signaling the launcher alone orphans the browser holding the inherited stdout.
 //   `taskkill /pid N /t` walks the tree instead and is a separate program, so the child's `exit`

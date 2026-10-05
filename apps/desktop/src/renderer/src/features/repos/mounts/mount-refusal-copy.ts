@@ -4,7 +4,7 @@
 // `undefined` and renders with no next move.
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
-import type { CasedRefusalRemedy } from "@renderer/lib/refusal-remedies.js";
+import type { CasedRefusalRemedy } from "@renderer/lib/refusal/remedies.js";
 
 /**
  * Every daemon refusal code the repo mount views can receive. `repo.detach_conflict` is

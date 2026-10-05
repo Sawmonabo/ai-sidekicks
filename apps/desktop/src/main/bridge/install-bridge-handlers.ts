@@ -20,14 +20,14 @@ import {
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
   type InvokedBridgeChannel,
 } from "@shared/bridge-channels.js";
-import type { DaemonSubscriptionOpening } from "@shared/daemon-forwarding.js";
+import type { DaemonSubscriptionOpening } from "@shared/daemon/forwarding.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "@shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
 import type { DaemonSupervisor } from "../services/daemon/daemon-supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import type { DaemonForwarding } from "./daemon.js";
-import type { FilePathRefs } from "./file-path-refs.js";
+import type { FilePathRefs } from "./file-path/file-path-refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
 import { copyToClipboard } from "./native/clipboard.js";
 import { listEditors } from "./native/editors/installed-editors.js";

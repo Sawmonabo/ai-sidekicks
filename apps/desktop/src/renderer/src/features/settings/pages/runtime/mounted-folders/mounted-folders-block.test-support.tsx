@@ -10,7 +10,7 @@ import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 import { act, render } from "@testing-library/react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
-import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
+import { unscriptedScenario } from "@test/helpers/fixture/bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -20,7 +20,7 @@ import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import type { SettingsPageContext } from "@renderer/features/settings/types.js";
 import { SESSION_ID, mountReadFor, workspaceListWith } from "./mounted-folders.test-support.js";
 import { MountedFolderList } from "./MountedFolderList.js";
-import type { MountInventoryCalls } from "./mount-inventory.js";
+import type { MountInventoryCalls } from "./mount-inventory/mount-inventory.js";
 import { MountedFoldersBlock } from "./MountedFoldersBlock.js";
 
 /**

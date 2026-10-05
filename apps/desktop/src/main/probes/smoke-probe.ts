@@ -6,7 +6,7 @@ import { app, net, type WebContents } from "electron";
 
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
-import { RENDERER_INDEX_URL } from "../services/renderer-scheme.js";
+import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 
 /** Per-invocation opt-in for the breadcrumb trail. */
 const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";

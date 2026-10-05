@@ -191,7 +191,7 @@ async function queueFirstTurn(
     return { queued: true, refusal: undefined };
   }
   // Blankness is decided by trimming, but the text is never trimmed: the wire gets the user's
-  // own bytes. `features/composer/draft-line/send-router.ts` states the same rule.
+  // own bytes. `features/composer/draft-line/send/router.ts` states the same rule.
   if (request.firstTurn.trim().length === 0) {
     return {
       queued: false,

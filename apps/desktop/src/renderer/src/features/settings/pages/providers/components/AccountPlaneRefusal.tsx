@@ -14,7 +14,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";

@@ -196,7 +196,7 @@ const CONTRACTS_SCHEMA_IMPORT = {
 
 /** The daemon method table, which hands out each method's schemas: the same claim again. */
 const DAEMON_METHOD_BINDINGS_IMPORT = {
-  group: ["@shared/daemon-method-bindings.js"],
+  group: ["@shared/daemon/daemon-method-bindings.js"],
   message:
     "The daemon method table binds each method to its schemas, which are parsers. " +
     "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`.",
@@ -349,7 +349,7 @@ const SET_INTERVAL_GLOBAL = {
   name: "setInterval",
   message:
     "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-    "through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a " +
+    "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
     "second cadence nothing cancels on unmount, nothing pauses when the " +
     "window is hidden, and nothing bounds when the daemon stops answering.",
 };
@@ -442,8 +442,8 @@ const desktopConfig = defineConfig(
   //
   // Every daemon reply the renderer reads is parsed in one module,
   // `services/daemon/daemon-reply.ts`, against the schemas
-  // `src/shared/daemon-method-bindings.ts` binds to each method. A surface that could reach the
-  // validator directly could parse a second time, differently, or skip the parse and keep the
+  // `src/shared/daemon/daemon-method-bindings.ts` binds to each method. A surface that could reach
+  // the validator directly could parse a second time, differently, or skip the parse and keep the
   // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
   //
   // Banning `zod` alone left the second parser one import away: the contracts package publicly
@@ -623,7 +623,7 @@ const desktopConfig = defineConfig(
   {
     // The spawn module. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
-    files: ["tests/helpers/electron-child.ts"],
+    files: ["tests/helpers/electron/child/child.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -680,10 +680,10 @@ const desktopConfig = defineConfig(
   },
   // --- The refresh cadence: no wall-clock polling in the renderer ----------------
   //
-  // Every refresh goes through `lib/reads/refresh-scheduler.ts`. A `setInterval` beside it is a
-  // second cadence that nothing cancels on unmount, pauses when the window is hidden, or bounds
-  // when the daemon stops answering. Both spellings are banned, since `window.setInterval` and the
-  // bare global are the same timer. The fixture build flag rides the same globals list.
+  // Every refresh goes through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` beside it
+  // is a second cadence that nothing cancels on unmount, pauses when the window is hidden, or
+  // bounds when the daemon stops answering. Both spellings are banned, since `window.setInterval`
+  // and the bare global are the same timer. The fixture build flag rides the same globals list.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     rules: {
@@ -695,7 +695,7 @@ const desktopConfig = defineConfig(
           property: "setInterval",
           message:
             "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-            "through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a " +
+            "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
             "second cadence nothing cancels on unmount, nothing pauses when the " +
             "window is hidden, and nothing bounds when the daemon stops answering.",
         },
@@ -704,7 +704,7 @@ const desktopConfig = defineConfig(
           property: "setInterval",
           message:
             "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-            "through `lib/reads/refresh-scheduler.ts`. A `setInterval` is a " +
+            "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
             "second cadence nothing cancels on unmount, nothing pauses when the " +
             "window is hidden, and nothing bounds when the daemon stops answering.",
         },
@@ -734,7 +734,7 @@ const desktopConfig = defineConfig(
               importNames: ["spawn"],
               message:
                 "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
-                "`tests/helpers/electron-child.ts` is the only module that reaches " +
+                "`tests/helpers/electron/child/child.ts` is the only module that reaches " +
                 "`spawn`, and it registers the kill on `onTestFinished` — which " +
                 "runs on a pass, on a failure, and on vitest's own timeout kill " +
                 "alike. A child a timer was going to kill is reparented to init " +
@@ -745,7 +745,7 @@ const desktopConfig = defineConfig(
               importNames: ["spawn"],
               message:
                 "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
-                "`tests/helpers/electron-child.ts` is the only module that reaches " +
+                "`tests/helpers/electron/child/child.ts` is the only module that reaches " +
                 "`spawn`, and it registers the kill on `onTestFinished`. The prefix-less " +
                 "specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
@@ -756,14 +756,14 @@ const desktopConfig = defineConfig(
   },
   {
     // The spawn module itself.
-    files: ["tests/helpers/electron-child.ts"],
+    files: ["tests/helpers/electron/child/child.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   {
     // Main's one start of the background service. Its child is meant to outlive the app, so it
     // starts detached and released; no test or app lifetime owns it, and the supervisor reaches
     // it only through its socket. A test that starts it kills it by process id in teardown.
-    files: ["src/main/services/daemon/service-start.ts"],
+    files: ["src/main/services/daemon/service/start.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   // --- Member order: file and class shapes, mechanical gates 10 and 11 in `apps/desktop/AGENTS.md`

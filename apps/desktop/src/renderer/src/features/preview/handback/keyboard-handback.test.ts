@@ -4,7 +4,7 @@
 // table listens on, because a re-target that fixes one breaks the other.
 
 import { describe, expect, it } from "vitest";
-import { CLOSE_TAB_CHORD, type ChordDescriptor } from "./chord-claim.js";
+import { CLOSE_TAB_CHORD, type ChordDescriptor } from "./chord/claim.js";
 import { attachedPaneRoot, chord, handbackOver } from "./keyboard-handback.test-support.js";
 
 describe("KeyboardHandback.decide", () => {

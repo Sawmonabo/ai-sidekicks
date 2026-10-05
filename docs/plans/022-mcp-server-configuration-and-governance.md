@@ -189,7 +189,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T28.1.5 — Error-code constants and typed daemon error classes.**
   - Files: `packages/contracts/src/mcp/governance.ts` (EXTEND) + `packages/runtime-daemon/src/mcp/mcp-errors.ts` (CREATE)
-  - The `mcp.*` codes as typed constants matching error-contracts.md §MCP Governance byte-for-byte, plus the typed refusal classes subclassing `DaemonDomainError` in this Plan-022-owned module — keeping per-namespace classes out of the Plan-005 substrate (no per-namespace mapping-table maintenance; the Plan-007 `worktree-errors.ts` precedent), so each refusal reaches the wire as `data.type` with sanitized `data.fields` through the existing discriminator branch and `packages/runtime-daemon/src/ipc/domain-error.ts` is never edited.
+  - The `mcp.*` codes as typed constants matching error-contracts.md §MCP Governance byte-for-byte, plus the typed refusal classes subclassing `DaemonDomainError` in this Plan-022-owned module — keeping per-namespace classes out of the Plan-005 substrate (no per-namespace mapping-table maintenance; the Plan-007 `git/worktree/errors.ts` precedent), so each refusal reaches the wire as `data.type` with sanitized `data.fields` through the existing discriminator branch and `packages/runtime-daemon/src/ipc/domain-error.ts` is never edited.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (contract-registration task; the reachability assertion is T28.5.8's)
   - **Consumes:** `DaemonDomainError` ← Plan-005 substrate.

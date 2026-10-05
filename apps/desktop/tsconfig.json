@@ -20,7 +20,7 @@
   ],
   "include": ["src/**/*"],
   // `src/**/*.test.ts` is excluded because the `main-unit` Vitest project co-locates main-process
-  // units beside the modules they cover (for example `src/main/services/renderer-assets.test.ts`),
+  // units beside the modules they cover (for example `src/main/services/renderer/assets.test.ts`),
   // and this project emits, so an included test file would compile a `vitest` import into `dist/`.
   // `tsconfig.test.json` (noEmit) type-validates them.
   "exclude": ["dist", "out", "node_modules", "src/**/*.test.ts", "src/renderer/**"]

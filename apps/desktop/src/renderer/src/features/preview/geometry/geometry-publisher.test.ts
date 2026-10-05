@@ -5,10 +5,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
+import { AirspaceRegistry } from "@renderer/lib/airspace/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { refuse } from "@renderer/lib/refusal.js";
-import { installFakeResizeObserver } from "@test/helpers/element-resize.js";
+import { refuse } from "@renderer/lib/refusal/refusal.js";
+import { installFakeResizeObserver } from "@test/helpers/element/resize.js";
 import {
   detachAttachedRoots,
   settleMutationRecords,

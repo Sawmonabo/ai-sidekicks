@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RefusalError } from "@renderer/lib/refusal.js";
+import { RefusalError } from "@renderer/lib/refusal/refusal.js";
 import {
   InlineCardRegistry,
   type ArtifactInlineCardProps,

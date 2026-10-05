@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 
 import { ANSI_SPAN_RENDER_CAP } from "./ansi-spans.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
 import { ansiSpanClassNames, parseAnsiSpans } from "./ansi-spans.js";
 
 import "./ansi.css";

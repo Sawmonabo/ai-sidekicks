@@ -11,23 +11,23 @@
 
 import { Buffer } from "node:buffer";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
-import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar-binary-path.js";
-import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
+import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./sidecar/binary-path.js";
+import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./sidecar/frame-codec.js";
 import {
   SidecarChildSupervisor,
   type SidecarChildProcess,
   type SidecarChildSupervisorDependencies,
   type SidecarSpawnFn,
-} from "./sidecar-child-supervisor.js";
-import { SidecarPreSpawnBuffer } from "./sidecar-pre-spawn-buffer.js";
+} from "./sidecar/sidecar-child-supervisor.js";
+import { SidecarPreSpawnBuffer } from "./sidecar/sidecar-pre-spawn-buffer.js";
 import type {
   Envelope,
   ExitCodeNotification,
   PtySignal,
   SpawnRequest,
   SpawnResponse,
-} from "./pty-host-protocol.js";
-import type { DrainResult, PtyHost } from "./pty-host.js";
+} from "./host/protocol.js";
+import type { DrainResult, PtyHost } from "./host/pty-host.js";
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {

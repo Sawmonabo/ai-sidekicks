@@ -1,4 +1,4 @@
-import type { SpawnRequest } from "../pty/pty-host-protocol.js";
+import type { SpawnRequest } from "../pty/host/protocol.js";
 // Rewrites a spawn request so the PTY's cwd is a stable directory instead of a worktree.
 //
 // On Windows the OS locks the cwd of a spawned process for the process's lifetime, so deleting or

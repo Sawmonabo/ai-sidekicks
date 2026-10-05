@@ -26,7 +26,7 @@ import type {
   TranscriptMethodResponse,
 } from "@ai-sidekicks/contracts/transcript/methods";
 
-import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content-read.js";
+import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
 import { RegistryDispatchError } from "../registry.js";
 
 // ----------------------------------------------------------------------------

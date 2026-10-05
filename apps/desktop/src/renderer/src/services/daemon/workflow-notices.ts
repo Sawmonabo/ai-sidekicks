@@ -15,10 +15,10 @@ import {
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openReopeningSubscription } from "../transport/reopening-subscription.js";
-import { WORKFLOW_NOTICE_STREAM } from "./session-event-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "./session/event/session-event-streams.js";
 
 /**
  * One frame of the workflow stream: a parsed notice, one that did not match the contract, word

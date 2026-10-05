@@ -3,7 +3,7 @@ import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/l
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { parseInstant } from "@renderer/lib/instant.js";
-import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
+import { formatCount, formatDayClock } from "@renderer/lib/wire/figures.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

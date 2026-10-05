@@ -11,7 +11,7 @@
 // to the window's diagnostic capture, and the validator's message, which quotes received values,
 // goes nowhere.
 //
-// A rejection goes to `normalizeWireRejection` (`lib/wire-rejection.ts`), the app's only
+// A rejection goes to `normalizeWireRejection` (`lib/wire/rejection.ts`), the app's only
 // reading of a rejected promise. This module supplies the origin and the fallback sentence for a
 // rejection with no machine-readable code; a private copy would misread a JSON-RPC rejection
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
@@ -22,10 +22,10 @@ import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
-} from "@shared/daemon-method-bindings.js";
+} from "@shared/daemon/daemon-method-bindings.js";
 import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
-import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { FilePathRef, ServedDaemonCall } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";

@@ -3,7 +3,7 @@
 // context so the fixture is substitutable, and a lint rule in `eslint.config.mjs` bans the direct
 // read elsewhere. A preload that did not run is a real state, so `readInstalledBridge` returns
 // `undefined` and the caller renders a stated failure instead of a blank window.
-import { isWireRecord } from "@renderer/lib/wire-record.js";
+import { isWireRecord } from "@renderer/lib/wire/record.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";

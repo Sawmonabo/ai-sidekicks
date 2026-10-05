@@ -13,7 +13,7 @@ import {
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "@shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD } from "@shared/appearance.js";
-import { createElectronMock } from "@test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
 
@@ -28,7 +28,7 @@ beforeEach(async () => {
   const { installBridgeHandlers } = await import("./install-bridge-handlers.js");
   const { DaemonForwarding } = await import("./daemon.js");
   const { DaemonLink } = await import("../services/daemon/daemon-link.js");
-  const { FilePathRefs } = await import("./file-path-refs.js");
+  const { FilePathRefs } = await import("./file-path/file-path-refs.js");
   const link = new DaemonLink();
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();

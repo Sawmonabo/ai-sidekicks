@@ -7,11 +7,11 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh/caps.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { createChildRunLinks } from "./agent-reads.js";
-import { initializedStore } from "@test/helpers/session-store-fixtures.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import { initializedStore } from "@test/helpers/session/store/fixtures.js";
+import { eventOfKind } from "@test/helpers/session/events.js";
 import { REJECTING_AGENTS_PANE_CALLS } from "./agent-reads.test-support.js";
 
 /** A started child-run links read over a store this case owns, on frozen time. */

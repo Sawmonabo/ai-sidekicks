@@ -8,7 +8,7 @@
 
 import { useStore } from "zustand";
 
-import type { SessionDegradedCause } from "../../session-degradation.js";
+import type { SessionDegradedCause } from "../degradation.js";
 import type { FailedDependentReadsState } from "../failed-dependent-reads.js";
 import type { SessionStore, SessionStoreState } from "../session-store.js";
 

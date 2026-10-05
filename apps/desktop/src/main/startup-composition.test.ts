@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "@test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
 
 // The mock's `app.whenReady()` is a deferred the test releases by hand: awaiting the dynamic
 // `import()` already drains several microtask ticks, so an already-resolved promise would run

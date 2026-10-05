@@ -4,8 +4,8 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { ComposerTarget } from "../../composer-target.js";
-import type { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
-import type { ProviderCommandReadState } from "../provider-command-read.js";
+import type { ProviderCommandEnumeration } from "../provider-command/provider-command-enumeration.js";
+import type { ProviderCommandReadState } from "../provider-command/read.js";
 
 /**
  * Drive one composer's enumeration from the command list that opens it, and read it back. Opening

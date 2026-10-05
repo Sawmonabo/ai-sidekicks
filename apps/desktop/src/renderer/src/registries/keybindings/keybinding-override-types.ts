@@ -3,7 +3,7 @@
 // built over. The state itself is in `keybinding-override-store.ts`; the map is main's, reached
 // through the bridge's `keyboardMap`.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { ChordPlatform } from "@renderer/lib/chord-format.js";
 import type { Keybinding } from "../commands/command-types.js";

@@ -8,7 +8,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
+import { withDaemonCall } from "@test/helpers/fixture/bridge.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {

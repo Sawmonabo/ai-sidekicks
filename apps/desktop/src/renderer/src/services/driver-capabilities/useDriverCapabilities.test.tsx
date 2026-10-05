@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
 
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
+import { bridgeWrapper } from "@test/helpers/app/frame-fixtures.js";
 import {
   CapabilityProbe,
   answeringCapabilityReads,

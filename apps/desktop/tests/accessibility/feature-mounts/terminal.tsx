@@ -8,10 +8,10 @@ import { registerTerminalPane } from "@renderer/features/terminal/contributions/
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { fixtureSessionBaseState } from "@renderer/services/daemon/session-base-state.fixture.js";
+import { fixtureSessionBaseState } from "@renderer/services/daemon/session/base-state.fixture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "@fixtures/scenarios/terminal-lease.js";
-import { renderSettled } from "../../helpers/app-harness.js";
+import { renderSettled } from "../../helpers/app/harness.js";
 import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";

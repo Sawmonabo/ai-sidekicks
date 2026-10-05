@@ -11,7 +11,7 @@ import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { DiffInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
+import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";

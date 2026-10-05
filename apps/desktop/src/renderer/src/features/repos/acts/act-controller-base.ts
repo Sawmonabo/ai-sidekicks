@@ -14,7 +14,7 @@ import {
   type ActSettlementArm,
 } from "./act-reading.js";
 import type { ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";
-import type { RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import type { RefreshReason } from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { SessionStoreScoped } from "./hooks/useSessionStoreRebind.js";
 

@@ -35,8 +35,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BudgetRegistry } from "../../scripts/budget/budget-registry.mts";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "@renderer/features/terminal/terminal-caps.js";
 import { TerminalRendererPool } from "@renderer/features/terminal/emulator/renderer-pool.js";
-import { HeapSampler, retainedGrowthBytes } from "./heap-sampling.js";
-import { requireHeapCollector, TerminalAdapterWorkload } from "./terminal-adapter-workload.js";
+import { HeapSampler, retainedGrowthBytes } from "./heap/sampling.js";
+import {
+  requireHeapCollector,
+  TerminalAdapterWorkload,
+} from "./terminal/terminal-adapter-workload.js";
 
 const registry = BudgetRegistry.load();
 

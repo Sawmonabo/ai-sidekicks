@@ -19,7 +19,7 @@ import {
   hunkBodyRowAt,
   hunkBodyRowCount,
   type HunkBodyLayout,
-} from "./hunk-row-layout.js";
+} from "./hunk/row-layout.js";
 
 /**
  * The flattened row index of one diff, under one expansion state, narrowed to at most one of

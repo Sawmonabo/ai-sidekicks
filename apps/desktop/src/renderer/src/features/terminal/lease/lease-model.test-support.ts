@@ -13,7 +13,7 @@ import {
   TERMINAL_LEASE_SCENARIO,
   TERMINAL_SCENARIO_ROLES,
 } from "@fixtures/scenarios/terminal-lease.js";
-import { eventOfKind } from "@test/helpers/session-events.js";
+import { eventOfKind } from "@test/helpers/session/events.js";
 
 /**
  * This device, taken from the scenario. The fold treats a device id as an opaque string, so a

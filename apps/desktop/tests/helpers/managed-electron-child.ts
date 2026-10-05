@@ -1,10 +1,11 @@
-// The object that owns one spawned child's fate. The spawner, `electron-child.ts`, constructs it.
+// The object that owns one spawned child's fate. The spawner, `electron/child/child.ts`, constructs
+// it.
 //
 // The child is gone at `close`, not `exit`: `node_modules/.bin/electron` is a shim that hands the
 // browser its stdout, so the shim can exit while the browser runs and holds the pipe. Releasing a
 // resource at `exit` races that browser, and by `close` the pid is reaped and reissuable, so a
 // kill sent then could reach a stranger. One field, set by this child's own `close` handler,
-// answers both: `dispose` signals nothing once it is set, and `electron-child-teardown.ts` waits
+// answers both: `dispose` signals nothing once it is set, and `electron/child/teardown.ts` waits
 // for it before releasing what the child held.
 
 import type { ChildProcessByStdio } from "node:child_process";
@@ -24,7 +25,7 @@ export const TERMINATION_GRACE_MS = 2_000;
  * How many times a refused disposal asks again before it gives the child up. The first call is
  * the ordinary one, the second exists for a tree that refused one kill and takes the next, and
  * past that the tree is unkillable by this process. It lives beside `disposeUntilKillDelivered`,
- * which spends it; `bounded-cleanup.ts` and `electron-child-teardown.ts` import it so no second
+ * which spends it; `bounded-cleanup.ts` and `electron/child/teardown.ts` import it so no second
  * copy of the bound exists.
  */
 export const DISPOSAL_ATTEMPTS = 3;
@@ -196,7 +197,7 @@ export class ManagedElectronChild {
   /**
    * Dispose, and ask again while the platform says the kill was refused.
    *
-   * The one home for the kill retry: `electron-child-teardown.ts` retries around a wait for
+   * The one home for the kill retry: `electron/child/teardown.ts` retries around a wait for
    * `close`, while the spawner's misuse recovery is synchronous and cannot await, and a second
    * loop would be a second bound. What separates the asks is the ask's own cost: where a refusal
    * is transient it is `taskkill` spawning and failing again, a real second attempt; where it is

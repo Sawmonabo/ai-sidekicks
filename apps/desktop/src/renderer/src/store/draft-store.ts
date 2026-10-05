@@ -26,7 +26,7 @@ export interface DraftStoreOptions {
   /**
    * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
    *
-   * Required and supplied by the caller, whose home is `store/persistence-caps.ts`; a default
+   * Required and supplied by the caller, whose home is `store/persistence/caps.ts`; a default
    * here would be a second home for one number. At least one, checked at construction: zero
    * would evict every write's own entry, so no draft would ever stick.
    */

@@ -4,7 +4,7 @@
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
-import { type ReadPhase } from "@renderer/lib/read-phase.js";
+import { type ReadPhase } from "@renderer/lib/reads/read-phase.js";
 
 /** One answered read, split into the cards waiting and the ones already decided. */
 export interface PartitionedApprovals {

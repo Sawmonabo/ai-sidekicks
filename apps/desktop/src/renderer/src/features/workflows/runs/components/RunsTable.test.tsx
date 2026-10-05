@@ -9,8 +9,8 @@ import {
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
   summaryOfRun,
-} from "@fixtures/data/workflow-runs.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+} from "@fixtures/data/workflow/runs.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 import { RunsTable } from "./RunsTable.js";
 
 function playbackRun(workflowRunId: string): ReturnType<typeof summaryOfRun> {

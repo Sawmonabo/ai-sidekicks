@@ -4,7 +4,7 @@
 
 import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/run";
 
-import { formatMoney } from "@renderer/lib/wire-figures.js";
+import { formatMoney } from "@renderer/lib/wire/figures.js";
 
 /** How many micro-dollars make a dollar. */
 const MICROS_PER_DOLLAR = 1_000_000;

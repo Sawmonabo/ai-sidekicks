@@ -16,7 +16,7 @@
 //   - Nothing scripts `session.list`, which is a subscription and not a call a view makes.
 //
 // A reply is scripted only when a composer control issues that call to a real daemon method,
-// because `services/daemon/scripted-reply.fixture.ts` refuses an unscripted call as
+// because `services/daemon/scripted/reply.fixture.ts` refuses an unscripted call as
 // `reply-unscripted`: `driver.compactContext` from the compaction popover,
 // `driver.listProviderCommands` from the command zone's discovery popover, and
 // `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
@@ -47,7 +47,7 @@ import {
   type ScriptEntry,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
+import type { ScenarioReply } from "@renderer/services/daemon/scenario/scenario-reply.fixture.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
 // this scenario's start instant. Parsed through the registered schemas, not cast, so a

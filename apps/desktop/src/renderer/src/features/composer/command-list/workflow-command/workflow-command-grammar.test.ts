@@ -6,10 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { DEFAULT_ROUTE } from "@renderer/routing/routes.js";
-import { SESSION_TARGET, sendCallsAnswering } from "../../draft-line/send-router.test-support.js";
-import { ComposerSendRouter } from "../../draft-line/send-router.js";
-import { createConsoleCommandExecutor } from "../console-command-executor.js";
-import { recognizeConsoleCommand } from "../console-command-recognizer.js";
+import { SESSION_TARGET, sendCallsAnswering } from "../../draft-line/send/router.test-support.js";
+import { ComposerSendRouter } from "../../draft-line/send/router.js";
+import { createConsoleCommandExecutor } from "../console-command/executor.js";
+import { recognizeConsoleCommand } from "../console-command/recognizer.js";
 import { readComposerCommands } from "../composer-commands.js";
 import {
   LINE_READING_COMMAND_IDS,

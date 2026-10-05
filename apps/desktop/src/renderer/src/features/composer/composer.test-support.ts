@@ -3,7 +3,7 @@
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
-import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
+import { bridgeAnswering } from "@test/helpers/fixture/bridge.js";
 
 /** A bridge that answers every call with nothing, for held state that only needs a transport. */
 export function inertBridge(): PlatformBridge {

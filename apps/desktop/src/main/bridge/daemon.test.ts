@@ -14,15 +14,15 @@ import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-setti
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
+import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { FilePathRef } from "@shared/preload-api.js";
-import { createElectronMock } from "@test/helpers/electron-mock.js";
-import type { DaemonConnection, MainProcessState } from "@shared/daemon-status-topic.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
+import type { DaemonConnection, MainProcessState } from "@shared/daemon/daemon-status-topic.js";
 import type { DaemonSubscriber } from "./daemon.js";
-import { FilePathRefs } from "./file-path-refs.js";
-import { pageOwner } from "./file-path-refs.test-support.js";
+import { FilePathRefs } from "./file-path/file-path-refs.js";
+import { pageOwner } from "./file-path/file-path-refs.test-support.js";
 import {
   bridgeOver,
   bridgeOverLink,

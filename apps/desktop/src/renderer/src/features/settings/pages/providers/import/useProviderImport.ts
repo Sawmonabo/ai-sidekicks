@@ -26,7 +26,7 @@ import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
 } from "@ai-sidekicks/contracts/provider/import";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** The call that starts one provider's import. */

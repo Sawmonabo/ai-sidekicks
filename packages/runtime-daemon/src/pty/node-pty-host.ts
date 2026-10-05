@@ -1,6 +1,6 @@
 // In-process `node-pty` implementation of the `PtyHost` contract.
 //
-// - The selector picks it on every platform (see `pty-host-selector.ts`).
+// - The selector picks it on every platform (see `host/selector.ts`).
 // - `node-pty.kill(signal)` on Windows signals one PID and does not walk console-control or
 //   process-tree semantics (microsoft/node-pty#167, #437), so the Windows kill translation
 //   lives here:
@@ -16,10 +16,10 @@
 
 import { randomUUID } from "node:crypto";
 
-import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
+import { PtyBackendUnavailableError } from "./sidecar/binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
-import type { PtySignal, SpawnRequest, SpawnResponse } from "./pty-host-protocol.js";
-import type { DrainResult, PtyHost } from "./pty-host.js";
+import type { PtySignal, SpawnRequest, SpawnResponse } from "./host/protocol.js";
+import type { DrainResult, PtyHost } from "./host/pty-host.js";
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,

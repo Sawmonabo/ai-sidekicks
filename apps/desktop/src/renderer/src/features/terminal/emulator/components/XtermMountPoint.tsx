@@ -10,7 +10,7 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator-loader.js";
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
-import type { TerminalRendererMode } from "../xterm-adapter.js";
+import type { TerminalRendererMode } from "../xterm/adapter.js";
 
 /** Props for the emulator's box: which terminal, the write gate, and the callbacks to forward. */
 export interface XtermMountPointProps {

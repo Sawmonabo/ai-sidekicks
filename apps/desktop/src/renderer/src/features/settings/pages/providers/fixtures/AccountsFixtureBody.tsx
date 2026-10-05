@@ -19,8 +19,8 @@ import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { AccountDetail } from "./components/AccountDetail.js";
-import { AccountRow } from "./components/AccountRow.js";
+import { AccountDetail } from "./components/Account/AccountDetail.js";
+import { AccountRow } from "./components/Account/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
@@ -32,8 +32,8 @@ import {
   type ProviderAccountSetCurrentCall,
   type ProviderAccountRegisterCall,
 } from "./provider-sign-in-flow.js";
-import { AccountCheckNow } from "./components/AccountCheckNow.js";
-import { AccountDefaultControl } from "./components/AccountDefaultControl.js";
+import { AccountCheckNow } from "./components/Account/AccountCheckNow.js";
+import { AccountDefaultControl } from "./components/Account/AccountDefaultControl.js";
 import { useAccountDefaultMove } from "./hooks/useAccountDefaultMove.js";
 import { ProviderSignInCard } from "./components/ProviderSignInCard.js";
 import {
@@ -41,7 +41,7 @@ import {
   describeRunningProviderSignIn,
   findRunningProviderSignInAccountId,
 } from "./provider-sign-in-flow-tracker.js";
-import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
+import { TokenRegistrationForm } from "./components/Token/TokenRegistrationForm.js";
 
 /** The daemon verbs the fixture body drives. Held stable by the caller. */
 export interface AccountOperations {

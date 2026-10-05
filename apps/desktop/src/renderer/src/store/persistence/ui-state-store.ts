@@ -20,10 +20,7 @@
 // The class decides whether a write lands; classifying and counting refusals is
 // `persistence-health.ts`.
 
-import {
-  PERSISTENCE_RECORD_BYTE_CAP,
-  PERSISTENCE_SESSION_PARTITION_CAP,
-} from "../persistence-caps.js";
+import { PERSISTENCE_RECORD_BYTE_CAP, PERSISTENCE_SESSION_PARTITION_CAP } from "./caps.js";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,

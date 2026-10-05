@@ -5,8 +5,8 @@
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
 import { compareCodeUnits } from "@renderer/lib/compare-code-units.js";
-import { formatCount } from "@renderer/lib/wire-figures.js";
-import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist.js";
+import { formatCount } from "@renderer/lib/wire/figures.js";
+import { NAMELESS_TOOL_ALLOWLIST_WORDING } from "../pane/tool-allowlist/tool-allowlist.js";
 
 /**
  * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in

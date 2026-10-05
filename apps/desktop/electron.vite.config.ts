@@ -26,7 +26,7 @@
 //
 // The dev server's Content-Security-Policy: `electron-vite dev` serves the renderer over HTTP,
 // which bypasses the protocol handler's response headers, so the `server` block sends the same
-// policy, composed from the directive list in `src/main/services/renderer-scheme.ts` and widened
+// policy, composed from the directive list in `src/main/services/renderer/scheme.ts` and widened
 // only to admit the HMR websocket. `strictPort` holds because the policy names that port.
 
 import { fileURLToPath } from "node:url";
@@ -36,7 +36,7 @@ import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
 import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
-} from "./src/main/services/renderer-scheme.js";
+} from "./src/main/services/renderer/scheme.js";
 import { iconCompilationPlugin } from "./vitest/icon-compilation.js";
 import { PATH_ALIASES } from "./vitest/path-aliases.js";
 
@@ -86,8 +86,8 @@ function isFixtureCorpusModule(moduleId: string): boolean {
  * bundle on their own. They are named here so the release gate can prove that they did.
  */
 const FIXTURE_ONLY_PATHS: readonly string[] = [
-  "/src/renderer/src/app/fixture-composition.ts",
-  "/src/renderer/src/app/fixture-global-names.ts",
+  "/src/renderer/src/app/fixture/composition.ts",
+  "/src/renderer/src/app/fixture/global-names.ts",
   "/src/renderer/src/app/pane-harness/",
 ];
 

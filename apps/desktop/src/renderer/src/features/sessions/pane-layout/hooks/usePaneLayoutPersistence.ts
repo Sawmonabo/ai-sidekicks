@@ -8,7 +8,7 @@
 
 import { useEffect } from "react";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";

@@ -5,9 +5,9 @@
 // continuation re-reads the record after its await and a stale one writes nothing. No timer.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
-import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
+import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
+import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import type { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";

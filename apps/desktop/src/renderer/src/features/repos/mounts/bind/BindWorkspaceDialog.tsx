@@ -16,7 +16,7 @@ import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDi
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
-import { executionModeRows } from "../execution-mode-rows.js";
+import { executionModeRows } from "../execution-mode/execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { type BindReading } from "./bind-controller.js";
 import { useBindController } from "./hooks/useBindController.js";

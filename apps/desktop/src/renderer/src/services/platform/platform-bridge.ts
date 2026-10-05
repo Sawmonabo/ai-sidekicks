@@ -2,7 +2,8 @@
 // `PreloadApi` taken whole, implemented by `live-bridge.ts` and `platform-bridge.fixture.ts`, so a
 // namespace added to the preload breaks the fixture at compile time. This adds what only the
 // renderer has: the transport-reconnect signal and which bridge the window runs against. The
-// registered daemon streams and their kinds live in `services/daemon/session-event-streams.ts`.
+// registered daemon streams and their kinds live in
+// `services/daemon/session/event/session-event-streams.ts`.
 
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";

@@ -12,10 +12,10 @@ import "./pane-layout.css";
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { isEditableTarget } from "@renderer/lib/editable-target.js";
-import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+import { useAnnounce } from "@renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";

@@ -6,8 +6,8 @@ import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
-import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence/caps.js";
+import { FixtureBridgeProvider } from "@test/helpers/app/frame-fixtures.js";
 import {
   createFixtureBridge,
   type FixtureBridge,

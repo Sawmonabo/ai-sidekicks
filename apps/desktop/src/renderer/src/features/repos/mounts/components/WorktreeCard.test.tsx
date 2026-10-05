@@ -3,7 +3,7 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatRelativeTime } from "@renderer/lib/wire-figures.js";
+import { formatRelativeTime } from "@renderer/lib/wire/figures.js";
 import { worktreeRecord } from "../repo-mounts.test-support.js";
 import { WorktreeCard } from "./WorktreeCard.js";
 

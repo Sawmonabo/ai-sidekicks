@@ -16,7 +16,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { renderAppSettled, renderSettled } from "../helpers/app-harness.js";
+import { renderAppSettled, renderSettled } from "../helpers/app/harness.js";
 import {
   describeHorizontalOverflow,
   narrowTesterViewportTo,

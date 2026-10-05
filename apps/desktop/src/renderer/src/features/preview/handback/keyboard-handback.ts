@@ -3,7 +3,7 @@
 // A chord is claimed only with control, meta or alt AND a matching chord in the mirror. The mirror
 // lists which chords exist, never what they mean; an unreadable mirror leaves keys to the page.
 
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import {
   chordMatchesEvent,
   parseChord,
@@ -17,7 +17,7 @@ import {
   carriesApplicationModifier,
   projectClaimableChords,
   type ChordDescriptor,
-} from "./chord-claim.js";
+} from "./chord/claim.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const KEYBOARD_HANDBACK_REFUSAL_ORIGIN = "preview-keyboard-handback";

@@ -4,7 +4,7 @@
 // A reply for another stream, or a total that did not advance, is unusable and stops the
 // stream: a standing total would make the loop re-send the same chunk forever.
 
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
 import type { AttachmentIngestEntry } from "../attachment-shapes.js";
 
 /** Where this reading's tripwire reports from, so a firing names a module. */

@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "../tripwires.js";
+import { windowTripwires } from "../tripwires/tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
 import { visit } from "./subject-scoped-holder.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";

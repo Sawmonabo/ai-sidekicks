@@ -10,16 +10,16 @@
 // already have an arm for a stream that could not open; an owner without one has it wait for the
 // returning edge, or has it reported and tried again as a re-open that throws is.
 
-import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon/forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
 } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
-import { lossyStringify } from "@renderer/lib/wire-errors.js";
-import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
+import { lossyStringify } from "@renderer/lib/wire/errors.js";
+import { normalizeWireRejection } from "@renderer/lib/wire/rejection.js";
 import { openObservedSubscription } from "./observed-subscription.js";
 import type { TransportReconnectSignal } from "./transport-reconnect.js";
 

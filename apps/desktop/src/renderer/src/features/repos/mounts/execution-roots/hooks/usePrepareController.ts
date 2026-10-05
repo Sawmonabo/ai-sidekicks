@@ -13,7 +13,7 @@ import {
   type PrepareOperations,
   type PrepareReading,
   type PrepareSubject,
-} from "../prepare-controller.js";
+} from "../prepare/controller.js";
 
 /** What the hook hands a form: the reading, and the three things it can ask for. */
 export interface PrepareBinding {

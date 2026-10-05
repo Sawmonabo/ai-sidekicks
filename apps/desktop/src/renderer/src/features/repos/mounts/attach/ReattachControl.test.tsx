@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import type { RepoOperations } from "../../repo-operations.js";
-import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
+import { bridgeOnClock } from "@test/helpers/fixture/bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { confirmationPresses } from "../repo-mounts.test-support.js";
 import { ReattachControl } from "./ReattachControl.js";

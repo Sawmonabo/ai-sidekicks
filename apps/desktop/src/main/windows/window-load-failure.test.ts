@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "@test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
 import {
   asMockWindow,
   INDEX_URL,

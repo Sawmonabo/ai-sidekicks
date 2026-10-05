@@ -11,7 +11,7 @@
 // off the screen and rides on the root as `data-refusal-code` for diagnostics. The next move is
 // the caller's `action`; the renderer computes no eligibility and so no remedy.
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 
 /**
  * What every refusal shape renders, picked from `Refusal` so the shapes move with it and a

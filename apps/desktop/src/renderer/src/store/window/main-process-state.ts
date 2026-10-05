@@ -1,7 +1,8 @@
 // What a window makes of the supervisor's `daemon.status` topic: the state it holds before main's
 // first delivery, the comparison that keeps an unchanged delivery from re-rendering, and the
-// words a connection state reads as. The topic's vocabulary is `@shared/daemon-status-topic.ts`;
-// this half lives in `store/` because the settings pages read it and `store/` sits below features.
+// words a connection state reads as. The topic's vocabulary is
+// `@shared/daemon/daemon-status-topic.ts`; this half lives in `store/` because the settings pages
+// read it and `store/` sits below features.
 //
 // `unreported` is the state before main's first delivery: not `connected` and not `degraded`,
 // since either would be a guess.
@@ -11,7 +12,7 @@ import type {
   MainProcessNegotiation,
   MainProcessState,
   ServiceCannotStart,
-} from "@shared/daemon-status-topic.js";
+} from "@shared/daemon/daemon-status-topic.js";
 
 /** What a window holds before anything has reported. The store is born on it. */
 export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {

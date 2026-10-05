@@ -8,7 +8,7 @@
 // person to audit the wrong half. Counts are cumulative for the window's lifetime, since a
 // count that could be cleared cannot answer "has this happened since the window opened".
 
-import { reportTripwire } from "@renderer/lib/tripwires.js";
+import { reportTripwire } from "@renderer/lib/tripwires/tripwires.js";
 import {
   unmeasuredQuota,
   type PersistenceAdapter,

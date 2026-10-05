@@ -16,7 +16,7 @@ import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/session"
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh/caps.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { handAnsweredCall } from "./held-calls.js";
 import type {

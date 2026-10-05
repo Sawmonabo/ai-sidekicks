@@ -12,7 +12,7 @@ import { readComposerCommands } from "../composer-commands.js";
 import { useCommandListTrigger } from "../hooks/useCommandListTrigger.js";
 import { addressedProviderBinding } from "../command-list-entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
-import { type ProviderCommandEnumeration } from "../provider-command-enumeration.js";
+import { type ProviderCommandEnumeration } from "../provider-command/provider-command-enumeration.js";
 import { CommandListPopover } from "./CommandListPopover.js";
 import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 

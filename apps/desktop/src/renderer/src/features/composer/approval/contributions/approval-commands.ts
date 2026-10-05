@@ -8,7 +8,7 @@ import type {
   ApprovalResolveRequest,
 } from "@ai-sidekicks/contracts/approval";
 
-import { type Refusal } from "@renderer/lib/refusal.js";
+import { type Refusal } from "@renderer/lib/refusal/refusal.js";
 import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
 
 /** The owner these rows are contributed under. */

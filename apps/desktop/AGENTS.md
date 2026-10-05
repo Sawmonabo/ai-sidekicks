@@ -57,19 +57,19 @@ Every file lives with its narrowest owner, proven by its importers: a file one f
 Fixtures conform to production boundaries and never define them.
 
 - `fixtures/` holds scenario definitions and scripted data only, and never ships: a release build carries no fixture code and no catalog.
-- A fixture implementation sits beside the real owner it substitutes. A feature has a `fixtures/` folder only when it owns the replaced boundary. Code that ships never sits in any `fixtures/` folder, even when it is a default a fixture can replace. `app/fixture-composition.ts` chooses fixture implementations once, at startup; no `if (fixture)` anywhere else.
+- A fixture implementation sits beside the real owner it substitutes. A feature has a `fixtures/` folder only when it owns the replaced boundary. Code that ships never sits in any `fixtures/` folder, even when it is a default a fixture can replace. `app/fixture/composition.ts` chooses fixture implementations once, at startup; no `if (fixture)` anywhere else.
 - No `demo/`, fake backend layer or generic fixture method catalog. Fixture-only types stay in `apps/desktop`. Code says `fixture` and `scenario`, never `demo`; a scenario is named for the stable behavior it exercises, never an incidental count or sample content.
-- `fixtures/` imports `src/` only as types. Only fixture implementations, `app/fixture-composition.ts`, `app/pane-harness/`, `tests/` and `src/main/fixture-launch.ts` import `fixtures/`.
+- `fixtures/` imports `src/` only as types. Only fixture implementations, `app/fixture/composition.ts`, `app/pane-harness/`, `tests/` and `src/main/fixture-launch.ts` import `fixtures/`.
 
 ## Chokepoints
 
-- **Figures:** only `lib/wire-figures.ts` formats a wire value: strings verbatim in mono, quantities through `Intl`, bytes scaled by 1024. `lib/intl-formatter-cache.ts` holds the `Intl` instances and their cap.
+- **Figures:** only `lib/wire/figures.ts` formats a wire value: strings verbatim in mono, quantities through `Intl`, bytes scaled by 1024. `lib/intl-formatter-cache.ts` holds the `Intl` instances and their cap.
 - **Persistence:** every durable write goes through `store/persistence/` and its closed value-class enumeration; one byte-measurement function serves every cap. Drafts never reach it.
 - **Cost:** every cost figure comes from the committed-spend read; the renderer sums nothing.
-- **Refresh:** every refresh goes through `lib/reads/refresh-scheduler.ts`.
+- **Refresh:** every refresh goes through `lib/reads/refresh/refresh-scheduler.ts`.
 - **Time:** renderer code never calls `Date.parse` or `new Date(<string>)` and never orders time stamps as text.
 - **Readings:** a reading is one class that publishes what a surface reads _and_ holds the daemon connection, the refresh scheduler and the `ReadTriggerTarget` members `triggeringEventKinds` and `requestRead`, so it can always be asked again. A class publishing only what an act settled holds none of them and is not a reading.
-- **Daemon calls:** a surface reaches the daemon through `callDaemon` (`services/daemon/daemon-reply.ts`), which parses the reply against the method's schema and answers `served` or `refused`. A suite answering one method spreads a real bridge through `withDaemonCall` / `withDaemonSubscribe` in `tests/helpers/fixture-bridge.ts`, never its own.
+- **Daemon calls:** a surface reaches the daemon through `callDaemon` (`services/daemon/daemon-reply.ts`), which parses the reply against the method's schema and answers `served` or `refused`. A suite answering one method spreads a real bridge through `withDaemonCall` / `withDaemonSubscribe` in `tests/helpers/fixture/bridge.ts`, never its own.
 - **Markup:** `components/Markdown/MathBlock.tsx` is the one `dangerouslySetInnerHTML` site (KaTeX's interface is a markup string); a second is rejected.
 - **Scroll:** only `lib/scroll/scroll-chokepoint.ts` writes a scroll offset, and every write names its caller. No `scrollTop` write elsewhere and no `scrollIntoView`: glide through the chokepoint.
 
@@ -114,7 +114,7 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 - `tests/` holds only tests spanning modules or the app: `helpers/` and the tiers `browser/`, `e2e/`, `endurance/`, `accessibility/`, `budget/`, one Vitest project each, globs disjoint. A test reading one scenario's data sits beside that scenario.
 - Shared scaffolding lives once per role in `tests/helpers/`; a module one tier alone uses sits in that tier's folder; a tier hand-rolling a role another has is rejected. Helper tests sit beside their helpers in `main-unit`, except those needing the renderer's DOM: `RENDERER_TESTS_OUTSIDE_SOURCE` in `vitest/tier-projects.ts` moves them, and the scenario contract check's suite, to `renderer`.
 - A test never reimplements the rule it checks or drives a stand-in for the module under test. Every clean result has a negative control that fails.
-- A test launching Electron goes through `tests/helpers/electron-harness.ts`, `tests/helpers/smoke-probe-harness.ts` or `tests/lifecycle.gc.test-support.ts` (they set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1`). No `show()`, `showInactive()` or `focus()` outside `src/main/windows/window-reveal.ts`.
+- A test launching Electron goes through `tests/helpers/electron/harness.ts`, `tests/helpers/smoke-probe/harness.ts` or `tests/lifecycle.gc.test-support.ts` (they set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1`). No `show()`, `showInactive()` or `focus()` outside `src/main/windows/window-reveal.ts`.
 - A spawned child's lifetime belongs to the test (gate 5's module kills it on `onTestFinished`), and a spawner's deadline fires before its per-test budget.
 
 ## Executables and config
@@ -133,11 +133,11 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 
 The mechanical gates. Before adding or changing a gate, read its file set and lifts in [Desktop Structure §Mechanical Gates](../../docs/architecture/desktop-structure.md#mechanical-gates).
 
-1. `window.desktopBridge` is read off the global only in `services/platform/live-bridge.ts`: `readInstalledBridge` there feeds `PlatformBridgeProvider`, from which every surface takes the bridge, and `readFixtureLaunch` there, called only by `app/fixture-composition.ts`, reads the fixture launch. An alias that dodges the selector is rejected in review.
+1. `window.desktopBridge` is read off the global only in `services/platform/live-bridge.ts`: `readInstalledBridge` there feeds `PlatformBridgeProvider`, from which every surface takes the bridge, and `readFixtureLaunch` there, called only by `app/fixture/composition.ts`, reads the fixture launch. An alias that dodges the selector is rejected in review.
 2. No `setInterval` in renderer source.
 3. No `export default` outside the package-root tool configs.
 4. No module-level `let` in shipped renderer source.
-5. `spawn` from `node:child_process` only in `tests/helpers/electron-child.ts`, which registers the kill on `onTestFinished`, and in `src/main/services/daemon/service-start.ts`, which starts the background service detached so it outlives the app.
+5. `spawn` from `node:child_process` only in `tests/helpers/electron/child/child.ts`, which registers the kill on `onTestFinished`, and in `src/main/services/daemon/service/start.ts`, which starts the background service detached so it outlives the app.
 6. No `toMatchScreenshot` matcher.
 7. A `.css` import follows [Styling](#styling): its own folder's sheet, except from a chunk root and `main.tsx`.
 8. No directory `import.meta.glob` under `src/`.

@@ -20,9 +20,9 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "vitest";
 
-import type { AppUnderTest } from "./electron-harness.js";
-import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch-body.js";
-import { LaunchDeadline } from "./launch-deadline.js";
+import type { AppUnderTest } from "./electron/harness.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch/body.js";
+import { LaunchDeadline } from "./launch/launch-deadline.js";
 
 /**
  * The palette input's accessible name, as `CommandPalette.tsx` publishes it. Matched by role and

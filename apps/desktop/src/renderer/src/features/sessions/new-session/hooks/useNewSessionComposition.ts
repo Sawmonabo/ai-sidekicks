@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
-import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+import { useAnnounce } from "@renderer/hooks/announce/useAnnounce.js";
 import type { NewSessionControlProps } from "../new-session-control-contract.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";

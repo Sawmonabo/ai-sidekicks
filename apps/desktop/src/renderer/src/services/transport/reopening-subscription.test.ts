@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import {
   openReopeningSubscription,
   REOPEN_SETTLED_MS,

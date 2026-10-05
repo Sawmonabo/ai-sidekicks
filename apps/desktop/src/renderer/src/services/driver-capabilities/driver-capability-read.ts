@@ -11,12 +11,15 @@
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import type { Refusal } from "@renderer/lib/refusal.js";
+import type { Refusal } from "@renderer/lib/refusal/refusal.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
 } from "@renderer/store/reads/read-triggers.js";
-import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refresh-scheduler.js";
+import {
+  RefreshScheduler,
+  type RefreshReason,
+} from "@renderer/lib/reads/refresh/refresh-scheduler.js";
 import { type ReadRound } from "@renderer/lib/reads/read-scope.js";
 import type {
   DeclaredDriverFlags,

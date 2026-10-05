@@ -11,7 +11,7 @@ import path from "node:path";
 import type { FilePathRef } from "@shared/preload-api.js";
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { isMissingPath } from "../../services/missing-path.js";
-import type { FilePathRefOwner, FilePathRefs } from "../file-path-refs.js";
+import type { FilePathRefOwner, FilePathRefs } from "../file-path/file-path-refs.js";
 
 /** The prefix of every pasted picture's file name; the rest is a fresh id. */
 const PASTED_IMAGE_FILE_PREFIX = "pasted-image-";

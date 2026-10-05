@@ -8,7 +8,7 @@
 //
 // Insertion order is preserved (`Map` semantics) and several callers depend on it.
 
-import { RefusalError, refuse, type Refusal } from "./refusal.js";
+import { RefusalError, refuse, type Refusal } from "./refusal/refusal.js";
 
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";

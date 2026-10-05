@@ -38,7 +38,7 @@
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
-import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 /**
  * The capability a thread-scoped frame carries, which selects its carve-out: `usage` and

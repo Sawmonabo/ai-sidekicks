@@ -173,7 +173,7 @@
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
         // The Preview pane's handback: which chords the page claims, told to the page host.
-        "src/renderer/src/features/preview/handback/chord-mirror.ts",
+        "src/renderer/src/features/preview/handback/chord/mirror.ts",
         // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
         "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
         // What the git host reports about a pull request, for the Pull request tab's header,
@@ -187,8 +187,8 @@
         "src/renderer/src/features/sessions/rows/session-list-degradation.ts",
         // The session header's title read and its fixture answer.
         "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
-        "src/renderer/src/services/daemon/session-identity.fixture.ts",
-        "src/renderer/src/services/daemon/session-reads.ts",
+        "src/renderer/src/services/daemon/session/identity.fixture.ts",
+        "src/renderer/src/services/daemon/session/reads.ts",
         // A saved workflow's row in the Workflows tab's table of definitions.
         "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
         "src/renderer/src/features/workflows/definitions/definition-rows.ts",
@@ -206,7 +206,7 @@
         "src/renderer/src/store/attention/hooks/useAttention.ts",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster.
-        "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
+        "src/renderer/src/features/settings/pages/notifications/os-notification/os-notification-delivery.ts",
         // A provider section's session import, mounted from its own chunk.
         "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-body.ts",
         "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-mount.ts",
@@ -306,7 +306,7 @@
       ],
       // The machine's `presence.read` binding, which nothing registers until Remote Control
       // reports the devices connected to this machine.
-      "ignoreFiles": ["src/ipc/handlers/presence-read.ts"]
+      "ignoreFiles": ["src/ipc/handlers/presence/read.ts"]
     }
   }
 }

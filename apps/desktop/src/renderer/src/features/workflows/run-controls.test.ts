@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "@fixtures/data/workflow-runs.js";
+import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "@fixtures/data/workflow/runs.js";
 import { retryAvailability } from "./run-controls.js";
 
 function failedRun(): WorkflowRunReadResponse {

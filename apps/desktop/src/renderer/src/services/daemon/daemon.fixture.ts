@@ -8,7 +8,7 @@ import type {
   DaemonParams,
   DaemonResult,
 } from "@ai-sidekicks/contracts/daemon/methods";
-import { DAEMON_STATUS_TOPIC, type MainProcessState } from "@shared/daemon-status-topic.js";
+import { DAEMON_STATUS_TOPIC, type MainProcessState } from "@shared/daemon/daemon-status-topic.js";
 import type {
   DaemonWire,
   DaemonWirePayload,
@@ -18,8 +18,8 @@ import type {
   Unsubscribe,
 } from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
-import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
-import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
+import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted/reply.fixture.js";
+import { subscribeToScenario } from "./scenario/subscriptions.fixture.js";
 
 /** The status topic's one delivery: a service this app found running, linked and answering. */
 const FIXTURE_SERVICE_STATE: MainProcessState = {

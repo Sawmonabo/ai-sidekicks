@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
-import { formatCount, formatDayClock, formatUnitDuration } from "@renderer/lib/wire-figures.js";
+import { formatCount, formatDayClock, formatUnitDuration } from "@renderer/lib/wire/figures.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";

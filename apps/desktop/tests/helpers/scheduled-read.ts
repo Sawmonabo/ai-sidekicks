@@ -6,7 +6,7 @@
 // the call's promise chain settle inside `act` so React commits what the answer changed.
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
+import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh/caps.js";
 import { settle } from "./settle.js";
 import type { Clock } from "@renderer/lib/clock.js";
 

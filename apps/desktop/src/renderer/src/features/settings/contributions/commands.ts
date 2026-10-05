@@ -7,7 +7,7 @@
 // process and may be a stack naming a subsystem the person cannot act on.
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 
 /** Why a bridge-backed command could not complete. */

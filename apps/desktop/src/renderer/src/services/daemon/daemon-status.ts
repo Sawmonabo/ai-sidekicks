@@ -5,8 +5,8 @@
 // service was gone. The topic opens with no service answering, so it never goes through
 // `openObservedSubscription`, whose open is evidence about the daemon's wire.
 
-import type { DaemonConnection, MainProcessState } from "@shared/daemon-status-topic.js";
-import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
+import type { DaemonConnection, MainProcessState } from "@shared/daemon/daemon-status-topic.js";
+import { DAEMON_STATUS_TOPIC } from "@shared/daemon/daemon-status-topic.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import type { TransportReachability } from "../transport/transport-reconnect.js";

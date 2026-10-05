@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "@test/helpers/electron-mock.js";
+import { createElectronMock } from "@test/helpers/electron/mock/electron-mock.js";
 import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
 
 const electronMock = createElectronMock({ recordOrder: true });

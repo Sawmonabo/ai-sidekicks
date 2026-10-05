@@ -5,7 +5,7 @@
 // variant); reasoning is composed by the mount so a policy-withheld body stays distinguishable
 // from an unreadable one.
 
-import { readWireString } from "@renderer/lib/wire-strings.js";
+import { readWireString } from "@renderer/lib/wire/strings.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,

@@ -19,7 +19,7 @@ import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubject
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { controlHoldSentence, type WorkspaceControlAvailability } from "../mount-health.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
-import type { PrepareOperations, PrepareReading } from "./prepare-controller.js";
+import type { PrepareOperations, PrepareReading } from "./prepare/controller.js";
 import {
   EMPTY_PREPARE_FORM,
   isDirtyReuseAcknowledged,
@@ -28,7 +28,7 @@ import {
   reuseConsentRequired,
   REUSE_VERDICT_COPY,
   type PrepareFormState,
-} from "./prepare-form.js";
+} from "./prepare/form.js";
 
 /** What the prepare form is bound to: the workspace, its mode, and the calls it makes. */
 export interface PrepareExecutionRootProps {
