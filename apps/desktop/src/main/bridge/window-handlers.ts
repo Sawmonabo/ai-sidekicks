@@ -1,9 +1,8 @@
 // The bridge's `window` members main answers: the appearance the renderer chose, the current
-// appearance record and a window's fullscreen state a subscription starts from, a window's
-// minimum size, held within the work area of the display the window is on, and the widths a
-// window with no kept place opens at. Only the console
-// document asks, and it names the window by the id its frame name carries. The pushes that follow
-// a subscription's first delivery come from main's registry of windows
+// appearance record a subscription starts from, a window's minimum size, held within the work area
+// of the display the window is on, and the widths a window with no kept place opens at. Only the
+// console document asks, and it names the window by the id its frame name carries. The pushes that
+// follow a subscription's first delivery come from main's registry of windows
 // (`../windows/open-windows.ts`), which owns every window and the console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
@@ -33,7 +32,6 @@ type WindowAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
 type WindowChannel =
   | typeof BRIDGE_CHANNELS.setAppearance
   | typeof BRIDGE_CHANNELS.readAppearance
-  | typeof BRIDGE_CHANNELS.readFullscreen
   | typeof BRIDGE_CHANNELS.setMinimumSize
   | typeof BRIDGE_CHANNELS.setDefaultSizes;
 
@@ -81,8 +79,6 @@ export function windowAnswers(
       return context.appearance.choose(choice, grounds);
     },
     [BRIDGE_CHANNELS.readAppearance]: (): AppearanceRecord => context.appearance.record,
-    [BRIDGE_CHANNELS.readFullscreen]: (event, windowId): boolean =>
-      namedWindow(event, windowId).isFullScreen(),
     [BRIDGE_CHANNELS.setMinimumSize]: (event, request) => {
       const { windowId, size } = minimumSizeRequestSchema.parse(request);
       const baseWindow = namedWindow(event, windowId);

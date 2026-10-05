@@ -20,7 +20,7 @@ import {
   MERIDIAN_GROUNDS,
   type AppearanceRecord,
 } from "#shared/appearance.js";
-import { APPEARANCE_VALUE_CHANNEL, FULLSCREEN_VALUE_CHANNEL } from "#shared/bridge-channels.js";
+import { APPEARANCE_VALUE_CHANNEL } from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
 import {
@@ -571,7 +571,7 @@ describe("a window the console document opens", () => {
 });
 
 describe("the pushes to the console document", () => {
-  it("carry appearance and each window's fullscreen to it alone, and repaint every ground", async () => {
+  it("carry appearance to it alone, and repaint every ground", async () => {
     const appearance = changingAppearance();
     const { openWindows } = await createRegistry("darwin", appearance);
     const consoleWindow = asMockWindow(openWindows.openConsoleWindow({ additionalArguments: [] }));
@@ -583,18 +583,9 @@ describe("the pushes to the console document", () => {
     appearance.announce();
     // The platform's scheme moving repaints, and pushes no record that did not change.
     appearance.announce();
-    child.emit("enter-full-screen");
-    pane.emit("enter-full-screen");
-    child.emit("leave-full-screen");
 
     expect(consoleWindow.document.sent).toEqual([
       { channel: APPEARANCE_VALUE_CHANNEL, value: appearance.record },
-      { channel: FULLSCREEN_VALUE_CHANNEL, value: { windowId: "window/w-2", isFullScreen: true } },
-      {
-        channel: FULLSCREEN_VALUE_CHANNEL,
-        value: { windowId: "pane/terminal/s-1", isFullScreen: true },
-      },
-      { channel: FULLSCREEN_VALUE_CHANNEL, value: { windowId: "window/w-2", isFullScreen: false } },
     ]);
     expect(child.contentView.children[0]?.webContents.sent).toEqual([]);
     for (const window of [consoleWindow.baseWindow, child, pane]) {

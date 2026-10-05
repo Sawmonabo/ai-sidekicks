@@ -434,7 +434,7 @@ export interface PreloadApi {
 
   /**
    * The windows a person sees, each named by its window id, the frame name the console document
-   * opened it under: the one used last, the appearance, each one's fullscreen and minimum size.
+   * opened it under: the one used last, the appearance, and each one's minimum size.
    */
   readonly window: {
     /**
@@ -449,8 +449,6 @@ export interface PreloadApi {
     setAppearance(choice: AppearanceChoice, grounds: AppearanceGrounds): Promise<void>;
     /** The appearance record on every change, the first delivery the kept one. */
     subscribeAppearance(handler: (record: AppearanceRecord) => void): Unsubscribe;
-    /** One window's fullscreen starting or ending, the first delivery the current state. */
-    subscribeFullscreen(windowId: string, handler: (isFullScreen: boolean) => void): Unsubscribe;
     /** The smallest size one window may shrink to. */
     setMinimumSize(windowId: string, size: WindowSize): Promise<void>;
     /**
@@ -521,7 +519,6 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       lastUsedWindowId,
       setAppearance: () => stubThrow("window.setAppearance"),
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
-      subscribeFullscreen: () => stubThrow("window.subscribeFullscreen"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
     },

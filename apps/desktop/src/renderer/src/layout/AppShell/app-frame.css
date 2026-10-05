@@ -1,10 +1,12 @@
 /* The frame's own styles: the window box, its banners and the screen region. */
 
 /* The reflow floor lives on this box. Below it the document scrolls horizontally, which WCAG 2.2
-   SC 1.4.10 permits under 320 CSS px; above it the frame is fluid. */
+   SC 1.4.10 permits under 320 CSS px; above it the frame is fluid. On macOS the rail is as wide
+   as the traffic lights, whose area starts the content at `env(titlebar-area-x)`; that value is
+   undefined in fullscreen and on every other platform, where the rail keeps its own width. */
 .meridian-frame {
   display: grid;
-  grid-template-columns: var(--meridian-rail-width) minmax(0, 1fr);
+  grid-template-columns: max(var(--meridian-rail-width), env(titlebar-area-x, 0px)) minmax(0, 1fr);
   min-width: var(--meridian-reflow-min-width);
   height: 100%;
   min-height: 0;

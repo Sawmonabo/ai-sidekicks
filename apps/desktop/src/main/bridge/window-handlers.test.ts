@@ -10,7 +10,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
-import { FULLSCREEN_VALUE_CHANNEL, type FullscreenPush } from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 
 const electronMock = createElectronMock();
@@ -30,8 +29,6 @@ let appearanceFilePath: string;
 let minimumSizes: [number, number][];
 /** Whether the asking document is the console document. */
 let isAskedFromTheConsole: boolean;
-/** What main pushes on one channel, handed to the listeners the preload registered for it. */
-let pushToThePage: (channel: string, value: unknown) => void;
 
 /** The preload's `window` member over the mocked IPC, answered by main's real handlers. */
 async function connectWindowBridge() {
@@ -58,7 +55,6 @@ async function connectWindowBridge() {
       minimumSizes.push([width, height]);
     },
     getBounds: () => ({ x: 100, y: 100, width: 900, height: 600 }),
-    isFullScreen: () => false,
   };
   for (const [channel, answer] of Object.entries(
     windowAnswers({
@@ -74,14 +70,11 @@ async function connectWindowBridge() {
   )) {
     ipcMain.handle(channel, answer as never);
   }
-  const pageListeners = new Map<string, (event: unknown, ...args: unknown[]) => void>();
-  pushToThePage = (channel, value) => {
-    pageListeners.get(channel)?.({}, structuredClone(value));
-  };
   return createWindowBridge(
     {
       invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-      on: (channel, listener) => pageListeners.set(channel, listener),
+      // No test here pushes to the page, so the preload's listeners are never called.
+      on: () => undefined,
     },
     OPEN_WINDOW_ID,
   );
@@ -160,26 +153,5 @@ describe("the window members", () => {
       [641, 480],
       [WORK_AREA.width, WORK_AREA.height],
     ]);
-  });
-
-  it("deliver each window's fullscreen to that window's subscriptions alone", async () => {
-    const windowBridge = await connectWindowBridge();
-    const deliveries: string[] = [];
-    windowBridge.subscribeFullscreen(OPEN_WINDOW_ID, (isFullScreen) => {
-      deliveries.push(`${OPEN_WINDOW_ID}:${String(isFullScreen)}`);
-    });
-    await vi.waitFor(() => {
-      expect(deliveries).toStrictEqual([`${OPEN_WINDOW_ID}:false`]);
-    });
-
-    const pushes: FullscreenPush[] = [
-      { windowId: "pane/terminal/s-1", isFullScreen: true },
-      { windowId: OPEN_WINDOW_ID, isFullScreen: true },
-    ];
-    for (const push of pushes) {
-      pushToThePage(FULLSCREEN_VALUE_CHANNEL, push);
-    }
-
-    expect(deliveries).toStrictEqual([`${OPEN_WINDOW_ID}:false`, `${OPEN_WINDOW_ID}:true`]);
   });
 });

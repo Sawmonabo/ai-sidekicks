@@ -1,9 +1,10 @@
 // The window's title bar in a real window. On macOS the console fills the window under the three
-// traffic-light buttons, which the platform reports as the window-controls overlay; the rail's
-// first destination must start below that area, and the inset goes in fullscreen, where the
-// buttons go. Everywhere else the system's own strip stays and the rail has no inset. On every
-// platform the rail and the session header are the window's drag regions, and the rail's buttons
-// and the session's title are cut out of them.
+// traffic-light buttons, which the platform reports as the window-controls overlay; the rail is
+// at least as wide as the buttons, its first destination starts below them, and both the width
+// and the inset go in fullscreen, where the buttons go. Everywhere else the system's own strip
+// stays and the rail keeps its own width with no inset. On every platform the rail and the
+// session header are the window's drag regions, and the rail's buttons and the session's title
+// are cut out of them.
 //
 // What this reads is the style the window's own document computes, not a native drag: no test
 // here moves the pointer.
@@ -25,9 +26,11 @@ interface WindowControlsOverlay {
   getTitlebarAreaRect(): DOMRect;
 }
 
-/** The rail's top, its first destination, and the traffic-light area, read in the window. */
+/** The rail's box, its first destination, and the traffic-light area, read in the window. */
 interface RailReading {
+  readonly overlayStart: number;
   readonly overlayHeight: number;
+  readonly railWidth: number;
   readonly isOverlayVisible: boolean;
   readonly firstButtonTop: number;
   readonly paddingTop: string;
@@ -35,7 +38,7 @@ interface RailReading {
 }
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
-  it("keeps the rail's first destination clear of the traffic lights, and drops the inset in fullscreen", async () => {
+  it("keeps the rail's destinations clear of the traffic lights, and drops the room in fullscreen", async () => {
     await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
       const appWindow = appUnderTest.window;
       await appWindow
@@ -57,6 +60,13 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
 
       expect(windowed.isOverlayVisible, "the traffic lights are not reported").toBe(true);
       expect(windowed.overlayHeight).toBeGreaterThan(0);
+      expect(
+        windowed.overlayStart,
+        "the overlay reports no start past the buttons",
+      ).toBeGreaterThan(0);
+      expect(windowed.railWidth, "the rail is narrower than the traffic lights").toBe(
+        windowed.overlayStart,
+      );
       expect(windowed.paddingTop).toBe(`${String(windowed.overlayHeight)}px`);
       expect(
         windowed.firstButtonTop,
@@ -74,6 +84,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
       const fullscreen = await readRail(appWindow);
       expect(fullscreen.paddingTop, "the inset stays in fullscreen").toBe(fullscreen.paddingBottom);
       expect(fullscreen.firstButtonTop).toBeLessThan(windowed.firstButtonTop);
+      expect(fullscreen.railWidth, "the rail stays widened in fullscreen").toBeLessThan(
+        windowed.railWidth,
+      );
 
       await setFullScreen(appUnderTest, false);
       await expect
@@ -137,8 +150,11 @@ async function readRail(appWindow: Page): Promise<RailReading> {
     const overlay = (navigator as Navigator & { windowControlsOverlay?: WindowControlsOverlay })
       .windowControlsOverlay;
     const railStyle = getComputedStyle(rail);
+    const titlebarArea = overlay?.getTitlebarAreaRect();
     return {
-      overlayHeight: overlay?.getTitlebarAreaRect().height ?? 0,
+      overlayStart: titlebarArea?.x ?? 0,
+      overlayHeight: titlebarArea?.height ?? 0,
+      railWidth: rail.getBoundingClientRect().width,
       isOverlayVisible: overlay?.visible ?? false,
       firstButtonTop: firstButton.getBoundingClientRect().top,
       paddingTop: railStyle.paddingTop,

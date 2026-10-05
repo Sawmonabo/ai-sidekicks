@@ -2,12 +2,7 @@
 // here, takes its first delivery from main's current value, and then every value main pushes.
 
 import type { AppearanceRecord } from "#shared/appearance.js";
-import {
-  APPEARANCE_VALUE_CHANNEL,
-  BRIDGE_CHANNELS,
-  FULLSCREEN_VALUE_CHANNEL,
-  type FullscreenPush,
-} from "#shared/bridge-channels.js";
+import { APPEARANCE_VALUE_CHANNEL, BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
 
 /** The part of Electron's `ipcRenderer` the `window` members use. */
@@ -25,13 +20,8 @@ export function createWindowBridge(
   lastUsedWindowId: string,
 ): PreloadApi["window"] {
   const appearance = new PushedValues<AppearanceRecord>();
-  const fullscreen = new PushedValues<boolean>();
   ipc.on(APPEARANCE_VALUE_CHANNEL, (_event, record) => {
     appearance.deliver(APPEARANCE_VALUE_CHANNEL, record as AppearanceRecord);
-  });
-  ipc.on(FULLSCREEN_VALUE_CHANNEL, (_event, push) => {
-    const { windowId, isFullScreen } = push as FullscreenPush;
-    fullscreen.deliver(windowId, isFullScreen);
   });
   return {
     lastUsedWindowId,
@@ -44,12 +34,6 @@ export function createWindowBridge(
         handler,
         async () => (await ipc.invoke(BRIDGE_CHANNELS.readAppearance)) as AppearanceRecord,
       ),
-    subscribeFullscreen: (windowId, handler) =>
-      fullscreen.subscribe(
-        windowId,
-        handler,
-        async () => (await ipc.invoke(BRIDGE_CHANNELS.readFullscreen, windowId)) as boolean,
-      ),
     setMinimumSize: async (windowId, size): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.setMinimumSize, { windowId, size });
     },
@@ -59,7 +43,7 @@ export function createWindowBridge(
   };
 }
 
-/** Values main pushes, each under a key (a window's id, or the one appearance channel). */
+/** Values main pushes, each under a key, the channel they arrive on. */
 class PushedValues<Value> {
   readonly #handlers = new Map<string, Set<(value: Value) => void>>();
 

@@ -24,11 +24,7 @@ import type {
 } from "electron";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
-import {
-  APPEARANCE_VALUE_CHANNEL,
-  FULLSCREEN_VALUE_CHANNEL,
-  type FullscreenPush,
-} from "#shared/bridge-channels.js";
+import { APPEARANCE_VALUE_CHANNEL } from "#shared/bridge-channels.js";
 import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
 import type { WindowDefaultSizes } from "#shared/window/window-size.js";
@@ -346,12 +342,6 @@ export class OpenWindows {
         this.#windowUsedLast = windowId;
       }
     });
-    baseWindow.on("enter-full-screen", () => {
-      this.#sendToConsole(FULLSCREEN_VALUE_CHANNEL, { windowId, isFullScreen: true });
-    });
-    baseWindow.on("leave-full-screen", () => {
-      this.#sendToConsole(FULLSCREEN_VALUE_CHANNEL, { windowId, isFullScreen: false });
-    });
     // `close`, not `closed`: the window's rectangle is still readable. A safe start keeps no place.
     baseWindow.on("close", () => {
       if (!this.#closingWithTheirDocument.has(openWindow) && !this.#isSafeStart) {
@@ -485,7 +475,7 @@ export class OpenWindows {
     this.#sendToConsole(APPEARANCE_VALUE_CHANNEL, record);
   }
 
-  #sendToConsole(channel: string, value: AppearanceRecord | FullscreenPush): void {
+  #sendToConsole(channel: string, value: AppearanceRecord): void {
     const consoleDocument = this.#console?.view.webContents;
     // A quit or a reload destroys the document a moment before its window goes.
     if (consoleDocument !== undefined && !consoleDocument.isDestroyed()) {

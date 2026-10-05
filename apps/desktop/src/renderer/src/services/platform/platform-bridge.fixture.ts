@@ -123,11 +123,6 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
           appearanceHandlers.delete(subscription);
         };
       },
-      // A fixture window is drawn at the size the harness gives it and never goes fullscreen.
-      subscribeFullscreen: (_windowId, handler): Unsubscribe => {
-        handler(false);
-        return () => undefined;
-      },
       setMinimumSize: async () => {
         // Nothing reads the floor back, and the harness sizes the fixture window itself.
       },

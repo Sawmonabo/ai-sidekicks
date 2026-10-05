@@ -23,7 +23,6 @@ export const BRIDGE_CHANNELS = {
   writeKeyboardMap: "keyboardMap.write",
   setAppearance: "window.setAppearance",
   readAppearance: "window.readAppearance",
-  readFullscreen: "window.readFullscreen",
   setMinimumSize: "window.setMinimumSize",
   setDefaultSizes: "window.setDefaultSizes",
 } as const;
@@ -46,15 +45,6 @@ export const DAEMON_SUBSCRIPTION_END_CHANNEL = "daemon.subscriptionEnd";
 
 /** The channel main pushes the appearance record on, to the console document. */
 export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
-
-/** The channel main pushes each window's fullscreen state on, to the console document. */
-export const FULLSCREEN_VALUE_CHANNEL = "window.fullscreen";
-
-/** One window's fullscreen starting or ending, as main pushes it. */
-export interface FullscreenPush {
-  readonly windowId: string;
-  readonly isFullScreen: boolean;
-}
 
 /**
  * Every bridge member a page calls, as `namespace.member`. The build facts and the window used
@@ -108,7 +98,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "keyboardMap.write": [BRIDGE_CHANNELS.writeKeyboardMap],
   "window.setAppearance": [BRIDGE_CHANNELS.setAppearance],
   "window.subscribeAppearance": [BRIDGE_CHANNELS.readAppearance],
-  "window.subscribeFullscreen": [BRIDGE_CHANNELS.readFullscreen],
   "window.setMinimumSize": [BRIDGE_CHANNELS.setMinimumSize],
   "window.setDefaultSizes": [BRIDGE_CHANNELS.setDefaultSizes],
 };
