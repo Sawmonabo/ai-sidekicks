@@ -3,13 +3,13 @@
 // `workflow_enable` take their methods' request schemas (`workflow.kindList`,
 // `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.
 //
-// No tool takes a session id: the session is the one whose turn made the call, so an agent
-// cannot reach a workflow through another session. The JSON Schema a provider receives is
+// No tool takes a session id or a project id: the session is the one whose turn made the call,
+// and a project workflow belongs to that session's project, so an agent cannot reach a workflow
+// through another session or another project. The JSON Schema a provider receives is
 // generated from these schemas, so each member's description is the text the model reads.
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
-  WorkflowDefinitionScopeRefSchema,
   WorkflowDefinitionScopeSchema,
   WorkflowDocumentSchema,
   WorkflowDraftDocumentSchema,
@@ -123,12 +123,12 @@ export const WorkflowValidateToolInputSchema: z.ZodType<
   .strict();
 
 /**
- * The `workflow_create` input: the method's request without a session. A document with
- * no layout is laid out by the daemon.
+ * The `workflow_create` input: the method's request without a scope ref. The daemon takes the
+ * calling session's id at `session` and that session's project at `project`; a session with
+ * no project has nothing to put there. A document with no layout is laid out by the daemon.
  */
 export interface WorkflowCreateToolInput {
   scope: WorkflowDefinitionScope;
-  scopeRef?: string | undefined;
   parentContentHash?: string | undefined;
   document: WorkflowDocument;
 }
@@ -139,9 +139,6 @@ export const WorkflowCreateToolInputSchema: z.ZodType<
 > = z
   .object({
     scope: WorkflowDefinitionScopeSchema.describe("Where the workflow is saved."),
-    scopeRef: WorkflowDefinitionScopeRefSchema.optional().describe(
-      "The project record's id for a project workflow. Omitted for session and shared.",
-    ),
     parentContentHash: WorkflowContentHashSchema.optional().describe(
       "The content hash of the shared workflow this one branches from, when it does.",
     ),

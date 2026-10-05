@@ -22,6 +22,7 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/driver.js";
 import { FILE_PATH_MAX_LEN } from "../../session/session.js";
+import { uuidTextFormSchema } from "../../internal/branded.js";
 import { countSchema } from "../../internal/wire-scalars.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
@@ -91,9 +92,10 @@ export const WorkflowDefinitionScopeSchema: z.ZodType<
  * A scope's identity: the authoring session's id at `session`, the project record's id at
  * `project`, and the empty string at `shared`, which refers to nothing narrower.
  */
-export const WorkflowDefinitionScopeRefSchema: z.ZodType<string, string> = z
-  .string()
-  .max(FILE_PATH_MAX_LEN);
+export const WorkflowDefinitionScopeRefSchema: z.ZodType<string, string> = z.union([
+  z.literal(""),
+  uuidTextFormSchema,
+]);
 
 // The document
 

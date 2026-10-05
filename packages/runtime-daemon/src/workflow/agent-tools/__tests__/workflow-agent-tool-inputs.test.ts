@@ -1,6 +1,6 @@
 // The callback host checks a tool call against the JSON Schema the provider received, and the tool
 // checks it against its input schema; these cases hold that the two agree for `workflow_run` and
-// that no tool input lets an agent name another session.
+// that no tool input lets an agent name another session or a project.
 import { describe, expect, it } from "vitest";
 
 import { describeArgumentRefusal } from "../../../provider/callback-tool-host.js";
@@ -12,6 +12,7 @@ import {
 } from "../workflow-agent-tool-inputs.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("workflow_run", () => {
   it("is refused by the host without a definition name and admitted with one", () => {
@@ -42,8 +43,8 @@ const CREATE_INPUT = {
   },
 };
 
-describe("a session is never an input", () => {
-  it("admits the run, list and create inputs without a session id and refuses one", () => {
+describe("a session or a project is never an input", () => {
+  it("admits the run, list and create inputs without a session id and refuses one, and a project id on create", () => {
     expect(WorkflowRunToolInputSchema.safeParse({ definitionName: "Nightly suite" }).success).toBe(
       true,
     );
@@ -59,6 +60,13 @@ describe("a session is never an input", () => {
     expect(WorkflowListToolInputSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(false);
     expect(
       WorkflowCreateToolInputSchema.safeParse({ ...CREATE_INPUT, sessionId: SESSION_ID }).success,
+    ).toBe(false);
+    expect(
+      WorkflowCreateToolInputSchema.safeParse({
+        ...CREATE_INPUT,
+        scope: "project",
+        scopeRef: PROJECT_ID,
+      }).success,
     ).toBe(false);
   });
 });
