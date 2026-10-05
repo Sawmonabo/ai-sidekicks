@@ -1,5 +1,5 @@
 // The app's type system: the faces the app asks for, the line height, the size scale every
-// line is set on, and the letter spacing uppercase labels are set with. Separate from
+// line is set on, and the letter spacing scale every sheet sets spacing from. Separate from
 // `palette.ts`, which answers "what color is this?" through contrast measurements, while this
 // file answers "how is text set?".
 //
@@ -33,11 +33,22 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 
 /**
  * Letter spacing, in em so it scales with the size it is set at. Uppercase text needs more room
- * between letters than mixed case to read at a small size.
+ * between letters than mixed case to read at a small size, and a heading over a group sits one
+ * step wider than the labels inside it so the two never read as the same rank. Every sheet sets
+ * letter spacing from one of these steps.
  */
 export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
+  /** An uppercase section or group heading's spacing: one step wider than a field label's. */
+  "tracking-heading": 0.14,
   /** The uppercase field label's spacing, wide enough that capitals at its size stay apart. */
   "tracking-label": 0.12,
+  /**
+   * Small uppercase words that are neither a field label nor a group heading: a category over a
+   * run of rows, a row's kind, the word before a value.
+   */
+  "tracking-caps": 0.06,
+  /** Mixed-case words set a touch open, such as a block title or a figure's caption. */
+  "tracking-mixed": 0.02,
 };
 
 /**

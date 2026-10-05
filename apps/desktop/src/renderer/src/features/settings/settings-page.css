@@ -42,7 +42,7 @@
   color: var(--meridian-text);
   font-size: var(--meridian-text-sm);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--meridian-tracking-mixed);
 }
 
 .meridian-settings-page__aside,
@@ -105,8 +105,6 @@
 .meridian-settings-page__fact dt {
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .meridian-settings-page__fact dd {

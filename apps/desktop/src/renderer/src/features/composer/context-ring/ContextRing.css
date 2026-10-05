@@ -11,7 +11,7 @@
 .meridian-context-ring__label {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--meridian-tracking-mixed);
 }
 
 /* A hairline, not a gauge: the figures beside the bar are the number, not the bar. */

@@ -1,6 +1,6 @@
 /* The keyboard page's rows and controls: the page's own sheet, since nothing else draws the
  * filter, the row list, the recorder or the reset controls. Every value is a Meridian token.
- * The filter wears the shared field and label from `styles/form.css`; the recorder and the
+ * The filter wears the shared field and input from `styles/form.css`; the recorder and the
  * reset controls wear the shared action button at its compact size from
  * `styles/action-buttons.css` and keep their own face here.
  */
@@ -11,20 +11,6 @@
 
 .meridian-keymap__filter {
   margin-bottom: var(--meridian-space-4);
-}
-
-.meridian-keymap__filter-input {
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  font: inherit;
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-keymap__filter-input::placeholder {
-  color: var(--meridian-text-faint);
 }
 
 .meridian-keymap {

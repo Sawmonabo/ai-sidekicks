@@ -162,7 +162,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   return (
     <form className="meridian-run-composer" onSubmit={onSubmit}>
       <h4 className="meridian-run-composer__title">Steer this run</h4>
-      <label className="meridian-form__label" htmlFor={bodyId}>
+      <label className="meridian-visually-hidden" htmlFor={bodyId}>
         What should it do differently
       </label>
       <textarea

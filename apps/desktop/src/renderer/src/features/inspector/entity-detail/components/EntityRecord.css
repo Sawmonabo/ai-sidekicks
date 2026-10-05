@@ -50,7 +50,7 @@
 }
 
 .meridian-entity-record__label {
-  color: var(--meridian-text-muted);
+  color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
 }
 

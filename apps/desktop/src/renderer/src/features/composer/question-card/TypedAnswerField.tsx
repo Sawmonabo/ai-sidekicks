@@ -24,12 +24,13 @@ export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Elemen
   const fieldId = useId();
   return (
     <div className="meridian-input-ask__free-text meridian-form__field">
-      <label htmlFor={fieldId} className="meridian-form__label">
+      <label htmlFor={fieldId} className="meridian-visually-hidden">
         Something else…
       </label>
       <textarea
         id={fieldId}
         className="meridian-input-ask__field meridian-form__input"
+        placeholder="Something else…"
         value={props.draft}
         rows={2}
         disabled={props.isClosed}

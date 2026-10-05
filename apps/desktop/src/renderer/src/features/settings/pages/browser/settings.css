@@ -29,7 +29,7 @@
   margin: 0;
   font-size: var(--meridian-text-sm);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--meridian-tracking-heading);
   text-transform: uppercase;
   color: var(--meridian-text-muted);
 }

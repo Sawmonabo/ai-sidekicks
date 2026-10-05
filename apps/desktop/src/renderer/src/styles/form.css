@@ -1,8 +1,8 @@
 /*
  * The parts of a form, wherever one is drawn: a labeled field and the words in its label that are
- * not its name, the input a person types or picks in, the sentence saying why a send control is
- * closed, and what a request did once it settled. Each part wears its class beside the control's
- * own, which keeps only its layout, state and variation.
+ * not its name, the input a person types or picks in and the words it shows while empty, the
+ * sentence saying why a send control is closed, and what a request did once it settled. Each part
+ * wears its class beside the control's own, which keeps only its layout, state and variation.
  *
  * The rules sit inside `:where()` so they carry no specificity: a control's own class wins
  * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
@@ -45,6 +45,11 @@
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
   color: var(--meridian-text);
+}
+
+/* What a field asks for, when the field draws no label of its own. */
+:where(.meridian-form__input)::placeholder {
+  color: var(--meridian-text-faint);
 }
 
 /* Closed, it sinks with its text faded, as the raised action button does. */

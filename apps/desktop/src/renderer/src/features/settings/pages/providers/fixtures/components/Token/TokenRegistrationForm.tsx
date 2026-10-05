@@ -131,7 +131,7 @@ export function TokenRegistrationForm(props: {
         ))}
       </select>
 
-      <label htmlFor={tokenFieldId} className="meridian-form__label">
+      <label htmlFor={tokenFieldId} className="meridian-visually-hidden">
         Paste the token you minted at the provider.
       </label>
       <input
@@ -139,6 +139,7 @@ export function TokenRegistrationForm(props: {
         id={tokenFieldId}
         ref={tokenInput}
         type="password"
+        placeholder="Paste the token you minted at the provider."
         autoComplete="off"
         spellCheck={false}
         required

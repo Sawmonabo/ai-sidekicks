@@ -64,7 +64,7 @@
 
 .command-palette__scope-label {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--meridian-tracking-caps);
   color: var(--meridian-text-faint);
 }
 
@@ -131,7 +131,7 @@
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--meridian-tracking-caps);
 }
 
 /* The first heading takes the space the list's top padding would have given. */

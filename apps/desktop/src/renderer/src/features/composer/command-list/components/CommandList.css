@@ -103,7 +103,7 @@
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--meridian-tracking-heading);
 }
 
 .meridian-command-discovery__group-rows {
