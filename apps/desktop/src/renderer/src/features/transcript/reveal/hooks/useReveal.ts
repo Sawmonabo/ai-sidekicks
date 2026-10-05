@@ -93,6 +93,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
         const published = engine.publishedText(laneId);
         return published === "" ? undefined : published;
       },
+      hasPublishedText: (laneId: string) => engine.hasPublishedText(laneId),
       subscribe: (sink: () => void) =>
         engine.subscribe(() => {
           sink();

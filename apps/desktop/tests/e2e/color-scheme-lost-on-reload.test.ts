@@ -7,12 +7,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { APPEARANCE_FILE_NAME } from "@main/appearance/record-file.js";
-import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
+import { clickViewMenuScheme, readPageScheme } from "./color-scheme.js";
 import { openPalette } from "../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
@@ -20,14 +19,6 @@ import { READINESS_BUDGET_MS } from "../helpers/launch-budgets.js";
 import { LaunchDeadline } from "../helpers/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
-
-/** The scheme a window's root carries: `null` under `system`, which writes no attribute. */
-async function readPageScheme(appWindow: Page): Promise<string | null> {
-  return await appWindow.evaluate(
-    (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
-    SCHEME_ATTRIBUTE,
-  );
-}
 
 /** The scheme main's record holds on disk, read in this process from main's own folder. */
 async function readKeptScheme(appUnderTest: AppUnderTest): Promise<unknown> {
@@ -90,12 +81,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's recor
       );
 
       // The View menu's row, clicked in main as a person's click runs it.
-      const isClicked = await appUnderTest.application.evaluate(({ Menu }) => {
-        const view = Menu.getApplicationMenu()?.items.find((item) => item.label === "View");
-        const light = view?.submenu?.items.find((item) => item.label === "Light");
-        light?.click();
-        return light !== undefined;
-      });
+      const isClicked = await clickViewMenuScheme(appUnderTest, "Light");
       expect(isClicked, "the View menu has a Light row").toBe(true);
       await expect
         .poll(async () => await readPageScheme(reopenedWindow), {

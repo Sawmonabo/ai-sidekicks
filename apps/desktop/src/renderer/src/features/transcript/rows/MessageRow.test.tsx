@@ -3,7 +3,7 @@
 
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,6 +16,7 @@ import {
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { ClipboardContent } from "@shared/preload-api.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
+import { ManualClock } from "@renderer/lib/clock.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
@@ -25,6 +26,8 @@ import {
   RowRevealContext,
   type RowRevealContextValue,
 } from "../reveal/components/RowRevealProvider.js";
+import { useReveal } from "../reveal/hooks/useReveal.js";
+import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
 
 function renderMessageCard(
@@ -157,6 +160,7 @@ describe("a message's Copy", () => {
       replyRowIds: replyRows.get("reply-closing"),
       revealChannel: {
         publishedTextFor: (rowId) => drawnText.get(rowId),
+        hasPublishedText: (rowId) => drawnText.has(rowId),
         subscribe: () => () => undefined,
       },
     });
@@ -177,7 +181,7 @@ describe("a message's Copy", () => {
 });
 
 describe("a reply's foot", () => {
-  it("stands on the reply's last row alone, with its one time and Copy, once it has text", () => {
+  it("stands on the reply's last row alone once it has text, and keeps its time when dropped", () => {
     const occurredAt = "2026-09-02T10:00:00.000Z";
     const replyRows = replyRowIdsByFootRowId([
       sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
@@ -228,6 +232,7 @@ describe("a reply's foot", () => {
       replyRowIds: replyRows.get("reply-closing"),
       revealChannel: {
         publishedTextFor: (rowId) => (rowId === "reply-opening" ? "Read it first." : undefined),
+        hasPublishedText: (rowId) => rowId === "reply-opening",
         subscribe: () => () => undefined,
       },
     });
@@ -235,6 +240,33 @@ describe("a reply's foot", () => {
     expect(
       closingAfterText.querySelectorAll(".meridian-transcript-row-layout__footer button"),
     ).toHaveLength(1);
+
+    // The reply's text was drawn and then dropped, as when its row leaves the window or folds into
+    // its run group: the foot keeps its time, and Copy waits for text to take.
+    const clock = new ManualClock();
+    const reveal = renderHook(() =>
+      useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }),
+    );
+    act(() => {
+      reveal.result.current.ingest({ laneId: "reply-closing", mode: "direct", text: "Rename it." });
+      while (clock.pendingFrameCount > 0) {
+        clock.runFrame();
+      }
+    });
+    expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBe("Rename it.");
+    act(() => {
+      reveal.result.current.retireLanes((laneId) => laneId === "reply-closing");
+    });
+    expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBeUndefined();
+    const closingAfterDrop = renderMessageCard({
+      id: "reply-closing",
+      replyRowIds: replyRows.get("reply-closing"),
+      revealChannel: reveal.result.current.channel,
+    });
+    const footAfterDrop = closingAfterDrop.querySelector(".meridian-transcript-row-layout__footer");
+    expect(timesIn(closingAfterDrop)).toHaveLength(1);
+    expect(footAfterDrop?.contains(timesIn(closingAfterDrop)[0] ?? null)).toBe(true);
+    expect(footAfterDrop?.querySelector("button")).toBeNull();
   });
 });
 

@@ -16,6 +16,8 @@ export interface RowRevealContextValue {
    * body and would render an empty one as a turn whose author said nothing.
    */
   readonly publishedTextFor: (laneId: string) => string | undefined;
+  /** Whether one lane has published text, still true after the lane retired and dropped it. */
+  readonly hasPublishedText: (laneId: string) => boolean;
   /** Called once per drained frame. The row decides whether its text moved. */
   readonly subscribe: (sink: () => void) => Unsubscribe;
 }

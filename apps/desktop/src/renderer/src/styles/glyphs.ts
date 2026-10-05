@@ -37,7 +37,7 @@ export const GLYPH_VIEWBOX_SIZE = 16;
  */
 export const GLYPH_STROKE_WIDTH = 1.5;
 
-/** Rendered edge length when a caller names no size, in CSS pixels. */
+/** Edge length when a caller names no size, in CSS pixels at the default text size. */
 export const GLYPH_DEFAULT_SIZE = 16;
 
 // The icon scale is a token so that tightening the icons by a pixel moves every glyph together.
