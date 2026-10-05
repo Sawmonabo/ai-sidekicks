@@ -24,7 +24,7 @@ The renderer root `src/renderer/src/` is never flattened into `src/renderer/`. I
 - **Feature limits:** `sessions/` owns the Sessions destination whole (the list and the session screen); `settings/` holds the settings pages only; `repos/` owns git and source control; `workflows/param-form/` is used only by workflows.
 - **Inside a feature** a folder is added only when needed: top views at the root, then `components/`, `hooks/`, `services/`, `contributions/`, `types.ts`, `index.ts`, and non-UI modules named for what they hold. A large feature has one sub-folder per distinct responsibility, shaped the same inside.
 - **A feature's `index.ts`** is its public entry: the one module another folder imports from the feature.
-- **Inside every layer, feature and `tests/`, modules are grouped by topic in folders, never by a shared file-name prefix,** under the same rules as [`packages/AGENTS.md` §Folders by topic](../../packages/AGENTS.md#folders-by-topic): three `launch-*.ts` helpers beside each other mean a `launch/` folder is missing, and a name inside one drops every word a folder above it says (`viewport/anchor-capture.ts`, not `viewport/viewport-anchor-capture.ts`), except a component's or hook's file, which keeps its exact name.
+- **Inside every layer, feature and `tests/`, modules are grouped by topic in folders, never by a shared file-name prefix,** under the same rules as [`packages/AGENTS.md` §Folders by topic](../../packages/AGENTS.md#folders-by-topic): three `launch-*.ts` helpers of one topic beside each other mean a `launch/` folder is missing, and a name inside one drops a word a folder above it says where the shorter name is as clear (`viewport/anchor-capture.ts`, not `viewport/viewport-anchor-capture.ts`), except a component's or hook's file, which keeps its exact name.
 - **A `services/` client is named for the contract it speaks** (`services/provider-accounts/`, an artifacts client in `services/artifacts/`), never for the feature that calls it; a call one feature alone makes stays in that feature's `services/`.
 - **A hook** lives in `useThing.ts` under its owner's `hooks/`. A file mixing hooks with other code is split when the other code is used without the hook.
 - **Main.** `src/main/` keeps `index.ts`, `menu.ts` and `fixture-launch.ts` at its root and groups the rest into `windows/` (the one window factory and main's registry of windows), `bridge/` (main's handler for each preload bridge method), `appearance/` (the kept appearance record and the platform scheme it drives), `services/` and `probes/`; a further folder is made when its first file lands.
@@ -98,8 +98,8 @@ Held in review; a checker would get both wrong.
 
 Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 
-- A component imports its own sheet, beside it (`ChordHint.tsx` imports `./ChordHint.css`); no `index.ts` exists only to load a sheet.
-- A sheet styling several components of one feature stays whole, imported by the feature's top view or its lazily-loaded chunk root (`*-body.{ts,tsx}`).
+- A sheet one component owns is named for it and imported by it, beside it (`ChordHint.tsx` imports `./ChordHint.css`); a sheet renamed for a component moves its import to that component. No `index.ts` exists only to load a sheet.
+- Class families different components own split at that seam. One cohesive concern several components of a feature share stays one sheet, imported by the feature's top view or its lazily-loaded chunk root; a sheet is never split only because several components take part in one concern.
 - A global sheet (a utility class, or a treatment shared components compose) lives in `styles/`, imported by `main.tsx`.
 - No file imports another folder's sheet, except a chunk root and `main.tsx`.
 - A CSS class has one owning stylesheet; two sheets declaring it at equal specificity resolve by load order.
