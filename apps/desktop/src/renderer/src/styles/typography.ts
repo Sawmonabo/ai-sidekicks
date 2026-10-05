@@ -1,6 +1,7 @@
-// The app's type system: the faces the app asks for, the line height, and the size scale
-// every line is set on. Separate from `palette.ts`, which answers "what color is this?" through
-// contrast measurements, while this file answers "how is text set?".
+// The app's type system: the faces the app asks for, the line height, the size scale every
+// line is set on, and the letter spacing uppercase labels are set with. Separate from
+// `palette.ts`, which answers "what color is this?" through contrast measurements, while this
+// file answers "how is text set?".
 //
 // `generate-css.ts` composes this and the palette into the emitted sheet, and `palette.ts` reads
 // the line height and type scale for `ENUMERATION_ROW_HEIGHT_REM`. This file is a leaf that
@@ -21,11 +22,22 @@ export const BODY_LINE_HEIGHT = 1.5;
  * same baseline.
  */
 export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
+  /** The smallest step, 10px at the default root size: the uppercase field label's size. */
+  "text-2xs": 0.625,
   "text-xs": 0.6875,
   "text-sm": 0.8125,
   "text-md": 0.875,
   "text-lg": 1,
   "text-xl": 1.25,
+};
+
+/**
+ * Letter spacing, in em so it scales with the size it is set at. Uppercase text needs more room
+ * between letters than mixed case to read at a small size.
+ */
+export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
+  /** The uppercase field label's spacing, wide enough that capitals at its size stay apart. */
+  "tracking-label": 0.12,
 };
 
 /**

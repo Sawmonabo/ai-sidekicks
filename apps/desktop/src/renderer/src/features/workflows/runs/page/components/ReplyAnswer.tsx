@@ -80,7 +80,7 @@ export function ReplyAnswer(props: {
       </label>
       <input
         id={fieldId}
-        className="meridian-workflow-step__reply-field"
+        className="meridian-workflow-step__reply-field meridian-form__input"
         value={text}
         disabled={isSending}
         onChange={(event) => {

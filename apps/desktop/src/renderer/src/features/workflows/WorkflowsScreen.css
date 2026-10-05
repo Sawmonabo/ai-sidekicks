@@ -216,19 +216,6 @@
 
 .meridian-workflows-filters__filter {
   display: inline-flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-workflows-filters__filter select {
-  font: inherit;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-  background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
 }
 
 .meridian-workflows-delete-older {
@@ -571,17 +558,6 @@
 .meridian-workflow-step__reply-field {
   flex: 1 1 12rem;
   min-width: 0;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-workflow-step__reply-field:disabled {
-  opacity: 0.5;
 }
 
 /* An approval's two answers with `Open in Review` beside them, all three on one row. */

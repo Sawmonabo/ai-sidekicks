@@ -1,7 +1,9 @@
 /*
  * The form drawn from a kind's parameter list: its fields, their help and issue lines, and the
- * fieldsets a multiselect or a collection draws. Imported by `ParamForm.tsx`, which composes
- * every component in this folder. Meridian tokens only.
+ * fieldsets a multiselect or a collection draws. Each field, label, legend and control wears the
+ * shared form parts from `styles/form.css`; this sheet keeps their layout and the refused mark.
+ * Imported by `ParamForm.tsx`, which composes every component in this folder. Meridian tokens
+ * only.
  */
 
 .meridian-workflow-param-form {
@@ -13,54 +15,21 @@
 
 /* ------------------------------------------------------------------- one field */
 
-.meridian-workflow-param-form__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  min-width: 0;
-}
-
-.meridian-workflow-param-form__label {
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
-  font-weight: 600;
-}
-
-/* Quiet prose, not a warning: a field that may be left alone is not wrong when it is. */
-.meridian-workflow-param-form__optional {
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  font-weight: 400;
-}
-
+.meridian-workflow-param-form__field,
 .meridian-workflow-param-form__control {
   min-width: 0;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-sm);
 }
 
 textarea.meridian-workflow-param-form__control {
   resize: vertical;
 }
 
-/* Code and machine strings (JSON, an expression, a glob, a schedule) are set in mono. */
-.meridian-workflow-param-form__control--mono {
-  font-family: var(--meridian-font-mono);
-}
-
-/* A refused answer is marked by a stronger edge and its sentence, never an attention hue. */
+/*
+ * A refused answer is marked by its sentence and an edge stronger than every control's, never an
+ * attention hue.
+ */
 .meridian-workflow-param-form__control[aria-invalid="true"] {
-  border-color: var(--meridian-edge-strong);
-}
-
-.meridian-workflow-param-form__control:disabled {
-  cursor: default;
-  opacity: 0.5;
+  border-color: var(--meridian-text);
 }
 
 .meridian-workflow-param-form__help,
@@ -109,9 +78,6 @@ textarea.meridian-workflow-param-form__control {
 
 .meridian-workflow-param-form__legend {
   padding: 0 var(--meridian-space-1);
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
-  font-weight: 600;
 }
 
 .meridian-workflow-param-form__entries {

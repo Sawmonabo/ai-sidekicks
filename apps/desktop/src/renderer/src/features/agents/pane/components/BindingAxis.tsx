@@ -4,7 +4,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 export function BindingAxis(props: BindingAxisProps): React.JSX.Element {
   return (
     <span className="meridian-agent-card__axis">
-      <span className="meridian-agent-card__axis-label">{props.label}</span> {axisReading(props)}
+      <span className="meridian-form__label">{props.label}</span> {axisReading(props)}
     </span>
   );
 }

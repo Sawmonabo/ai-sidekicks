@@ -116,7 +116,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
           <span className="meridian-form__label">Directory</span>
           <input
             type="text"
-            className="meridian-form__wire-input"
+            className="meridian-form__input meridian-form__input--wire"
             value={form.directory}
             spellCheck={false}
             autoComplete="off"

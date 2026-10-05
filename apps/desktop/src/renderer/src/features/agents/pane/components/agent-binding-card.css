@@ -1,5 +1,6 @@
 /* The agent card and the agent list's allowlist note; the axis field, library and pane column have
- * their own sheets. An absent axis is text, never a gap, so a blank never has to be read as
+ * their own sheets, and every label on the card wears the shared field label from
+ * `styles/form.css`. An absent axis is text, never a gap, so a blank never has to be read as
  * "default" or "nobody asked".
  */
 
@@ -59,15 +60,6 @@
   align-items: baseline;
 }
 
-.meridian-agent-card__line-label,
-.meridian-agent-card__axis-label,
-.meridian-axis-field__label {
-  font-size: var(--meridian-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--meridian-text-faint);
-}
-
 .meridian-agent-card__axis {
   display: inline-flex;
   align-items: baseline;
@@ -96,10 +88,6 @@
 
 .meridian-agent-card__resolved-row dt {
   min-width: 9ch;
-  font-size: var(--meridian-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--meridian-text-faint);
 }
 
 .meridian-agent-card__resolved-row dd {

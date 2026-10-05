@@ -20,10 +20,9 @@
   border: 0;
 }
 
+/* The legend wears the shared field label; a legend's own inset is cleared. */
 .meridian-mode-picker__legend {
   padding: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
 }
 
 .meridian-mode-picker__row {

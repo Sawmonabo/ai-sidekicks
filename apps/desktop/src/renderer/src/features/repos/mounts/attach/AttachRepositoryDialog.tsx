@@ -88,7 +88,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
           <span className="meridian-form__label">Path</span>
           <input
             type="text"
-            className="meridian-form__wire-input"
+            className="meridian-form__input meridian-form__input--wire"
             value={form.localPath}
             spellCheck={false}
             autoComplete="off"

@@ -1,7 +1,8 @@
 /*
- * The parts of a form that sends one request to the daemon, in a dialog or inline: a labeled field,
- * the input that composes a wire value, the sentence saying why its send control is closed, and
- * what the request did once it settled. Each part wears its class beside the control's own.
+ * The parts of a form, wherever one is drawn: a labeled field and the words in its label that are
+ * not its name, the input a person types or picks in, the sentence saying why a send control is
+ * closed, and what a request did once it settled. Each part wears its class beside the control's
+ * own, which keeps only its layout, state and variation.
  *
  * The rules sit inside `:where()` so they carry no specificity: a control's own class wins
  * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
@@ -15,25 +16,51 @@
   gap: var(--meridian-space-1);
 }
 
-/* What a field or a group of choices is, at one size. */
+/*
+ * What a field, a group of choices or a read-only value is: small, uppercase, letter-spaced and
+ * faint, so the value under or beside it is what the eye lands on.
+ */
 :where(.meridian-form__label) {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-2xs);
+  letter-spacing: var(--meridian-tracking-label);
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+/* Words inside a label that are not its name (a hint, a marker), set back as sentence text. */
+:where(.meridian-form__label-note) {
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /*
- * A path or a branch name is a wire value a person is composing, so it uses the mono face the
- * console renders wire strings in.
+ * A text box, text area or select. Its edge is the strong one, since a control's boundary holds
+ * the 3:1 non-text floor that the quiet edge does not.
  */
-:where(.meridian-form__wire-input) {
+:where(.meridian-form__input) {
   font: inherit;
+  font-size: var(--meridian-text-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+/* Closed, it sinks with its text faded, as the raised action button does. */
+:where(.meridian-form__input:disabled) {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+/*
+ * A wire value or code a person is composing (a path, a branch name, JSON, an expression), in the
+ * mono face the console renders wire strings in.
+ */
+:where(.meridian-form__input--wire) {
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text);
 }
 
 /* Why the send control is closed. Amber, not red: nothing has failed, something is missing. */

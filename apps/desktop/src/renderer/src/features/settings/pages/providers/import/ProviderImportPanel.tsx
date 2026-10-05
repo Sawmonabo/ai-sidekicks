@@ -34,14 +34,16 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
   const [provider, setProvider] = useState<ProviderName | undefined>(undefined);
   const { progress, isBeginning, startRefusal, isReading, isUnderway } = model;
 
-  const disabledReason = useMemo(() => {
+  const closedReason = useMemo((): ImportClosedReason | undefined => {
     if (isBeginning) {
-      return "The last import is still starting.";
+      return { kind: "underway", sentence: "The last import is still starting." };
     }
     if (isReading) {
-      return "The last import is still being read.";
+      return { kind: "underway", sentence: "The last import is still being read." };
     }
-    return provider === undefined ? "Choose the provider to import from." : undefined;
+    return provider === undefined
+      ? { kind: "missing", sentence: "Choose the provider to import from." }
+      : undefined;
   }, [isBeginning, isReading, provider]);
 
   return (
@@ -50,7 +52,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       aria-label="Import a provider session"
       onSubmit={(event) => {
         event.preventDefault();
-        if (disabledReason !== undefined || provider === undefined) {
+        if (closedReason !== undefined || provider === undefined) {
           return;
         }
         void model.put({ provider });
@@ -59,10 +61,10 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       <p className="meridian-provider-import__lede">
         Read a provider's existing conversations into sessions.
       </p>
-      <label className="meridian-provider-import__field">
-        <span className="meridian-provider-import__label">Provider</span>
+      <label className="meridian-form__field">
+        <span className="meridian-form__label">Provider</span>
         <select
-          className="meridian-provider-import__input"
+          className="meridian-form__input"
           value={provider ?? ""}
           disabled={isUnderway}
           onChange={(event) => {
@@ -83,13 +85,21 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
           "meridian-provider-import__submit meridian-action-button " +
           "meridian-action-button--regular meridian-action-button--outline"
         }
-        disabled={disabledReason !== undefined}
-        title={disabledReason}
+        disabled={closedReason !== undefined}
+        title={closedReason?.sentence}
       >
         {importSubmitLabel(isBeginning, isReading)}
       </button>
-      {disabledReason === undefined ? null : (
-        <p className="meridian-provider-import__blocked">{disabledReason}</p>
+      {closedReason === undefined ? null : (
+        <p
+          className={
+            closedReason.kind === "missing"
+              ? "meridian-form__blocked"
+              : "meridian-provider-import__underway"
+          }
+        >
+          {closedReason.sentence}
+        </p>
       )}
       {startRefusal === undefined ? null : (
         <InlineRefusal code={startRefusal.code} detail={startRefusal.detail} />
@@ -97,6 +107,15 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       <ImportProgressLine progress={progress} />
     </form>
   );
+}
+
+/**
+ * Why the import control is closed: an import is still underway, which only needs waiting out,
+ * or a choice the person has yet to make.
+ */
+interface ImportClosedReason {
+  readonly kind: "underway" | "missing";
+  readonly sentence: string;
 }
 
 /**

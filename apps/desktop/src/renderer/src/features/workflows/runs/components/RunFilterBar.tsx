@@ -108,10 +108,13 @@ function FilterSelect(props: {
   readonly onChange: (value: string) => void;
 }): React.JSX.Element {
   return (
-    <span className="meridian-workflows-filters__filter">
-      <label htmlFor={props.id}>{props.label}</label>
+    <span className="meridian-workflows-filters__filter meridian-form__field">
+      <label htmlFor={props.id} className="meridian-form__label">
+        {props.label}
+      </label>
       <select
         id={props.id}
+        className="meridian-form__input"
         value={props.value}
         onChange={(event) => {
           props.onChange(event.currentTarget.value);

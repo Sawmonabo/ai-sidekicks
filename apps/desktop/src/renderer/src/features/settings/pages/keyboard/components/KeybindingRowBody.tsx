@@ -63,7 +63,9 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
       <div className="meridian-keymap__controls">
         <button
           type="button"
-          className="meridian-keymap__record meridian-action-button"
+          className={
+            "meridian-keymap__record meridian-action-button " + "meridian-action-button--compact"
+          }
           aria-pressed={recording}
           aria-label={recording ? `Press a chord for ${row.title}` : `Rebind ${row.title}`}
           onClick={() => {
@@ -111,7 +113,9 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
         {row.overridden ? (
           <button
             type="button"
-            className="meridian-keymap__reset meridian-action-button"
+            className={
+              "meridian-keymap__reset meridian-action-button " + "meridian-action-button--compact"
+            }
             aria-label={
               `Reset ${row.title} to ` +
               `${describeShippedChord(row.shippedChord)}, the chord the app ` +

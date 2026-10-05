@@ -5,7 +5,7 @@
 // contributes the rail's shipped chords itself, since this module may not import the layout.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { afterEach, beforeEach } from "vitest";
 
@@ -53,13 +53,11 @@ export function rowOf(container: HTMLElement, title: string): HTMLElement {
   return row;
 }
 
-/** The recorder button on one row. */
+/** The recorder button on one row, by the name it carries resting or armed. */
 export function recorderOf(container: HTMLElement, title: string): HTMLElement {
-  const button = rowOf(container, title).querySelector<HTMLElement>(".meridian-keymap__record");
-  if (button === null) {
-    throw new Error(`no recorder for ${title}`);
-  }
-  return button;
+  return within(rowOf(container, title)).getByRole("button", {
+    name: (name) => name === `Rebind ${title}` || name === `Press a chord for ${title}`,
+  });
 }
 
 /** Arm the recorder on a row and press one chord into it. */

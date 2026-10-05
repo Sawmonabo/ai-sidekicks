@@ -50,8 +50,11 @@ export function TokenResupplyForm(props: {
 
   return (
     <form className="meridian-accounts__resupply" onSubmit={onSubmit}>
-      <label htmlFor={tokenFieldId}>Paste the token you minted at the provider.</label>
+      <label htmlFor={tokenFieldId} className="meridian-form__label">
+        Paste the token you minted at the provider.
+      </label>
       <input
+        className="meridian-form__input"
         id={tokenFieldId}
         ref={tokenInput}
         type="password"

@@ -162,12 +162,12 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
   return (
     <form className="meridian-run-composer" onSubmit={onSubmit}>
       <h4 className="meridian-run-composer__title">Steer this run</h4>
-      <label className="meridian-run-composer__label" htmlFor={bodyId}>
+      <label className="meridian-form__label" htmlFor={bodyId}>
         What should it do differently
       </label>
       <textarea
         id={bodyId}
-        className="meridian-run-composer__body"
+        className="meridian-run-composer__body meridian-form__input"
         value={body}
         rows={3}
         onChange={(event) => {

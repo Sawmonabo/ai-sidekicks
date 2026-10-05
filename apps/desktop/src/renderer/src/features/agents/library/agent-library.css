@@ -192,37 +192,10 @@
   max-width: 68ch;
 }
 
-.meridian-saved-definition-row__action {
-  font-size: var(--meridian-text-xs);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border-color: var(--meridian-edge);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-}
-
-.meridian-saved-definition-row__action:hover:enabled {
-  border-color: var(--meridian-edge-strong);
-}
-
-.meridian-saved-definition-row__action:disabled {
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-faint);
-  cursor: default;
-}
-
-/* Destructive is marked in the palette's red on text and edge only; a filled red control
- * would read as the row's primary act. */
-.meridian-saved-definition-row__action--destructive {
-  color: var(--meridian-red-text);
-  border-color: var(--meridian-red-mark);
-}
-
 /* The create control sits with the heading, since it makes a record rather than a list
  * entry. */
 .meridian-agent-library__new {
   align-self: flex-start;
-  font-size: var(--meridian-text-xs);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
 }
 
 /* The row the detail column holds: an accent left edge rather than a fill, so the tie is

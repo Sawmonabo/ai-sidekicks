@@ -18,13 +18,13 @@ export function ResolvedConfiguration(props: {
   return (
     <dl className="meridian-agent-card__resolved">
       <div className="meridian-agent-card__resolved-row">
-        <dt>Definition</dt>
+        <dt className="meridian-form__label">Definition</dt>
         <dd>
           <WireFigure value={resolved.resolvedFromDefinitionId} />
         </dd>
       </div>
       <div className="meridian-agent-card__resolved-row">
-        <dt>Tools</dt>
+        <dt className="meridian-form__label">Tools</dt>
         <dd>
           <ToolAllowlist position={props.toolAllowlist} />
         </dd>

@@ -34,10 +34,10 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
 
   return (
     <section className="meridian-new-session" aria-label="New session draft">
-      <label className="meridian-new-session__first-turn">
-        Its first message
+      <label className="meridian-form__field">
+        <span className="meridian-form__label">Its first message</span>
         <textarea
-          className="meridian-new-session__first-turn-input"
+          className="meridian-new-session__first-turn-input meridian-form__input"
           value={composition.draftState.firstTurn}
           rows={3}
           readOnly={composition.isSending}

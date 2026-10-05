@@ -84,11 +84,22 @@ export function TokenRegistrationForm(props: {
 
   return (
     <form className="meridian-accounts__register" onSubmit={onSubmit}>
-      <label htmlFor={nameFieldId}>Name</label>
-      <input id={nameFieldId} ref={displayLabelInput} type="text" required />
+      <label htmlFor={nameFieldId} className="meridian-form__label">
+        Name
+      </label>
+      <input
+        className="meridian-form__input"
+        id={nameFieldId}
+        ref={displayLabelInput}
+        type="text"
+        required
+      />
 
-      <label htmlFor={providerFieldId}>Provider</label>
+      <label htmlFor={providerFieldId} className="meridian-form__label">
+        Provider
+      </label>
       <select
+        className="meridian-form__input"
         id={providerFieldId}
         value={provider}
         onChange={(event) => {
@@ -102,8 +113,11 @@ export function TokenRegistrationForm(props: {
         ))}
       </select>
 
-      <label htmlFor={billingFieldId}>Billing</label>
+      <label htmlFor={billingFieldId} className="meridian-form__label">
+        Billing
+      </label>
       <select
+        className="meridian-form__input"
         id={billingFieldId}
         value={billingMode}
         onChange={(event) => {
@@ -117,8 +131,11 @@ export function TokenRegistrationForm(props: {
         ))}
       </select>
 
-      <label htmlFor={tokenFieldId}>Paste the token you minted at the provider.</label>
+      <label htmlFor={tokenFieldId} className="meridian-form__label">
+        Paste the token you minted at the provider.
+      </label>
       <input
+        className="meridian-form__input"
         id={tokenFieldId}
         ref={tokenInput}
         type="password"

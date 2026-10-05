@@ -107,7 +107,9 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
   if (field.multiple !== true) {
     return (
       <fieldset className="meridian-workflow-param-form__group">
-        <legend className="meridian-workflow-param-form__legend">{field.label}</legend>
+        <legend className="meridian-workflow-param-form__legend meridian-form__label">
+          {field.label}
+        </legend>
         <ParamFieldList
           fields={field.fields}
           answers={props.answer as ParamAnswers}
@@ -124,7 +126,9 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
   const entries = props.answer as readonly ParamAnswers[];
   return (
     <fieldset className="meridian-workflow-param-form__group">
-      <legend className="meridian-workflow-param-form__legend">{field.label}</legend>
+      <legend className="meridian-workflow-param-form__legend meridian-form__label">
+        {field.label}
+      </legend>
       {entries.length === 0 ? null : (
         <ol className="meridian-workflow-param-form__entries">
           {entries.map((entry, index) => (
@@ -132,7 +136,7 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
             // so the position is the key.
             <li key={index}>
               <fieldset className="meridian-workflow-param-form__group">
-                <legend className="meridian-workflow-param-form__legend">
+                <legend className="meridian-workflow-param-form__legend meridian-form__label">
                   {field.label} {index + 1}
                 </legend>
                 <ParamFieldList

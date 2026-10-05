@@ -28,7 +28,7 @@ import {
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
 } from "./palette.js";
-import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
+import { BODY_LINE_HEIGHT, FONT_STACKS, LETTER_SPACING_EM, TYPE_SCALE_REM } from "./typography.js";
 import type { ColorScheme } from "./tokens.js";
 import {
   HUE_WHEEL,
@@ -54,8 +54,8 @@ export function generateMeridianCss(): string {
     " *",
     " * Sources of truth: `styles/palette.ts` for the color ramps and the",
     " * spacing and radius scales, `styles/motion.ts` for the motion scale and",
-    " * its easing, and `styles/typography.ts` for the type scale, the line",
-    " * height, and the font stacks.",
+    " * its easing, and `styles/typography.ts` for the type scale, the letter",
+    " * spacing, the line height, and the font stacks.",
     " *",
     " * The design language's color, type, and spacing rules live in those files'",
     " * comments; this file carries only their values.",
@@ -184,6 +184,9 @@ function invariantBlock(): string {
   }
   for (const [tokenName, sizeRem] of Object.entries(TYPE_SCALE_REM)) {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
+  }
+  for (const [tokenName, spacingEm] of Object.entries(LETTER_SPACING_EM)) {
+    lines.push(declaration(tokenName, `${spacingEm}em`));
   }
 
   lines.push("");

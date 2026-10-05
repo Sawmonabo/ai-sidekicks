@@ -28,13 +28,13 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
       <header className="meridian-agent-card__head">
         <h4 className="meridian-agent-card__name">{agent.name}</h4>
         <span className="meridian-agent-card__created">
-          <span className="meridian-agent-card__line-label">Created</span>{" "}
+          <span className="meridian-form__label">Created</span>{" "}
           <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
         </span>
       </header>
 
       <p className="meridian-agent-card__effective">
-        <span className="meridian-agent-card__line-label">Running under</span>{" "}
+        <span className="meridian-form__label">Running under</span>{" "}
         <BindingAxis label="provider" value={binding.driverName} />
         <BindingAxis label="model" value={binding.modelId} />
         <BindingAxis

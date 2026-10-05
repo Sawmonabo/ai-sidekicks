@@ -56,7 +56,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
   return (
     <div className="meridian-mode-picker">
       <fieldset className="meridian-mode-picker__group" disabled={unavailableBecause !== undefined}>
-        <legend className="meridian-mode-picker__legend">
+        <legend className="meridian-mode-picker__legend meridian-form__label">
           What a run bound here may do to the repository
         </legend>
         {rows.map((row) => (

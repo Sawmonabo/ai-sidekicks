@@ -105,7 +105,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         <span className="meridian-form__label">Branch</span>
         <input
           type="text"
-          className="meridian-form__wire-input"
+          className="meridian-form__input meridian-form__input--wire"
           value={form.branchName}
           spellCheck={false}
           autoComplete="off"

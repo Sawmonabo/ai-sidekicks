@@ -58,11 +58,14 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   const labelId = useId();
 
   return (
-    <div className="meridian-axis-field">
-      <span className="meridian-axis-field__label" id={labelId}>
+    <div className="meridian-axis-field meridian-form__field">
+      <span className="meridian-form__label" id={labelId}>
         Provider account
         {props.isOverridden ? (
-          <span className="meridian-axis-field__overridden"> overridden</span>
+          <span className="meridian-axis-field__overridden meridian-form__label-note">
+            {" "}
+            overridden
+          </span>
         ) : null}
       </span>
 

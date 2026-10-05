@@ -44,7 +44,7 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
         aria-describedby={describedBy}
         aria-invalid={issue === undefined ? undefined : true}
       >
-        <legend className="meridian-workflow-param-form__legend">
+        <legend className="meridian-workflow-param-form__legend meridian-form__label">
           <FieldLabelText field={field} />
         </legend>
         <MultiselectChoices {...props} />
@@ -55,7 +55,7 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
 
   if (field.type === "boolean") {
     return (
-      <div className="meridian-workflow-param-form__field">
+      <div className="meridian-workflow-param-form__field meridian-form__field">
         <div className="meridian-workflow-param-form__choice">
           <input
             id={controlId}
@@ -68,7 +68,7 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
               props.onAnswerChange(event.target.checked);
             }}
           />
-          <label htmlFor={controlId} className="meridian-workflow-param-form__label">
+          <label htmlFor={controlId} className="meridian-form__label">
             <FieldLabelText field={field} />
           </label>
         </div>
@@ -81,8 +81,8 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
     // A path is never typed: it is picked through the platform's folder chooser, and no text box
     // stands in for that chooser.
     return (
-      <div className="meridian-workflow-param-form__field">
-        <span className="meridian-workflow-param-form__label">
+      <div className="meridian-workflow-param-form__field meridian-form__field">
+        <span className="meridian-form__label">
           <FieldLabelText field={field} />
         </span>
         {notes}
@@ -91,8 +91,8 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
   }
 
   return (
-    <div className="meridian-workflow-param-form__field">
-      <label htmlFor={controlId} className="meridian-workflow-param-form__label">
+    <div className="meridian-workflow-param-form__field meridian-form__field">
+      <label htmlFor={controlId} className="meridian-form__label">
         <FieldLabelText field={field} />
       </label>
       <FieldControl {...props} describedBy={describedBy} />
@@ -114,9 +114,7 @@ function FieldLabelText(props: {
   return (
     <>
       {props.field.label}
-      {isOptional ? (
-        <span className="meridian-workflow-param-form__optional"> (optional)</span>
-      ) : null}
+      {isOptional ? <span className="meridian-form__label-note"> (optional)</span> : null}
     </>
   );
 }
@@ -127,8 +125,8 @@ function FieldControl(
   const { field, controlId, describedBy } = props;
   const isInvalid = props.issue === undefined ? undefined : true;
   const className = MONO_TYPES.includes(field.type)
-    ? "meridian-workflow-param-form__control meridian-workflow-param-form__control--mono"
-    : "meridian-workflow-param-form__control";
+    ? "meridian-workflow-param-form__control meridian-form__input meridian-form__input--wire"
+    : "meridian-workflow-param-form__control meridian-form__input";
 
   if (field.type === "select") {
     const options = field.options ?? [];

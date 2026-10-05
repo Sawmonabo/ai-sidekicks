@@ -30,11 +30,14 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
     return null;
   }
   return (
-    <label className="meridian-axis-field">
-      <span className="meridian-axis-field__label">
+    <label className="meridian-axis-field meridian-form__field">
+      <span className="meridian-form__label">
         {props.label}
         {props.isOverridden === true ? (
-          <span className="meridian-axis-field__overridden"> overridden</span>
+          <span className="meridian-axis-field__overridden meridian-form__label-note">
+            {" "}
+            overridden
+          </span>
         ) : null}
       </span>
       <Combobox.Root
@@ -42,7 +45,7 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
         value={props.value ?? null}
         onValueChange={(next: string | null) => props.onValueChange(next ?? undefined)}
       >
-        <Combobox.Trigger className="meridian-axis-field__trigger">
+        <Combobox.Trigger className="meridian-axis-field__trigger meridian-form__input">
           <Combobox.Value />
         </Combobox.Trigger>
         {/* The primitive's anchored part keeps this list in the window's airspace; a field
@@ -53,7 +56,7 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
           className="meridian-axis-field__popup"
         >
           <Combobox.Input
-            className="meridian-axis-field__input"
+            className="meridian-axis-field__input meridian-form__input"
             aria-label={`Filter ${props.label.toLowerCase()}`}
           />
           <Combobox.Empty className="meridian-axis-field__empty">No value matches.</Combobox.Empty>

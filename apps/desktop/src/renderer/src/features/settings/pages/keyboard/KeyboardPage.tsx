@@ -138,8 +138,8 @@ export function KeyboardPage(): ReactNode {
 
       <section className="meridian-settings-page__block" aria-label="Chords">
         <h3 className="meridian-settings-page__block-title">Chords</h3>
-        <div className="meridian-keymap__filter">
-          <label className="meridian-keymap__filter-label" htmlFor={FILTER_FIELD_ID}>
+        <div className="meridian-keymap__filter meridian-form__field">
+          <label className="meridian-form__label" htmlFor={FILTER_FIELD_ID}>
             Search shortcuts
           </label>
           <input

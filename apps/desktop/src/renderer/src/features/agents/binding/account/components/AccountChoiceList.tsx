@@ -36,7 +36,10 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
         props.onValueChange(next ?? undefined);
       }}
     >
-      <Combobox.Trigger className="meridian-axis-field__trigger" aria-labelledby={props.labelId}>
+      <Combobox.Trigger
+        className="meridian-axis-field__trigger meridian-form__input"
+        aria-labelledby={props.labelId}
+      >
         <Combobox.Value />
       </Combobox.Trigger>
       {/* The primitive's anchored part keeps this list in the window's airspace; a field
@@ -47,7 +50,7 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
         className="meridian-axis-field__popup"
       >
         <Combobox.Input
-          className="meridian-axis-field__input"
+          className="meridian-axis-field__input meridian-form__input"
           aria-label="Filter provider accounts"
         />
         <Combobox.Empty className="meridian-axis-field__empty">No account matches.</Combobox.Empty>

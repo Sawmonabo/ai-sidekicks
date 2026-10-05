@@ -1,11 +1,9 @@
 /* The axis field, drawn by `AxisCombobox.tsx` (provider axes) and `AccountAxisField.tsx`
- * (provider account). Every selector is `.meridian-axis-field*`, so the rules are this
- * control's alone. Tokens only: no literal color or length. */
+ * (provider account). The field, its label, its trigger and its filter wear the shared form
+ * parts from `styles/form.css`; every selector here is `.meridian-axis-field*`, so the rules
+ * are this control's alone. Tokens only: no literal color or length. */
 
 .meridian-axis-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
   min-width: 0;
 }
 
@@ -14,14 +12,7 @@
 }
 
 .meridian-axis-field__trigger,
-.meridian-axis-field__text,
 .meridian-axis-field__input {
-  font: inherit;
-  color: var(--meridian-text);
-  background: var(--meridian-surface-sunken);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  padding: var(--meridian-space-1) var(--meridian-space-2);
   min-width: 0;
   text-align: start;
 }

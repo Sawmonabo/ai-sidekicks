@@ -18,7 +18,7 @@ export function ToolAllowlistLine(props: {
 }): React.JSX.Element {
   return (
     <p className="meridian-agent-card__tool-allowlist">
-      <span className="meridian-agent-card__line-label">Tool allowlist</span>{" "}
+      <span className="meridian-form__label">Tool allowlist</span>{" "}
       {positionSentence(props.position)}
     </p>
   );

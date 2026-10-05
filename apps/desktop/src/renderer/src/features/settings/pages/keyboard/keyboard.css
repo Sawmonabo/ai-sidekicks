@@ -1,6 +1,8 @@
 /* The keyboard page's rows and controls: the page's own sheet, since nothing else draws the
- * filter, the row list, the recorder or the reset controls. Every value is a Meridian token,
- * and the recorder shares the console's one control shape (`meridian-action-button`).
+ * filter, the row list, the recorder or the reset controls. Every value is a Meridian token.
+ * The filter wears the shared field and label from `styles/form.css`; the recorder and the
+ * reset controls wear the shared action button at its compact size from
+ * `styles/action-buttons.css` and keep their own face here.
  */
 
 /* --- The keyboard map ----------------------------------------------------- */
@@ -8,15 +10,7 @@
    is read by shape rather than by column position. */
 
 .meridian-keymap__filter {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
   margin-bottom: var(--meridian-space-4);
-}
-
-.meridian-keymap__filter-label {
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
 }
 
 .meridian-keymap__filter-input {
@@ -86,11 +80,9 @@
 .meridian-keymap__record,
 .meridian-keymap__reset,
 .meridian-keymap__reset-all {
-  font-size: var(--meridian-text-xs);
   color: var(--meridian-text);
   background: var(--meridian-surface-raised);
   border-color: var(--meridian-edge-strong);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
   transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 

@@ -1,5 +1,6 @@
 /* The box a steer is written in. Send and Cancel use the shared action button
-   (`styles/action-buttons.css`); every value is a Meridian token. */
+   (`styles/action-buttons.css`), and the label and text area the shared form parts
+   (`styles/form.css`); every value is a Meridian token. */
 
 .meridian-run-composer {
   display: flex;
@@ -17,19 +18,7 @@
   font-weight: 500;
 }
 
-.meridian-run-composer__label {
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 .meridian-run-composer__body {
-  padding: var(--meridian-space-2);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
-  font: inherit;
-  font-size: var(--meridian-text-sm);
   resize: vertical;
 }
 
