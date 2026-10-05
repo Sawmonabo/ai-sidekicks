@@ -548,6 +548,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.8 |
 | `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.2 |
 | `repo.mountRead` | One mount's facts: its origin (`attached`, a project's folder; `managed`, a chat's workspace; `worktree`, a worktree the app made, under its project) and what uses it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.2, T1.2, T2.3 |
+| `repo.mountReattach {repoMountId}` → `{repoMountId}`, the new mount | The lost-folder banner's `Re-attach` on a mount reading `identity_mismatch` whose folder is still a git repository: ends that mount and attaches the folder fresh under the same project record, keeping the project's sessions and their workspaces. Refused with `repo.reattach_refused`, reason `identity_matches`; `repo.root_resolution_failed`, reason `not_a_repository`; or `repo.already_attached` | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.11 |
 | event `repo.mount_health_changed {repoMountId, health}` | A mount's health as the re-probe changes it, on the stream of every session on that mount; with `repo.mountRead`'s health, the session's lost-folder banner | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.projectArchive` | Archive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
 | `repo.projectBranchPatternUpdate {projectId, pattern \| null}` | Set or clear a project's own branch-name pattern (`Every project`'s pattern is a key in the machine's settings file, written through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) Phase 3 T3.7 |
@@ -3705,11 +3706,18 @@ type VcsType = "git";
 // Derived projection, never persisted — Spec-007 §Repo Mount Health (V1 Definition).
 // "identity_mismatch": root reachable but the re-derived common directory no longer
 // equals the attach-persisted anchor (repo_mounts.metadata.commonDir); "unreachable"
-// takes precedence; re-attach is the recovery.
-interface RepoMountHealth {
-  status: "healthy" | "unreachable" | "identity_mismatch";
-  checkedAt: string; // ISO-8601 instant of the probe that produced the verdict
-}
+// takes precedence; re-attach (`repo.mountReattach`) is the recovery while the folder is still a git
+// repository. checkedAt: ISO-8601 instant of the probe that produced the verdict.
+type RepoMountHealth =
+  | { status: "healthy" | "unreachable"; checkedAt: string }
+  | {
+      status: "identity_mismatch";
+      // true: git answers for the root with a common directory other than the anchor, so the banner
+      // offers `Re-attach`; false: its `.git` entry is gone or broken, so the banner offers
+      // `Open folder…`.
+      isRepository: boolean;
+      checkedAt: string;
+    };
 // repo.mount_health_changed — sent by the daemon's re-probe on the stream of every session on the
 // mount whenever the verdict changes; the session's lost-folder banner reads it (Spec-007 §Fallback
 // Behavior).
@@ -3767,6 +3775,19 @@ interface RepoDetachResponse {
   archivedWorkspaceIds: WorkspaceId[]; // dependent workspaces archived by the cascade
 }
 
+// RepoMountReattach — the banner's `Re-attach` (Spec-007 §Repo Mount Health). In one transaction the
+// old row turns 'detached' and a new 'attached' row is written at the same canonical root under the
+// same project record, carrying the common directory just derived as its anchor; none of the
+// detach's cascade runs, and each workspace on the old mount moves to the new one keeping its id.
+// Refused with repo.reattach_refused (reason identity_matches), repo.root_resolution_failed (reason
+// not_a_repository) or repo.already_attached.
+interface RepoMountReattachRequest {
+  repoMountId: RepoMountId; // the mount reading identity_mismatch
+}
+interface RepoMountReattachResponse {
+  repoMountId: RepoMountId; // the new mount
+}
+
 // WorkspaceBind — binds one session to its project's mount and to where it works: a worktree of its own
 // (`provisioned-worktree`) or the checkout the project already has (`bound-root`). A new session binds in
 // the same step as `session.create`; this call serves a converted chat, and it checks, once, that the
@@ -3805,15 +3826,16 @@ interface WorkspaceListResponse {
 
 Plan-006's repo-attachment and workspace-binding surface is exposed as `repo.*` methods (Plan-006 D-006-1, CP-006-5). Names register under the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out, and each name matches the `METHOD_NAME_FORMAT`. These methods ride the daemon JSON-RPC transport only — repo mounts and workspaces are node-local filesystem state (ADR-004), so no control-plane tRPC sibling exists. Method strings are imperative and disjoint-by-form from the past-participle names of the daemon's own records (`repo.attached`, `repo.detached`).
 
-| Method               | Procedure type | Request schema         | Response schema         |
-| -------------------- | -------------- | ---------------------- | ----------------------- |
-| `repo.attach`        | `mutation`     | `RepoAttachRequest`    | `RepoAttachResponse`    |
-| `repo.mountRead`     | `query`        | `RepoMountReadRequest` | `RepoMountReadResponse` |
-| `repo.workspaceBind` | `mutation`     | `WorkspaceBindRequest` | `WorkspaceBindResponse` |
-| `repo.workspaceList` | `query`        | `WorkspaceListRequest` | `WorkspaceListResponse` |
-| `repo.detach`        | `mutation`     | `RepoDetachRequest`    | `RepoDetachResponse`    |
+| Method               | Procedure type | Request schema             | Response schema             |
+| -------------------- | -------------- | -------------------------- | --------------------------- |
+| `repo.attach`        | `mutation`     | `RepoAttachRequest`        | `RepoAttachResponse`        |
+| `repo.mountRead`     | `query`        | `RepoMountReadRequest`     | `RepoMountReadResponse`     |
+| `repo.workspaceBind` | `mutation`     | `WorkspaceBindRequest`     | `WorkspaceBindResponse`     |
+| `repo.workspaceList` | `query`        | `WorkspaceListRequest`     | `WorkspaceListResponse`     |
+| `repo.detach`        | `mutation`     | `RepoDetachRequest`        | `RepoDetachResponse`        |
+| `repo.mountReattach` | `mutation`     | `RepoMountReattachRequest` | `RepoMountReattachResponse` |
 
-Canonical Zod schemas live in `packages/contracts/src/repo/folders.ts` (`repo.attach`, `repo.mountRead`, `repo.detach`) and `packages/contracts/src/workspace.ts` (`repo.workspaceBind`, `repo.workspaceList`) per the §Source-of-Truth Policy.
+Canonical Zod schemas live in `packages/contracts/src/repo/folders.ts` (`repo.attach`, `repo.mountRead`, `repo.detach`, `repo.mountReattach`) and `packages/contracts/src/workspace.ts` (`repo.workspaceBind`, `repo.workspaceList`) per the §Source-of-Truth Policy.
 
 Plan-007's worktree surface adds further `repo.*` methods (Plan-007 D-007-3) — the same namespace, not a new root, because the namespace-root enumeration admits `repo` and mounts, workspaces and worktrees form one repo aggregate — and the session move `session.setWorkingFolder`, which registers on the session root (§Session Method-Name Registry). A session's place is chosen in `session.create` or `repo.workspaceBind`, so no mode select exists, and a worktree's figures ride `repo.worktreeStatusRead`, so no reuse check exists. Registration rides the same Plan-005-partial `MethodRegistry` path. Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` through `worktree.retired`).
 
