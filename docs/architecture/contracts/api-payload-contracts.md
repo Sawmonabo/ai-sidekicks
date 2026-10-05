@@ -2138,11 +2138,12 @@ type RecoveryCondition = "recovery-needed" | "reauth-required";
 // CP-023-2). Recognition is TYPED-ONLY (I-003-6): each driver leg keys on a structured provider
 // event it can name — never message prose, an exit code, or a bare HTTP status — and an
 // unrecognized shape emits NOTHING, an absence that reads "not known to be limited", never "known
-// not to be limited". Deliberately nominal at the driver seam rather than Zod-schema'd: `cause`
-// and `provenance` are closed literals the driver SELECTS and `resetsAt` is a timestamp the
-// driver COMPOSES, so no member is provider-verbatim and a schema over them would validate the
-// driver against itself (the provider-verbatim shapes above are schema'd for exactly the opposite
-// reason).
+// not to be limited". The signal is a wire shape, so its Zod schema lives in `packages/contracts`
+// (`provider/driver/usage-limit.ts`), beside `RecoveryCondition`'s: it rides `run.failed`'s
+// `failureCause` (Spec-005 §Run Lifecycle), where a reload redraws the limit row from the stored
+// record, and the workflow park reads the same shape. No member is provider-verbatim — `cause` and
+// `provenance` are closed literals the driver selects and `resetsAt` a timestamp it composes — so
+// the schema checks what the record carries, not the provider's words.
 
 // One cause, plan-allowance exhaustion. The neighbor conditions (Codex workspace/member credit depletion and the Codex
 // spend-control ceiling, Claude billing faults) are account-plane or payment facts rather than
@@ -3418,19 +3419,33 @@ interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in §Plan-003 above: 'recovery-needed' | 'reauth-required'
   // The run's typed failure cause, present only on a `run.failed` (Spec-005 §Run Lifecycle):
-  // `failureCause: { cause, origin }`, a named, closed failure-cause union in `packages/contracts` whose
-  // first member is the refusal cause below; each provider's own causes are normalized into it by its
-  // driver. The refusal member carries the refusing model and the provider's words.
-  failureCause?: {
-    cause: "refused";
-    // `provider` where the driver normalized the provider's own cause; `daemon` where the app's own
-    // refusal or failure ended the run.
-    origin: "provider" | "daemon";
-    model: string;
-    sentence?: string; // the provider's own sentence, absent when it sent none
-    explanation?: string; // the provider's explanation, shown verbatim
-    safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
-  };
+  // `failureCause: { cause, origin }`, a named, closed failure-cause union in `packages/contracts`
+  // (`run/control.ts`); each provider's own causes are normalized into it by its driver. The refusal
+  // carries the refusing model and the provider's words; the usage limit carries the driver's
+  // usage-limit signal (§Plan-003 above) as it stood when the turn failed, so `Limit reached · resets
+  // at <time>` is redrawn after a reload from this record alone; the spent retries draw
+  // `<Provider> did not answer`. `origin` is `provider` where the driver normalized the provider's own
+  // cause and `daemon` where the app's own refusal or failure ended the run.
+  failureCause?:
+    | {
+        cause: "refused";
+        origin: "provider" | "daemon";
+        model: string;
+        sentence?: string; // the provider's own sentence, absent when it sent none
+        explanation?: string; // the provider's explanation, shown verbatim
+        safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
+      }
+    | {
+        cause: ProviderUsageLimitCause; // "plan-allowance-exhausted"
+        origin: "provider";
+        resetBoundary?: ProviderUsageLimitResetBoundary; // absent when no reset instant was known
+      }
+    | {
+        // The provider's own retries ran out: Claude Code's turn ending after its last announced
+        // `api_retry`, Codex's after its last reconnect attempt (`willRetry: false`).
+        cause: "retries-exhausted";
+        origin: "provider";
+      };
   // The provider's own failure prose on a `run.failed` with failureCategory "provider failure",
   // shown as given; a typed cause is `failureCause`, never this text.
   providerFailureDetail?: string;

@@ -394,9 +394,7 @@ export function boundFailureDetail(detail: string, emptyFallback: string): strin
 // allowance is spent. Prose, an exit code or a bare HTTP status are never inputs, since the
 // provider may reword or reuse them; an unrecognized shape emits nothing, which reads "not known
 // to be limited". There is no capability flag: recognition is required of every driver, like
-// `probeAuth`. These types are plain TypeScript because no member is provider-verbatim: `cause`
-// and `provenance` are closed literals the driver selects, and `resetsAt` is a timestamp it
-// composes.
+// `probeAuth`.
 
 /**
  * Why a provider refused for spend, on an axis separate from `RecoveryCondition`: every recovery
