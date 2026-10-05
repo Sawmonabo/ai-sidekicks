@@ -17,29 +17,26 @@ function makeAccountant() {
 }
 
 describe("UsageDeltaAccountant", () => {
-  it(
-    "interleaved 0→100→150 two-turn sequence " + "attributes exactly 100 and 50 by named turn",
-    () => {
-      const { accountant } = makeAccountant();
-      accountant.establishThread("thread-1", { mode: "fresh" });
+  it("interleaved 0→100→150 across two turns attributes exactly 100 and 50 by turn", () => {
+    const { accountant } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
 
-      const firstDelta = accountant.meterReading({
-        threadId: "thread-1",
-        namedTurnId: "turn-A",
-        cumulative: { input: 100 },
-      });
-      const secondDelta = accountant.meterReading({
-        threadId: "thread-1",
-        namedTurnId: "turn-B",
-        cumulative: { input: 150 },
-      });
+    const firstDelta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 100 },
+    });
+    const secondDelta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-B",
+      cumulative: { input: 150 },
+    });
 
-      expect(firstDelta?.attributedTurnId).toBe("turn-A");
-      expect(firstDelta?.axisDeltas.input).toBe(100);
-      expect(secondDelta?.attributedTurnId).toBe("turn-B");
-      expect(secondDelta?.axisDeltas.input).toBe(50);
-    },
-  );
+    expect(firstDelta?.attributedTurnId).toBe("turn-A");
+    expect(firstDelta?.axisDeltas.input).toBe(100);
+    expect(secondDelta?.attributedTurnId).toBe("turn-B");
+    expect(secondDelta?.axisDeltas.input).toBe(50);
+  });
 
   it(
     "a recorded cumulative sequence re-sums to the " +
@@ -351,24 +348,21 @@ describe("deriveWindowTelemetry", () => {
     });
   });
 
-  it(
-    "counts travel both-or-neither: a half pair " + "emits neither count, provenance still travels",
-    () => {
-      for (const halfPair of [
-        { windowUsedTokens: 50_000, windowMaxTokens: null },
-        { windowUsedTokens: null, windowMaxTokens: 200_000 },
-      ]) {
-        const telemetry = deriveWindowTelemetry({
-          windowSource: "model_default",
-          exceededWhenCountsAbsent: false,
-          ...halfPair,
-        });
-        expect(telemetry).toEqual({ windowSource: "model_default", exceeded: false });
-        expect("windowUsedTokens" in telemetry).toBe(false);
-        expect("windowMaxTokens" in telemetry).toBe(false);
-      }
-    },
-  );
+  it("counts travel both-or-neither: a half pair emits no count, provenance still travels", () => {
+    for (const halfPair of [
+      { windowUsedTokens: 50_000, windowMaxTokens: null },
+      { windowUsedTokens: null, windowMaxTokens: 200_000 },
+    ]) {
+      const telemetry = deriveWindowTelemetry({
+        windowSource: "model_default",
+        exceededWhenCountsAbsent: false,
+        ...halfPair,
+      });
+      expect(telemetry).toEqual({ windowSource: "model_default", exceeded: false });
+      expect("windowUsedTokens" in telemetry).toBe(false);
+      expect("windowMaxTokens" in telemetry).toBe(false);
+    }
+  });
 
   it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
     // The half-pair arm cannot derive `exceeded`, which is why the counts do not travel;

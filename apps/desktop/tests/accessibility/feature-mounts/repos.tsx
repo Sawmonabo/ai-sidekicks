@@ -15,7 +15,11 @@
 //     empty-state arm is covered by `DiffPane.test.tsx`, where a DOM assertion can say which
 //     empty state it is.
 
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+
 import { advanceScenarioUntil } from "../../helpers/scenario-manual-clock.js";
+import { bridgeAnswering } from "../../helpers/fixture-bridge.js";
+import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "@renderer/features/repos/diff/components/DiffPane.js";
@@ -29,7 +33,7 @@ import { MountList } from "@renderer/features/repos/mounts/components/MountList.
 import { useRepoMounts } from "@renderer/features/repos/mounts/hooks/useRepoMounts.js";
 import type { RepoOperations } from "@renderer/features/repos/repo-operations.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
+import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { renderSettled } from "../../helpers/app-harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./repos-fixtures.js";
@@ -67,20 +71,61 @@ export async function mountMountList(): Promise<MountedView> {
 
 /** The diff pane over a parsed change set: compared states, file list, rows. */
 export async function mountDiffPane(): Promise<MountedView> {
-  const { bridge, sessionStore } = scenarioBridgeAndStore();
+  const { bridge, clock, sessionStore } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
-    <DiffPane
-      context={paneContext(
-        // The session's own workspace, named from the mounts fixture so the subject the audit reads
-        // and the workspace the list states cannot drift.
-        { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
-        { paneId: "pane-diff", bridge, sessionStore },
-      )}
-      diff={extendedHeaderChangeSet()}
-    />,
+    // The provider carries the clock the row window schedules its scroll writes on.
+    <PlatformBridgeProvider bridge={bridge} clock={clock}>
+      <DiffPane
+        context={paneContext(
+          // The session's own workspace, named from the mounts fixture so the subject the audit
+          // reads and the workspace the list states cannot drift.
+          { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
+          { paneId: "pane-diff", bridge, sessionStore },
+        )}
+        diff={extendedHeaderChangeSet()}
+      />
+    </PlatformBridgeProvider>,
   );
   // Anchored at the kind: the chrome names the pane by its trail, so the full name carries the
   // session id and workspace, both stated by the fixture.
+  return { element: requireLabeledRegion(container, /Review$/u), bridge };
+}
+
+/**
+ * Review over a finished workflow run, read from the fixture daemon: the files the run's steps
+ * wrote, each marked with its step, beside an edit someone else made. Waited on until the rows
+ * land, since the read answers after the first frame.
+ */
+export async function mountWorkflowRunReview(): Promise<MountedView> {
+  const { bridge, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
+  const workflowRunId = WORKFLOW_RUN_IDS.succeeded as WorkflowRunId;
+  const { container } = await renderSettled(
+    <PlatformBridgeProvider bridge={bridge} clock={engine.clock}>
+      <DiffPane
+        context={paneContext(
+          {
+            kind: "diff",
+            entity: {
+              kind: "workflow-run",
+              id: workflowRunId,
+              from: { epoch: 1, point: "start" },
+              to: { epoch: 1, point: "end" },
+            },
+          },
+          {
+            paneId: "pane-diff",
+            bridge,
+            sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }),
+          },
+        )}
+      />
+    </PlatformBridgeProvider>,
+  );
+  await advanceScenarioUntil(engine, () => {
+    if (container.querySelector(".meridian-diff-files__step") === null) {
+      throw new Error("the run's changed files have not rendered");
+    }
+  });
   return { element: requireLabeledRegion(container, /Review$/u), bridge };
 }
 

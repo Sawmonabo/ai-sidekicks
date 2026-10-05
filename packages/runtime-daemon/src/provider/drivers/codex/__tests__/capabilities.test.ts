@@ -239,6 +239,29 @@ describe("Codex model catalog", () => {
     expect(levelsFor("gpt-6.1-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levelsFor("gpt-6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(levelsFor("gpt-5.5")).toEqual(["low", "medium", "high", "xhigh"]);
+
+    // Speed levels are the tier ids per model, standard first so it can be asked for back; a row
+    // listing no tier has no speed selection, not even standard.
+    const speedLevelsFor = (id: string): string[] | undefined =>
+      models.find((model) => model.id === id)?.outputSpeedLevels;
+    expect(speedLevelsFor("gpt-6.1-sol")).toEqual(["default", "priority"]);
+    expect(speedLevelsFor("gpt-daybreak-blue-latest")).toBeUndefined();
+  });
+
+  it("calls a model fast only for the tier its catalog names Fast, not for any tier", () => {
+    const flexOnly = {
+      ...codexRecordedModel("gpt-flex", "Flex", false, ["low"], "low", null),
+      serviceTiers: [{ id: "flex", name: "Flex", description: "slower, cheaper" }],
+    };
+    const fastRow = codexRecordedModel("gpt-fast", "Fast", true, ["low"], "low", "2x speed");
+    const [flex, fast] = normalizeCodexModelCatalog({
+      data: [flexOnly, fastRow],
+      nextCursor: null,
+    });
+
+    // A flex tier is still a selectable level, but it is not fast output.
+    expect(flex).toMatchObject({ fast: false, outputSpeedLevels: ["default", "flex"] });
+    expect(fast).toMatchObject({ fast: true, outputSpeedLevels: ["default", "priority"] });
   });
 
   it("refuses a paginated reply BEFORE answering its first page", () => {

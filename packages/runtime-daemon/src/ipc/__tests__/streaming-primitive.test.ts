@@ -103,32 +103,26 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it(
-    "server-side cancel() or complete() removes " + "the entry; a later next() is a silent no-op",
-    () => {
-      const { primitive, send } = makeFixture();
-      const sub = primitive.createSubscription<{ x: number }>(
-        11,
-        passthroughSchema<{ x: number }>(),
-      );
-      sub.next({ x: 1 });
-      expect(send).toHaveBeenCalledTimes(1);
-      sub.cancel();
-      sub.next({ x: 2 }); // silent no-op
-      expect(send).toHaveBeenCalledTimes(1);
-      // Idempotent.
-      expect(() => sub.cancel()).not.toThrow();
+  it("server-side cancel() or complete() removes the entry; a later next() is a no-op", () => {
+    const { primitive, send } = makeFixture();
+    const sub = primitive.createSubscription<{ x: number }>(11, passthroughSchema<{ x: number }>());
+    sub.next({ x: 1 });
+    expect(send).toHaveBeenCalledTimes(1);
+    sub.cancel();
+    sub.next({ x: 2 }); // silent no-op
+    expect(send).toHaveBeenCalledTimes(1);
+    // Idempotent.
+    expect(() => sub.cancel()).not.toThrow();
 
-      const completed = primitive.createSubscription<{ y: number }>(
-        12,
-        passthroughSchema<{ y: number }>(),
-      );
-      completed.next({ y: 1 });
-      completed.complete();
-      completed.next({ y: 2 }); // silent no-op
-      expect(send).toHaveBeenCalledTimes(2);
-    },
-  );
+    const completed = primitive.createSubscription<{ y: number }>(
+      12,
+      passthroughSchema<{ y: number }>(),
+    );
+    completed.next({ y: 1 });
+    completed.complete();
+    completed.next({ y: 2 }); // silent no-op
+    expect(send).toHaveBeenCalledTimes(2);
+  });
 
   it(
     "client-initiated `$/subscription/cancel` with " +
@@ -232,17 +226,14 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it(
-    "does NOT fire handlers on complete() — " + "natural producer-driven termination is silent",
-    () => {
-      const { primitive } = makeFixture();
-      const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-      const handler = vi.fn<() => void>();
-      sub.onCancel(handler);
-      sub.complete();
-      expect(handler).not.toHaveBeenCalled();
-    },
-  );
+  it("does NOT fire handlers on complete(): producer-driven termination is silent", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    const handler = vi.fn<() => void>();
+    sub.onCancel(handler);
+    sub.complete();
+    expect(handler).not.toHaveBeenCalled();
+  });
 
   it(
     "fires handlers when cleanupTransport() drops " +
@@ -283,17 +274,14 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     },
   );
 
-  it(
-    "registration AFTER complete is silently " + "dropped (matches no-fire-on-complete semantic)",
-    () => {
-      const { primitive } = makeFixture();
-      const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
-      sub.complete();
-      const handler = vi.fn<() => void>();
-      expect(() => sub.onCancel(handler)).not.toThrow();
-      expect(handler).not.toHaveBeenCalled();
-    },
-  );
+  it("registration AFTER complete is silently dropped (no fire on complete)", () => {
+    const { primitive } = makeFixture();
+    const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
+    sub.complete();
+    const handler = vi.fn<() => void>();
+    expect(() => sub.onCancel(handler)).not.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+  });
 
   it("multiple handlers fire in registration order on cancel()", () => {
     const { primitive } = makeFixture();

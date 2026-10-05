@@ -1,10 +1,9 @@
 // The hand-over brief: what stands in for a conversation a new provider session cannot
-// continue. It renders the canonical projection as bounded prose and delivers it at most once.
+// continue. It renders the canonical projection as bounded prose and names the target it goes
+// to; `brief-delivery.ts` sends it, at most once.
 //
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
-//   * A send that fails is never retried or read back: the switch fails and the session stays where
-//     it was. Nothing durable is written.
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import {

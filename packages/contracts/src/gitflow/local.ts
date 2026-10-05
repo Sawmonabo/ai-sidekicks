@@ -19,6 +19,7 @@ import {
   wireFreeFormString,
   type SessionId,
 } from "../session.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow-definition.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow-run.js";
 import {
   ChangeRequestSummarySchema,
@@ -61,11 +62,7 @@ export const DIFF_FILE_KINDS = ["added", "deleted", "renamed", "modified"] as co
 export type DiffFileKind = (typeof DIFF_FILE_KINDS)[number];
 
 /** Why a changed file's contents cannot be shown. */
-export const DIFF_FILE_UNREADABLE_REASONS = [
-  "too_large",
-  "permission_denied",
-  "not_regular_file",
-] as const;
+export const DIFF_FILE_UNREADABLE_REASONS = ["permission_denied", "not_regular_file"] as const;
 /** One reason a file cannot be shown. */
 export type DiffFileUnreadableReason = (typeof DIFF_FILE_UNREADABLE_REASONS)[number];
 
@@ -264,8 +261,11 @@ export interface DiffFile {
   newBlobId?: GitObjectId | undefined;
   /** The newest turn that touched the file; absent for a change made outside a turn. */
   newestTurn?: number | undefined;
-  /** On a workflow run's diff, the step that changed the file. */
-  stepId?: string | undefined;
+  /**
+   * On a workflow run's diff, the step that changed the file, named as the run's pinned version
+   * names it; absent for an edit made in the checkout by anyone else.
+   */
+  step?: { nodeId: WorkflowNodeId; nodeName: string } | undefined;
 }
 const DiffFileSchema: z.ZodType<DiffFile> = z
   .object({
@@ -281,7 +281,10 @@ const DiffFileSchema: z.ZodType<DiffFile> = z
     oldBlobId: GitObjectIdSchema.optional(),
     newBlobId: GitObjectIdSchema.optional(),
     newestTurn: z.number().int().positive().optional(),
-    stepId: z.string().min(1).optional(),
+    step: z
+      .object({ nodeId: WorkflowNodeIdSchema, nodeName: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((file) => (file.kind === "renamed") === (file.oldPath !== undefined), {

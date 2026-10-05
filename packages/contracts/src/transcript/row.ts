@@ -21,8 +21,10 @@ import type { EventCategory } from "../event-envelope.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
 import {
+  EventCursorSchema,
   SessionIdSchema,
   wireFreeFormString,
+  type EventCursor,
   type SessionId,
   FILE_PATH_MAX_LEN,
 } from "../session.js";
@@ -160,6 +162,11 @@ export interface TranscriptEventRowBase {
   sessionId: SessionId;
   /** The session event sequence, never a run position: re-execution reuses run ordinals. */
   sequence: number;
+  /**
+   * The position the session's stream delivers this event at, opaque and relayed verbatim, so a
+   * link naming a message by its cursor finds the row however the row was read.
+   */
+  cursor: EventCursor;
   category: EventCategory;
   /** Free-form by contract — narrow on `kind`, never on this. */
   type: string;
@@ -179,6 +186,7 @@ const buildTranscriptEventRowCommonShape = () => ({
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.id"),
   sessionId: SessionIdSchema,
   sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
+  cursor: EventCursorSchema,
   category: EventCategorySchema,
   type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.type"),
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.actor").optional(),

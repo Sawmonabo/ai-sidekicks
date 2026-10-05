@@ -1,86 +1,177 @@
 // The canvas, and the whole of what the graph library is allowed to do here. It is the lazy
 // chunk's entry (`run-graph-loader.ts` imports it). The two sheets load in this order:
 // `run-graph.css` redefines the library's fallback palette at equal specificity, so it is second.
-// The library is pinned to an exact version because its bundle and heap cost were measured there.
 
 import "@xyflow/react/dist/base.css";
 import "./run-graph.css";
 
-import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
+import { useCallback, useRef } from "react";
+import {
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  type NodeMouseHandler,
+  type NodeTypes,
+} from "@xyflow/react";
+
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow-run-records";
 
 import { tokenReference } from "@renderer/styles/tokens.js";
-import { RUN_GRAPH_MAX_ZOOM, RUN_GRAPH_MIN_ZOOM } from "../../workflows-caps.js";
-import { PHASE_NODE_TYPE } from "./run-graph-elements.js";
+import { RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./run-graph-elements.js";
+import { RunGraphNode } from "./RunGraphNode.js";
+import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
-import { PhaseNode } from "./PhaseNode.js";
-import type { DrawnPhaseSequence } from "./phase-sequence-layout.js";
+import { ActionButton } from "../../components/ActionButton.js";
+
+/** What the canvas draws: the workflow's document, the run's steps and counts, the selection. */
+export interface RunGraphCanvasProps {
+  readonly document: WorkflowDocument;
+  readonly steps: readonly WorkflowStep[];
+  /** How many items went through each edge, which the edge carries. */
+  readonly edgeItemCounts: readonly WorkflowEdgeItemCount[];
+  readonly selectedNodeId: string | undefined;
+  /** The instant a resume time's day is counted from; it moves at midnight, not every second. */
+  readonly nowMs: number;
+  /** Called with a node's id when a person clicks it or presses Enter or Space on it. */
+  readonly onSelectNode: (nodeId: string) => void;
+}
 
 /**
  * The node kinds this canvas renders. A module constant because the library re-registers its
  * renderers, and warns, whenever this object's identity moves.
  */
-const PHASE_NODE_TYPES: NodeTypes = { [PHASE_NODE_TYPE]: PhaseNode };
+const RUN_GRAPH_NODE_TYPES: NodeTypes = { [RUN_GRAPH_NODE_TYPE]: RunGraphNode };
 
 /**
- * How much of the viewport is left empty around the fitted graph, as a fraction.
- *
- * Keeps the first and last box clear of the pane's own edge.
+ * How far out a long run may be zoomed. Below 0.35 (about three times the columns of 1x) the
+ * names stop being readable.
  */
-const PHASE_GRAPH_FIT_VIEW_PADDING = 0.12;
+const RUN_GRAPH_MIN_ZOOM = 0.35;
 
-/** Stable for the same reason the node table is: the library reads it on every fit. */
-const PHASE_GRAPH_FIT_VIEW_OPTIONS: FitViewOptions = { padding: PHASE_GRAPH_FIT_VIEW_PADDING };
+/** How far in: a reading zoom for a long name; the graph has nothing to inspect at pixel scale. */
+const RUN_GRAPH_MAX_ZOOM = 1.5;
 
 /**
- * The arrowhead's color.
- *
- * The library writes it into an inline `style`, which resolves `var()`, so this is the one
- * token that reaches the library through JavaScript; `tokenReference` checks the token name.
+ * The arrowhead's color. The library writes it into an inline `style`, which resolves `var()`,
+ * so this is the one token that reaches the library through script.
  */
-const SEQUENCE_MARKER_COLOR: string = tokenReference("edge-strong");
+const EDGE_MARKER_COLOR: string = tokenReference("edge-strong");
 
-/** The placed sequence to draw and the region's accessible name. */
-export interface RunGraphCanvasProps {
-  /** The placed sequence. A malformed one never reaches here — the host refuses first. */
-  readonly layout: DrawnPhaseSequence;
-  /** The region's accessible name, supplied by the component that mounted the graph. */
-  readonly label: string;
+/** The keys that select the focused node, as a button's do. */
+const SELECT_KEYS: readonly string[] = ["Enter", " "];
+
+/** One run on its workflow's canvas, read-only, following the live step. */
+export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
+  return (
+    <ReactFlowProvider>
+      <RunGraphFlow {...props} />
+    </ReactFlowProvider>
+  );
 }
 
-/** One run's phase sequence, drawn. */
-export function RunGraphCanvas(props: RunGraphCanvasProps): React.JSX.Element {
-  const { nodes, edges } = useRunGraphElements(props.layout);
+/** The canvas inside the library's provider, where the view can be read and moved. */
+function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
+  const { document, steps, edgeItemCounts, selectedNodeId, nowMs, onSelectNode } = props;
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const { nodes, edges, liveCenter } = useRunGraphElements(
+    document,
+    steps,
+    edgeItemCounts,
+    selectedNodeId,
+    nowMs,
+  );
+  const follow = useLiveStepFollow(liveCenter, canvasRef);
+  const { stopFollowing, revealPoint } = follow;
+
+  const selectClickedNode = useCallback<NodeMouseHandler>(
+    (_event, node) => onSelectNode(node.id),
+    [onSelectNode],
+  );
+
+  // Any key on the canvas stops the follow; Enter or Space on a node also selects it, since the
+  // library's own node keys are off along with its second live region.
+  const handleCanvasKey = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      stopFollowing();
+      const nodeId = focusedNodeId(event.target);
+      if (nodeId !== undefined && SELECT_KEYS.includes(event.key)) {
+        event.preventDefault();
+        onSelectNode(nodeId);
+      }
+    },
+    [onSelectNode, stopFollowing],
+  );
+
+  // A node reached by keyboard is brought into view, which the library does only with its own
+  // keys on.
+  const revealFocusedNode = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const nodeId = focusedNodeId(event.target);
+      const node = nodes.find((candidate) => candidate.id === nodeId);
+      if (node !== undefined && event.target.matches(":focus-visible")) {
+        revealPoint(runGraphNodeCenter(node));
+      }
+    },
+    [nodes, revealPoint],
+  );
 
   return (
-    <div className="meridian-run-graph__canvas">
+    <div
+      ref={canvasRef}
+      className="meridian-run-graph__canvas"
+      onKeyDown={handleCanvasKey}
+      onFocus={revealFocusedNode}
+    >
       <ReactFlow
-        aria-label={props.label}
+        aria-label="Run graph"
         nodes={nodes}
         edges={edges}
-        nodeTypes={PHASE_NODE_TYPES}
-        // Read-only, one prop per gesture: nothing on this canvas can change a run.
+        nodeTypes={RUN_GRAPH_NODE_TYPES}
+        onNodeClick={selectClickedNode}
+        onMoveStart={follow.stopOnPersonMove}
+        // Read-only, one prop per gesture: nothing on this canvas can change a run. Selection is
+        // the page's, so the library selects nothing of its own.
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         edgesReconnectable={false}
-        // Switches off arrow-key node movement and the library's own aria-live region; nothing
-        // moves or selects here, and the console has one live announcer. Focus is separate.
         disableKeyboardA11y
         deleteKeyCode={null}
         selectionKeyCode={null}
         multiSelectionKeyCode={null}
-        // Reading, not editing: nodes stay focusable so a keyboard reaches every phase.
         nodesFocusable
         edgesFocusable={false}
-        fitView
-        fitViewOptions={PHASE_GRAPH_FIT_VIEW_OPTIONS}
         minZoom={RUN_GRAPH_MIN_ZOOM}
         maxZoom={RUN_GRAPH_MAX_ZOOM}
-        defaultMarkerColor={SEQUENCE_MARKER_COLOR}
+        defaultMarkerColor={EDGE_MARKER_COLOR}
         // The console's scheme is carried by the tokens the sheet sets, so the library's dark
         // rules must never match; `light` keeps that true if the library's default changes.
         colorMode="light"
-      />
+      >
+        {follow.canReturnToLiveStep ? (
+          <Panel position="top-right">
+            <ActionButton
+              tone="raised"
+              aria-label="Follow the live step now"
+              // The chip's own keys are a press, not a key on the canvas.
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={follow.resumeFollowing}
+            >
+              now
+            </ActionButton>
+          </Panel>
+        ) : null}
+      </ReactFlow>
     </div>
   );
+}
+
+/** The id of the node an event landed on, read from the library's node element. */
+function focusedNodeId(target: EventTarget): string | undefined {
+  if (!(target instanceof HTMLElement) || !target.classList.contains("react-flow__node")) {
+    return undefined;
+  }
+  return target.dataset["id"];
 }

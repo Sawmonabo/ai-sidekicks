@@ -23,6 +23,7 @@ export function eventOfKind(
     id: `event-${String(sequence)}`,
     sessionId,
     sequence,
+    cursor: `cursor-at-${String(sequence)}`,
     kind,
     occurredAt: occurredAtFor(sequence),
     ...(payload === undefined ? {} : { payload }),

@@ -45,7 +45,9 @@ export function ServerRow(props: {
           <span className="meridian-settings-page__aside">Declared for this user.</span>
         ) : (
           <>
-            <span className="meridian-settings-page__aside">Declared at</span>
+            <span className="meridian-settings-page__aside">
+              {binding.scope === "plugin" ? "plugin ·" : "Declared at"}
+            </span>
             <WireFigure value={binding.scopeRef} />
           </>
         )}
@@ -105,21 +107,12 @@ export function ServerRow(props: {
  * cast is needed to keep a `scopeRef` off the `user` arm.
  */
 function bindingOf(entry: McpServerInventoryEntry): McpServerBindingRef {
-  if (entry.scope === "user") {
-    return { provider: entry.provider, scope: "user", serverName: entry.serverName };
-  }
-  if (entry.scope === "local") {
-    return {
-      provider: entry.provider,
-      scope: "local",
-      scopeRef: entry.scopeRef,
-      serverName: entry.serverName,
-    };
-  }
-  return {
-    provider: entry.provider,
-    scope: "project",
-    scopeRef: entry.scopeRef,
-    serverName: entry.serverName,
-  };
+  return entry.scope === "user"
+    ? { provider: entry.provider, scope: "user", serverName: entry.serverName }
+    : {
+        provider: entry.provider,
+        scope: entry.scope,
+        scopeRef: entry.scopeRef,
+        serverName: entry.serverName,
+      };
 }

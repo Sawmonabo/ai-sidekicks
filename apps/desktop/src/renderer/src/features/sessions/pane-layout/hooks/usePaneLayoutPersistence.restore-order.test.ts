@@ -191,39 +191,33 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     expect(paneKinds(layout)).toStrictEqual(["terminal", "transcript"]);
   });
 
-  it(
-    "negative control: an untouched read restores the record and " + "writes nothing back",
-    async () => {
-      // Without this, a hook that wrote on every settle would pass while spending a durable
-      // write on every session opened.
-      const store = memoryStore();
-      await savePaneLayout(store, ["transcript", "terminal"]);
-      const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
-      const layout = createPaneLayoutStore();
+  it("negative control: an untouched read restores the record, writing nothing back", async () => {
+    // Without this, a hook that wrote on every settle would pass while spending a durable
+    // write on every session opened.
+    const store = memoryStore();
+    await savePaneLayout(store, ["transcript", "terminal"]);
+    const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
+    const layout = createPaneLayoutStore();
 
-      mountPersistence(layout, store);
-      await drain();
+    mountPersistence(layout, store);
+    await drain();
 
-      expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
-      const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
-      expect(after?.updatedAt).toBe(before?.updatedAt);
-    },
-  );
+    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
+    const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
 
-  it(
-    "negative control: with nothing saved the fallback transcript is " + "opened and written",
-    async () => {
-      // The gate must not swallow the first run's own record.
-      const store = memoryStore();
-      const layout = createPaneLayoutStore();
+  it("negative control: nothing saved opens the fallback transcript and writes it", async () => {
+    // The gate must not swallow the first run's own record.
+    const store = memoryStore();
+    const layout = createPaneLayoutStore();
 
-      mountPersistence(layout, store);
-      await drain();
+    mountPersistence(layout, store);
+    await drain();
 
-      expect(paneKinds(layout)).toStrictEqual(["transcript"]);
-      expect(await savedPaneCount(store)).toBe(1);
-    },
-  );
+    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
+    expect(await savedPaneCount(store)).toBe(1);
+  });
 
   it("negative control: a change made after the restore settled is written", async () => {
     // The gate opens and does not stay shut; without this every case above would pass over a

@@ -476,67 +476,64 @@ describe("RepoMountService.detach", () => {
     expect(countMountRows()).toBe(0);
   });
 
-  it(
-    "announces the remaining dependents when " + "one archived append fails, then rejects",
-    async () => {
-      const emitter = new FirstArchiveAppendFailingEmitter({
-        sessionEvents: new EventLogService({
-          db: harness.db,
-        }),
-      });
-      const service = createService({ events: emitter });
+  it("announces the remaining dependents if one archived append fails, then rejects", async () => {
+    const emitter = new FirstArchiveAppendFailingEmitter({
+      sessionEvents: new EventLogService({
+        db: harness.db,
+      }),
+    });
+    const service = createService({ events: emitter });
 
-      const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
-      const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
-      const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
+    const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
+    const firstWorkspaceId = await bindWorkspace(attached.repoMountId);
+    const secondWorkspaceId = await bindWorkspace(attached.repoMountId);
 
-      const error = await captureRejection(() =>
-        service.detach({ repoMountId: attached.repoMountId }),
-      );
+    const error = await captureRejection(() =>
+      service.detach({ repoMountId: attached.repoMountId }),
+    );
 
-      // The transaction committed, but the caller is told the log is incomplete, not handed a
-      // success.
-      expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
-      expect((error as RepoMountServiceInvariantError).kind).toBe("detach_notification_incomplete");
-      expect((error as RepoMountServiceInvariantError).repoMountId).toBe(attached.repoMountId);
-      expect((error as Error).cause).toBeInstanceOf(Error);
-      expect(((error as Error).cause as Error).message).toBe(SIMULATED_APPEND_FAILURE_MESSAGE);
+    // The transaction committed, but the caller is told the log is incomplete, not handed a
+    // success.
+    expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
+    expect((error as RepoMountServiceInvariantError).kind).toBe("detach_notification_incomplete");
+    expect((error as RepoMountServiceInvariantError).repoMountId).toBe(attached.repoMountId);
+    expect((error as Error).cause).toBeInstanceOf(Error);
+    expect(((error as Error).cause as Error).message).toBe(SIMULATED_APPEND_FAILURE_MESSAGE);
 
-      // The loop attempted both announcements; stopping at the first failure would leave
-      // `attemptedWorkspaceIds` one element long.
-      expect(emitter.attemptedWorkspaceIds).toEqual([firstWorkspaceId, secondWorkspaceId]);
+    // The loop attempted both announcements; stopping at the first failure would leave
+    // `attemptedWorkspaceIds` one element long.
+    expect(emitter.attemptedWorkspaceIds).toEqual([firstWorkspaceId, secondWorkspaceId]);
 
-      // The rows are correct; the failure is confined to the log.
-      expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("detached");
-      expect(requireWorkspaceRow(harness.db, firstWorkspaceId).state).toBe("archived");
-      expect(requireWorkspaceRow(harness.db, secondWorkspaceId).state).toBe("archived");
+    // The rows are correct; the failure is confined to the log.
+    expect(requireMountRow(harness.db, attached.repoMountId).state).toBe("detached");
+    expect(requireWorkspaceRow(harness.db, firstWorkspaceId).state).toBe("archived");
+    expect(requireWorkspaceRow(harness.db, secondWorkspaceId).state).toBe("archived");
 
-      // Exactly one `workspace.archived` landed, for the second workspace, whose append ran after
-      // the failure. That proves the loop continued.
-      expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
-        "workspace.preparing",
-        "workspace.preparing",
-        "workspace.archived",
-      ]);
-      const archivedEnvelopes = readLifecycleEnvelopes(harness.db, SESSION_ID).filter(
-        (row) => row.type === "workspace.archived",
-      );
-      expect(
-        (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
-      ).toBe(secondWorkspaceId);
+    // Exactly one `workspace.archived` landed, for the second workspace, whose append ran after
+    // the failure. That proves the loop continued.
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([
+      "workspace.preparing",
+      "workspace.preparing",
+      "workspace.archived",
+    ]);
+    const archivedEnvelopes = readLifecycleEnvelopes(harness.db, SESSION_ID).filter(
+      (row) => row.type === "workspace.archived",
+    );
+    expect(
+      (JSON.parse(archivedEnvelopes[0]?.payload ?? "{}") as { workspaceId?: string }).workspaceId,
+    ).toBe(secondWorkspaceId);
 
-      // Calling again does not recover the missing event: the mount is already `detached`, so the
-      // call is a no-op with an empty answer, not a second cascade.
-      const retry = await service.detach({ repoMountId: attached.repoMountId });
-      expect(retry.state).toBe("detached");
-      expect(retry.archivedWorkspaceIds).toEqual([]);
-      expect(
-        readLifecycleEventTypes(harness.db, SESSION_ID).filter(
-          (type) => type === "workspace.archived",
-        ),
-      ).toHaveLength(1);
-    },
-  );
+    // Calling again does not recover the missing event: the mount is already `detached`, so the
+    // call is a no-op with an empty answer, not a second cascade.
+    const retry = await service.detach({ repoMountId: attached.repoMountId });
+    expect(retry.state).toBe("detached");
+    expect(retry.archivedWorkspaceIds).toEqual([]);
+    expect(
+      readLifecycleEventTypes(harness.db, SESSION_ID).filter(
+        (type) => type === "workspace.archived",
+      ),
+    ).toHaveLength(1);
+  });
 
   it("archives a dependent that appeared AFTER the pre-transaction read", async () => {
     // A `ready` workspace is committed on this mount between `detach`'s row read and its

@@ -62,43 +62,40 @@ function startRun(
 const SIGKILLED = [{ sessionId: "pty-session-1", signal: "SIGKILL" }];
 
 describe("Codex turn posture", () => {
-  it(
-    "refuses every posture field a caller " + "declares, and any turn member it cannot realize",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
+  it("refuses every declared posture field, and any turn member it cannot realize", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
 
-      for (const field of [
-        "cwd",
-        "sandboxPolicy",
-        "permissions",
-        "permissionProfile",
-        "approvalPolicy",
-        "approvalsReviewer",
-      ]) {
-        await expect(
-          harness.driver.startRun({
-            runId: RUN_ID,
-            agentConfig: { sessionId: SESSION_ID, input: "review the diff", [field]: "anything" },
-          }),
-        ).rejects.toBeInstanceOf(CodexDriverConfigError);
-      }
-      // Refused before the wire, not filtered on it.
-      expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+    for (const field of [
+      "cwd",
+      "sandboxPolicy",
+      "permissions",
+      "permissionProfile",
+      "approvalPolicy",
+      "approvalsReviewer",
+    ]) {
+      await expect(
+        harness.driver.startRun({
+          runId: RUN_ID,
+          agentConfig: { sessionId: SESSION_ID, input: "review the diff", [field]: "anything" },
+        }),
+      ).rejects.toBeInstanceOf(CodexDriverConfigError);
+    }
+    // Refused before the wire, not filtered on it.
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
 
-      // The guard every turn composer calls: an unrealized member, the pair the provider accepts
-      // with no documented precedence, and the member the provider build refuses.
-      for (const members of [
-        { permissions: "profile-id" },
-        { sandboxPolicy: { mode: "workspace-write" }, permissions: "profile-id" },
-        { permissionProfile: "profile-id" },
-      ]) {
-        expect(() => assertRealizedTurnPostureMembers({ threadId: THREAD_ID, ...members })).toThrow(
-          CodexDriverConfigError,
-        );
-      }
-    },
-  );
+    // The guard every turn composer calls: an unrealized member, the pair the provider accepts
+    // with no documented precedence, and the member the provider build refuses.
+    for (const members of [
+      { permissions: "profile-id" },
+      { sandboxPolicy: { mode: "workspace-write" }, permissions: "profile-id" },
+      { permissionProfile: "profile-id" },
+    ]) {
+      expect(() => assertRealizedTurnPostureMembers({ threadId: THREAD_ID, ...members })).toThrow(
+        CodexDriverConfigError,
+      );
+    }
+  });
 
   it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
     // The origin is minted at the boundary; the exempt one would deliver command-shaped words
@@ -234,40 +231,34 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 
-  it(
-    "trips when the swallowed turn terminates " + "in the same read chunk as its start response",
-    async () => {
-      // The chunk is drained before `startRun` resumes, so the terminal settles a turn no frame is
-      // correlated with yet; a memory holding only turn ids would report the swallow as completed.
-      const harness = await liveSession();
-      harness.server.on("turn/start", () => ({
-        result: { turn: { id: TURN_ID } },
-        trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
-      }));
+  it("trips when a swallowed turn ends in the same read chunk as its start response", async () => {
+    // The chunk is drained before `startRun` resumes, so the terminal settles a turn no frame is
+    // correlated with yet; a memory holding only turn ids would report the swallow as completed.
+    const harness = await liveSession();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
+    }));
 
-      await startRun(harness, "/status please", { frameOrigin: "human_text" });
+    await startRun(harness, "/status please", { frameOrigin: "human_text" });
 
-      expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
-      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-    },
-  );
+    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
 
-  it(
-    "does not trip a real turn that settles in " + "the same chunk with an unloaded item list",
-    async () => {
-      // A false trip condemns a healthy session. The in-flight item is the evidence.
-      const harness = await liveSession();
-      harness.server.on("turn/start", () => ({
-        result: { turn: { id: TURN_ID } },
-        trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
-      }));
+  it("spares a real turn that settles in the same chunk with an unloaded item list", async () => {
+    // A false trip condemns a healthy session. The in-flight item is the evidence.
+    const harness = await liveSession();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
+    }));
 
-      await startRun(harness, "review the diff", { frameOrigin: "human_text" });
+    await startRun(harness, "review the diff", { frameOrigin: "human_text" });
 
-      expect(harness.textNeutralizationFailures).toStrictEqual([]);
-      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-    },
-  );
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
 
   it(
     "condemns the binding a trip was seen on, and " +
@@ -390,25 +381,22 @@ describe("Codex rewind and re-realization", () => {
     ).resolves.toStrictEqual(APPLIED);
   });
 
-  it(
-    "refuses a position that names no recorded " + "boundary rather than forking the whole thread",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
+  it("refuses a position naming no recorded boundary, never forking the whole thread", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
 
-      const result = await harness.driver.forkConversation({
-        sessionId: SESSION_ID,
-        bindingId: "binding-abc",
-        position: 0,
-      });
+    const result = await harness.driver.forkConversation({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 0,
+    });
 
-      expect(result).toStrictEqual({
-        status: "degraded",
-        fallbackAction: "rewind-target-not-a-recorded-boundary",
-      });
-      expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
-    },
-  );
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-not-a-recorded-boundary",
+    });
+    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
+  });
 
   it.each([
     "Invalid request: missing field `lastTurnId`",

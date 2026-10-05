@@ -2,7 +2,8 @@
 // Held per session and bridge, not per mount: session stores stay open across navigation, and
 // a bridge replacement retires every call in flight. It is a resource, so re-addressing
 // abandons the old walk's read line. The state is the reader's own, read as an external store
-// that changes when the walk moves or the store's window does.
+// that changes when the walk moves or the store's window does. The feed holds the one walk, so
+// the head control and a link reaching back for its message share one single-flight reader.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
@@ -39,15 +40,16 @@ const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<EarlierHistoryReader
 };
 
 /**
- * Binds one session's backward walk to a React tree.
+ * Binds one session's backward walk to a React tree, or answers `undefined` for a composition
+ * with no page read, which has no walk to offer.
  *
  * The store is the subject, not a per-call parameter, because the walk's base and its rows
  * both belong to one store.
  */
 export function useEarlierHistory(
   sessionStore: SessionStore,
-  readEarlierPage: EarlierPageRead,
-): EarlierHistoryPaging {
+  readEarlierPage: EarlierPageRead | undefined,
+): EarlierHistoryPaging | undefined {
   const bridge = usePlatformBridge();
   const held = useSubjectScopedResource(
     bridge,
@@ -68,8 +70,16 @@ export function useEarlierHistory(
     [reader, sessionStore],
   );
   const state = useSyncExternalStore(subscribe, () => reader.state(sessionStore));
-  const loadEarlier = useCallback(() => {
-    void reader.loadEarlier(readEarlierPage, sessionStore);
-  }, [readEarlierPage, reader, sessionStore]);
-  return useMemo(() => ({ ...state, loadEarlier }), [state, loadEarlier]);
+  return useMemo(
+    () =>
+      readEarlierPage === undefined
+        ? undefined
+        : {
+            ...state,
+            loadEarlier: () => {
+              void reader.loadEarlier(readEarlierPage, sessionStore);
+            },
+          },
+    [readEarlierPage, reader, sessionStore, state],
+  );
 }

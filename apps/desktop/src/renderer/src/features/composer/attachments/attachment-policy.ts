@@ -6,7 +6,7 @@
 import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts/artifacts/operations";
 
 /**
- * What a refusal means for the next act. Every ingest call is retry-safe (a replayed chunk or
+ * What a refusal means for the next act. Every ingest call is retry-safe (a resent chunk or
  * completion is answered without re-appending), so a lost response is retried in place. Two codes
  * differ: `artifact.ingest_stream_invalid` (409) is terminal, so begin again;
  * `artifact.ingest_capacity_exhausted` (429) is transient with no stream state, so wait and retry.

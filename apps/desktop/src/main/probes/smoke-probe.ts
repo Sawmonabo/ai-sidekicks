@@ -2,7 +2,7 @@
 // build references nothing here and, with no top-level side effects, Rollup drops the whole
 // module from `out/main/index.js`.
 
-import { app, net, type BrowserWindow } from "electron";
+import { app, net, type WebContents } from "electron";
 
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js";
 
@@ -15,14 +15,13 @@ const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";
 export type ReadinessTracer = (readinessEvent: string) => void;
 
 /**
- * Registers the pre-load readiness listeners and returns the tracer for the milestones the
- * caller reaches itself. Call it from the window factory's `beforeLoad` hook: the load starts
- * inside the factory, so registering there means a fast load cannot miss a breadcrumb.
- * `dom-ready` and `ready-to-show` are registered on their own emitters, so a wrong emitter
- * is a compile error. With tracing off the tracer is a no-op.
+ * Registers the pre-load readiness listener and returns the tracer for the milestones the
+ * caller reaches itself. Call it from the window factory's `beforeLoad` hook with the window's
+ * document: the load starts inside the factory, so registering there means a fast load cannot
+ * miss a breadcrumb. With tracing off the tracer is a no-op.
  */
 export function installReadinessBreadcrumbs(
-  browserWindow: BrowserWindow,
+  webContents: WebContents,
   probeStartedAt: number,
 ): ReadinessTracer {
   if (process.env[READINESS_TRACE_ENV] !== "1") {
@@ -37,11 +36,8 @@ export function installReadinessBreadcrumbs(
     );
   };
 
-  browserWindow.webContents.once("dom-ready", () => {
+  webContents.once("dom-ready", () => {
     traceReadiness("dom-ready");
-  });
-  browserWindow.once("ready-to-show", () => {
-    traceReadiness("ready-to-show");
   });
 
   return traceReadiness;
@@ -60,7 +56,7 @@ export function installReadinessBreadcrumbs(
  * trusted side because CDP attachment is too heavy and renderer `console.log` parsing would
  * couple untrusted product code to the test mechanism.
  */
-export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: number): Promise<void> {
+export async function runSmokeProbe(webContents: WebContents, windowMs: number): Promise<void> {
   const rendererReadings = `
     (() => {
       const readLocalStorage = () => {
@@ -112,9 +108,7 @@ export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: numb
 
   let serializedReadings: string;
   try {
-    serializedReadings = (await browserWindow.webContents.executeJavaScript(
-      rendererReadings,
-    )) as string;
+    serializedReadings = (await webContents.executeJavaScript(rendererReadings)) as string;
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, error);
     app.exit(2);

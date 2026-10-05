@@ -4,6 +4,7 @@ import { fireEvent, render } from "@testing-library/react";
 
 import { DiffFileList } from "./DiffFileList.js";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
+import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { type DiffModel } from "../diff-model.js";
 
 /**
@@ -27,6 +28,7 @@ export function renderFileList(diff: DiffModel, selectedFilePath?: string): HTML
       selectedFilePath={selectedFilePath}
       onSelectFilePath={() => undefined}
     />,
+    { wrapper: liveBridgeWrapper() },
   ).container;
 }
 

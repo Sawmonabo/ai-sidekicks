@@ -96,6 +96,11 @@ export function renderRuntimePage(options: {
 export function daemonStatusAt(version: string): DaemonStatusReadResponse {
   return {
     processState: "running",
+    processIdentity: {
+      processId: 4242,
+      bootId: "boot-1",
+      processStartTime: "Thu Apr 30 09:00:00 2026",
+    },
     version,
     protocolVersion: "1",
     transportEndpoint: "/tmp/sidekicks.sock",

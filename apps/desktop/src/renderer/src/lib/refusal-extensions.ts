@@ -27,14 +27,42 @@ export interface WireRetryHint {
   readonly atEpochMilliseconds?: number;
 }
 
+/**
+ * The remedy a refusal named for one account, as two strings the wire sent: never checked against
+ * the remedy vocabulary here. A `services/` reader parses it against the refusing method's own
+ * details schema before a view acts on it.
+ */
+export interface WireRefusalRemedy {
+  readonly kind: string;
+  readonly accountId: string;
+}
+
 /** Every member a producer may carry on a refusal beyond the core three; each is optional. */
 export interface RefusalExtensions {
   /** Registered by `wire-rejection.ts`: when a retry is allowed. */
   readonly retry?: WireRetryHint;
+  /** Registered by `wire-rejection.ts`: the way back the refusal named for its account. */
+  readonly remedy?: WireRefusalRemedy;
+  /** Registered by `wire-rejection.ts`: the one word saying why, such as a keychain's state. */
+  readonly cause?: string;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
 export type ExtendedRefusal = Refusal & RefusalExtensions;
+
+/**
+ * The named members a wire envelope's structured part carries (`data.fields` on JSON-RPC,
+ * `details` on a flat envelope), as extensions. Only `remedy` and `cause` are read; every other
+ * member there can be a request value, a path or a token, and is left behind.
+ */
+export function wireDetailsExtension(source: unknown): RefusalExtensions {
+  const remedy = readRemedy(readGuardedProperty(source, "remedy"));
+  const cause = readCause(readGuardedProperty(source, "cause"));
+  return {
+    ...(remedy === undefined ? {} : { remedy }),
+    ...(cause === undefined ? {} : { cause }),
+  };
+}
 
 /**
  * The retry bound as the wire spells it (`retryAfter` seconds, `resetAt` instant), as an
@@ -68,6 +96,23 @@ function retryHintOf(
     : hint;
 }
 
+/**
+ * A remedy's two members onto a fresh object, each read once, or `undefined` unless both are
+ * strings. Nothing else on the source is copied, so a member it carried beside them stays behind.
+ */
+function readRemedy(remedy: unknown): WireRefusalRemedy | undefined {
+  const kind = readGuardedProperty(remedy, "kind");
+  const accountId = readGuardedProperty(remedy, "accountId");
+  return typeof kind === "string" && typeof accountId === "string"
+    ? { kind, accountId }
+    : undefined;
+}
+
+/** A cause where it is a string, or `undefined`. */
+function readCause(cause: unknown): string | undefined {
+  return typeof cause === "string" ? cause : undefined;
+}
+
 /** A hint a refusal already carries, in this app's own spelling, read guardedly. */
 function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
   // One read of `retry`, so a getter answering differently the second time cannot mix two objects.
@@ -85,6 +130,8 @@ const REFUSAL_EXTENSION_READERS: {
   ) => Required<RefusalExtensions>[Member] | undefined;
 } = {
   retry: carriedRetryHint,
+  remedy: (candidate) => readRemedy(readGuardedProperty(candidate, "remedy")),
+  cause: (candidate) => readCause(readGuardedProperty(candidate, "cause")),
 };
 
 /**

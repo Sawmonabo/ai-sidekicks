@@ -74,55 +74,52 @@ describe("CodexAppServerConnection transport", () => {
     expect(harness.diagnostics).toContainEqual({ kind: "unknown-response-id", responseId: "99" });
   });
 
-  it(
-    "answers an unhandled server request exactly " + "once, fail-closed, known method or not",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
+  it("answers an unhandled server request exactly once, fail-closed, for any method", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
 
-      // Attestation is declined at negotiation and deliberately unrouted, so it exercises the
-      // fail-closed default arm on a method the pinned census knows.
-      harness.server.emitFrame({
-        jsonrpc: "2.0",
-        id: 77,
-        method: "attestation/generate",
-        params: {},
-      });
-      await Promise.resolve();
+    // Attestation is declined at negotiation and deliberately unrouted, so it exercises the
+    // fail-closed default arm on a method the pinned census knows.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      id: 77,
+      method: "attestation/generate",
+      params: {},
+    });
+    await Promise.resolve();
 
-      const replies = harness.server.writtenFrames().filter((frame) => frame["id"] === 77);
-      expect(replies).toHaveLength(1);
-      // An error reply can never be mistaken for approval, and it stops the
-      // provider from hanging on an unanswered request.
-      expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
-      expect(harness.diagnostics).toContainEqual({
-        kind: "unhandled-server-request",
-        method: "attestation/generate",
-        // Recorded on the diagnostic only; the census does not gate the answer.
-        censused: true,
-      });
+    const replies = harness.server.writtenFrames().filter((frame) => frame["id"] === 77);
+    expect(replies).toHaveLength(1);
+    // An error reply can never be mistaken for approval, and it stops the
+    // provider from hanging on an unanswered request.
+    expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
+    expect(harness.diagnostics).toContainEqual({
+      kind: "unhandled-server-request",
+      method: "attestation/generate",
+      // Recorded on the diagnostic only; the census does not gate the answer.
+      censused: true,
+    });
 
-      // A method from a newer build that the pinned census has never seen. It correlates to
-      // nothing this connection sent, so it is a server request; leaving it unanswered would hang
-      // the turn for the provider's lifetime.
-      harness.server.emitFrame({
-        jsonrpc: "2.0",
-        id: 4242,
-        method: "item/somethingNewer/requestApproval",
-        params: {},
-      });
-      await Promise.resolve();
+    // A method from a newer build that the pinned census has never seen. It correlates to
+    // nothing this connection sent, so it is a server request; leaving it unanswered would hang
+    // the turn for the provider's lifetime.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      id: 4242,
+      method: "item/somethingNewer/requestApproval",
+      params: {},
+    });
+    await Promise.resolve();
 
-      const newerReplies = harness.server.writtenFrames().filter((frame) => frame["id"] === 4242);
-      expect(newerReplies).toHaveLength(1);
-      expect(newerReplies[0]?.["error"]).toMatchObject({ code: -32601 });
-      expect(harness.diagnostics).toContainEqual({
-        kind: "unhandled-server-request",
-        method: "item/somethingNewer/requestApproval",
-        censused: false,
-      });
-    },
-  );
+    const newerReplies = harness.server.writtenFrames().filter((frame) => frame["id"] === 4242);
+    expect(newerReplies).toHaveLength(1);
+    expect(newerReplies[0]?.["error"]).toMatchObject({ code: -32601 });
+    expect(harness.diagnostics).toContainEqual({
+      kind: "unhandled-server-request",
+      method: "item/somethingNewer/requestApproval",
+      censused: false,
+    });
+  });
 
   it("never answers an echoed client frame, identified by correlation", async () => {
     const harness = createHarness();
@@ -163,70 +160,64 @@ describe("CodexAppServerConnection transport", () => {
     await expect(pending).resolves.toBeUndefined();
   });
 
-  it(
-    "treats a frame matching a pending id but " + "a DIFFERENT method as a server request",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
-      const pending = harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-      await Promise.resolve();
-      const sentId = harness.server
+  it("treats a frame with a pending id but a DIFFERENT method as a server request", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    const pending = harness.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    await Promise.resolve();
+    const sentId = harness.server
+      .writtenFrames()
+      .find((frame) => frame["method"] === "turn/start")?.["id"];
+
+    // The two directions mint request ids in independent namespaces, so a genuine server request
+    // may reuse an id we used. Matching on id alone would silence it; id plus method does not.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      id: sentId,
+      method: "attestation/generate",
+      params: {},
+    });
+    await Promise.resolve();
+
+    expect(
+      harness.server
         .writtenFrames()
-        .find((frame) => frame["method"] === "turn/start")?.["id"];
+        .filter((frame) => frame["id"] === sentId && frame["error"] !== undefined),
+    ).toHaveLength(1);
 
-      // The two directions mint request ids in independent namespaces, so a genuine server request
-      // may reuse an id we used. Matching on id alone would silence it; id plus method does not.
-      harness.server.emitFrame({
-        jsonrpc: "2.0",
-        id: sentId,
-        method: "attestation/generate",
-        params: {},
-      });
-      await Promise.resolve();
+    harness.server.emitFrame({ jsonrpc: "2.0", id: sentId, result: { turn: { id: TURN_ID } } });
+    await expect(pending).resolves.toBeUndefined();
+  });
 
-      expect(
-        harness.server
-          .writtenFrames()
-          .filter((frame) => frame["id"] === sentId && frame["error"] !== undefined),
-      ).toHaveLength(1);
+  it("quarantines a method the routing classifier does not list, never projecting it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
 
-      harness.server.emitFrame({ jsonrpc: "2.0", id: sentId, result: { turn: { id: TURN_ID } } });
-      await expect(pending).resolves.toBeUndefined();
-    },
-  );
+    // An unlisted method reaches the classifier's `unknown` arm, and the fail-closed rule refuses
+    // it instead of presuming it belongs to the session's own thread.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/itemAdded",
+      params: { threadId: THREAD_ID },
+    });
+    await Promise.resolve();
 
-  it(
-    "quarantines a method the routing classifier " + "does not list instead of projecting it",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
-
-      // An unlisted method reaches the classifier's `unknown` arm, and the fail-closed rule refuses
-      // it instead of presuming it belongs to the session's own thread.
-      harness.server.emitFrame({
-        jsonrpc: "2.0",
-        method: "thread/itemAdded",
-        params: { threadId: THREAD_ID },
-      });
-      await Promise.resolve();
-
-      // Refused, not delivered: no hand-off happened, so no unconsumed record.
-      expect(harness.diagnostics).not.toContainEqual({
-        kind: "unconsumed-server-notification",
-        method: "thread/itemAdded",
-      });
-      // The refusal is on the driver diagnostic band, never a silent drop.
-      expect(
-        harness.driverDiagnostics.recentRecordsOfKind("thread_frame_quarantined").map((record) => ({
-          kind: record.kind,
-          rawWireType: record.rawWireType,
-        })),
-      ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
-    },
-  );
+    // Refused, not delivered: no hand-off happened, so no unconsumed record.
+    expect(harness.diagnostics).not.toContainEqual({
+      kind: "unconsumed-server-notification",
+      method: "thread/itemAdded",
+    });
+    // The refusal is on the driver diagnostic band, never a silent drop.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("thread_frame_quarantined").map((record) => ({
+        kind: record.kind,
+        rawWireType: record.rawWireType,
+      })),
+    ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
+  });
 
   it("fails a request that outlives its deadline with driver.timeout", async () => {
     const harness = createHarness();
@@ -452,33 +443,30 @@ describe("CodexAppServerConnection framing bounds", () => {
     return harness.diagnostics.map((diagnostic) => diagnostic.kind);
   }
 
-  it(
-    "fails in-flight callers with the typed " + "error, and kills and releases the process",
-    async () => {
-      const harness = createHarness();
-      await createdSession(harness);
-      // No `turn/start` handler is registered, so the request stays in flight and
-      // the typed error has a caller to reach.
-      const pending = harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
+  it("fails in-flight calls with the typed error, and kills and releases the process", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    // No `turn/start` handler is registered, so the request stays in flight and
+    // the typed error has a caller to reach.
+    const pending = harness.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
 
-      harness.server.emitRaw(overlongFramePrefix());
+    harness.server.emitRaw(overlongFramePrefix());
 
-      await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
-      // Still a transport death by `code`, so existing transport handling applies and no new
-      // error-contract row is needed.
-      await expect(pending).rejects.toBeInstanceOf(CodexTransportError);
-      await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
-      expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
-      // `PtyHost.close` promises resource release, not child termination, and the
-      // peer producing the unbounded line is exactly the one that keeps writing.
-      expect(harness.server.killedSessions).toEqual([
-        { sessionId: "pty-session-1", signal: "SIGKILL" },
-      ]);
-    },
-  );
+    await expect(pending).rejects.toBeInstanceOf(CodexLineTooLongError);
+    // Still a transport death by `code`, so existing transport handling applies and no new
+    // error-contract row is needed.
+    await expect(pending).rejects.toBeInstanceOf(CodexTransportError);
+    await expect(pending).rejects.toMatchObject({ code: "driver.unavailable" });
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+    // `PtyHost.close` promises resource release, not child termination, and the
+    // peer producing the unbounded line is exactly the one that keeps writing.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+  });
 
   it("tears down on an over-long line that TERMINATES inside the same chunk", async () => {
     const harness = createHarness();

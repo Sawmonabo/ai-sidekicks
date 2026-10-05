@@ -30,6 +30,7 @@ function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): Pro
     id: "019b79ee-0280-7ea1-8110-e5e0d1150802",
     sessionId: SYNTHETIC_SESSION_ID,
     sequence: 1,
+    cursor: "cursor-at-1",
     kind,
     occurredAt: "2026-01-01T14:20:01.000Z",
     // The fold requires the payload's session to agree with the envelope's; a case may still

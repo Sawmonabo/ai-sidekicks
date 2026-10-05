@@ -128,23 +128,20 @@ describe("Codex thread routing and usage metering", () => {
     ]);
   });
 
-  it(
-    "keeps a subagent's content off the " + "parent's transcript while metering its spend",
-    async () => {
-      const harness = await managerWithSession();
+  it("keeps a subagent's content off the parent transcript while metering its spend", async () => {
+    const harness = await managerWithSession();
 
-      announceChild(harness, "subAgent");
-      emitQueueChanged(harness, CHILD_THREAD_ID);
-      emitUsage(harness, CHILD_THREAD_ID, 40);
-      await Promise.resolve();
+    announceChild(harness, "subAgent");
+    emitQueueChanged(harness, CHILD_THREAD_ID);
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    await Promise.resolve();
 
-      expect(harness.notifications).toStrictEqual([]);
-      expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
-        "subagent.started",
-      ]);
-      expect(meteredInputs(harness)).toEqual([{ threadId: CHILD_THREAD_ID, input: 40 }]);
-    },
-  );
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+    expect(meteredInputs(harness)).toEqual([{ threadId: CHILD_THREAD_ID, input: 40 }]);
+  });
 
   it("keeps a re-announced child's usage base rather than re-basing it", async () => {
     const harness = await managerWithSession();
@@ -298,85 +295,76 @@ describe("Codex rewind rebind", () => {
     };
   }
 
-  it(
-    "moves routing and metering onto the forked " + "thread, based on the pre-fork thread's sum",
-    async () => {
-      const { harness, readerCalls } = await meteredSession();
-      harness.server.on("thread/fork", () => ({ result: forkAnswer(FORKED_THREAD_ID) }));
+  it("moves routing and metering to the forked thread, from the pre-fork sum", async () => {
+    const { harness, readerCalls } = await meteredSession();
+    harness.server.on("thread/fork", () => ({ result: forkAnswer(FORKED_THREAD_ID) }));
 
-      expect((await rewind(harness)).status).toBe("applied");
-      // Keyed on the forked thread the sum resolves to nothing and the session re-bills from zero.
-      expect(readerCalls).toStrictEqual([THREAD_ID]);
+    expect((await rewind(harness)).status).toBe("applied");
+    // Keyed on the forked thread the sum resolves to nothing and the session re-bills from zero.
+    expect(readerCalls).toStrictEqual([THREAD_ID]);
 
-      emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
-      emitUsage(harness, FORKED_THREAD_ID, 150);
-      emitQueueChanged(harness, FORKED_THREAD_ID);
-      await Promise.resolve();
-      expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
-      expect(heldFrameCount(harness)).toBe(0);
-      expect(meteredInputs(harness)).toStrictEqual([
-        { threadId: THREAD_ID, input: 100 },
-        { threadId: FORKED_THREAD_ID, input: 50 },
-      ]);
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    emitQueueChanged(harness, FORKED_THREAD_ID);
+    await Promise.resolve();
+    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
+    expect(heldFrameCount(harness)).toBe(0);
+    expect(meteredInputs(harness)).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
 
-      // A late frame from the abandoned thread waits instead of projecting into the rewound
-      // transcript.
-      const projectedBeforeStaleFrame = harness.notifications.length;
-      emitQueueChanged(harness, THREAD_ID);
-      await Promise.resolve();
-      expect(harness.notifications).toHaveLength(projectedBeforeStaleFrame);
-      expect(heldFrameCount(harness)).toBe(1);
-    },
-  );
+    // A late frame from the abandoned thread waits instead of projecting into the rewound
+    // transcript.
+    const projectedBeforeStaleFrame = harness.notifications.length;
+    emitQueueChanged(harness, THREAD_ID);
+    await Promise.resolve();
+    expect(harness.notifications).toHaveLength(projectedBeforeStaleFrame);
+    expect(heldFrameCount(harness)).toBe(1);
+  });
 
-  it(
-    "refuses a rewind the provider did not fork, " + "leaving the session metering on its thread",
-    async () => {
-      // Answered with the thread it was handed: not a fork, so the pre-rewind conversation is lost.
-      const { harness, readerCalls } = await meteredSession();
-      harness.server.on("thread/fork", () => ({ result: forkAnswer(THREAD_ID) }));
+  it("refuses a rewind the provider did not fork, and keeps metering on its thread", async () => {
+    // Answered with the thread it was handed: not a fork, so the pre-rewind conversation is lost.
+    const { harness, readerCalls } = await meteredSession();
+    harness.server.on("thread/fork", () => ({ result: forkAnswer(THREAD_ID) }));
 
-      expect(await rewind(harness)).toStrictEqual({
-        status: "degraded",
-        fallbackAction: "rewind-not-forked",
-      });
+    expect(await rewind(harness)).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-not-forked",
+    });
 
-      expect(readerCalls).toStrictEqual([]);
-      emitUsage(harness, THREAD_ID, 150);
-      await Promise.resolve();
-      expect(heldFrameCount(harness)).toBe(0);
-      expect(meteredInputs(harness)).toStrictEqual([
-        { threadId: THREAD_ID, input: 100 },
-        { threadId: THREAD_ID, input: 50 },
-      ]);
-    },
-  );
+    expect(readerCalls).toStrictEqual([]);
+    emitUsage(harness, THREAD_ID, 150);
+    await Promise.resolve();
+    expect(heldFrameCount(harness)).toBe(0);
+    expect(meteredInputs(harness)).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
 
-  it(
-    "refuses a fork answered with a thread the " + "session already meters, leaving both registers",
-    async () => {
-      // Adopting a live child would reset the registers carrying its spend.
-      const { harness, readerCalls } = await meteredSession();
-      announceChild(harness, "subAgent");
-      await drainMicrotasks();
-      harness.server.on("thread/fork", () => ({ result: forkAnswer(CHILD_THREAD_ID) }));
+  it("refuses a fork answered with an already-metered thread, leaving both registers", async () => {
+    // Adopting a live child would reset the registers carrying its spend.
+    const { harness, readerCalls } = await meteredSession();
+    announceChild(harness, "subAgent");
+    await drainMicrotasks();
+    harness.server.on("thread/fork", () => ({ result: forkAnswer(CHILD_THREAD_ID) }));
 
-      expect(await rewind(harness)).toStrictEqual({
-        status: "degraded",
-        fallbackAction: "rewind-target-thread-already-registered",
-      });
+    expect(await rewind(harness)).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-thread-already-registered",
+    });
 
-      expect(readerCalls).toStrictEqual([]);
-      emitUsage(harness, CHILD_THREAD_ID, 40);
-      emitUsage(harness, THREAD_ID, 150);
-      await drainMicrotasks();
-      expect(meteredInputs(harness)).toStrictEqual([
-        { threadId: THREAD_ID, input: 100 },
-        { threadId: CHILD_THREAD_ID, input: 40 },
-        { threadId: THREAD_ID, input: 50 },
-      ]);
-    },
-  );
+    expect(readerCalls).toStrictEqual([]);
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    emitUsage(harness, THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(meteredInputs(harness)).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: CHILD_THREAD_ID, input: 40 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
 
   it("refuses a turn dispatched while the fork is in flight", async () => {
     // Accepted, it would run on the pre-fork thread and every frame it produced would be shed,

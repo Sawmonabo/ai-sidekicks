@@ -23,8 +23,8 @@ const ChildRunProvenanceSchema: z.ZodType<ChildRunProvenance> = z.enum([
 
 /**
  * The limits admission resolved for a run: the request's own override, else the session's
- * default, each present only where the person set one. Kept on the creation row so replay
- * rebuilds the same limits even if the session's defaults change while the run is live.
+ * default, each present only where the person set one. Kept on the creation row so a
+ * rebuild restores the same limits even if the session's defaults change while the run is live.
  */
 export interface EffectiveRunConfig {
   tokenLimit?: number | undefined;

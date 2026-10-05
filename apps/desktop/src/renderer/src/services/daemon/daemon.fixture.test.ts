@@ -1,7 +1,7 @@
-// The fixture's streams answer as the daemon's do. The whole-session stream is replay-then-tail,
-// in frames within the contract's bound; the app's real subscriber names it, so every scenario
-// tier reads the session through it. A machine notice stream hands its subscriber the notice a
-// settled write pushes. Every case drives the real fixture bridge and engine.
+// The fixture's streams answer as the daemon's do. The whole-session stream is catch up, then
+// follow, in frames within the contract's bound; the app's real subscriber names it, so every
+// scenario tier reads the session through it. A machine notice stream hands its subscriber the
+// notice a settled write pushes. Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,7 +23,7 @@ const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
 
-describe("fixture bridge — the whole-session stream is replay-then-tail", () => {
+describe("fixture bridge — the whole-session stream is catch up, then follow", () => {
   /** Far enough in to have delivered part of the concurrent-streaming script and not all of it. */
   const MID_SCRIPT_MS = 100;
 
@@ -49,7 +49,7 @@ describe("fixture bridge — the whole-session stream is replay-then-tail", () =
 });
 
 describe("fixture bridge — the whole-session stream arrives in frames", () => {
-  /** One more beat than a frame carries, so a replay of them cannot fit in one. */
+  /** One more beat than a frame carries, so a catch-up of them cannot fit in one. */
   const LONG_LOG_BEAT_COUNT = STREAM_FRAME_MAX_CHANGES + 1;
 
   /** The concurrent-streaming session, playing a log of registered beats all at time zero. */
@@ -60,6 +60,7 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
         id: `019b79ee-0280-7ea1-8110-${String(index).padStart(12, "0")}`,
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
         sequence: index + 1,
+        cursor: `cursor-at-${String(index + 1)}`,
         kind: "run.starting",
         occurredAt: "2026-01-01T14:20:00.500Z",
       },
@@ -67,7 +68,7 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
     return { ...CONCURRENT_STREAMING_SCENARIO, id: "long-log-framing-probe", beats };
   }
 
-  it("replays a log longer than one frame as several frames the contract admits", () => {
+  it("catches up on a log longer than one frame as several frames the contract admits", () => {
     const fixture = createFixture(scenarioWithLongLog());
     fixture.engine.advance(1);
 
@@ -86,34 +87,31 @@ describe("fixture bridge — the whole-session stream arrives in frames", () => 
 });
 
 describe("fixture bridge — a machine notice stream carries what a write pushes", () => {
-  it(
-    "hands an `mcp.subscribe` subscriber the edit " + "notice a settled `mcp.setEnabled` pushes",
-    async () => {
-      const fixture = createFixture();
-      const notices: unknown[] = [];
-      fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
-        notices.push(notice);
-      });
+  it("hands an `mcp.subscribe` stream the notice a settled `mcp.setEnabled` pushes", async () => {
+    const fixture = createFixture();
+    const notices: unknown[] = [];
+    fixture.bridge.daemon.subscribe("mcp.subscribe", {}, (notice) => {
+      notices.push(notice);
+    });
 
-      const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
+    const settled = fixture.bridge.daemon.call("mcp.setEnabled", {
+      provider: "claude",
+      scope: "user",
+      serverName: "filesystem",
+      enabled: false,
+      clientIdempotencyKey: "019b79ee-0280-7ea1-8110-000000000001",
+    });
+    // The scripted write answers after its latency.
+    fixture.engine.advance(200);
+    await settled;
+
+    expect(notices).toStrictEqual([
+      {
         provider: "claude",
         scope: "user",
         serverName: "filesystem",
-        enabled: false,
-        clientIdempotencyKey: "019b79ee-0280-7ea1-8110-000000000001",
-      });
-      // The scripted write answers after its latency.
-      fixture.engine.advance(200);
-      await settled;
-
-      expect(notices).toStrictEqual([
-        {
-          provider: "claude",
-          scope: "user",
-          serverName: "filesystem",
-          type: "mcp.server_config_changed",
-        },
-      ]);
-    },
-  );
+        type: "mcp.server_config_changed",
+      },
+    ]);
+  });
 });

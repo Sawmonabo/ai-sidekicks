@@ -37,7 +37,7 @@ export interface TranscriptViewportBinding {
    *
    * Keyed because an index goes stale when a prune runs between the caller reading and acting on
    * it. Routed through the virtualizer's `scrollToIndex`, which the controller binds to the
-   * scroll chokepoint; the write is a find match's, the only jump the transcript makes.
+   * scroll chokepoint; the write is a find match's.
    */
   readonly jumpToRow: (rowKey: string) => void;
   /**
@@ -64,6 +64,11 @@ export interface TranscriptViewportBinding {
 export interface UseTranscriptViewportOptions extends ViewportConditions {
   /** The clock every timer in this frame is minted through; fixed for the mount. */
   readonly clock: Clock;
+  /**
+   * The row a link to a message lands on, or `undefined` for none. Landed once per key, on the
+   * first committed render that holds it, and the log takes focus there.
+   */
+  readonly landingRowKey?: string | undefined;
 }
 
 /**
@@ -76,7 +81,7 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
 export function useTranscriptViewport(
   options: UseTranscriptViewportOptions,
 ): TranscriptViewportBinding {
-  const { clock, rows, hasActiveTurn, isRevealDraining } = options;
+  const { clock, rows, hasActiveTurn, isRevealDraining, landingRowKey } = options;
   // The attached element, for the one act that needs the node. A ref because nothing renders
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -127,6 +132,15 @@ export function useTranscriptViewport(
     controller.bindVirtualizer(virtualizer);
   }, [controller, virtualizer]);
 
+  // A layout effect, so the landing's reading floor is set before the passive reconcile below
+  // prunes: an over-cap log would otherwise lose a row far back on the very pass that brings it.
+  useLayoutEffect(() => {
+    if (controller.isDisposed || landingRowKey === undefined) {
+      return;
+    }
+    controller.landOnRow(landingRowKey);
+  }, [controller, landingRowKey]);
+
   useEffect(() => {
     if (controller.isDisposed) {
       return;
@@ -150,7 +164,8 @@ export function useTranscriptViewport(
     controller.retryDeferredPrune();
   }, [controller, readingMode, pinnedRootCursor, lastPrune]);
 
-  // Performs the deferred position hold once the height it depends on is committed.
+  // Performs the deferred position hold, and a pending landing, once the height they depend on is
+  // committed.
   // `reconcile` runs in a passive effect, so the sizer still has the previous total size: a
   // glide to the tail would land on the old bottom and a head hold would read a stale offset.
   // A layout effect declared after `useVirtualizer` runs after the adapter's own height write
@@ -161,6 +176,10 @@ export function useTranscriptViewport(
       return;
     }
     controller.commitPendingPositionHold();
+    // Focus goes to the log the link landed in, so the keyboard reads on from the message.
+    if (controller.commitPendingLanding()) {
+      scrollContainerRef.current?.focus();
+    }
   });
 
   // A retained-state write is window state, not React state; the revision only re-renders the tree.

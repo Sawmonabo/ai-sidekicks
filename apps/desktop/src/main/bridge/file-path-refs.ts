@@ -35,4 +35,16 @@ export class FilePathRefs {
   public pathOf(owner: FilePathRefOwner, ref: FilePathRef): string | undefined {
     return this.#pathsByOwner.get(owner.id)?.get(ref);
   }
+
+  /**
+   * The path behind a token the page sent. Throws a `TypeError` for anything that is not a token
+   * this page holds, so a page can never name a path, or reach another page's file.
+   */
+  public requirePath(owner: FilePathRefOwner, ref: unknown): string {
+    const path = typeof ref === "string" ? this.pathOf(owner, ref as FilePathRef) : undefined;
+    if (path === undefined) {
+      throw new TypeError("That file reference is not one this window was given.");
+    }
+    return path;
+  }
 }

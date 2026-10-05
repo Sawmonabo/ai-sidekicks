@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../diff-measures.js";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
+import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { EXTENDED_HEADER_DIFF_SHAPE, SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
@@ -137,6 +138,7 @@ describe("diff file list — the filter belongs to the change set it filters", (
         selectedFilePath={undefined}
         onSelectFilePath={() => undefined}
       />,
+      { wrapper: liveBridgeWrapper() },
     );
     filterTo(container, fixtureFileAt(EXTENDED_HEADER_DIFF, 0).path);
     expect(filterInputText(container)).not.toBe("");

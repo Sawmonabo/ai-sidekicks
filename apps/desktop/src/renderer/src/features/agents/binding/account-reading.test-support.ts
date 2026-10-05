@@ -64,8 +64,6 @@ export function resolvedTo(accountId: string): ProviderReadiness {
     remedy: {
       kind: "sign_in",
       accountId: registryAccountId(accountId),
-      signInInvocation: "claude login",
-      credentialHomePath: `/homes/${accountId}`,
     },
   };
 }

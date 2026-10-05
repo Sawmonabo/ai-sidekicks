@@ -15,6 +15,7 @@ import type {
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
+  ClaudeFastModeDeclaration,
   ClaudeInboundFrameObservation,
   ClaudeResumedSessionAttachment,
   ClaudeRunDispatch,
@@ -218,10 +219,16 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   establishmentGate: Promise<void> | undefined = undefined;
   // Applied to every channel this transport mints.
   onTurnTerminalFailure: Error | undefined = undefined;
+  controlResponse: ClaudeControlResponse = { subtype: "success" };
   // When set, the spawned or resumed process announces this id instead of the pinned or requested
   // one, as the Claude CLI does when it starts a fresh session on a mismatch.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
+  // What every attached process's `initialize` reply reports; none by default.
+  initializeFastMode: ClaudeFastModeDeclaration = {
+    fastModeState: null,
+    fastModeDisabledReason: null,
+  };
   // Rewind defaults to the happy path: the fork announces a new provider session id, which the
   // driver's fork check requires.
   readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
@@ -260,8 +267,9 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     const announced = this.announcedProviderSessionId ?? request.providerSessionId;
     const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
+    channel.controlResponse = this.controlResponse;
     this.spawnedChannels.push(channel);
-    return { providerSessionId: announced, channel };
+    return { providerSessionId: announced, channel, initializeFastMode: this.initializeFastMode };
   }
 
   async resumeSession(
@@ -277,10 +285,12 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     const announced = this.announcedProviderSessionId ?? request.resumeHandle;
     const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
+    channel.controlResponse = this.controlResponse;
     this.spawnedChannels.push(channel);
     return {
       providerSessionId: announced,
       channel,
+      initializeFastMode: this.initializeFastMode,
       sessionPosition: this.resumedSessionPosition,
     };
   }
@@ -299,10 +309,12 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       this.announcedForkedProviderSessionId ?? `forked-${String(this.rewindRequests.length)}`;
     const channel = new FakeClaudeProviderProcess(announced);
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
+    channel.controlResponse = this.controlResponse;
     this.spawnedChannels.push(channel);
     return {
       providerSessionId: announced,
       channel,
+      initializeFastMode: this.initializeFastMode,
       sessionPosition: request.targetPosition,
     };
   }

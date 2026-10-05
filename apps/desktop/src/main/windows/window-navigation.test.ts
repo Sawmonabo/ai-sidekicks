@@ -13,6 +13,8 @@ import {
   DEV_SERVER_URL,
   INDEX_URL,
   navigationListenerOf,
+  loggedMessages,
+  testWindowFrame,
   windowOpenHandlerOf,
 } from "@test/helpers/window-test-harness.js";
 
@@ -43,11 +45,11 @@ describe("the navigation policy", () => {
 
   describe.each(NAVIGATION_SEAMS)("on %s", (seam) => {
     it("stops a remote origin and opens it externally instead", async () => {
-      const { createMainWindow } = await loadWindowModule();
-      const browserWindow = createMainWindow();
+      const { openRendererWindow } = await loadWindowModule();
+      const rendererWindow = openRendererWindow({ ...testWindowFrame(), additionalArguments: [] });
       const preventDefault = vi.fn();
 
-      navigationListenerOf(browserWindow, seam)({ preventDefault }, "https://example.test/docs");
+      navigationListenerOf(rendererWindow, seam)({ preventDefault }, "https://example.test/docs");
       await vi.waitFor(() => {
         expect(electronMock.externalOpens).toEqual(["https://example.test/docs"]);
       });
@@ -56,26 +58,31 @@ describe("the navigation policy", () => {
     });
 
     it("stops a scheme outside the allowlist and opens nothing", async () => {
-      const { createMainWindow } = await loadWindowModule();
-      const browserWindow = createMainWindow();
-      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { openRendererWindow } = await loadWindowModule();
+      const frame = testWindowFrame();
+      const rendererWindow = openRendererWindow({ ...frame, additionalArguments: [] });
       const preventDefault = vi.fn();
 
-      navigationListenerOf(browserWindow, seam)({ preventDefault }, "file:///etc/passwd");
+      navigationListenerOf(rendererWindow, seam)({ preventDefault }, "file:///etc/passwd");
 
       expect(preventDefault).toHaveBeenCalledTimes(1);
       expect(electronMock.externalOpens).toEqual([]);
-      expect(consoleWarn).toHaveBeenCalledTimes(1);
+      expect(loggedMessages(frame.log)).toEqual([
+        expect.stringContaining("outside every allowed scheme"),
+      ]);
     });
 
     it("refuses the dev-server origin in a packaged build", async () => {
       electronMock.setPackaged(true);
       process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
-      const { createMainWindow } = await loadWindowModule();
-      const browserWindow = createMainWindow();
+      const { openRendererWindow } = await loadWindowModule();
+      const rendererWindow = openRendererWindow({ ...testWindowFrame(), additionalArguments: [] });
       const preventDefault = vi.fn();
 
-      navigationListenerOf(browserWindow, seam)({ preventDefault }, `${DEV_SERVER_URL}/index.html`);
+      navigationListenerOf(rendererWindow, seam)(
+        { preventDefault },
+        `${DEV_SERVER_URL}/index.html`,
+      );
 
       // Stopped, and handed to the browser rather than rendered: `http:` is an allowlisted
       // external scheme and a packaged build has no dev origin. Awaited because the open is
@@ -87,14 +94,16 @@ describe("the navigation policy", () => {
     });
   });
 
-  it("denies every popup, same origin included", async () => {
-    const { createMainWindow } = await loadWindowModule();
-    const browserWindow = createMainWindow();
+  it("denies a popup under a name main builds no window for, same origin included", async () => {
+    const { openRendererWindow } = await loadWindowModule();
+    const rendererWindow = openRendererWindow({ ...testWindowFrame(), additionalArguments: [] });
 
-    expect(windowOpenHandlerOf(browserWindow)({ url: INDEX_URL })).toEqual({ action: "deny" });
-    expect(windowOpenHandlerOf(browserWindow)({ url: "https://example.test/docs" })).toEqual({
+    expect(windowOpenHandlerOf(rendererWindow)({ url: INDEX_URL, frameName: "" })).toEqual({
       action: "deny",
     });
+    expect(
+      windowOpenHandlerOf(rendererWindow)({ url: "https://example.test/docs", frameName: "" }),
+    ).toEqual({ action: "deny" });
     expect(electronMock.externalOpens).toEqual([]);
     await vi.waitFor(() => {
       expect(electronMock.externalOpens).toEqual(["https://example.test/docs"]);

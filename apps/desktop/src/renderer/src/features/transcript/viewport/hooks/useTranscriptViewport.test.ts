@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../viewport-constants.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { TRANSCRIPT_TAIL_TOLERANCE_PX } from "../viewport-constants.js";
+import { SCROLL_TAIL_TOLERANCE_PX } from "@renderer/lib/scroll/scroll-geometry-publisher.js";
 import { useTranscriptViewport, type TranscriptViewportBinding } from "./useTranscriptViewport.js";
 import { ViewportController } from "../viewport-controller.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
@@ -29,7 +29,7 @@ const TAIL_OFFSET_PX = LAID_OUT_CONTENT_HEIGHT_PX - LAID_OUT_VIEWPORT_HEIGHT_PX;
  * Inside the tail tolerance, so the reader counts as at the tail, yet far enough that a glide
  * to the exact tail moves the offset and publishes a sample subscribers are woken for.
  */
-const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
+const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - SCROLL_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
 const OVER_CAP_ROW_COUNT = TRANSCRIPT_WINDOW_ROW_CAP + 40;
 

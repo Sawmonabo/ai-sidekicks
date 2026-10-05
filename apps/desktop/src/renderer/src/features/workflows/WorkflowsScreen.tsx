@@ -1,80 +1,88 @@
-// The rail's workflows screen: the runs its mount supplies, or the pane a person opened from them.
-// `#/workflows` names no session, so there is no pane layout: an opened pane replaces the runs,
-// resolved through the pane board on the screen context. The open address is held against the
-// bridge, so a swap drops it instead of opening a pane on a run the new bridge never heard of.
+// The rail's workflows screen. `#/workflows` names the Workflows tab, which is not built, so it
+// draws the tab row alone: an unbuilt surface is absent, never stood in for. `#/workflows/runs`
+// draws the Runs tab — the list of runs, or one run's page at `#/workflows/runs/<runId>` — under
+// the tab's own strip, which stays drawn on both. An address naming a run the daemon does not
+// have opens the list with one line saying so.
 
 import "./WorkflowsScreen.css";
 
-import { useCallback } from "react";
-
-import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
-import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { OpenPaneBody } from "./components/OpenPaneBody.js";
-import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
-import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
-import { WorkflowRuns } from "./runs/WorkflowRuns.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
+import { RunsStrip } from "./components/RunsStrip.js";
+import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
+import { RunPage } from "./run-page/RunPage.js";
+import { RunsTab } from "./runs/RunsTab.js";
 
-/** What the workflows screen is handed when it mounts. */
-export interface WorkflowsScreenProps {
-  /** The whole screen context, because a pane context is composed from it. */
-  readonly context: ScreenContext;
-  /** Where the run enumeration stands; when `undefined`, the runs section is not drawn. */
-  readonly directory?: WorkflowRunDirectoryState;
-}
-
-/** The workflows screen: the runs it is handed, or the pane a person opened from them. */
-export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element {
-  const { context, directory } = props;
-  // The board this composition registered into, not the process-wide singleton, which would
-  // warm production's board from a window handed its own.
-  const { paneRegistry } = context;
-  // Addressed by the bridge and by nothing else: opening a pane is answering one daemon.
-  const { value: openAddress, publish: setOpenAddress } = useSubjectScopedState<
-    PaneAddress | undefined
-  >(context.bridge, undefined, () => undefined);
-  const openPane = useCallback(
-    (address: PaneAddress) => {
-      // Warm before publishing the address: publishing mounts the pane, and a loader-backed body
-      // reached at that mount would show its fallback first. A rejected preload is not caught.
-      void paneRegistry.preload(address.kind);
-      setOpenAddress(address);
-    },
-    [paneRegistry, setOpenAddress],
-  );
-  // Keyed on the opener alone: a fresh identity each pass would defeat the rows' memoization.
-  const openRun = useCallback(
-    (row: WorkflowRunListRow) => {
-      openPane({
-        kind: "workflow-run",
-        entity: { kind: "workflow-run", id: row.run.workflowRunId },
-      });
-    },
-    [openPane],
-  );
-  const closePane = useCallback(() => {
-    setOpenAddress(undefined);
-  }, [setOpenAddress]);
-
-  if (openAddress === undefined) {
-    return (
-      <div className="meridian-workflows-destination">
-        {directory === undefined ? null : (
-          <WorkflowRuns directory={directory} onOpenRun={openRun} />
-        )}
-      </div>
-    );
-  }
+/** The workflows screen at the committed route. */
+export function WorkflowsScreen(props: { readonly context: ScreenContext }): React.JSX.Element {
+  const screen = useWorkflowsScreen(props.context);
+  const { listState, openRunId } = screen;
+  const { route } = props.context;
+  const isOnRunsTab = route.kind === "workflows" && route.tab === "runs";
   return (
-    <div className="meridian-workflows-open-pane">
-      <button
-        type="button"
-        className="meridian-workflow__action meridian-workflows-open-pane__back"
-        onClick={closePane}
-      >
-        Back to workflows
-      </button>
-      <OpenPaneBody address={openAddress} context={context} />
+    <div className="meridian-workflows-destination">
+      <nav className="meridian-workflows-tabs" aria-label="Workflows">
+        <a
+          className="meridian-workflows-tabs__tab"
+          href="#/workflows/runs"
+          aria-current={isOnRunsTab ? "page" : undefined}
+        >
+          Runs
+          {listState.kind === "loaded" ? (
+            <span className="meridian-workflows-tabs__count">
+              {formatCount(listState.value.response.totalCount)}
+            </span>
+          ) : null}
+        </a>
+      </nav>
+      {isOnRunsTab ? (
+        <>
+          <RunsStrip
+            nextWaiting={screen.nextWaiting}
+            readAttentionAgain={screen.readAttentionAgain}
+            isRunPageOpen={openRunId !== undefined}
+            onOpenRun={screen.openRun}
+            feedState={screen.feedState}
+            pauseAct={screen.pauseAct}
+            onSetPaused={screen.setPaused}
+          />
+          {openRunId === undefined ? (
+            <RunsTab
+              listAsk={screen.listAsk}
+              listState={listState}
+              readListAgain={screen.readListAgain}
+              onLoadEarlier={screen.loadEarlierRuns}
+              attentionState={screen.attentionState}
+              readAttentionAgain={screen.readAttentionAgain}
+              definitions={screen.definitions}
+              namingRefusal={screen.namingRefusal}
+              filters={screen.filters}
+              accountLabel={screen.accountLabel}
+              bridge={screen.sources.bridge}
+              onOpenRun={screen.openRun}
+              answeredCount={screen.answeredCount}
+              isRunMissing={screen.isRunMissing}
+              isLive={screen.feedState.kind === "open"}
+            />
+          ) : (
+            <RunPage
+              key={openRunId}
+              sources={screen.sources}
+              workflowRunId={openRunId}
+              definitionNameFor={screen.definitionNameFor}
+              accountLabel={screen.accountLabel}
+              onOpenRun={screen.openRun}
+              onBackToList={screen.backToList}
+              onOpenSession={screen.openSession}
+              onOpenMessage={screen.openMessage}
+              onOpenWorkflow={screen.openWorkflow}
+              onOpenReview={screen.openReview}
+              onRunMissing={screen.onRunMissing}
+              onAnswered={screen.onAnswered}
+            />
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

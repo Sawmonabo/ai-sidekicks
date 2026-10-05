@@ -5,6 +5,7 @@
 import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { RowWindow } from "@renderer/hooks/useRowWindow.js";
 import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "@renderer/lib/chord-format.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
@@ -31,7 +32,6 @@ import {
   type PaletteInvocationRefusal,
   type PaletteRowPressOutcome,
 } from "../palette-latch.js";
-import type { PaletteRowWindow } from "./usePaletteRowWindow.js";
 
 /** What the mount hands the palette overlay: the registry, the live context, and the acts. */
 export interface CommandPaletteProps {
@@ -63,7 +63,7 @@ export interface CommandPaletteState {
   readonly setQuery: (query: string) => void;
   readonly groups: readonly CommandResultGroup[];
   readonly rows: readonly PaletteListRow[];
-  readonly rowWindowRef: React.RefObject<PaletteRowWindow | null>;
+  readonly rowWindowRef: React.RefObject<RowWindow | null>;
   readonly results: readonly CommandSearchResult[];
   readonly capturedScopeLabel: string | undefined;
   readonly capturedContext: WhenClauseContext;
@@ -86,7 +86,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     undefined,
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const rowWindowRef = useRef<PaletteRowWindow | null>(null);
+  const rowWindowRef = useRef<RowWindow | null>(null);
 
   // The label and context, latched at the open transition. Adjusted during render, not in an
   // effect, so the first frame of an open palette never shows the last open's scope. Both are
@@ -167,7 +167,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
       }
       // After the commit: a query highlight arrives before the window has taken the new rows.
       queueMicrotask(() => {
-        rowWindowRef.current?.scrollToIndex(rowIndex, { align: "auto" });
+        rowWindowRef.current?.revealRow(rowIndex);
       });
     },
     [rowIndexByItemIndex],

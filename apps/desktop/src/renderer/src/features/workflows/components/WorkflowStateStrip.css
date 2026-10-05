@@ -1,7 +1,6 @@
 /*
- * The workflows feature's shared chrome: the state strip's column, the mount point frame, and the
- * one action treatment the screen's back control and the run graph's retry control wear. Every
- * chunk root of the feature imports this file, and it imports nothing. Nothing animates.
+ * The workflows feature's shared chrome: the state strip's column and the mount point frame.
+ * Every chunk root of the feature imports this file, and it imports nothing. Nothing animates.
  */
 
 /*
@@ -33,15 +32,4 @@
   padding: var(--meridian-space-4);
   border: 1px dashed var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
-}
-
-.meridian-workflow__action {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-accent-text);
-  cursor: pointer;
-  background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
 }

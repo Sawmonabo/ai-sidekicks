@@ -13,9 +13,10 @@ export type PlatformBridgeSource = "live" | "fixture";
 /** The bridge a window holds: the host's capabilities and the signals every host answers. */
 export interface PlatformBridge extends PreloadApi {
   /**
-   * The window's one transport-reconnect signal. Not a host capability, since the preload exposes
-   * no connection state. Both halves are published because observers report into it from above
-   * and below this seam; readings take the subscribe-only `TransportReconnectObservable` view.
+   * The window's one transport-reconnect signal. Not a host capability: the renderer derives it
+   * from main's `daemon.status` topic and its own opens. Both halves are published because
+   * observers report into it from above and below this seam; readings take the subscribe-only
+   * `TransportReconnectObservable` view.
    */
   readonly transportReconnect: TransportReconnectSignal;
   readonly source: PlatformBridgeSource;

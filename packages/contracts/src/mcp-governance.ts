@@ -3,8 +3,8 @@
 import { z } from "zod";
 
 import {
+  McpBindingScopeSchema,
   McpClearToolOverrideRequestSchema,
-  McpConfigScopeSchema,
   McpGetResponseSchema,
   McpKeyedBindingRequestSchema,
   McpListRequestSchema,
@@ -16,6 +16,7 @@ import {
   McpReconnectResponseSchema,
   McpRegistrySearchRequestSchema,
   McpRegistrySearchResponseSchema,
+  McpRemoveServerRequestSchema,
   McpRemoveServerResultSchema,
   McpServerBindingRefSchema,
   McpServerNameSchema,
@@ -24,8 +25,8 @@ import {
   McpSetToolOverrideRequestSchema,
   McpToolOverrideMutationResultSchema,
   McpUpsertServerRequestSchema,
+  type McpBindingScope,
   type McpClearToolOverrideRequest,
-  type McpConfigScope,
   type McpGetResponse,
   type McpKeyedBindingRequest,
   type McpListRequest,
@@ -37,6 +38,7 @@ import {
   type McpReconnectResponse,
   type McpRegistrySearchRequest,
   type McpRegistrySearchResponse,
+  type McpRemoveServerRequest,
   type McpRemoveServerResult,
   type McpServerBindingRef,
   type McpSetEnabledRequest,
@@ -62,7 +64,7 @@ import { SessionIdSchema, type SessionId } from "./session.js";
  */
 export interface McpServerBindingAuditRef {
   provider: ProviderName;
-  scope: McpConfigScope;
+  scope: McpBindingScope;
   serverName: string;
 }
 
@@ -71,7 +73,7 @@ const auditAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
   z
     .object({
       provider: ProviderNameSchema,
-      scope: McpConfigScopeSchema,
+      scope: McpBindingScopeSchema,
       serverName: McpServerNameSchema,
       ...extra,
     })
@@ -194,7 +196,7 @@ export interface McpMethodDescriptors {
   >;
   readonly "mcp.removeServer": MethodDescriptor<
     "mcp.removeServer",
-    McpKeyedBindingRequest,
+    McpRemoveServerRequest,
     McpRemoveServerResult
   >;
   readonly "mcp.setEnabled": MethodDescriptor<
@@ -263,7 +265,7 @@ export const MCP_METHOD_DESCRIPTORS: McpMethodDescriptors = defineMethodDescript
     method: "mcp.removeServer",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: McpKeyedBindingRequestSchema,
+    requestSchema: McpRemoveServerRequestSchema,
     responseSchema: McpRemoveServerResultSchema,
   },
   "mcp.setEnabled": {

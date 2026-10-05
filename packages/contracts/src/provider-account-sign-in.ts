@@ -158,6 +158,13 @@ export const ProviderAccountCredentialSealRefusedDetailsSchema: z.ZodType<Provid
   z.object({ cause: KeychainRefusalCauseSchema }).strict();
 
 /**
+ * The registration-time status invocation, run on a pasted token, reported no signed-in mode, so
+ * the provider did not accept the token: nothing is registered, sealed or replaced.
+ */
+export const PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE =
+  "provideraccount.token_not_accepted" as const;
+
+/**
  * The name given to a token or API-key account repeats one of that provider's
  * other account names, compared without case or surrounding spaces. `Rename`
  * refuses on the same code.

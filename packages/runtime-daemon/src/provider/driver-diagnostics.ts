@@ -92,6 +92,9 @@ export type DriverDiagnosticKind =
   // A declared output-speed state broke the bounds, so the binding reads as unobserved until the
   // provider declares another. Details carry the field and lengths, never untrusted values.
   | "output_speed_state_rejected"
+  // The provider refused the output-speed level the driver applied, so the process runs on the
+  // level it held; the run's declared state reports which.
+  | "output_speed_apply_refused"
   // A choice set over the cardinality cap or with no readable admissible option. The ask still
   // reaches the user as free text; only the choice set is lost.
   | "interactive_request_option_set_dropped"
@@ -151,6 +154,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
     provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
     output_speed_state_rejected: "driver.output_speed.state_rejected",
+    output_speed_apply_refused: "driver.output_speed.apply_refused",
     interactive_request_option_set_dropped: "driver.interactive_request.option_set_dropped",
     mcp_task_handle_write_refused: "driver.mcp_task_handle.write_refused",
     mcp_task_handle_write_failed: "driver.mcp_task_handle.write_failed",

@@ -28,20 +28,14 @@ const LOADING_GRAPH_MODULE: RunGraphModuleState = { status: "loading" };
  * Fetch the renderer's chunk and say where it got to.
  *
  * `import()` is a side effect, so it runs in an effect, and each run's own `isMounted` flag
- * drops a late settlement after unmount or retry. `isNeeded` false starts nothing. `retry`
- * bumps the attempt counter, so the loader (which drops its memo on rejection) is asked again.
+ * drops a late settlement after unmount or retry. `retry` bumps the attempt counter, so the
+ * loader (which drops its memo on rejection) is asked again.
  */
-export function useRunGraphModule(
-  loader: MemoizedLoad<RunGraphModule>,
-  isNeeded: boolean,
-): RunGraphModuleFetch {
+export function useRunGraphModule(loader: MemoizedLoad<RunGraphModule>): RunGraphModuleFetch {
   const [graphModule, setGraphModule] = useState<RunGraphModuleState>(LOADING_GRAPH_MODULE);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!isNeeded) {
-      return undefined;
-    }
     let isMounted = true;
     loader.load().then(
       (loaded) => {
@@ -63,7 +57,7 @@ export function useRunGraphModule(
     return () => {
       isMounted = false;
     };
-  }, [loader, isNeeded, attempt]);
+  }, [loader, attempt]);
 
   const retry = useCallback(() => {
     setGraphModule(LOADING_GRAPH_MODULE);

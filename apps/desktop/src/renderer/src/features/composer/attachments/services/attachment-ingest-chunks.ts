@@ -1,7 +1,7 @@
 // The chunk loop: one bounded slice of the user's `Blob` at a time, from the offset the daemon
 // last acknowledged. The offset is the daemon's: the record advances to the reply's spooled
 // decoded total, never by the slice sent. Each chunk carries the slice's base64, at most
-// `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A replayed chunk (same
+// `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A resent chunk (same
 // sequence number, same bytes) is acknowledged without re-appending, so retry resumes.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts/artifacts/ingest";
@@ -44,7 +44,7 @@ export class AttachmentChunkStream {
    *
    * A resumed stream re-sends the slice that was in flight when a response was lost. The
    * sequence number is the offset divided by the cap, since every chunk but the last is exactly
-   * one cap wide, so a replay recomputes the number the daemon's idempotent acknowledgement
+   * one cap wide, so a resend recomputes the number the daemon's idempotent acknowledgement
    * matches on. An acknowledgement for another stream, without a total, or that fails to
    * advance is a refusal: a total that stood still would re-slice from the same offset forever.
    */

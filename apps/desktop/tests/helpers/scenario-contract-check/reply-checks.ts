@@ -9,12 +9,14 @@
 // daemon holds it to the same schema when it settles.
 //
 // The call claim catches an invented wire. A reply is keyed on a method string, which is as easy
-// to make up as to transcribe: a scenario answering `workflow.runList` renders a view that looks
+// to make up as to transcribe: a scenario answering `workflow.runsList` renders a view that looks
 // served, and every tier that mounts it passes against a call the daemon does not have. The
 // registry is the daemon call set the app binds, so nothing here is a second list.
 
-import { REGISTERED_DAEMON_METHODS } from "@renderer/services/daemon/daemon-method-contract.js";
-import { daemonMethodBindingFor } from "@renderer/services/daemon/daemon-reply-registry.js";
+import {
+  daemonMethodBindingFor,
+  REGISTERED_DAEMON_METHODS,
+} from "@shared/daemon-method-bindings.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "@fixtures/scenario.js";

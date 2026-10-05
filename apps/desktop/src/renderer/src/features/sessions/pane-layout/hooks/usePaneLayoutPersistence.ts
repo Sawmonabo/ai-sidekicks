@@ -36,6 +36,8 @@ export interface PaneLayoutPersistenceOptions {
   readonly onSaveRefused: (refusal: Refusal, sessionId: string) => void;
   /** A restore left part of a saved arrangement closed: one refusal, and its session. */
   readonly onRestoreRefused: (refusal: Refusal, sessionId: string) => void;
+  /** The saved arrangement has landed for this session, so a pane may now be opened over it. */
+  readonly onRestored?: (sessionId: string) => void;
 }
 
 /**
@@ -50,6 +52,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
   // Read when a restore lands, so a caller's fresh function does not re-run the restore effect,
   // whose cleanup would abandon a read in flight.
   const restoreRefusedRef = useLatestRef(options.onRestoreRefused);
+  const restoredRef = useLatestRef(options.onRestored);
 
   // The session (partition) rides each write request: the writer coalesces, so a queued
   // arrangement settles after the navigation that could change the current session.
@@ -157,6 +160,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
 
       // Opened only now, so no save fired during the commits above.
       restore.settle();
+      restoredRef.current?.(sessionId);
       if (readOutcome.outcome === "failed") {
         // Nothing is filed over a record this read could not reach: the layout on screen is the
         // fallback, not an arrangement the person asked to save. The subscription below still
@@ -173,7 +177,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       // Abandoned before it landed: this pass adopted nothing, so the gate goes back.
       restore.abandon();
     };
-  }, [layout, restore, restoreRefusedRef, sessionId, uiStateStore, writer]);
+  }, [layout, restore, restoreRefusedRef, restoredRef, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {

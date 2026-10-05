@@ -1,171 +1,379 @@
-// The `BrowserWindow` stand-in the one `electron` mock hands to production code: what a test can
-// read off one window, and what it does when the code under test loads a URL, focuses it, or
-// destroys it. `electron-mock.ts` owns the rest of the `electron` module.
+// The window stand-ins the one `electron` mock hands to production code: `BaseWindow`, the
+// `WebContentsView` it hosts, and the view's `webContents`. Each records what a test reads (URLs
+// loaded, pushes sent, listeners registered) and does what the code under test relies on: a close
+// fires `close` then `closed`, a destroyed `webContents` fires `destroyed`. `electron-mock.ts` owns
+// the rest of the `electron` module.
 
 import { vi } from "vitest";
 
-/** The `BrowserWindow` constructor options the window factory supplies. */
-export interface MockBrowserWindowOptions {
+/** A rectangle as Electron's window and screen calls take and answer it. */
+export interface MockRectangle {
+  readonly x: number;
+  readonly y: number;
   readonly width: number;
   readonly height: number;
-  readonly show: boolean;
-  readonly webPreferences: Record<string, unknown>;
 }
 
-/** The `webContents` members the main process actually touches. */
+/** The `BaseWindow` constructor options the window factory supplies. */
+export interface MockBaseWindowOptions extends MockRectangle {
+  readonly show: boolean;
+  readonly titleBarStyle?: string;
+  readonly backgroundColor?: string;
+}
+
+/** The `WebContentsView` constructor options the window factory supplies. */
+export interface MockWebContentsViewOptions {
+  readonly webPreferences: Record<string, unknown>;
+  readonly webContents?: MockWebContents;
+}
+
+/** What a window-open handler is handed. */
+export interface MockWindowOpenDetails {
+  readonly url: string;
+  readonly frameName: string;
+}
+
+/** The `webContents` members the main process touches. */
 export interface MockWebContents {
   readonly id: number;
   /**
-   * Every listener registered through `on` / `once`, by event name.
-   *
-   * Lets a test invoke the listener production code registered (`render-process-gone`,
-   * `will-navigate`) instead of re-deriving what it would have done.
+   * Every listener registered through `on` / `once`, by event name; the last one registered wins.
+   * Lets a test invoke the listener production code registered instead of re-deriving it.
    */
   readonly handlers: Map<string, (...args: never[]) => unknown>;
   readonly on: ReturnType<typeof vi.fn>;
   readonly once: ReturnType<typeof vi.fn>;
   readonly setWindowOpenHandler: ReturnType<typeof vi.fn>;
+  readonly setBackgroundThrottling: ReturnType<typeof vi.fn>;
   readonly executeJavaScript: ReturnType<typeof vi.fn>;
-  /** Mark this `WebContents` destroyed, the way a closed window's is. */
-  destroy(): void;
-  isDestroyed(): boolean;
+  /** Every URL `loadURL` was called with, in order. */
+  readonly loadedUrls: readonly string[];
+  /** Every `send(channel, value)` main made to this document, in order. */
+  readonly sent: readonly { readonly channel: string; readonly value: unknown }[];
   /** The handler passed to `setWindowOpenHandler`, or `undefined` if none was. */
-  windowOpenHandler: ((details: { url: string }) => unknown) | undefined;
+  windowOpenHandler: ((details: MockWindowOpenDetails) => unknown) | undefined;
+  loadURL(url: string): Promise<void>;
+  send(channel: string, value: unknown): void;
+  /** Fire one registered listener with `args`, as Electron would emit the event. */
+  emit(eventName: string, ...args: unknown[]): void;
+  /** Destroys this document and fires `destroyed`, as a page's own `window.close()` does. */
+  close(): void;
+  isDestroyed(): boolean;
+}
+
+/** One constructed view. */
+export interface MockWebContentsView {
+  readonly options: MockWebContentsViewOptions;
+  readonly webContents: MockWebContents;
+  readonly bounds: MockRectangle | undefined;
+  readonly backgroundColor: string | undefined;
+  setBounds(bounds: MockRectangle): void;
+  setBackgroundColor(color: string): void;
 }
 
 /** One constructed window. */
-export interface MockBrowserWindow {
+export interface MockBaseWindow {
   readonly id: number;
-  readonly options: MockBrowserWindowOptions;
-  readonly webContents: MockWebContents;
-  /** Every URL `loadURL` was called with, in order. */
-  readonly loadedUrls: readonly string[];
-  /** How many times this window was brought forward. */
+  readonly options: MockBaseWindowOptions;
+  readonly contentView: {
+    readonly children: readonly MockWebContentsView[];
+    addChildView(view: MockWebContentsView): void;
+  };
+  readonly title: string;
+  readonly backgroundColor: string | undefined;
+  readonly minimumSize: readonly [number, number] | undefined;
+  /** How many times this window was shown, actively or not. */
+  readonly showCount: number;
+  /** How many times this window was focused. */
   readonly focusCount: number;
-  /**
-   * How many times this window was asked to close.
-   *
-   * Counted apart from `isDestroyed` because Electron's `close` runs the window's teardown and
-   * fires `closed`, and this mock does neither, so a case can assert what a close did before
-   * deciding what the ending reports.
-   */
-  readonly closeCount: number;
-  isDestroyed(): boolean;
-  destroy(): void;
+  on(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow;
+  once(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow;
+  /** Fire every listener registered for `eventName`, as Electron would emit the event. */
+  emit(eventName: string): void;
   show(): void;
+  showInactive(): void;
   focus(): void;
+  restore(): void;
+  maximize(): void;
+  setFullScreen(isFullScreen: boolean): void;
+  isMaximized(): boolean;
+  isFullScreen(): boolean;
+  isMinimized(): boolean;
+  setTitle(title: string): void;
+  setBackgroundColor(color: string): void;
+  setMinimumSize(width: number, height: number): void;
+  setBounds(bounds: MockRectangle): void;
+  getContentBounds(): MockRectangle;
+  getNormalBounds(): MockRectangle;
+  /** Fires `close`, then `closed`, and leaves the window destroyed. */
   close(): void;
-  once(eventName: string, handler: () => void): MockBrowserWindow;
-  on(eventName: string, handler: () => void): MockBrowserWindow;
-  loadURL(url: string): Promise<void>;
+  /** Fires `closed` without `close`, as Electron's `destroy` does. */
+  destroy(): void;
+  isDestroyed(): boolean;
 }
 
 /**
- * What a window needs from the mock that owns it.
- *
- * A narrow view rather than the mock's own type, so a window cannot reach the menu log or the
- * `ipcMain` registry.
+ * What a window, view or document needs from the mock that owns it. A narrow view rather than the
+ * mock's own type, so a window cannot reach the menu log or the `ipcMain` registry.
  */
 export interface MockWindowOwner {
   record(operation: string): void;
-  recordConstruction(browserWindow: MockBrowserWindow): void;
-  mintWindowId(): number;
+  recordConstruction(baseWindow: MockBaseWindow): void;
+  recordView(view: MockWebContentsView): void;
+  forgetWindow(baseWindow: MockBaseWindow): void;
+  mintId(): number;
   loadFailureFor(url: string): Error | undefined;
 }
 
-/**
- * One mocked window.
- *
- * A class because it owns state (destroyed flag, load log, listener maps) and the `electron`
- * mock hands it to production code as a constructor.
- */
-export class MockBrowserWindowImpl implements MockBrowserWindow {
-  public readonly id: number;
+/** Builds one mocked `webContents`, for a view or for a `window.open` child a test hands main. */
+export function createMockWebContents(owner: MockWindowOwner): MockWebContents {
+  const handlers = new Map<string, (...args: never[]) => unknown>();
+  const loadedUrls: string[] = [];
+  const sent: { channel: string; value: unknown }[] = [];
+  let isDestroyed = false;
+  const register =
+    (verb: string) =>
+    (eventName: string, handler: (...args: never[]) => unknown): void => {
+      handlers.set(eventName, handler);
+      owner.record(`webContents.${verb}:${eventName}`);
+    };
+  const webContents: MockWebContents = {
+    id: owner.mintId(),
+    handlers,
+    loadedUrls,
+    sent,
+    windowOpenHandler: undefined,
+    on: vi.fn(register("on")),
+    once: vi.fn(register("once")),
+    setWindowOpenHandler: vi.fn((handler: (details: MockWindowOpenDetails) => unknown) => {
+      webContents.windowOpenHandler = handler;
+      owner.record("webContents.setWindowOpenHandler");
+    }),
+    setBackgroundThrottling: vi.fn(),
+    executeJavaScript: vi.fn(() => Promise.resolve(undefined)),
+    loadURL: (url) => {
+      loadedUrls.push(url);
+      owner.record(`loadURL:${url}`);
+      const failure = owner.loadFailureFor(url);
+      return failure === undefined ? Promise.resolve() : Promise.reject(failure);
+    },
+    send: (channel, value) => {
+      sent.push({ channel, value });
+    },
+    emit: (eventName, ...args) => {
+      (handlers.get(eventName) as ((...listenerArgs: unknown[]) => unknown) | undefined)?.(...args);
+    },
+    close: () => {
+      if (isDestroyed) {
+        return;
+      }
+      isDestroyed = true;
+      webContents.emit("destroyed");
+    },
+    isDestroyed: () => isDestroyed,
+  };
+  return webContents;
+}
+
+/** One mocked view; the `electron` mock hands it to production code as a constructor. */
+export class MockWebContentsViewImpl implements MockWebContentsView {
   public readonly webContents: MockWebContents;
-  public readonly loadedUrls: string[] = [];
-  #focusCount = 0;
-  #closeCount = 0;
-  #destroyed = false;
-  readonly #mock: MockWindowOwner;
+  #bounds: MockRectangle | undefined;
+  #backgroundColor: string | undefined;
 
   public constructor(
-    mock: MockWindowOwner,
-    public readonly options: MockBrowserWindowOptions,
+    owner: MockWindowOwner,
+    public readonly options: MockWebContentsViewOptions,
   ) {
-    this.#mock = mock;
-    this.id = mock.mintWindowId();
-    const handlers = new Map<string, (...args: never[]) => unknown>();
-    let isDestroyed = false;
-    const webContents: MockWebContents = {
-      id: this.id * 1000,
-      handlers,
-      destroy: () => {
-        isDestroyed = true;
+    this.webContents = options.webContents ?? createMockWebContents(owner);
+    owner.recordView(this);
+  }
+
+  public get bounds(): MockRectangle | undefined {
+    return this.#bounds;
+  }
+
+  public get backgroundColor(): string | undefined {
+    return this.#backgroundColor;
+  }
+
+  public setBounds(bounds: MockRectangle): void {
+    this.#bounds = bounds;
+  }
+
+  public setBackgroundColor(color: string): void {
+    this.#backgroundColor = color;
+  }
+}
+
+/** One mocked window; the `electron` mock hands it to production code as a constructor. */
+export class MockBaseWindowImpl implements MockBaseWindow {
+  public readonly id: number;
+  public readonly contentView: {
+    readonly children: MockWebContentsView[];
+    addChildView(view: MockWebContentsView): void;
+  };
+  readonly #owner: MockWindowOwner;
+  readonly #listeners = new Map<string, ((...args: never[]) => unknown)[]>();
+  #bounds: MockRectangle;
+  #title = "";
+  #backgroundColor: string | undefined;
+  #minimumSize: readonly [number, number] | undefined;
+  #showCount = 0;
+  #focusCount = 0;
+  #isMaximized = false;
+  #isFullScreen = false;
+  #isDestroyed = false;
+
+  public constructor(
+    owner: MockWindowOwner,
+    public readonly options: MockBaseWindowOptions,
+  ) {
+    this.#owner = owner;
+    this.id = owner.mintId();
+    this.#bounds = { x: options.x, y: options.y, width: options.width, height: options.height };
+    this.#backgroundColor = options.backgroundColor;
+    const children: MockWebContentsView[] = [];
+    this.contentView = {
+      children,
+      addChildView: (view) => {
+        children.push(view);
       },
-      isDestroyed: () => isDestroyed,
-      on: vi.fn((eventName: string, handler: (...args: never[]) => unknown) => {
-        handlers.set(eventName, handler);
-        mock.record(`webContents.on:${eventName}`);
-      }),
-      once: vi.fn((eventName: string, handler: (...args: never[]) => unknown) => {
-        handlers.set(eventName, handler);
-        mock.record(`webContents.once:${eventName}`);
-      }),
-      setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => unknown) => {
-        webContents.windowOpenHandler = handler;
-        mock.record("webContents.setWindowOpenHandler");
-      }),
-      executeJavaScript: vi.fn(() => Promise.resolve(undefined)),
-      windowOpenHandler: undefined,
     };
-    this.webContents = webContents;
-    mock.recordConstruction(this);
+    owner.recordConstruction(this);
   }
 
-  // No suite fires a listener on the window itself, so neither registration is recorded.
-  public on(): MockBrowserWindow {
-    return this;
+  public get title(): string {
+    return this.#title;
   }
 
-  public once(): MockBrowserWindow {
-    return this;
+  public get backgroundColor(): string | undefined {
+    return this.#backgroundColor;
   }
 
-  public show(): void {
-    // A real window paints here; nothing to record.
+  public get minimumSize(): readonly [number, number] | undefined {
+    return this.#minimumSize;
+  }
+
+  public get showCount(): number {
+    return this.#showCount;
   }
 
   public get focusCount(): number {
     return this.#focusCount;
   }
 
-  public focus(): void {
-    this.#focusCount += 1;
-    this.#mock.record("focus");
+  public on(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow {
+    this.#listeners.set(eventName, [...(this.#listeners.get(eventName) ?? []), listener]);
+    return this;
   }
 
-  public get closeCount(): number {
-    return this.#closeCount;
+  public once(eventName: string, listener: (...args: never[]) => unknown): MockBaseWindow {
+    const onceListener = (): void => {
+      this.#listeners.set(
+        eventName,
+        (this.#listeners.get(eventName) ?? []).filter((each) => each !== onceListener),
+      );
+      (listener as () => unknown)();
+    };
+    return this.on(eventName, onceListener);
+  }
+
+  public emit(eventName: string): void {
+    for (const listener of this.#listeners.get(eventName) ?? []) {
+      (listener as () => unknown)();
+    }
+  }
+
+  public show(): void {
+    this.#showCount += 1;
+    this.#owner.record("show");
+  }
+
+  public showInactive(): void {
+    this.#showCount += 1;
+    this.#owner.record("showInactive");
+  }
+
+  public focus(): void {
+    this.#focusCount += 1;
+    this.#owner.record("focus");
+  }
+
+  public restore(): void {
+    this.#owner.record("restore");
+  }
+
+  public maximize(): void {
+    this.#isMaximized = true;
+    this.#owner.record("maximize");
+  }
+
+  public setFullScreen(isFullScreen: boolean): void {
+    this.#isFullScreen = isFullScreen;
+    this.#owner.record(`setFullScreen:${String(isFullScreen)}`);
+  }
+
+  public isMaximized(): boolean {
+    return this.#isMaximized;
+  }
+
+  public isFullScreen(): boolean {
+    return this.#isFullScreen;
+  }
+
+  public isMinimized(): boolean {
+    return false;
+  }
+
+  public setTitle(title: string): void {
+    this.#title = title;
+  }
+
+  public setBackgroundColor(color: string): void {
+    this.#backgroundColor = color;
+  }
+
+  public setMinimumSize(width: number, height: number): void {
+    this.#minimumSize = [width, height];
+  }
+
+  public setBounds(bounds: MockRectangle): void {
+    this.#bounds = bounds;
+  }
+
+  public getContentBounds(): MockRectangle {
+    return this.#bounds;
+  }
+
+  public getNormalBounds(): MockRectangle {
+    return this.#bounds;
   }
 
   public close(): void {
-    this.#closeCount += 1;
-    this.#mock.record("close");
-  }
-
-  public isDestroyed(): boolean {
-    return this.#destroyed;
+    if (this.#isDestroyed) {
+      return;
+    }
+    this.#owner.record("close");
+    this.emit("close");
+    this.#end();
   }
 
   public destroy(): void {
-    this.#destroyed = true;
-    this.#mock.record("destroy");
+    if (this.#isDestroyed) {
+      return;
+    }
+    this.#owner.record("destroy");
+    this.#end();
   }
 
-  public loadURL(url: string): Promise<void> {
-    this.loadedUrls.push(url);
-    this.#mock.record(`loadURL:${url}`);
-    const failure = this.#mock.loadFailureFor(url);
-    return failure === undefined ? Promise.resolve() : Promise.reject(failure);
+  public isDestroyed(): boolean {
+    return this.#isDestroyed;
+  }
+
+  #end(): void {
+    this.#isDestroyed = true;
+    this.#owner.forgetWindow(this);
+    this.emit("closed");
   }
 }

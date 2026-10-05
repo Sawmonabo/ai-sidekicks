@@ -31,8 +31,6 @@ export function earliestFutureDeadline(
  * The catch-up half of the rule above: a late wake-up has usually crossed several deadlines, and
  * publishing only the earliest settles one boundary per render, which can reach React's
  * nested-update limit after a long sleep. The result is always a deadline from the caller's list.
- *
- * @consumedBy the device-link code's expiry wake-up
  */
 export function latestPassedDeadline(
   deadlines: readonly number[],

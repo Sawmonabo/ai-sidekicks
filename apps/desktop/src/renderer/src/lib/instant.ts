@@ -23,8 +23,8 @@ import { lossyStringify } from "./wire-errors.js";
  * {@link InstantOffsetPolicy}. A `"utc-only"` reader narrows this one pattern, never a second.
  */
 const RFC_3339_DATE_TIME = new RegExp(
-  "^(\\d{4})-(\\d{2})-(\\d{2})([Tt])(\\d{2}):(\\d{2}):(\\d{2})" +
-    "(?:\\.(\\d+))?(?:([Zz])|([+-])(\\d{2}):(\\d{2}))$",
+  String.raw`^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})` +
+    String.raw`(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$`,
 );
 
 /**

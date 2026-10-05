@@ -86,30 +86,27 @@ describe("PendingCompactionRegistry — withdrawal", () => {
     await expect(raceAgainstMicrotask(withdrawn.settled)).resolves.toBe(NEVER_SETTLED);
   });
 
-  it(
-    "stays withdrawn even when the bound then " + "fires through a canceler that does nothing",
-    async () => {
-      // The `closed`-before-`cancelTimer` ordering, driven. This canceler is a no-op, as for a host
-      // whose clear races the fire, so a withdrawal relying on cancellation alone would deliver
-      // `wait_expired` to a caller that already returned `provider_error`.
-      const firedRegardless: (() => void)[] = [];
-      const registry = new PendingCompactionRegistry((callback) => {
-        firedRegardless.push(callback);
-        return (): void => {
-          // Deliberately does not stop the timer.
-        };
-      });
+  it("stays withdrawn even when the bound fires through a canceler that does nothing", async () => {
+    // The `closed`-before-`cancelTimer` ordering, driven. This canceler is a no-op, as for a host
+    // whose clear races the fire, so a withdrawal relying on cancellation alone would deliver
+    // `wait_expired` to a caller that already returned `provider_error`.
+    const firedRegardless: (() => void)[] = [];
+    const registry = new PendingCompactionRegistry((callback) => {
+      firedRegardless.push(callback);
+      return (): void => {
+        // Deliberately does not stop the timer.
+      };
+    });
 
-      const wait = registry.arm(BINDING_KEY, DECLARED_BOUND_MS);
-      wait.abandon();
-      for (const fire of firedRegardless) {
-        fire();
-      }
+    const wait = registry.arm(BINDING_KEY, DECLARED_BOUND_MS);
+    wait.abandon();
+    for (const fire of firedRegardless) {
+      fire();
+    }
 
-      await expect(raceAgainstMicrotask(wait.settled)).resolves.toBe(NEVER_SETTLED);
-      expect(registry.pendingCountFor(BINDING_KEY)).toBe(0);
-    },
-  );
+    await expect(raceAgainstMicrotask(wait.settled)).resolves.toBe(NEVER_SETTLED);
+    expect(registry.pendingCountFor(BINDING_KEY)).toBe(0);
+  });
 });
 
 describe("PendingCompactionRegistry — scoping by key", () => {

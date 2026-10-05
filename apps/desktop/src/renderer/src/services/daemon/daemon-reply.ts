@@ -19,13 +19,15 @@
 
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon-methods";
 
+import {
+  DAEMON_METHOD_BINDINGS,
+  type RegisteredDaemonMethod,
+} from "@shared/daemon-method-bindings.js";
 import { recordRefusedMemberPaths } from "@renderer/lib/diagnostic-capture/refused-member-record.js";
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { isReadAbandoned, settleUnlessAbandoned } from "@renderer/lib/reads/read-scope.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
-import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
-import type { RegisteredDaemonMethod } from "./daemon-method-contract.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";

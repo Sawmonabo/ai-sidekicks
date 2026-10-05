@@ -1,20 +1,16 @@
-// The color scheme a person chose must survive a restart. The applied attribute is written
-// synchronously and the durable record is not, so every layer above reports success while the
-// bytes are in flight; only a reload separates a preference that was written from one merely
-// readable in the window that wrote it.
+// The color scheme lives in one place, main's appearance record, and every surface agrees with it.
+// A pick from the palette is written to `appearance.json` before the page shows it, survives a
+// reload because main stamps the record on the document it serves, and a pick from the View menu
+// changes the open window and moves the menu's tick, so the menu and the page never disagree.
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  PERSISTENCE_GLOBAL_PARTITION,
-  SCHEME_PREFERENCE_KEY,
-} from "@renderer/store/persistence/persistence-adapter.js";
-import {
-  UI_STATE_DATABASE_NAME,
-  UI_STATE_STORE_NAME,
-} from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
-import { withLaunchedApp } from "../helpers/electron-harness.js";
+import { APPEARANCE_FILE_NAME } from "@main/appearance/record-file.js";
+import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
+import { withLaunchedApp, type AppUnderTest } from "../helpers/electron-harness.js";
 import { openPalette } from "../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../helpers/fixture-bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../helpers/launch-body.js";
@@ -23,108 +19,88 @@ import { LaunchDeadline } from "../helpers/launch-deadline.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", () => {
-  it("persists an explicit color scheme across a reload", async () => {
+/** The scheme the page's root carries: `null` under `system`, which writes no attribute. */
+async function readPageScheme(appUnderTest: AppUnderTest): Promise<string | null> {
+  return await appUnderTest.window.evaluate(
+    (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
+    SCHEME_ATTRIBUTE,
+  );
+}
+
+/** The scheme main's record holds on disk, read in this process from main's own folder. */
+async function readKeptScheme(appUnderTest: AppUnderTest): Promise<unknown> {
+  const userData = await appUnderTest.application.evaluate(({ app }) => app.getPath("userData"));
+  const recordText = await readFile(path.join(userData, APPEARANCE_FILE_NAME), "utf8");
+  return (JSON.parse(recordText) as { readonly scheme?: unknown }).scheme;
+}
+
+/** The View menu's scheme rows, label and tick, as main installed them. */
+async function readMenuTicks(appUnderTest: AppUnderTest): Promise<Record<string, boolean>> {
+  return await appUnderTest.application.evaluate(({ Menu }) => {
+    const view = Menu.getApplicationMenu()?.items.find((item) => item.label === "View");
+    const rows = (view?.submenu?.items ?? []).filter((item) => item.type === "radio");
+    return Object.fromEntries(rows.map((row) => [row.label, row.checked]));
+  });
+}
+
+describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's record", () => {
+  it("keeps a palette pick across a reload, and a View-menu pick reaches the open window", async () => {
     await withLaunchedApp({}, async (appUnderTest) => {
-      const appWindow = appUnderTest.window;
-      const readScheme = async (): Promise<string | null> =>
-        await appWindow.evaluate(
-          (schemeAttribute) => document.documentElement.getAttribute(schemeAttribute),
-          SCHEME_ATTRIBUTE,
-        );
+      const stepTimeout = (): number =>
+        appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS);
 
-      // What is actually on disk, read through a second connection rather than the app's
-      // own store. The names come from the modules that own them, so a rename breaks this at
-      // compile time; the record shape is the adapter's `StoredRecord`, and only `value` is read.
-      const readPersistedScheme = async (): Promise<string | null> =>
-        await appWindow.evaluate(
-          async ([databaseName, storeName, partition, key]) =>
-            await new Promise<string | null>((resolve, reject) => {
-              // A failed open or read rejects: read as `null` it would report the scheme as never
-              // written and hide the real failure.
-              const openRequest = indexedDB.open(databaseName);
-              openRequest.onerror = (): void => {
-                reject(openRequest.error ?? new Error(`could not open ${databaseName}`));
-              };
-              openRequest.onsuccess = (): void => {
-                const database = openRequest.result;
-                if (!database.objectStoreNames.contains(storeName)) {
-                  // The app degraded to memory and this connection just created an empty
-                  // database, so nothing is stored.
-                  database.close();
-                  resolve(null);
-                  return;
-                }
-                const readRequest = database
-                  .transaction(storeName)
-                  .objectStore(storeName)
-                  .get([partition, key]);
-                readRequest.onerror = (): void => {
-                  database.close();
-                  reject(readRequest.error ?? new Error(`could not read ${storeName}`));
-                };
-                readRequest.onsuccess = (): void => {
-                  const record = readRequest.result as { readonly value?: unknown } | undefined;
-                  database.close();
-                  resolve(typeof record?.value === "string" ? record.value : null);
-                };
-              };
-            }),
-          [
-            UI_STATE_DATABASE_NAME,
-            UI_STATE_STORE_NAME,
-            PERSISTENCE_GLOBAL_PARTITION,
-            SCHEME_PREFERENCE_KEY,
-          ] as const,
-        );
+      // A fresh profile follows the system: no attribute, so the sheet's `prefers-color-scheme`
+      // layer keeps following the OS; a resolved value here would be the defect.
+      expect(await readPageScheme(appUnderTest)).toBeNull();
 
-      // A fresh profile starts on "system", which writes no attribute so the sheet's
-      // `prefers-color-scheme` layer keeps following the OS; a resolved value here would be the
-      // defect.
-      expect(await readScheme()).toBeNull();
-
-      // Driven through the palette to prove the whole path a person takes (command, store,
-      // chokepoint, IndexedDB), which a direct store call would not. The `Color scheme` row
-      // moves to the next scheme in its cycle, and the one after "system" is dark.
+      // Through the palette, the whole path a person takes: the `Color scheme` row moves to the
+      // next scheme in its cycle, and the one after "system" is dark.
       await openPalette(appUnderTest);
-      await appWindow.keyboard.type("Color scheme");
-      await appWindow.keyboard.press("Enter");
+      await appUnderTest.window.keyboard.type("Color scheme");
+      await appUnderTest.window.keyboard.press("Enter");
       await expect
-        .poll(readScheme, {
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+        .poll(async () => await readPageScheme(appUnderTest), {
+          timeout: stepTimeout(),
           message: "the scheme did not change",
         })
         .toBe("dark");
+      // Main writes before it tells the page, so the page showing it means the record holds it.
+      expect(await readKeptScheme(appUnderTest)).toBe("dark");
 
-      // The reload waits for the bytes, not the paint; otherwise a database commit would race a
-      // navigation and a lost preference would look like a broken feature.
-      await expect
-        .poll(readPersistedScheme, {
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-          message: "the scheme was never written",
-        })
-        .toBe("dark");
-
-      // The reload is the assertion: everything above could pass against state that lives only
-      // in memory. IndexedDB is per-origin and this launch has its own profile, so the read is
-      // this run's own write.
-      //
-      // The reload boots the renderer a second time, which `launch-readiness` bounds, so
-      // the navigation and the frame element share one clock at that figure, as `launchApp`
-      // divides its own ladder. Both legs are also held to what is left of the body's allowance.
+      // The reload boots the renderer a second time, which `launch-readiness` bounds, so the
+      // navigation and the frame element share one clock at that figure. Both legs are also held
+      // to what is left of the body's allowance.
       const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);
-      await appWindow.reload({
+      await appUnderTest.window.reload({
         timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
-      await appWindow.waitForSelector(".meridian-frame", {
+      await appUnderTest.window.waitForSelector(".meridian-frame", {
         timeout: appUnderTest.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),
       });
+      expect(await readPageScheme(appUnderTest), "the scheme did not survive a reload").toBe(
+        "dark",
+      );
+
+      // The View menu's row, clicked in main as a person's click runs it.
+      const isClicked = await appUnderTest.application.evaluate(({ Menu }) => {
+        const view = Menu.getApplicationMenu()?.items.find((item) => item.label === "View");
+        const light = view?.submenu?.items.find((item) => item.label === "Light");
+        light?.click();
+        return light !== undefined;
+      });
+      expect(isClicked, "the View menu has a Light row").toBe(true);
       await expect
-        .poll(readScheme, {
-          timeout: appUnderTest.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-          message: "the scheme did not survive a reload",
+        .poll(async () => await readPageScheme(appUnderTest), {
+          timeout: stepTimeout(),
+          message: "the View menu's pick did not reach the open window",
         })
-        .toBe("dark");
+        .toBe("light");
+      expect(await readKeptScheme(appUnderTest)).toBe("light");
+      expect(await readMenuTicks(appUnderTest)).toStrictEqual({
+        System: false,
+        Light: true,
+        Dark: false,
+      });
     });
   });
 });

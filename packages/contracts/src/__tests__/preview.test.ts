@@ -21,17 +21,14 @@ const PAGE: PreviewPage = {
 };
 
 describe("the address rules both ends hold an address to", () => {
-  it(
-    "names a foreign scheme, and passes an http(s) " + "address, a user name or password included",
-    () => {
-      expect(webAddressFault(new URL("https://app@evil.test/looks-like-app"))).toBeNull();
-      expect(webAddressFault(new URL("http://user:secret@localhost:3000/"))).toBeNull();
-      expect(webAddressFault(new URL("file:///etc/passwd"))).toBe("scheme");
-      expect(webAddressFault(new URL("javascript:alert(1)"))).toBe("scheme");
-      expect(webAddressFault(new URL("http://localhost:5173/"))).toBeNull();
-      expect(webAddressFault(new URL("https://example.com/a?b"))).toBeNull();
-    },
-  );
+  it("names a foreign scheme, and passes an http(s) address even with user or password", () => {
+    expect(webAddressFault(new URL("https://app@evil.test/looks-like-app"))).toBeNull();
+    expect(webAddressFault(new URL("http://user:secret@localhost:3000/"))).toBeNull();
+    expect(webAddressFault(new URL("file:///etc/passwd"))).toBe("scheme");
+    expect(webAddressFault(new URL("javascript:alert(1)"))).toBe("scheme");
+    expect(webAddressFault(new URL("http://localhost:5173/"))).toBeNull();
+    expect(webAddressFault(new URL("https://example.com/a?b"))).toBeNull();
+  });
 });
 
 describe("preview.pageList frames", () => {

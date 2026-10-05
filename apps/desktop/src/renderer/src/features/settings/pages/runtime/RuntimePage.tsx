@@ -71,21 +71,21 @@ function renderSupervisorFacts(state: MainProcessState): ReactNode {
           <span>{describeDaemonConnection(connection)}</span>
         )}
       </SettingsFact>
-      {connection.kind === "reconnecting" ? (
+      {connection.kind === "transient_disconnect" ? (
         <SettingsFact term="Attempt">
           <span>
             {connection.attempt} of {connection.attemptLimit}
           </span>
         </SettingsFact>
       ) : null}
-      {connection.kind === "offline" ? (
+      {connection.kind === "degraded" ? (
         <SettingsFact term="Attempts spent">
           <span>
             {connection.attemptLimit} of {connection.attemptLimit}
           </span>
         </SettingsFact>
       ) : null}
-      {connection.kind === "offline" ? (
+      {connection.kind === "degraded" || connection.kind === "unknown" ? (
         <SettingsFact term="Last error">
           {connection.lastError === undefined ? (
             <Nothing kind="not-checked" placement="inline" title="No error recorded" />

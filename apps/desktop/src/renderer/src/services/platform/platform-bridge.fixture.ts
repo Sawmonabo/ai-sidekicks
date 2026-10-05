@@ -4,8 +4,10 @@
 // Native calls refuse rather than pretend, so a view cannot ship a code path nobody ran against
 // the real dialog. The `app` meta is fixed so a rendered view does not shift with the machine. The
 // keyboard map is held in memory: the first read is empty and a write is read back, which is the
-// Keyboard page's whole contract with main.
+// Keyboard page's whole contract with main. The appearance record is held the same way: the default
+// appearance at first, and a chosen one reaches every subscriber, as main carries it to every window.
 
+import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "@shared/appearance.js";
 import type {
   KeyboardMap,
   KeyboardMapReading,
@@ -32,6 +34,9 @@ export const FIXTURE_APP_META: PlatformBridge["app"] = {
   physicalMemoryBytes: 17_179_869_184,
 };
 
+/** The id a fixture window carries, fixed as the `app` meta is. */
+export const FIXTURE_WINDOW_ID = "fixture-window";
+
 /** Options for `createFixtureBridge`. */
 export interface FixtureBridgeOptions {
   readonly scenario: Scenario;
@@ -51,20 +56,27 @@ export interface FixtureBridge {
 export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
-  const fixtureDaemon = createFixtureDaemon(scenarioEngine);
   let keyboardMap: KeyboardMap = {};
+  let appearanceRecord: AppearanceRecord = DEFAULT_APPEARANCE_RECORD;
+  const appearanceHandlers = new Set<(record: AppearanceRecord) => void>();
   const bridge: PlatformBridge = {
-    daemon: {
-      call: fixtureDaemon.call,
-      subscribe: fixtureDaemon.subscribe,
-    },
+    daemon: createFixtureDaemon(scenarioEngine),
     native: {
       showOpenDialog: () => refuseAbsentCapability("native.showOpenDialog"),
-      openExternal: () => refuseAbsentCapability("native.openExternal"),
+      getDroppedFileRef: () => refuseAbsentCapability("native.getDroppedFileRef"),
+      savePastedImage: () => refuseAbsentCapability("native.savePastedImage"),
+      openExternal: async () => {
+        // A fixture window opens no browser; answering lets an `Open …` press settle as it does
+        // live, where the page keeps the address beside the control either way.
+      },
+      openInEditor: () => refuseAbsentCapability("native.openInEditor"),
+      listEditors: () => refuseAbsentCapability("native.listEditors"),
+      getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       copyToClipboard: async () => {
         // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
         // affordance untestable.
       },
+      revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
     },
     update: {
       // The scenario's declaration, or a bare `idle`. The default omits the optional
@@ -79,6 +91,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
     machineSettings: {
+      read: () => refuseAbsentCapability("machineSettings.read"),
       write: () => refuseAbsentCapability("machineSettings.write"),
       subscribe: () => refuseAbsentSubscription("machineSettings.subscribe"),
     },
@@ -87,6 +100,35 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       write: async (map): Promise<KeyboardMap> => {
         keyboardMap = map;
         return map;
+      },
+    },
+    window: {
+      id: FIXTURE_WINDOW_ID,
+      setAppearance: async (choice, grounds): Promise<void> => {
+        const record: AppearanceRecord = { ...choice, grounds };
+        appearanceRecord = record;
+        for (const handler of appearanceHandlers) {
+          handler(record);
+        }
+      },
+      subscribeAppearance: (handler): Unsubscribe => {
+        // A wrapper per subscription, so the same function subscribed twice is two subscriptions.
+        const subscription = (record: AppearanceRecord): void => {
+          handler(record);
+        };
+        appearanceHandlers.add(subscription);
+        subscription(appearanceRecord);
+        return () => {
+          appearanceHandlers.delete(subscription);
+        };
+      },
+      // A fixture window is drawn at the size the harness gives it and never goes fullscreen.
+      subscribeFullscreen: (handler): Unsubscribe => {
+        handler(false);
+        return () => undefined;
+      },
+      setMinimumSize: async () => {
+        // Nothing reads the floor back, and the harness sizes the fixture window itself.
       },
     },
     app: FIXTURE_APP_META,

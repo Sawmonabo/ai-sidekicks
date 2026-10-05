@@ -62,27 +62,24 @@ describe("the adapter, when the context it was drawing on goes away", () => {
 });
 
 describe("the page pool's grant", () => {
-  it(
-    "falls back to the DOM renderer while the pool refuses, and " + "takes WebGL once it grants",
-    () => {
-      // Refused once, granted after, so the second attach starts with no addon and no loss.
-      const adapter = trackAdapter(
-        new XtermTerminalAdapter({
-          terminalId: "refused-then-granted",
-          pool: new LateGrantingRendererPool(1),
-        }),
-      );
-      adapter.attach(attachedMountElement());
-      expect(adapter.rendererMode).toBe("dom");
-      expect(FakeWebglRenderer.live).toHaveLength(0);
+  it("uses the DOM renderer while the pool refuses, and takes WebGL once it grants", () => {
+    // Refused once, granted after, so the second attach starts with no addon and no loss.
+    const adapter = trackAdapter(
+      new XtermTerminalAdapter({
+        terminalId: "refused-then-granted",
+        pool: new LateGrantingRendererPool(1),
+      }),
+    );
+    adapter.attach(attachedMountElement());
+    expect(adapter.rendererMode).toBe("dom");
+    expect(FakeWebglRenderer.live).toHaveLength(0);
 
-      adapter.detach();
-      adapter.attach(attachedMountElement());
+    adapter.detach();
+    adapter.attach(attachedMountElement());
 
-      expect(adapter.rendererMode).toBe("webgl");
-      expect(FakeWebglRenderer.live).toHaveLength(1);
-    },
-  );
+    expect(adapter.rendererMode).toBe("webgl");
+    expect(FakeWebglRenderer.live).toHaveLength(1);
+  });
 });
 
 describe("two panes on one session", () => {

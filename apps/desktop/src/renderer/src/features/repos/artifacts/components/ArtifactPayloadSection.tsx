@@ -1,4 +1,4 @@
-// What the payload fetch established, on each of its four arms. The body is text only: decoded
+// What the payload fetch established, on each of its three arms. The body is text only: decoded
 // bytes go whole into a `<pre>` as an escaped text node, and nothing here can interpret a
 // payload (no `dangerously`, `src`, `href`, or element a media type could turn into a document).
 
@@ -31,16 +31,6 @@ function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
   switch (payload.status) {
     case "fetching":
       return <Nothing kind="not-loaded" placement="inline" title="Fetching this payload" />;
-    case "deferred":
-      return (
-        <>
-          <p className="meridian-artifact-payload__note">
-            The read answered with a handle rather than the bytes. It is the content-addressed key
-            the payload is stored under.
-          </p>
-          <WireFigure value={payload.payloadHandle} />
-        </>
-      );
     case "opaque":
       return (
         <p className="meridian-artifact-payload__note">

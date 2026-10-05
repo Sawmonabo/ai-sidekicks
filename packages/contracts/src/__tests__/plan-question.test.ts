@@ -1,14 +1,10 @@
 // The plan card's and the question card's cross-field rules: a verdict that would mint a
-// session nobody asked for, a question held by both a run and a wait or by neither, and
-// question text or a secret outside the half that keeps it private.
+// session nobody asked for, a question held by both a run and a wait or by neither, a page count
+// that disagrees with the questions, and a secret question with option rows.
 import { describe, expect, it } from "vitest";
 
 import { PlanResolveRequestSchema, PlanResolveResponseSchema } from "../plan.js";
-import {
-  QuestionAskedPayloadSchema,
-  QuestionAskedPersonalDataSchema,
-  QuestionResolveRequestSchema,
-} from "../question.js";
+import { QuestionAskedPayloadSchema, QuestionResolveRequestSchema } from "../question.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const FRESH_SESSION_ID = "650e8400-e29b-41d4-a716-446655440000";
@@ -88,52 +84,42 @@ const PICK_ONE = {
 };
 
 describe("QuestionAskedPayloadSchema", () => {
+  const base = {
+    questionId: QUESTION_ID,
+    sessionId: SESSION_ID,
+    isAgentWaiting: true,
+    pageCount: 1,
+    questions: [PICK_ONE],
+  };
+
   it("accepts an agent's question on its run and a workflow step's question on its wait", () => {
-    const base = { questionId: QUESTION_ID, sessionId: SESSION_ID, pageCount: 1 };
     expect(QuestionAskedPayloadSchema.safeParse({ ...base, runId: RUN_ID }).success).toBe(true);
     expect(QuestionAskedPayloadSchema.safeParse({ ...base, waitId: WAIT_ID }).success).toBe(true);
   });
 
   it("refuses a question naming both a run and a wait, and one naming neither", () => {
-    const base = { questionId: QUESTION_ID, sessionId: SESSION_ID, pageCount: 1 };
     expect(
       QuestionAskedPayloadSchema.safeParse({ ...base, runId: RUN_ID, waitId: WAIT_ID }).success,
     ).toBe(false);
     expect(QuestionAskedPayloadSchema.safeParse(base).success).toBe(false);
   });
 
-  it("refuses the questions' text in the plain half", () => {
+  it("has one page per question, and no option rows on a secret question", () => {
+    const workflowQuestion = { text: "Which branch?", options: [], severalAnswers: false };
+    const twoPages = { ...base, runId: RUN_ID, pageCount: 2 };
     expect(
       QuestionAskedPayloadSchema.safeParse({
-        questionId: QUESTION_ID,
-        sessionId: SESSION_ID,
-        runId: RUN_ID,
-        pageCount: 1,
-        questions: [PICK_ONE],
+        ...twoPages,
+        questions: [PICK_ONE, { ...workflowQuestion, secret: false }],
       }).success,
-    ).toBe(false);
-  });
-});
-
-describe("QuestionAskedPersonalDataSchema", () => {
-  it("accepts the record's questions, one per page", () => {
-    const workflowQuestion = {
-      header: "Nightly triage",
-      text: "Which branch?",
-      options: [],
-      severalAnswers: false,
-      secret: false,
-    };
-    expect(
-      QuestionAskedPersonalDataSchema.safeParse({ questions: [PICK_ONE, workflowQuestion] })
-        .success,
     ).toBe(true);
-  });
-
-  it("refuses a secret question that carries option rows", () => {
+    expect(QuestionAskedPayloadSchema.safeParse(twoPages).success).toBe(false);
     expect(
-      QuestionAskedPersonalDataSchema.safeParse({ questions: [{ ...PICK_ONE, secret: true }] })
-        .success,
+      QuestionAskedPayloadSchema.safeParse({
+        ...base,
+        runId: RUN_ID,
+        questions: [{ ...PICK_ONE, secret: true }],
+      }).success,
     ).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "@test/helpers/settle.js";
+import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import {
   type CommandInvocationOutcome,
   CommandRegistry,
@@ -120,6 +121,7 @@ function openPaletteOverSession(ledger: RunLedger): {
   };
   const { rerender } = render(
     <CommandPalette {...shared} context={ON_SESSION} scopeLabel="Session mercury" />,
+    { wrapper: liveBridgeWrapper() },
   );
   return {
     registry,

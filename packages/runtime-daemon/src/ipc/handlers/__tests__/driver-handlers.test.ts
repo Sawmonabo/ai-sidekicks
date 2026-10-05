@@ -196,275 +196,263 @@ const COMPACT_REQUEST = { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID };
 const COMMANDS_REQUEST = { sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID };
 
 describe("driver.* — a refusal fires before any driver runs", () => {
-  it(
-    "dispatches to the target the address resolves " + "to, and refuses one that resolves nowhere",
-    async () => {
-      // The run id stops at the daemon: the driver is addressed by the binding it resolves to, and
-      // the run resolver is scoped to the session, so another session's run does not resolve.
-      const cases = [
-        {
-          method: "driver.interruptRun",
-          register: (registry: MethodRegistryImpl) => {
-            const interruptRun = vi.fn(async () => undefined);
-            registerDriverInterruptRun(registry, {
-              providerRegistry: { lookup: () => driverDouble({ interruptRun }) },
-              resolveDriverForRun: (runId) => (runId === TEST_RUN_ID ? "claude" : undefined),
-            });
-            return interruptRun;
-          },
-          resolved: { runId: TEST_RUN_ID },
-          result: {},
-          driverCall: { runId: TEST_RUN_ID },
-          unresolved: { runId: UNKNOWN_RUN_ID },
-          refusal: { type: "run.not_found", fields: { runId: UNKNOWN_RUN_ID } },
+  it("dispatches to the address's target, and refuses one that resolves nowhere", async () => {
+    // The run id stops at the daemon: the driver is addressed by the binding it resolves to, and
+    // the run resolver is scoped to the session, so another session's run does not resolve.
+    const cases = [
+      {
+        method: "driver.interruptRun",
+        register: (registry: MethodRegistryImpl) => {
+          const interruptRun = vi.fn(async () => undefined);
+          registerDriverInterruptRun(registry, {
+            providerRegistry: { lookup: () => driverDouble({ interruptRun }) },
+            resolveDriverForRun: (runId) => (runId === TEST_RUN_ID ? "claude" : undefined),
+          });
+          return interruptRun;
         },
-        {
-          method: "driver.compactContext",
-          register: (registry: MethodRegistryImpl) => {
-            const compactContext = vi.fn(
-              async () => ({ status: "applied", boundaryPosition: 41 }) as const,
-            );
-            registerDriverCompactContext(
-              registry,
-              compactContextDeps(
-                { claude: driverDouble({ compactContext }) },
-                {
-                  resolveRunBinding: (sessionId) =>
-                    sessionId === SECOND_SESSION_ID
-                      ? { kind: "bound", driverName: "claude", bindingId: TEST_BINDING_ID }
-                      : { kind: "unknown-run" },
-                },
-              ),
-            );
-            return compactContext;
-          },
-          resolved: { sessionId: SECOND_SESSION_ID, runId: TEST_RUN_ID },
-          result: { status: "applied", boundaryPosition: 41 },
-          driverCall: { sessionId: SECOND_SESSION_ID, bindingId: TEST_BINDING_ID },
-          unresolved: COMPACT_REQUEST,
-          refusal: { type: "run.not_found", fields: { runId: TEST_RUN_ID } },
-        },
-        {
-          method: "driver.listProviderCommands",
-          register: (registry: MethodRegistryImpl) => {
-            const listProviderCommands = vi.fn(async () => ({
-              bindings: [commandGroup("claude")],
-            }));
-            registerDriverListProviderCommands(
-              registry,
-              listProviderCommandsDeps(
-                { claude: driverDouble({ listProviderCommands }) },
-                {
-                  resolveAgentBindings: (_sessionId, agentId) =>
-                    agentId === TEST_AGENT_ID
-                      ? {
-                          kind: "bound",
-                          bindings: [
-                            {
-                              driverName: "claude",
-                              bindingId: TEST_BINDING_ID,
-                              providerAccountId: null,
-                            },
-                          ],
-                        }
-                      : { kind: "unknown-agent" },
-                },
-              ),
-            );
-            return listProviderCommands;
-          },
-          resolved: COMMANDS_REQUEST,
-          result: { bindings: [commandGroup("claude")] },
-          driverCall: { sessionId: TEST_SESSION_ID, bindingId: TEST_BINDING_ID },
-          unresolved: { sessionId: TEST_SESSION_ID, agentId: UNKNOWN_AGENT_ID },
-          refusal: { type: "agent.not_found", fields: { agentId: UNKNOWN_AGENT_ID } },
-        },
-      ];
-
-      for (const addressCase of cases) {
-        const registry = new MethodRegistryImpl();
-        const driverOperation = addressCase.register(registry);
-
-        await expect(
-          registry.dispatch(addressCase.method, addressCase.resolved, NO_TRANSPORT),
-          addressCase.method,
-        ).resolves.toStrictEqual(addressCase.result);
-        expect(driverOperation, addressCase.method).toHaveBeenCalledWith(addressCase.driverCall);
-
-        const wireError = wireErrorData(
-          await rejectionOf(registry, addressCase.method, addressCase.unresolved),
-        );
-        expect(wireError.type, addressCase.method).toBe(addressCase.refusal.type);
-        expect(wireError.fields, addressCase.method).toMatchObject(addressCase.refusal.fields);
-        expect(driverOperation, addressCase.method).toHaveBeenCalledTimes(1);
-      }
-    },
-  );
-
-  it(
-    "refuses a session it cannot reach " + "identically whether or not the session exists",
-    async () => {
-      // One resolver answer stands for a missing session and one not bound to this node; any
-      // difference in message, fields or code would reveal which applied.
-      const cases = [
-        {
-          method: "driver.compactContext",
-          register: (registry: MethodRegistryImpl, downstream: ReturnType<typeof vi.fn>) =>
-            registerDriverCompactContext(
-              registry,
-              compactContextDeps(
-                { claude: driverDouble({}) },
-                {
-                  resolveSessionAccess: () => false,
-                  resolveRunBinding:
-                    downstream as unknown as DriverCompactContextDeps["resolveRunBinding"],
-                },
-              ),
+        resolved: { runId: TEST_RUN_ID },
+        result: {},
+        driverCall: { runId: TEST_RUN_ID },
+        unresolved: { runId: UNKNOWN_RUN_ID },
+        refusal: { type: "run.not_found", fields: { runId: UNKNOWN_RUN_ID } },
+      },
+      {
+        method: "driver.compactContext",
+        register: (registry: MethodRegistryImpl) => {
+          const compactContext = vi.fn(
+            async () => ({ status: "applied", boundaryPosition: 41 }) as const,
+          );
+          registerDriverCompactContext(
+            registry,
+            compactContextDeps(
+              { claude: driverDouble({ compactContext }) },
+              {
+                resolveRunBinding: (sessionId) =>
+                  sessionId === SECOND_SESSION_ID
+                    ? { kind: "bound", driverName: "claude", bindingId: TEST_BINDING_ID }
+                    : { kind: "unknown-run" },
+              },
             ),
-          params: (sessionId: SessionId) => ({ sessionId, runId: TEST_RUN_ID }),
+          );
+          return compactContext;
         },
-        {
-          method: "driver.listProviderCommands",
-          register: (registry: MethodRegistryImpl, downstream: ReturnType<typeof vi.fn>) =>
-            registerDriverListProviderCommands(
-              registry,
-              listProviderCommandsDeps(
-                { claude: driverDouble({}) },
-                {
-                  resolveSessionAccess: () => false,
-                  resolveAgentBindings:
-                    downstream as unknown as DriverListProviderCommandsDeps["resolveAgentBindings"],
-                },
-              ),
+        resolved: { sessionId: SECOND_SESSION_ID, runId: TEST_RUN_ID },
+        result: { status: "applied", boundaryPosition: 41 },
+        driverCall: { sessionId: SECOND_SESSION_ID, bindingId: TEST_BINDING_ID },
+        unresolved: COMPACT_REQUEST,
+        refusal: { type: "run.not_found", fields: { runId: TEST_RUN_ID } },
+      },
+      {
+        method: "driver.listProviderCommands",
+        register: (registry: MethodRegistryImpl) => {
+          const listProviderCommands = vi.fn(async () => ({
+            bindings: [commandGroup("claude")],
+          }));
+          registerDriverListProviderCommands(
+            registry,
+            listProviderCommandsDeps(
+              { claude: driverDouble({ listProviderCommands }) },
+              {
+                resolveAgentBindings: (_sessionId, agentId) =>
+                  agentId === TEST_AGENT_ID
+                    ? {
+                        kind: "bound",
+                        bindings: [
+                          {
+                            driverName: "claude",
+                            bindingId: TEST_BINDING_ID,
+                            providerAccountId: null,
+                          },
+                        ],
+                      }
+                    : { kind: "unknown-agent" },
+              },
             ),
-          params: (sessionId: SessionId) => ({ sessionId, agentId: TEST_AGENT_ID }),
+          );
+          return listProviderCommands;
         },
-      ];
+        resolved: COMMANDS_REQUEST,
+        result: { bindings: [commandGroup("claude")] },
+        driverCall: { sessionId: TEST_SESSION_ID, bindingId: TEST_BINDING_ID },
+        unresolved: { sessionId: TEST_SESSION_ID, agentId: UNKNOWN_AGENT_ID },
+        refusal: { type: "agent.not_found", fields: { agentId: UNKNOWN_AGENT_ID } },
+      },
+    ];
 
-      for (const accessCase of cases) {
-        const registry = new MethodRegistryImpl();
-        const downstream = vi.fn();
-        accessCase.register(registry, downstream);
+    for (const addressCase of cases) {
+      const registry = new MethodRegistryImpl();
+      const driverOperation = addressCase.register(registry);
 
-        const notBoundHere = await rejectionOf(
-          registry,
-          accessCase.method,
-          accessCase.params(TEST_SESSION_ID),
-        );
-        const unknown = await rejectionOf(
-          registry,
-          accessCase.method,
-          accessCase.params(SECOND_SESSION_ID),
-        );
+      await expect(
+        registry.dispatch(addressCase.method, addressCase.resolved, NO_TRANSPORT),
+        addressCase.method,
+      ).resolves.toStrictEqual(addressCase.result);
+      expect(driverOperation, addressCase.method).toHaveBeenCalledWith(addressCase.driverCall);
 
-        const envelope = mapJsonRpcError(notBoundHere, 7);
-        expect(envelope, accessCase.method).toStrictEqual(mapJsonRpcError(unknown, 7));
-        expect(envelope.error.message, accessCase.method).toBe(
-          "Session does not exist or is not accessible",
-        );
-        expect(Object.hasOwn(wireErrorData(notBoundHere), "fields"), accessCase.method).toBe(false);
-        expect(downstream, accessCase.method).not.toHaveBeenCalled();
-      }
-    },
-  );
+      const wireError = wireErrorData(
+        await rejectionOf(registry, addressCase.method, addressCase.unresolved),
+      );
+      expect(wireError.type, addressCase.method).toBe(addressCase.refusal.type);
+      expect(wireError.fields, addressCase.method).toMatchObject(addressCase.refusal.fields);
+      expect(driverOperation, addressCase.method).toHaveBeenCalledTimes(1);
+    }
+  });
 
-  it(
-    "settles a compaction the caller may not " + "perform as a refusal, and never compacts",
-    async () => {
-      // An evaluator answering neither literal is a broken implementor, and fails closed.
-      for (const verdict of ["deny", undefined]) {
-        const registry = new MethodRegistryImpl();
-        const compactContext = vi.fn();
-        registerDriverCompactContext(
-          registry,
-          compactContextDeps(
-            { claude: driverDouble({ compactContext }) },
-            {
-              evaluateInterveneAction: (() =>
-                verdict) as unknown as DriverCompactContextDeps["evaluateInterveneAction"],
-            },
+  it("refuses an unreachable session the same way whether or not it exists", async () => {
+    // One resolver answer stands for a missing session and one not bound to this node; any
+    // difference in message, fields or code would reveal which applied.
+    const cases = [
+      {
+        method: "driver.compactContext",
+        register: (registry: MethodRegistryImpl, downstream: ReturnType<typeof vi.fn>) =>
+          registerDriverCompactContext(
+            registry,
+            compactContextDeps(
+              { claude: driverDouble({}) },
+              {
+                resolveSessionAccess: () => false,
+                resolveRunBinding:
+                  downstream as unknown as DriverCompactContextDeps["resolveRunBinding"],
+              },
+            ),
           ),
-        );
+        params: (sessionId: SessionId) => ({ sessionId, runId: TEST_RUN_ID }),
+      },
+      {
+        method: "driver.listProviderCommands",
+        register: (registry: MethodRegistryImpl, downstream: ReturnType<typeof vi.fn>) =>
+          registerDriverListProviderCommands(
+            registry,
+            listProviderCommandsDeps(
+              { claude: driverDouble({}) },
+              {
+                resolveSessionAccess: () => false,
+                resolveAgentBindings:
+                  downstream as unknown as DriverListProviderCommandsDeps["resolveAgentBindings"],
+              },
+            ),
+          ),
+        params: (sessionId: SessionId) => ({ sessionId, agentId: TEST_AGENT_ID }),
+      },
+    ];
 
-        await expect(
-          registry.dispatch("driver.compactContext", COMPACT_REQUEST, NO_TRANSPORT),
-        ).resolves.toStrictEqual({ status: "refused", reason: "not_permitted" });
-        expect(compactContext).not.toHaveBeenCalled();
-      }
-    },
-  );
+    for (const accessCase of cases) {
+      const registry = new MethodRegistryImpl();
+      const downstream = vi.fn();
+      accessCase.register(registry, downstream);
 
-  it(
-    "refuses a driver that does not declare the " + "capability before dispatching to any binding",
-    async () => {
-      // A partial command list would tell the caller the gated binding has none, so every binding
-      // is gated before any is dispatched. `claude` declares the flag, so the refusal is `codex`'s.
+      const notBoundHere = await rejectionOf(
+        registry,
+        accessCase.method,
+        accessCase.params(TEST_SESSION_ID),
+      );
+      const unknown = await rejectionOf(
+        registry,
+        accessCase.method,
+        accessCase.params(SECOND_SESSION_ID),
+      );
+
+      const envelope = mapJsonRpcError(notBoundHere, 7);
+      expect(envelope, accessCase.method).toStrictEqual(mapJsonRpcError(unknown, 7));
+      expect(envelope.error.message, accessCase.method).toBe(
+        "Session does not exist or is not accessible",
+      );
+      expect(Object.hasOwn(wireErrorData(notBoundHere), "fields"), accessCase.method).toBe(false);
+      expect(downstream, accessCase.method).not.toHaveBeenCalled();
+    }
+  });
+
+  it("settles a compaction the caller may not perform as a refusal, never compacting", async () => {
+    // An evaluator answering neither literal is a broken implementor, and fails closed.
+    for (const verdict of ["deny", undefined]) {
+      const registry = new MethodRegistryImpl();
       const compactContext = vi.fn();
-      const claudeList = vi.fn(async () => ({ bindings: [commandGroup("claude")] }));
-      const codexList = vi.fn(async () => ({ bindings: [commandGroup("codex")] }));
-
-      const compactRegistry = new MethodRegistryImpl();
       registerDriverCompactContext(
-        compactRegistry,
+        registry,
         compactContextDeps(
-          {},
+          { claude: driverDouble({ compactContext }) },
           {
-            providerRegistry: await realProviderRegistry({
-              claude: { flags: { context_compaction: false }, operations: { compactContext } },
-            }),
-          },
-        ),
-      );
-      const commandsRegistry = new MethodRegistryImpl();
-      registerDriverListProviderCommands(
-        commandsRegistry,
-        listProviderCommandsDeps(
-          {},
-          {
-            providerRegistry: await realProviderRegistry({
-              claude: {
-                flags: { provider_commands: true },
-                operations: { listProviderCommands: claudeList },
-              },
-              codex: {
-                flags: { provider_commands: false },
-                operations: { listProviderCommands: codexList },
-              },
-            }),
-            resolveAgentBindings: () => ({
-              kind: "bound",
-              bindings: [
-                { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
-                { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
-              ],
-            }),
+            evaluateInterveneAction: (() =>
+              verdict) as unknown as DriverCompactContextDeps["evaluateInterveneAction"],
           },
         ),
       );
 
-      for (const [registry, method, params, fields] of [
-        [
-          compactRegistry,
-          "driver.compactContext",
-          COMPACT_REQUEST,
-          { driverId: "claude", flag: "context_compaction" },
-        ],
-        [
-          commandsRegistry,
-          "driver.listProviderCommands",
-          COMMANDS_REQUEST,
-          { driverId: "codex", flag: "provider_commands" },
-        ],
-      ] as const) {
-        const wireError = wireErrorData(await rejectionOf(registry, method, params));
-        expect(wireError.type, method).toBe("driver.capability_unsupported");
-        expect(wireError.fields, method).toMatchObject(fields);
-      }
+      await expect(
+        registry.dispatch("driver.compactContext", COMPACT_REQUEST, NO_TRANSPORT),
+      ).resolves.toStrictEqual({ status: "refused", reason: "not_permitted" });
       expect(compactContext).not.toHaveBeenCalled();
-      expect(claudeList).not.toHaveBeenCalled();
-      expect(codexList).not.toHaveBeenCalled();
-    },
-  );
+    }
+  });
+
+  it("refuses a driver lacking the capability before dispatching to any binding", async () => {
+    // A partial command list would tell the caller the gated binding has none, so every binding
+    // is gated before any is dispatched. `claude` declares the flag, so the refusal is `codex`'s.
+    const compactContext = vi.fn();
+    const claudeList = vi.fn(async () => ({ bindings: [commandGroup("claude")] }));
+    const codexList = vi.fn(async () => ({ bindings: [commandGroup("codex")] }));
+
+    const compactRegistry = new MethodRegistryImpl();
+    registerDriverCompactContext(
+      compactRegistry,
+      compactContextDeps(
+        {},
+        {
+          providerRegistry: await realProviderRegistry({
+            claude: { flags: { context_compaction: false }, operations: { compactContext } },
+          }),
+        },
+      ),
+    );
+    const commandsRegistry = new MethodRegistryImpl();
+    registerDriverListProviderCommands(
+      commandsRegistry,
+      listProviderCommandsDeps(
+        {},
+        {
+          providerRegistry: await realProviderRegistry({
+            claude: {
+              flags: { provider_commands: true },
+              operations: { listProviderCommands: claudeList },
+            },
+            codex: {
+              flags: { provider_commands: false },
+              operations: { listProviderCommands: codexList },
+            },
+          }),
+          resolveAgentBindings: () => ({
+            kind: "bound",
+            bindings: [
+              { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
+              { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
+            ],
+          }),
+        },
+      ),
+    );
+
+    for (const [registry, method, params, fields] of [
+      [
+        compactRegistry,
+        "driver.compactContext",
+        COMPACT_REQUEST,
+        { driverId: "claude", flag: "context_compaction" },
+      ],
+      [
+        commandsRegistry,
+        "driver.listProviderCommands",
+        COMMANDS_REQUEST,
+        { driverId: "codex", flag: "provider_commands" },
+      ],
+    ] as const) {
+      const wireError = wireErrorData(await rejectionOf(registry, method, params));
+      expect(wireError.type, method).toBe("driver.capability_unsupported");
+      expect(wireError.fields, method).toMatchObject(fields);
+    }
+    expect(compactContext).not.toHaveBeenCalled();
+    expect(claudeList).not.toHaveBeenCalled();
+    expect(codexList).not.toHaveBeenCalled();
+  });
 
   it("refuses a steer carrying attachments rather than dropping them", async () => {
     // No driver resolves an attachment id to bytes, so forwarding the steer would lose them.
@@ -503,80 +491,75 @@ describe("driver.* — a refusal fires before any driver runs", () => {
   });
 });
 
-describe(
-  "driver.listCapabilities, listModels and " + "listModes — one unreadable driver fails the read",
-  () => {
-    function catalogDeps(
-      drivers: Partial<Record<ProviderName, ProviderDriver>>,
-    ): DriverCatalogDeps {
-      return {
-        providerRegistry: {
-          listAvailable: () =>
-            PROVIDER_NAMES.filter((driverName) => drivers[driverName] !== undefined),
-          lookup: (driverId: ProviderName) => drivers[driverId],
-        },
-      };
-    }
+describe("driver.listCapabilities, listModels and listModes: one unreadable driver fails", () => {
+  function catalogDeps(drivers: Partial<Record<ProviderName, ProviderDriver>>): DriverCatalogDeps {
+    return {
+      providerRegistry: {
+        listAvailable: () =>
+          PROVIDER_NAMES.filter((driverName) => drivers[driverName] !== undefined),
+        lookup: (driverId: ProviderName) => drivers[driverId],
+      },
+    };
+  }
 
-    it("fails the whole capability read when one driver cannot be substantiated", async () => {
-      // Leaving the driver out would tell the client it declares no capabilities, which is false.
-      const registry = new MethodRegistryImpl();
-      registerDriverListCapabilities(registry, {
-        providerRegistry: { listAvailable: () => ["claude", "codex"] },
-        capabilityCache: {
-          read: (driverName: ProviderName): DriverCapabilityReport => {
-            if (driverName === "codex") {
-              throw new DriverUnavailableError(driverName);
-            }
-            const flags = Object.fromEntries(
-              DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false]),
-            ) as Record<DriverCapabilityFlag, boolean>;
-            return {
-              driverName,
-              capabilities: { flags, contractVersion: "1.0.0" },
-              builtInTools: [],
-            };
+  it("fails the whole capability read when one driver cannot be substantiated", async () => {
+    // Leaving the driver out would tell the client it declares no capabilities, which is false.
+    const registry = new MethodRegistryImpl();
+    registerDriverListCapabilities(registry, {
+      providerRegistry: { listAvailable: () => ["claude", "codex"] },
+      capabilityCache: {
+        read: (driverName: ProviderName): DriverCapabilityReport => {
+          if (driverName === "codex") {
+            throw new DriverUnavailableError(driverName);
+          }
+          const flags = Object.fromEntries(
+            DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false]),
+          ) as Record<DriverCapabilityFlag, boolean>;
+          return {
+            driverName,
+            capabilities: { flags, contractVersion: "1.0.0" },
+            builtInTools: [],
+          };
+        },
+      },
+    });
+
+    const wireError = wireErrorData(await rejectionOf(registry, "driver.listCapabilities", {}));
+    expect(wireError.type).toBe("driver.unavailable");
+    expect(wireError.fields).toMatchObject({ driverId: "codex" });
+  });
+
+  it("refuses an operation the resolved driver does not implement", async () => {
+    // Neither shipped driver implements `listModes`. Without the guard the call would be a
+    // `TypeError` and reach the client as a bare `-32603`, a crash report for a missing feature.
+    const registry = new MethodRegistryImpl();
+    registerDriverListModes(registry, catalogDeps({ claude: driverDouble({}) }));
+
+    const wireError = wireErrorData(await rejectionOf(registry, "driver.listModes", {}));
+    expect(wireError.type).toBe("driver.capability_unsupported");
+    expect(wireError.fields).toMatchObject({ driverId: "claude", operation: "listModes" });
+  });
+
+  it("fails the whole catalog read when one driver's read rejects", async () => {
+    const registry = new MethodRegistryImpl();
+    registerDriverListModels(
+      registry,
+      catalogDeps({
+        claude: driverDouble({ listModels: async () => [] }),
+        codex: driverDouble({
+          listModels: async () => {
+            throw new DriverUnavailableError("codex");
           },
-        },
-      });
-
-      const wireError = wireErrorData(await rejectionOf(registry, "driver.listCapabilities", {}));
-      expect(wireError.type).toBe("driver.unavailable");
-      expect(wireError.fields).toMatchObject({ driverId: "codex" });
-    });
-
-    it("refuses an operation the resolved driver does not implement", async () => {
-      // Neither shipped driver implements `listModes`. Without the guard the call would be a
-      // `TypeError` and reach the client as a bare `-32603`, a crash report for a missing feature.
-      const registry = new MethodRegistryImpl();
-      registerDriverListModes(registry, catalogDeps({ claude: driverDouble({}) }));
-
-      const wireError = wireErrorData(await rejectionOf(registry, "driver.listModes", {}));
-      expect(wireError.type).toBe("driver.capability_unsupported");
-      expect(wireError.fields).toMatchObject({ driverId: "claude", operation: "listModes" });
-    });
-
-    it("fails the whole catalog read when one driver's read rejects", async () => {
-      const registry = new MethodRegistryImpl();
-      registerDriverListModels(
-        registry,
-        catalogDeps({
-          claude: driverDouble({ listModels: async () => [] }),
-          codex: driverDouble({
-            listModels: async () => {
-              throw new DriverUnavailableError("codex");
-            },
-          }),
         }),
-      );
+      }),
+    );
 
-      const thrown = await rejectionOf(registry, "driver.listModels", {
-        sessionId: TEST_SESSION_ID,
-      });
-      expect(wireErrorData(thrown).type).toBe("driver.unavailable");
+    const thrown = await rejectionOf(registry, "driver.listModels", {
+      sessionId: TEST_SESSION_ID,
     });
-  },
-);
+    expect(wireErrorData(thrown).type).toBe("driver.unavailable");
+  });
+});
 
 describe("driver.listProviderCommands — a driver's answer is checked against its binding", () => {
   it(
@@ -730,32 +713,29 @@ describe("driver.subscribeEvents", () => {
     };
   }
 
-  it(
-    "holds setup-time events until after the " + "response, and forwards only driver events",
-    async () => {
-      // The source may replay synchronously; a notify frame ahead of the response carries a
-      // subscription id the client does not know yet, so it drops the event. A source wired to a
-      // session-wide feed would push lifecycle rows onto one run's driver stream.
-      let live: ((event: SessionEvent) => void) | undefined;
-      const { registry, frames } = buildSubscribeHarness((_runId, onEvent) => {
-        onEvent(sessionLifecycleEvent());
-        onEvent(driverEvent(1));
-        onEvent(driverEvent(2));
-        live = onEvent;
-        return () => undefined;
-      });
+  it("holds setup-time events until after the response; forwards only driver events", async () => {
+    // The source may catch up synchronously; a notify frame ahead of the response carries a
+    // subscription id the client does not know yet, so it drops the event. A source wired to a
+    // session-wide feed would push lifecycle rows onto one run's driver stream.
+    let live: ((event: SessionEvent) => void) | undefined;
+    const { registry, frames } = buildSubscribeHarness((_runId, onEvent) => {
+      onEvent(sessionLifecycleEvent());
+      onEvent(driverEvent(1));
+      onEvent(driverEvent(2));
+      live = onEvent;
+      return () => undefined;
+    });
 
-      await registry.dispatch("driver.subscribeEvents", { runId: TEST_RUN_ID }, TRANSPORT);
-      expect(frames).toHaveLength(0);
+    await registry.dispatch("driver.subscribeEvents", { runId: TEST_RUN_ID }, TRANSPORT);
+    expect(frames).toHaveLength(0);
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(frames).toHaveLength(2);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(frames).toHaveLength(2);
 
-      live?.(sessionLifecycleEvent());
-      live?.(driverEvent(3));
-      expect(frames).toHaveLength(3);
-    },
-  );
+    live?.(sessionLifecycleEvent());
+    live?.(driverEvent(3));
+    expect(frames).toHaveLength(3);
+  });
 
   it("tears the upstream source down when the subscription is cancelled", async () => {
     const unsubscribe = vi.fn();

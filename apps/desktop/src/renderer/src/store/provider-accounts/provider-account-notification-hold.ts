@@ -4,7 +4,7 @@
 // the tail has already moved past. A removal or change arriving in between would be
 // overwritten by the reply's unconditional writes (the removed account returns, the credential
 // generation regresses) and stay that way, since the tail emits no second notification. So
-// every frame is held, of any kind, and replayed once the snapshot is applied.
+// every frame is buffered, of any kind, and released once the snapshot is applied.
 //
 // Past the cap, `overflowed` is not a loss: the caller applies what is held, applies the
 // overflowing frame, and takes a fresh read whose own hold starts empty. Each overflow costs a full
@@ -64,8 +64,8 @@ export class ProviderAccountNotificationHold {
   }
 
   /**
-   * Stops holding and hands back everything held, in arrival order, which is what makes the
-   * replay correct.
+   * Stops holding and hands back everything held, in arrival order, which is what makes applying
+   * them correct.
    */
   public release(): readonly ProviderAccountNotification[] {
     this.#isHolding = false;

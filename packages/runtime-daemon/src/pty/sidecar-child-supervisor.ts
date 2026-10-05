@@ -6,9 +6,15 @@
 //   through.
 
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
+
+import {
+  FramingError,
+  parseFrame,
+  type ParseFrameResult,
+} from "@ai-sidekicks/contracts/content-length-framing";
+
 import type { TaskkillResult } from "./taskkill-windows.js";
 import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
-import { FramingError, parseFrame, type ParseFrameResult } from "../ipc/content-length-framing.js";
 import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "./sidecar-frame-codec.js";
 
 /** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
@@ -343,7 +349,10 @@ export class SidecarChildSupervisor {
       }
       // Copy the remainder: a `subarray` view would keep the whole original allocation alive.
       this.stdoutBuffer = Buffer.from(this.stdoutBuffer.subarray(result.consumed));
-      this.events.onFrame(result.frame);
+      // A view over the parser's own copy, so the frame keeps `Buffer`'s decoding methods.
+      this.events.onFrame(
+        Buffer.from(result.frame.buffer, result.frame.byteOffset, result.frame.byteLength),
+      );
     }
   }
 
@@ -453,8 +462,8 @@ export class SidecarChildSupervisor {
   ): Promise<{ sidecarExitedCleanly: boolean; taskkillEscalated: boolean }> {
     const child: SidecarChildProcess | null = this.child;
     if (child === null) {
-      // Never spawned (clean) or exited before the drain (not clean); desktop quit telemetry reads
-      // this field.
+      // Never spawned (clean) or exited before the drain (not clean); the daemon's stop writes this
+      // field to its service log.
       return {
         sidecarExitedCleanly: !this.childExitedBeforeDrain,
         taskkillEscalated: false,

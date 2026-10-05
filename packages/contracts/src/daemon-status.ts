@@ -4,6 +4,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ProcessIdentitySchema, type ProcessIdentity } from "./process-identity.js";
 import { ReleaseVersionSchema } from "./release-manifest.js";
 import { FILE_PATH_MAX_LEN } from "./session.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
@@ -68,6 +69,11 @@ export const DaemonStatusReadRequestSchema: z.ZodType<
 /** Everything a status reader prints, in one reply. */
 export interface DaemonStatusReadResponse {
   processState: DaemonProcessState;
+  /**
+   * The service's own process as the system knows it, by which a client that found it running
+   * ends it and never a process that took over its id.
+   */
+  processIdentity: ProcessIdentity;
   /** The service's own version. */
   version: string;
   protocolVersion: string;
@@ -76,8 +82,10 @@ export interface DaemonStatusReadResponse {
   uptimeMs: number;
   /** The data directory this service holds; a second service cannot hold it. */
   dataDirectory: string;
-  processor: DaemonProcessorReading;
-  memory: DaemonMemoryReading;
+  /** `null` when the reading could not be taken at this call. */
+  processor: DaemonProcessorReading | null;
+  /** `null` when the reading could not be taken at this call. */
+  memory: DaemonMemoryReading | null;
   relay?: DaemonRelayStatus | undefined;
   /**
    * The file the service keeps its secrets in, readable only by the person: present only on
@@ -90,6 +98,7 @@ export interface DaemonStatusReadResponse {
 export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse> = z
   .object({
     processState: z.enum(DAEMON_PROCESS_STATES),
+    processIdentity: ProcessIdentitySchema,
     version: ReleaseVersionSchema,
     protocolVersion: StatusTextSchema,
     transportEndpoint: StatusTextSchema,
@@ -98,8 +107,9 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
     dataDirectory: StatusPathSchema,
     processor: z
       .object({ percent: z.number().min(0).max(100), readAt: isoDateTimeSchema })
-      .strict(),
-    memory: z.object({ residentBytes: countSchema, readAt: isoDateTimeSchema }).strict(),
+      .strict()
+      .nullable(),
+    memory: z.object({ residentBytes: countSchema, readAt: isoDateTimeSchema }).strict().nullable(),
     relay: z
       .object({
         devices: z.array(
@@ -209,11 +219,7 @@ export interface DaemonStatusMethodDescriptors {
   >;
 }
 
-/**
- * The status and crash-list methods' names, procedure types and shapes.
- *
- * @consumedBy the daemon's `daemon.crashList` handler
- */
+/** The status and crash-list methods' names, procedure types and shapes. */
 export const DAEMON_STATUS_METHOD_DESCRIPTORS: DaemonStatusMethodDescriptors =
   defineMethodDescriptors({
     "daemon.status.read": {

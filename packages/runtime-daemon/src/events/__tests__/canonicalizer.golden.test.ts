@@ -382,12 +382,12 @@ describe("canonicalizeEvent — the canonical envelope", () => {
 
   it("refuses a sequence one above the ceiling, unparsed", () => {
     // Above 2^53 - 1 distinct integers share one double, so two events would share canonical bytes
-    // and a replay key. `canonicalizeEvent` does not parse, so the guard sits here, not the schema.
+    // and an order key. `canonicalizeEvent` does not parse, so the guard sits here, not the schema.
     const message = captureThrownMessage(() =>
       canonicalizeEvent({ ...GOLDEN_ENVELOPE, sequence: 9007199254740992 }),
     );
     expect(message).toMatch(/canonicalization refused: sequence .* is not a safe integer/);
-    expect(message).toMatch(/replay key/);
+    expect(message).toMatch(/order key/);
   });
 });
 
@@ -397,24 +397,21 @@ type MemberAdmittingNull<Envelope> = {
 }[keyof Envelope];
 
 describe("actor is the canonical set's only null-admitting member", () => {
-  it(
-    "derives the null-admitting member set from " + "the contract, at compile time and at runtime",
-    () => {
-      // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
-      expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
-      // Independent of the type-level check: asks the runtime validator which of the schema's own
-      // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
-      // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
-      const declaredMembers = Object.keys(
-        (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
-      );
-      const membersAcceptingNull = declaredMembers.filter(
-        (memberName) =>
-          EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
-      );
-      expect(membersAcceptingNull).toStrictEqual(["actor"]);
-    },
-  );
+  it("derives the null-admitting member set from the contract, in types and at runtime", () => {
+    // The typechecker fails this line if a second `EventEnvelope` member admits `null`.
+    expectTypeOf<MemberAdmittingNull<EventEnvelope>>().toEqualTypeOf<"actor">();
+    // Independent of the type-level check: asks the runtime validator which of the schema's own
+    // members accept `null`. The cast reaches `.shape`, which `isolatedDeclarations` hides behind
+    // the exported `z.ZodType<EventEnvelope>` but the runtime object carries.
+    const declaredMembers = Object.keys(
+      (EventEnvelopeSchema as unknown as { shape: Record<string, unknown> }).shape,
+    );
+    const membersAcceptingNull = declaredMembers.filter(
+      (memberName) =>
+        EventEnvelopeSchema.safeParse({ ...GOLDEN_ENVELOPE, [memberName]: null }).success,
+    );
+    expect(membersAcceptingNull).toStrictEqual(["actor"]);
+  });
 });
 
 /** Wraps `innermostLeaf` in `containerLevels` objects, so the leaf sits at depth levels + 1. */
@@ -527,7 +524,7 @@ describe("canonicalizeJson — lone surrogates", () => {
     expect(() => canonicalizeEvent(parsed as EventEnvelope)).toThrow(LONE_SURROGATE_REFUSAL);
   });
 
-  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+  it("runs AFTER the depth ceiling, so a cyclic graph with a lone surrogate refuses", () => {
     // The well-formedness walk has no cycle detection or depth bound, so on a cyclic graph it
     // would spin forever; it is safe only because `assertWithinCanonicalDepth` throws first. This
     // input is cyclic and holds a lone surrogate, so reversing the two guards in
@@ -579,7 +576,7 @@ describe("canonicalizeJson — refuses a callable toJSON", () => {
     expect(message).not.toContain("1970-01-01");
   });
 
-  it("runs AFTER the depth ceiling, so a cyclic graph still refuses instead of hanging", () => {
+  it("runs AFTER the depth ceiling, so a cyclic graph with a toJSON refuses", () => {
     // This walk has no cycle detection either, so it is safe only because
     // `assertWithinCanonicalDepth` reports a cycle as depth exhaustion first. The input is cyclic
     // and has a `toJSON`, so moving this guard above the depth walk turns a refusal into a hang.
@@ -756,18 +753,15 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
     });
   }
 
-  it(
-    "reports sub-millisecond precision BEFORE " + "calendar validity — check order is observable",
-    () => {
-      // This input trips both the sub-millisecond guard and the calendar-existence guard;
-      // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
-      // The single-fault rows in the refusal table above show each guard fires on its own input,
-      // so this test shows order, not a broken calendar guard.
-      const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
-      expect(message).toMatch(/carries sub-millisecond precision/);
-      expect(message).not.toMatch(/does not exist on the calendar/);
-    },
-  );
+  it("reports sub-millisecond precision BEFORE calendar validity; the order is observable", () => {
+    // This input trips both the sub-millisecond guard and the calendar-existence guard;
+    // `normalizeOccurredAt` runs the sub-millisecond guard first, so only that message appears.
+    // The single-fault rows in the refusal table above show each guard fires on its own input,
+    // so this test shows order, not a broken calendar guard.
+    const message = captureThrownMessage(() => normalizeOccurredAt("2026-02-30T00:00:00.0001Z"));
+    expect(message).toMatch(/carries sub-millisecond precision/);
+    expect(message).not.toMatch(/does not exist on the calendar/);
+  });
 
   it("is idempotent — the canonical form is a fixed point of every branch", () => {
     // A stored row must re-canonicalize to the same bytes whether the append path persisted the
@@ -785,7 +779,7 @@ describe("normalizeOccurredAt — normalize where the instant survives, refuse o
 // `EventEnvelopeSchema`, so an in-process caller that builds an `EventEnvelope` literal (the type
 // permits it, `sequence` being a plain `number`) meets no schema at all; the guard therefore
 // sits at the canonicalizer. Above 2^53 - 1 distinct integers share one IEEE-754 double, so two
-// events would canonicalize to identical bytes and share one replay key.
+// events would canonicalize to identical bytes and share one order key.
 
 describe("canonicalizeEvent — sequence must be faithfully representable", () => {
   const sequenceRefusalPattern = /canonicalization refused: sequence .* is not a safe integer/;

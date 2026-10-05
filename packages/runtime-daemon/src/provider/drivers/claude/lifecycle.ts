@@ -29,6 +29,7 @@ import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 import {
   CLAUDE_COMPACTION_COMMAND_NAME,
   ClaudeControlRequestRefusedError,
+  type ClaudeFastModeDeclaration,
   type ClaudeRunProcessLookup,
   type ClaudeRunDispatchResolver,
   type ClaudeProviderProcess,
@@ -57,6 +58,7 @@ import { ClaudeFrameRouting } from "./frame-routing.js";
 import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session-establishment.js";
 import { ClaudeCompactionDispatch } from "./compaction-dispatch.js";
+import { applyClaudeOutputSpeed, resolveClaudeOutputSpeed } from "./output-speed.js";
 import {
   buildAuthProbeResult,
   type CloseSessionParams,
@@ -155,8 +157,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       mintProviderSessionId: dependencies.mintProviderSessionId ?? mintUuidV7,
       mintBindingId: dependencies.mintBindingId ?? mintUuidV7,
       spawnLegs: new ClaudeSpawnLegComposer(dependencies),
-      registerLiveSession: (live: LiveClaudeSession): void => {
-        this.#registerLiveSession(live);
+      diagnostics: dependencies.diagnostics,
+      registerLiveSession: (
+        live: LiveClaudeSession,
+        initializeFastMode: ClaudeFastModeDeclaration,
+      ): void => {
+        this.#registerLiveSession(live, initializeFastMode);
       },
       releaseSupersededPredecessor: (
         sessionId: SessionId,
@@ -252,12 +258,42 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       });
     }
 
-    // One write; the daemon never re-sends a failed one.
     const frame = this.#textNeutralization.registerOpeningDispatch(dispatch, params);
+    // Sent once, before the turn it governs, and only when the run's level differs from the one
+    // the process accepted. After the registration, which holds the session's one turn while the
+    // request is in flight. A refusal runs the turn on the level the process holds.
+    const outputSpeed = params.outputSpeed;
+    if (
+      outputSpeed !== undefined &&
+      resolveClaudeOutputSpeed(outputSpeed) !== live.appliedOutputSpeed
+    ) {
+      try {
+        live.appliedOutputSpeed =
+          (await applyClaudeOutputSpeed(
+            live.channel,
+            dispatch.sessionId,
+            outputSpeed,
+            this.#diagnostics,
+          )) ?? live.appliedOutputSpeed;
+      } catch (cause) {
+        this.#textNeutralization.ruleFailedOpeningFrame({
+          sessionId: dispatch.sessionId,
+          runId: params.runId,
+          channel: live.channel,
+          frame,
+          delivery: "unsent",
+        });
+        throw cause;
+      }
+    }
+    // Armed before the write, so the turn's handshake cannot outrun it.
+    this.#handshakes.armRunOutputSpeed(dispatch.sessionId, live.providerSessionId, params.runId);
+    // One write; the daemon never re-sends a failed one.
     const attempt = await attemptClaudeFrameWrite(live.channel, frame);
     if (attempt.settled === "written") {
       return;
     }
+    this.#handshakes.disarmRunOutputSpeed(dispatch.sessionId);
     this.#textNeutralization.ruleFailedOpeningFrame({
       sessionId: dispatch.sessionId,
       runId: params.runId,
@@ -378,9 +414,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   }
 
   /**
-   * The output-speed state the provider declared, or `undefined` before it has: the handshake rides
-   * a turn-bearing exchange that create and resume do not wait for. A declaration the contract's
-   * bounds reject reads as absent, with a diagnostic; `cooldown` is carried as declared.
+   * The output-speed state the provider declared: from the process's `initialize` reply at spawn,
+   * before any turn, then from each `system/init` that reports one. `undefined` with no live
+   * session or no state reported; a declaration the contract's bounds reject reads as absent,
+   * with a diagnostic; `cooldown` is carried as declared.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     const live = this.#findLiveSession(sessionId);
@@ -543,7 +580,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     return slot?.state === "live" ? slot.session : undefined;
   }
 
-  #registerLiveSession(live: LiveClaudeSession): void {
+  #registerLiveSession(
+    live: LiveClaudeSession,
+    initializeFastMode: ClaudeFastModeDeclaration,
+  ): void {
     // Band, then slot, then listeners: listener registration can deliver a frame re-entrantly,
     // which needs a band to hold it and a slot for the identity gate to accept the adopted channel.
     // The previous slot is restored if a listener registration throws.
@@ -555,6 +595,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     // its predecessor's `providerSessionId`, so a surviving record would match. Not restored on
     // rollback, since a failed adoption already disposed its source.
     this.#handshakes.forgetHandshake(live.sessionId);
+    // Before the hooks, so a `system/init` delivered during registration replaces it.
+    this.#handshakes.observeInitializeFastMode(
+      live.sessionId,
+      live.providerSessionId,
+      initializeFastMode,
+    );
     try {
       this.#registerLiveSessionHooks(band, live);
     } catch (error) {
@@ -591,6 +637,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       // Ruled before retirement: the tripwire is keyed by run id, and retirement empties the map
       // those ids come from.
       this.#textNeutralization.ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
+      // A turn that ended before its handshake reported settles on the state the process holds.
+      this.#handshakes.settleRunOutputSpeed(live.sessionId, live.providerSessionId);
       this.#runRoutes.retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);

@@ -48,6 +48,7 @@ import {
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
+  ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import { z } from "zod";
 
@@ -91,6 +92,11 @@ export interface ProviderDriver {
   // persisted or cached). Every entry carries the `(driverName, providerAccountId)` it was read
   // under; the daemon enforces the routing invariant on that pair.
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
+  // The output-speed state the provider last declared for the session's live binding, verbatim,
+  // for a driver declaring `output_speed`; `undefined` with no live binding or no declaration yet,
+  // which means unread, never off. A synchronous read of state the driver already holds, never a
+  // request, and never the requested level, which may differ.
+  observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined;
 }
 
 /**
@@ -122,10 +128,11 @@ export interface CreateSessionParams {
   // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
   // these because resume is a fresh spawn.
   executionPosture?: ExecutionPosture | undefined;
-  // The requested accelerated-output mode. Gated on `output_speed` and validated against the
-  // driver's declared `outputSpeedLevels` before spawn, so an out-of-vocabulary value refuses
-  // before reaching the provider. Spawn-bound because the provider reads it at process start.
-  // Requested is not granted: the provider's declared state is observed later as binding-held
+  // The agent's accepted output-speed level, gated on `output_speed`. The driver sends it on its
+  // own carrier when the process starts and never refuses it: a level the session's model does
+  // not list (`ProviderModel.outputSpeedLevels`, else the driver's static `outputSpeedLevels`)
+  // runs at standard, and only the person's request is validated, above the driver. Requested is
+  // not granted: the provider's declared state is observed as binding-held
   // `ProviderOutputSpeedState`, and neither value is rewritten into the other.
   outputSpeed?: string | undefined;
   // Gated on `callback_tools`. A driver may host the registry as a daemon-hosted ephemeral MCP
@@ -202,6 +209,12 @@ export interface StartRunParams {
   // Optionals are `?: T | undefined`, not bare `?: T`, under `exactOptionalPropertyTypes`: the
   // package idiom, which keeps an interface aligned with a schema's inferred type.
   conversationHistory?: unknown[] | undefined;
+  // The agent's accepted output-speed level, sent on each run as `executionPosture` is, and
+  // resolved like `CreateSessionParams.outputSpeed`. A provider that applies the mode between
+  // turns sends it before this run's turn only when it differs from the one the process last
+  // applied; a provider that takes it per turn sends it as this turn's setting. Absent, the process
+  // stays on the level it holds.
+  outputSpeed?: string | undefined;
   // The per-run effective posture, the same object the daemon stamps on `run.running`. A provider
   // that takes posture per turn realizes it there; a provider that binds posture at spawn
   // realizes it at session boundaries, and a mid-session change there resolves by session
@@ -290,11 +303,13 @@ export interface GetCapabilitiesResult {
   // that needs provenance re-reads the driver. Not part of the stored snapshot or the
   // client-facing `driver.listCapabilities` payload.
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
-  // The output-speed value vocabulary: present iff `capabilities.flags.output_speed` is `true`;
-  // absent or empty means the axis is unsettable and a caller carrying `outputSpeed` refuses
-  // rather than forwarding an unvalidated value. Declared statically from the per-driver table,
-  // because reading it from the provider costs a turn-bearing request. Unlike `detectionSource`
-  // it survives `hydrate()`, so the durable cache needs no column for it.
+  // The output-speed value vocabulary for a driver whose provider publishes no per-model set:
+  // present iff `capabilities.flags.output_speed` is `true` and the driver declares a static set.
+  // Declared from the per-driver table because that provider reports the mode's state but lists no
+  // modes; a provider that lists them per model publishes them on `ProviderModel.outputSpeedLevels`
+  // instead. Absent or empty, with no per-model set, the axis is unsettable and a person's request
+  // for a level refuses. Unlike `detectionSource` it survives `hydrate()`, so the durable cache
+  // needs no column for it.
   outputSpeedLevels?: string[] | undefined;
 }
 

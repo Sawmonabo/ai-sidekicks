@@ -8,11 +8,16 @@
 // lives; nothing runs a sign-in or re-derives admission.
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
-// error here. A code with no remedy is a real answer: three of the ten are refusals no app act
-// closes (a session asking for an account verb, a lost set-default race that retries, a token
-// this machine's keychain refused to seal), so the table's value type admits `null`.
+// error here. A code with no remedy is a real answer: six of the twelve are refusals no Providers
+// act closes (a pinned account the registry no longer carries, a session asking for an account
+// verb, a lost set-default race that retries, a token this machine's keychain refused to seal, a
+// token the provider did not accept, an account a live run holds), so the table's value type
+// admits `null`.
 
-import type { ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderLoginExpiredRemedy,
+  ProviderRemedy,
+} from "@ai-sidekicks/contracts/provider-account";
 
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
@@ -33,6 +38,8 @@ export const ACCOUNT_PLANE_REFUSAL_CODES = [
   "provideraccount.signin_unsupported",
   "provideraccount.signin_in_flight",
   "provideraccount.credential_seal_refused",
+  "provideraccount.token_not_accepted",
+  "provideraccount.account_in_use",
 ] as const;
 
 /** One registered account-plane refusal. Derived from the tuple, never restated. */
@@ -67,9 +74,6 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Accounts exist and none is the provider's default; the daemon lists candidates and elects
   // none.
   "provideraccount.no_default": { section: "providers", remedyKind: "choose_default" },
-  // The referenced account is not in the registry, so the act is choosing among the accounts
-  // that are.
-  "provideraccount.unknown": { section: "providers", remedyKind: "choose_default" },
   // An account resolved and its home is unusable; `sign_in` is the arm the readiness projection
   // puts on `home_missing` and the one that names a home.
   "provideraccount.credential_home_unavailable": { section: "providers", remedyKind: "sign_in" },
@@ -82,13 +86,20 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
   // readiness handoff discloses, display-only on the page that shows it.
   "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
-  // No app act closes these three: only this machine's client or a linked device may call an
-  // account verb, never a session; a lost set-default race is retried; and a token the keychain
-  // refused to seal needs the keychain fixed.
+  // No Providers act closes these six: an account reference the registry no longer carries is
+  // answered where it was pinned, and no default stands in for it; only this machine's client or
+  // a linked device may call an account verb, never a session; a lost set-default race is
+  // retried; a token the keychain refused to seal needs the keychain fixed; a token the provider
+  // did not accept is answered under the field it was pasted into, with another token; and
+  // `Remove` on an account a live run holds is refused on its own row, naming the sessions to
+  // move first, while `Sign out` stays open because it forgets nothing.
   // Routing any to a page would offer an act that changes nothing.
+  "provideraccount.unknown": null,
   "provideraccount.permission_denied": null,
   "provideraccount.default_conflict": null,
   "provideraccount.credential_seal_refused": null,
+  "provideraccount.token_not_accepted": null,
+  "provideraccount.account_in_use": null,
 };
 
 /** True when a wire string names a refusal this router knows. */
@@ -105,7 +116,7 @@ export function isAccountPlaneRefusalCode(code: string): code is AccountPlaneRef
  */
 export function accountPlaneHandoffFor(
   code: string,
-  carriedRemedy?: ProviderRemedy,
+  carriedRemedy?: ProviderLoginExpiredRemedy,
 ): AccountPlaneHandoff | undefined {
   const route = isAccountPlaneRefusalCode(code) ? ACCOUNT_PLANE_HANDOFFS[code] : null;
   if (route === null) {

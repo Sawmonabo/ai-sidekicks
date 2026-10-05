@@ -1,0 +1,38 @@
+/* The Table view's rows: each item's number and pairing, its members, markdown and files. */
+
+.meridian-workflow-payload__table .meridian-workflow-payload__row {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-workflow-payload__item-head {
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-payload__member {
+  display: grid;
+  grid-template-columns: minmax(0, 12ch) minmax(0, 1fr);
+  gap: var(--meridian-space-2);
+  align-items: start;
+}
+
+.meridian-workflow-payload__cell,
+.meridian-workflow-payload__whole {
+  min-inline-size: 0;
+}
+
+.meridian-workflow-payload__value {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-workflow-payload__file {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}

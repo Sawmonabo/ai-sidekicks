@@ -52,7 +52,7 @@ export interface TranscriptWindowReading {
    * only box the library sees. It sits beside `viewportClientHeightPx` because a reading taken
    * from the sample alone always agrees with the window; measured once, the sample said 32 px
    * while the element was 149 px. The gap means the sample is stale, which `publishOnResize` in
-   * `features/transcript/viewport/overflow-measurement-batch.ts` closes by republishing on resize.
+   * `lib/scroll/overflow-measurement-batch.ts` closes by republishing on resize.
    */
   readonly rangedAgainstClientHeightPx: number;
 }

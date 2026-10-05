@@ -115,18 +115,15 @@ describe("NormalizedEventReorderBuffer", () => {
     expect(counterSink.totalFor("driver.reorder_buffer.overflow")).toBe(1);
   });
 
-  it(
-    "sheds an unpaired completion past pairingTimeoutMs " + "with a diagnostic, in arrival order",
-    () => {
-      const { buffer, emitter } = makeBuffer({ pairingTimeoutMs: 500 });
-      buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0);
-      expect(buffer.flushExpired(499)).toEqual([]);
-      expect(buffer.flushExpired(500)).toEqual(["done-1"]);
-      const timeoutRecords = emitter.recentRecordsOfKind("tool_pairing_timeout");
-      expect(timeoutRecords).toHaveLength(1);
-      expect(timeoutRecords[0]?.details["toolCallId"]).toBe("tool-1");
-    },
-  );
+  it("sheds unpaired completions past pairingTimeoutMs with a diagnostic, in arrival order", () => {
+    const { buffer, emitter } = makeBuffer({ pairingTimeoutMs: 500 });
+    buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0);
+    expect(buffer.flushExpired(499)).toEqual([]);
+    expect(buffer.flushExpired(500)).toEqual(["done-1"]);
+    const timeoutRecords = emitter.recentRecordsOfKind("tool_pairing_timeout");
+    expect(timeoutRecords).toHaveLength(1);
+    expect(timeoutRecords[0]?.details["toolCallId"]).toBe("tool-1");
+  });
 
   it("expires overdue holds on the next admission as well, ahead of the new event", () => {
     const { buffer } = makeBuffer({ pairingTimeoutMs: 500 });

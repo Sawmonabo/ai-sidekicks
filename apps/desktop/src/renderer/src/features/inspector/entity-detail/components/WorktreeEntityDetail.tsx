@@ -23,7 +23,7 @@ export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Elemen
       hasRecord={props.entity !== undefined}
       degradedCause={props.degradedCause}
       degradedConsequence={
-        "a worktree that has since been merged or retired could still " + "read as ready."
+        "a worktree that has since been merged or retired could still read as ready."
       }
       absentTitle="No worktree with this identifier is in the session."
       absentDetail={

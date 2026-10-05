@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { countSchema, isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
-import { PermissionLevelSchema, type PermissionLevel } from "./session-controls.js";
+import { PermissionLevelSchema, type PermissionLevel } from "./session-controls/methods.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,

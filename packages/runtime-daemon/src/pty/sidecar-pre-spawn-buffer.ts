@@ -1,8 +1,8 @@
 import type { ExitCodeNotification } from "./pty-host-protocol.js";
 // Events the Rust PTY sidecar delivers for a session id the host does not know yet, and the ids the
 // host has closed. The sidecar can deliver a `DataFrame` or `ExitCodeNotification` ahead of its
-// `SpawnResponse` (unbiased `select!` in `merge_to_writer`); they are held and correlated. The caps
-// bound memory if events arrive for an id no response resolves.
+// `SpawnResponse` (unbiased `select!` in `merge_to_writer`); they are held until it arrives. The
+// caps bound memory if events arrive for an id no response resolves.
 
 const MAX_PRE_SPAWN_DATA_CHUNKS_PER_SESSION = 64;
 
@@ -28,7 +28,7 @@ export interface PreSpawnSessionEvents {
 export class SidecarPreSpawnBuffer {
   /**
    * `DataFrame` chunks for a session whose `SpawnResponse` has not arrived, delivered by
-   * `correlateBufferedSpawnEvents`. Cleared on child teardown: the sidecar's session counter
+   * `deliverBufferedSpawnEvents`. Cleared on child teardown: the sidecar's session counter
    * restarts on respawn, so old ids would be delivered to a new session.
    */
   private readonly pendingDataFrames: Map<string, Uint8Array[]> = new Map();

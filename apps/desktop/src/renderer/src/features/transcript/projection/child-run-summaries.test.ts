@@ -19,6 +19,7 @@ function event(
     id: `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
     sequence,
+    cursor: `cursor-at-${String(sequence)}`,
     kind,
     occurredAt: `2026-01-01T11:0${String(sequence % 10)}:00.000Z`,
     payload,

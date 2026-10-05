@@ -1,55 +1,76 @@
 // The accessibility tier over every view the workflows feature registers, each scoped to
 // itself so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
-// reason. `registerWorkflowScreens` claims one rail destination and `registerWorkflowPanes`
-// two pane kinds, so the table below has a row for each.
+// reason. `registerWorkflowScreens` claims one rail destination, audited on the Runs tab and on
+// one run's page, and `registerWorkflowPanes` the builder pane.
 //
-// The run's phase graph is audited as a piece from a hand-built parked run. It is a
-// lazily-loaded chunk, so every row is settled through the shared readiness helper before axe
-// runs; the helper tells "no graph here" from "the graph has not arrived", so no row needs an
-// exception.
-//
-// A human phase's form draws a repeated control per list entry, which exists only after a
-// person adds one, so it is audited as a component under one scheme.
+// A run's page draws its graph from a lazily loaded chunk, so every row is settled through the
+// shared readiness helper before axe runs; the helper tells "no graph here" from "the graph has
+// not arrived", so no row needs an exception. A run's page on a form wait carries the step
+// panel's form, drawn from the step's fields.
 
-import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
+
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { awaitRunGraphSettled, isRunGraphSettled } from "./run-graph-settled.js";
+import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
-  mountWorkflowRunPane,
-  mountWorkflowRunPhaseGraph,
-  mountWorkflowsDestination,
+  mountWorkflowRunPage,
+  mountWorkflowRunsTab,
 } from "./feature-mounts/workflows.js";
-// The schema form mount resolves both chunks a form needs and returns once the verdict has
-// landed. The form kit's sheet arrives with its chunk, so mounting it also puts that sheet on
-// the page.
-import { isSchemaFormSettled, mountSettledSchemaForm } from "./feature-mounts/schema-form.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The views this feature ships, each named as a reader would name it, and the graph. One row
- * per registered view: a pane kind with no row here would be reported clean without ever
- * being mounted.
+ * The views this feature ships, each named as a reader would name it, and words each draws only
+ * once its reads have answered, so an audit never covers a loading line in place of the view.
+ * One row per registered view: a pane kind with no row here would be reported clean without
+ * ever being mounted.
  */
 const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<HTMLElement>;
+  readonly drawnWords: readonly string[];
 }[] = [
   {
-    label: "the workflows destination",
-    mount: async () => (await mountWorkflowsDestination()).element,
+    label: "the Runs tab",
+    mount: async () => (await mountWorkflowRunsTab()).element,
+    // A runs-table heading and an attention line: each draws only once its own read has answered.
+    drawnWords: ["Started by", "waiting on your approval"],
   },
-  { label: "the run pane on a run", mount: async () => (await mountWorkflowRunPane()).element },
+  {
+    label: "a run's page waiting on a form",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm)).element,
+    drawnWords: ["Submit"],
+  },
+  {
+    label: "a run's page that failed",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.failed)).element,
+    drawnWords: ["Fix it and press Resume, or cancel the run"],
+  },
+  {
+    label: "a run's page waiting for a chat reply",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingReply)).element,
+    drawnWords: ["Which label should these issues get?"],
+  },
+  {
+    label: "a chain's first run holding its question",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.chainHeld)).element,
+    drawnWords: ["Stop them all"],
+  },
+  {
+    label: "a finished run's page",
+    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.succeeded)).element,
+    drawnWords: ["Open in Review"],
+  },
   {
     label: "the builder pane on a definition",
     mount: async () => (await mountWorkflowBuilderPane()).element,
+    drawnWords: [],
   },
-  { label: "a parked run's phase graph", mount: mountWorkflowRunPhaseGraph },
 ];
 
 beforeEach(() => {
@@ -72,66 +93,12 @@ describe("accessibility — the workflows views", () => {
         // the fit has not landed at the mount's return whether the lazy chunk is cold or cached.
         // For rows that draw no graph the reading is true by construction.
         expect(isRunGraphSettled(mounted)).toBe(true);
+        for (const words of view.drawnWords) {
+          expect(mounted.textContent).toContain(words);
+        }
 
         expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
       });
     }
   }
-
-  it("has no axe violation on a human phase's form once list entries are added", async () => {
-    const container = await mountSettledSchemaForm({
-      prompt: "Who signs this release off?",
-      inputSchema: {
-        type: "object",
-        properties: {
-          reviewers: {
-            type: "array",
-            title: "Reviewers",
-            // A constraint on the entry rather than the collection, so added entries carry
-            // findings of their own: the audited composition is a repeated control with a name,
-            // a verdict and the relationship between them.
-            items: { type: "string", minLength: 3 },
-          },
-        },
-        required: ["reviewers"],
-      },
-    });
-    // Stated before it is read: a form still waiting for its compiler draws no finding, so an
-    // audit taken there would cover a repeated control without the verdict this case is about.
-    expect(isSchemaFormSettled(container)).toBe(true);
-    const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
-    fireEvent.click(addEntry);
-    fireEvent.click(addEntry);
-    // An audit of a list with no entries audits none of the repeated control.
-    expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(2);
-
-    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-  });
-
-  it("has no axe violation on the raw editor while the schema refuses the document", async () => {
-    // The other arm, where everything is in one control: a schema outside the drawn set is
-    // answered as JSON, so the verdict on the whole answer has a single textarea to attach to,
-    // and a reader who never leaves the editor must still get the invalid state and a route to
-    // the sentences. It is mounted as a component, like the list-entry case, because no
-    // registered view opens this arm.
-    const container = await mountSettledSchemaForm({
-      prompt: "Describe the rows this phase should publish.",
-      inputSchema: {
-        type: "object",
-        // An array of objects is outside the drawn render set, so the mapper answers with the
-        // editor, and the schema still compiles, so there is a verdict.
-        properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
-        required: ["rows"],
-      },
-    });
-    // Stated before it is read: the invalid state below is the schema's verdict on the empty
-    // document, and a form still compiling carries neither.
-    expect(isSchemaFormSettled(container)).toBe(true);
-    const editor = container.querySelector(".meridian-schema-raw__editor");
-
-    // An audit of a valid document carries neither the invalid state nor the findings.
-    expect(editor?.getAttribute("aria-invalid")).toBe("true");
-
-    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-  });
 });

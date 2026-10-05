@@ -1,10 +1,15 @@
 // What a window does when its document will not load: load, then the generated failure
-// document, then give up. Split out of `./window.ts`; the three rungs sit in one file, in order,
-// because the property that matters, that the recovery terminates, belongs to the ladder.
+// document, then give up. The three rungs sit in one file, in order, because the property that
+// matters, that the recovery terminates, belongs to the ladder. Every rung is recorded in main's
+// diagnostic log.
 
-import { app, type BrowserWindow } from "electron";
+import { app, type BaseWindow, type WebContents } from "electron";
 
+import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { buildLoadFailureUrl } from "./load-failure-document.js";
+
+/** Main's log, drained before an exit so the reason is on disk when the process ends. */
+type LoadFailureLog = Pick<MainDiagnosticLog, "write" | "drain">;
 
 /**
  * Exit status when a window has no document it can serve, not even the generated failure
@@ -27,27 +32,38 @@ export function describeLoadFailure(error: unknown): string {
  * Starts the load, and gives a rejected load a visible outcome instead of a blank window. On
  * rejection the window loads the generated failure document (`./load-failure-document.ts`),
  * which is servable because it is not read from the tree that just failed. If that load also
- * rejects, the window is destroyed and the process exits non-zero with the diagnostic; the
- * failure document's own catch does not re-enter this path, so the recovery cannot loop.
+ * rejects, the window is destroyed and the process exits non-zero once the reason is in the log;
+ * the failure document's own catch does not re-enter this path, so the recovery cannot loop.
  */
-export function loadDocument(browserWindow: BrowserWindow, documentUrl: string): void {
-  browserWindow.loadURL(documentUrl).catch((error: unknown) => {
+export function loadDocument(
+  baseWindow: BaseWindow,
+  webContents: WebContents,
+  documentUrl: string,
+  log: LoadFailureLog,
+): void {
+  webContents.loadURL(documentUrl).catch((error: unknown) => {
     const reason = describeLoadFailure(error);
-    console.error(`[ai-sidekicks/desktop] failed to load ${documentUrl}: ${reason}`);
-    serveLoadFailureDocument(browserWindow, reason);
+    writeLoadFailureEntry(log, "error", `failed to load ${documentUrl}: ${reason}`);
+    serveLoadFailureDocument(baseWindow, webContents, reason, log);
   });
 }
 
 /** Loads the generated failure document, or gives up in a controlled way. */
-function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string): void {
-  if (browserWindow.isDestroyed()) {
+function serveLoadFailureDocument(
+  baseWindow: BaseWindow,
+  webContents: WebContents,
+  reason: string,
+  log: LoadFailureLog,
+): void {
+  if (baseWindow.isDestroyed()) {
     // The user usually closed the window while its first load was still failing. A plain
     // return, not `abandonUnservableWindow`: that calls `app.exit`, which runs no `before-quit`
     // or `will-quit` handler, so a normal close would skip the quit drain and report a
     // renderer failure.
-    console.warn(
-      `[ai-sidekicks/desktop] a window closed while its load was failing (${reason}); ` +
-        `no failure document to serve.`,
+    writeLoadFailureEntry(
+      log,
+      "warning",
+      `a window closed while its load was failing (${reason}); no failure document to serve.`,
     );
     return;
   }
@@ -60,35 +76,55 @@ function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string):
   try {
     failureDocumentUrl = buildLoadFailureUrl(reason);
   } catch (urlConstructionError: unknown) {
-    console.error(
-      `[ai-sidekicks/desktop] the load-failure URL could not be built: ` +
-        `${describeLoadFailure(urlConstructionError)}`,
+    writeLoadFailureEntry(
+      log,
+      "error",
+      `the load-failure URL could not be built: ${describeLoadFailure(urlConstructionError)}`,
     );
-    abandonUnservableWindow(browserWindow, reason);
+    abandonUnservableWindow(baseWindow, reason, log);
     return;
   }
 
-  browserWindow.loadURL(failureDocumentUrl).catch((failureDocumentError: unknown) => {
-    console.error(
-      `[ai-sidekicks/desktop] the load-failure document could not be served: ` +
-        `${describeLoadFailure(failureDocumentError)}`,
+  webContents.loadURL(failureDocumentUrl).catch((failureDocumentError: unknown) => {
+    writeLoadFailureEntry(
+      log,
+      "error",
+      `the load-failure document could not be served: ${describeLoadFailure(failureDocumentError)}`,
     );
-    abandonUnservableWindow(browserWindow, reason);
+    abandonUnservableWindow(baseWindow, reason, log);
   });
 }
 
 /**
- * Destroys a window that has no document and exits the process. With not even the failure
+ * Destroys the window that has no document and exits the process. With not even the failure
  * document to show there is nothing to interact with, and exiting non-zero beats an invisible
- * placeholder a harness can only detect by timing out.
+ * placeholder a harness can only detect by timing out. The log is drained first, because a
+ * queued append does not survive `app.exit`, and the window goes only then, so closing the last
+ * window cannot start an ordinary quit ahead of the exit.
  */
-function abandonUnservableWindow(browserWindow: BrowserWindow, reason: string): void {
-  if (!browserWindow.isDestroyed()) {
-    browserWindow.destroy();
-  }
-  console.error(
-    `[ai-sidekicks/desktop] no renderer document could be served for the main window ` +
-      `(${reason}); exiting ${String(RENDERER_UNSERVABLE_EXIT_CODE)}.`,
+function abandonUnservableWindow(
+  baseWindow: BaseWindow,
+  reason: string,
+  log: LoadFailureLog,
+): void {
+  writeLoadFailureEntry(
+    log,
+    "error",
+    `no renderer document could be served for the first window (${reason}); exiting ` +
+      `${String(RENDERER_UNSERVABLE_EXIT_CODE)}.`,
   );
-  app.exit(RENDERER_UNSERVABLE_EXIT_CODE);
+  void log.drain().then(() => {
+    if (!baseWindow.isDestroyed()) {
+      baseWindow.destroy();
+    }
+    app.exit(RENDERER_UNSERVABLE_EXIT_CODE);
+  });
+}
+
+function writeLoadFailureEntry(
+  log: LoadFailureLog,
+  level: "error" | "warning",
+  message: string,
+): void {
+  log.write({ at: new Date().toISOString(), level, source: "main/windows/load-failure", message });
 }

@@ -98,8 +98,8 @@ describe("ProviderAccount record", () => {
   });
 
   it("carries no credential-home path", () => {
-    // The record rides the account-bearing replies and the account-changed notification; the only
-    // wire member that carries a credential home is the readiness remedy's sign-in arm.
+    // The record rides the account-bearing replies and the account-changed notification, and no
+    // wire member carries a credential home.
     expect(
       ProviderAccountSchema.safeParse(
         validProviderAccount({ credentialHomePath: "/var/lib/sidekicks/homes/acct" }),
@@ -128,14 +128,12 @@ describe("readiness and its remedy union", () => {
   });
 
   it("binds each readiness state to the remedies its state calls for", () => {
-    // A `no_account` entry carrying `sign_in` would disclose a credential-home path for a
-    // resolution that reached no account, and an `indeterminate` one carrying `sign_in` would walk
-    // a person through a sign-in over a passing fault.
+    // A `no_account` entry carrying `sign_in` would ask for a sign-in on a resolution that reached
+    // no account, and an `indeterminate` one carrying `sign_in` would walk a person through a
+    // sign-in over a passing fault.
     const signIn = {
       kind: "sign_in",
       accountId: ACCOUNT_ID,
-      signInInvocation: "claude setup-token",
-      credentialHomePath: "/var/lib/sidekicks/homes/acct",
     };
     const pasteToken = { kind: "paste_token", accountId: ACCOUNT_ID };
     const lookAgain = { kind: "look_again", accountId: ACCOUNT_ID };
@@ -162,6 +160,17 @@ describe("readiness and its remedy union", () => {
           `\`${state}\` refused its own remedy`,
         ).toBe(true);
       }
+      // A state the person must act on never arrives bare: `indeterminate` would otherwise
+      // render as a state with nothing to do about it.
+      const bare = ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state,
+        ...(resolved ? { resolvedAccountId: ACCOUNT_ID } : {}),
+      });
+      expect(bare.success, `\`${state}\` admitted an entry with no remedy`).toBe(false);
+      expect(bare.success ? [] : bare.error.issues.map((issue) => issue.path.join("."))).toEqual([
+        "remedy",
+      ]);
     }
     // Every other pairing is refused. Each case supplies `resolvedAccountId` and asserts the
     // issue path, so the refusal comes from the kind mismatch, not the account-agreement rule
@@ -183,8 +192,8 @@ describe("readiness and its remedy union", () => {
         ).toEqual(["remedy.kind"]);
       }
     }
-    // `authenticated` has nothing to fix; a remedy there would put a sign-in command and a
-    // credential-home path on an account that needs neither.
+    // `authenticated` has nothing to fix; a remedy there would ask for a sign-in on an account
+    // that needs none.
     expect(
       ProviderReadinessSchema.safeParse({
         provider: "claude",
@@ -202,8 +211,6 @@ describe("readiness and its remedy union", () => {
         remedy: {
           kind: "sign_in",
           accountId: ACCOUNT_ID,
-          signInInvocation: "claude setup-token",
-          credentialHomePath: "/var/lib/sidekicks/homes/acct",
         },
       }).success,
     ).toBe(false);
@@ -213,11 +220,8 @@ describe("readiness and its remedy union", () => {
     const signInFor = (accountId: string): unknown => ({
       kind: "sign_in",
       accountId,
-      signInInvocation: "claude setup-token",
-      credentialHomePath: "/var/lib/sidekicks/homes/acct",
     });
-    // A remedy naming a different account would point at one account's credential home to
-    // repair another's.
+    // A remedy naming a different account would sign in to one account to repair another's.
     expect(
       ProviderReadinessSchema.safeParse({
         provider: "claude",
@@ -226,7 +230,7 @@ describe("readiness and its remedy union", () => {
         remedy: signInFor(OTHER_ACCOUNT_ID),
       }).success,
     ).toBe(false);
-    // An entry that resolved no account cannot carry a home path: `resolvedAccountId` is
+    // An entry that resolved no account cannot name one: `resolvedAccountId` is
     // present exactly when resolution reached one account.
     expect(
       ProviderReadinessSchema.safeParse({

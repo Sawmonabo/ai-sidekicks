@@ -1,6 +1,7 @@
 // SecureDefaults: the validated bootstrap configuration, loaded before any listener binds.
 // `effectiveSettings()` throws until `load()` has succeeded. Only `localIpcPath` exists; any
-// other key is refused with `unknown_setting`. Socket-path probing belongs to the listener.
+// other key is refused with `unknown_setting`. Measuring the platform's socket path limit belongs
+// to the listener, which hands the figure to `assertSocketPathFits` before it binds.
 
 /** The bootstrap settings: the OS-local socket or pipe path. */
 export interface SecureDefaultsConfig {
@@ -123,6 +124,23 @@ function validateConfig(config: SecureDefaultsConfig): SecureDefaultsEffectiveSe
   }
 
   return { localIpcPath };
+}
+
+/**
+ * Refuses a socket path longer than the platform's socket address field, `limitBytes`, with
+ * `invalid_local_ipc_path` naming the limit and the path's length, so the person reads that the
+ * path is too long rather than the bind's bare EINVAL.
+ */
+export function assertSocketPathFits(localIpcPath: string, limitBytes: number): void {
+  const observedBytes = Buffer.byteLength(localIpcPath, "utf8");
+  if (observedBytes > limitBytes) {
+    throw new SecureDefaultsValidationError(
+      "invalid_local_ipc_path",
+      `The socket path ${localIpcPath} is too long for a socket on this platform: it is ` +
+        `${String(observedBytes)} bytes and the limit is ${String(limitBytes)}`,
+      { setting: "localIpcPath", limit: limitBytes, observed: observedBytes },
+    );
+  }
 }
 
 function hasOwn(obj: SecureDefaultsConfig, key: string): boolean {

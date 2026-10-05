@@ -29,7 +29,7 @@ import type {
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../spawned-provider-version.js";
 
-import { CLAUDE_DRIVER_DESCRIPTOR } from "./claude-driver-descriptor.js";
+import { composeStaticOutputSpeedLevels } from "../../provider-driver-descriptors.js";
 import { getClaudeToolMetadata } from "./tools.js";
 import {
   type DriverCliVersionReport,
@@ -76,8 +76,8 @@ const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
   // checked against the command enumeration before and typed evidence after.
   context_compaction: true,
   provider_commands: true,
-  // The handshake declares an accelerated-output state; the flag does not promise the mode is
-  // available (the binding holds what the provider declared).
+  // The `initialize` reply declares an accelerated-output state; the flag does not promise the
+  // mode is available (the binding holds what the provider declared).
   output_speed: true,
 });
 
@@ -134,11 +134,8 @@ export class ClaudeCapabilityReporter {
       tools: getClaudeToolMetadata(),
       cliVersion: { ...cliVersion },
       detectionSource: { ...detection.detectionSource },
-      // A fresh array per reply: the freeze blocks in-place edits of the constant, the copy stays
-      // mutable for the consumer.
-      ...(CLAUDE_CAPABILITY_FLAGS.output_speed
-        ? { outputSpeedLevels: [...CLAUDE_DRIVER_DESCRIPTOR.outputSpeedLevels] }
-        : {}),
+      // Keyed on the resolved flag: a probe that withdrew `output_speed` takes its levels with it.
+      ...composeStaticOutputSpeedLevels(CLAUDE_DRIVER_NAME, capabilities.flags),
     };
   }
 

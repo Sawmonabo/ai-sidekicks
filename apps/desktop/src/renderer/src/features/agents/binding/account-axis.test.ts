@@ -57,8 +57,6 @@ describe("the account axis — which account a readiness entry is about", () => 
       remedy: {
         kind: "sign_in",
         accountId: registryAccountId("acct-team"),
-        signInInvocation: "codex login",
-        credentialHomePath: "/homes/team",
       },
     };
     const reading = accountAxisReadingFor(
@@ -109,19 +107,16 @@ describe("the account axis — the account an unpinned run resolves to", () => {
     expect(advisoryChoiceIn(reading, "acct-team")?.accountId).toBe("acct-team");
   });
 
-  it(
-    "negative control: a pinned value the registry lacks never falls " + "through to the default",
-    () => {
-      // Otherwise the pinned arm could answer the default, showing one account's readings under
-      // a value naming another.
-      const reading = accountAxisReadingFor(
-        served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
-        "claude",
-      );
+  it("negative control: a pinned value the registry lacks never falls to the default", () => {
+    // Otherwise the pinned arm could answer the default, showing one account's readings under
+    // a value naming another.
+    const reading = accountAxisReadingFor(
+      served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
+      "claude",
+    );
 
-      expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
-    },
-  );
+    expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
+  });
 });
 
 describe("the account axis — a value the registry does not carry", () => {

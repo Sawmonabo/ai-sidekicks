@@ -1,6 +1,4 @@
-// A main-side leaf that imports nothing. `diagnostic-log.ts` (a log not yet written),
-// `renderer-assets.ts` (an asset the built tree lacks) and `keyboard-map-file.ts` (a map never
-// saved) need the same answer to "is the path just not there?".
+// Main's one answer to "is the path just not there?", a leaf that imports nothing.
 //
 // Two codes count: `ENOENT` (no entry at the path) and `ENOTDIR` (a component that would have
 // to be a directory is a file); both mean the path names nothing. Every other code (`EACCES`,

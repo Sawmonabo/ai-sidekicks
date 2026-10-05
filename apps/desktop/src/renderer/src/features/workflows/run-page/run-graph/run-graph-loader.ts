@@ -1,6 +1,6 @@
-// The one edge into the graph renderer's code, and the only asynchronous one. The chunk entry,
-// `RunGraphCanvas.tsx`, pulls in `@xyflow/react` and both sheets, which the initial-bundle
-// budget excludes, so it is reached through `import()` alone.
+// The one edge into the graph's canvas code, and the only asynchronous one. The chunk entry,
+// `RunGraphCanvas.tsx`, pulls in `@xyflow/react`, `@dagrejs/dagre` and both sheets, which the
+// initial-bundle budget excludes, so it is reached through `import()` alone.
 
 import { MemoizedLoad } from "@renderer/lib/memoized-load.js";
 

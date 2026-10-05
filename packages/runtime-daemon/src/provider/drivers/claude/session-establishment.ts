@@ -10,8 +10,11 @@
 
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider-driver-recovery";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { applyClaudeOutputSpeed } from "./output-speed.js";
 import type {
   ClaudeChannelDisposalReason,
+  ClaudeFastModeDeclaration,
   ClaudeResumedSessionAttachment,
   ClaudeProviderProcess,
   ClaudeSessionTransport,
@@ -46,8 +49,16 @@ export interface ClaudeSessionEstablishmentDependencies {
   readonly mintProviderSessionId: () => string;
   readonly mintBindingId: () => string;
   readonly spawnLegs: ClaudeSpawnLegComposer;
-  /** Installs an adopted channel as the session's live slot; may throw, and then adopts nothing. */
-  readonly registerLiveSession: (live: LiveClaudeSession) => void;
+  /** Records an output-speed level the provider refused at spawn. */
+  readonly diagnostics: DriverDiagnosticsEmitter;
+  /**
+   * Installs an adopted channel as the session's live slot, holding its `initialize` fast-mode
+   * reading as the binding's first observation; may throw, and then adopts nothing.
+   */
+  readonly registerLiveSession: (
+    live: LiveClaudeSession,
+    initializeFastMode: ClaudeFastModeDeclaration,
+  ) => void;
   /**
    * Releases what a rewound predecessor held once its successor is adopted: its unsettled frames,
    * run routes, subagent gate and compaction waits. Its channel is disposed after.
@@ -96,7 +107,8 @@ export class ClaudeSessionEstablishment {
   readonly #mintProviderSessionId: () => string;
   readonly #mintBindingId: () => string;
   readonly #spawnLegs: ClaudeSpawnLegComposer;
-  readonly #registerLiveSession: (live: LiveClaudeSession) => void;
+  readonly #diagnostics: DriverDiagnosticsEmitter;
+  readonly #registerLiveSession: ClaudeSessionEstablishmentDependencies["registerLiveSession"];
   readonly #releaseSupersededPredecessor: (
     sessionId: SessionId,
     predecessor: LiveClaudeSession,
@@ -107,6 +119,7 @@ export class ClaudeSessionEstablishment {
     this.#mintProviderSessionId = dependencies.mintProviderSessionId;
     this.#mintBindingId = dependencies.mintBindingId;
     this.#spawnLegs = dependencies.spawnLegs;
+    this.#diagnostics = dependencies.diagnostics;
     this.#registerLiveSession = dependencies.registerLiveSession;
     this.#releaseSupersededPredecessor = dependencies.releaseSupersededPredecessor;
   }
@@ -148,16 +161,25 @@ export class ClaudeSessionEstablishment {
     // process. The window can throw: `buildClaudeSpawnBinding` digests a caller-supplied schema
     // (cyclic ones throw) and registration calls the transport's `onTurnTerminal`.
     try {
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: buildClaudeSpawnBinding(params),
-        spawnBoundLegs: spawnBoundLegs,
-        establishment: { mode: "fresh" },
-        // Captured, not resolved, so the enumeration reports the account this process runs under.
-        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
-      });
+      const appliedOutputSpeed = await this.#applyOutputSpeed(
+        attachment.channel,
+        params.sessionId,
+        params.outputSpeed,
+      );
+      this.#registerLiveSession(
+        {
+          sessionId: params.sessionId,
+          providerSessionId: attachment.providerSessionId,
+          channel: attachment.channel,
+          spawnBinding: buildClaudeSpawnBinding(params),
+          spawnBoundLegs: spawnBoundLegs,
+          appliedOutputSpeed,
+          establishment: { mode: "fresh" },
+          // Captured, not resolved, so the enumeration reports the account this process runs under.
+          admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
+        },
+        attachment.initializeFastMode,
+      );
     } catch (error) {
       // Re-throw the original cause: `createSession` has no degraded arm to carry a wrapper.
       await disposeRefusedChannel(attachment.channel, "establishment_failed");
@@ -235,17 +257,28 @@ export class ClaudeSessionEstablishment {
       }
       validatedResumeResult = validated.data;
 
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: buildClaudeSpawnBinding(params),
-        spawnBoundLegs: spawnBoundLegs,
-        // The identity gate guarantees this is the thread the daemon has been emitting against.
-        establishment: { mode: "resume", priorEmittedThreadId: attachment.providerSessionId },
-        // No record to reconcile: a resume only proceeds on an EMPTY slot (`resumeSession` checks).
-        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
-      });
+      // A resume is a fresh process, which holds no flag setting until it is told again.
+      const appliedOutputSpeed = await this.#applyOutputSpeed(
+        attachment.channel,
+        params.sessionId,
+        params.outputSpeed,
+      );
+      this.#registerLiveSession(
+        {
+          sessionId: params.sessionId,
+          providerSessionId: attachment.providerSessionId,
+          channel: attachment.channel,
+          spawnBinding: buildClaudeSpawnBinding(params),
+          spawnBoundLegs: spawnBoundLegs,
+          appliedOutputSpeed,
+          // The identity gate guarantees this is the thread the daemon has been emitting against.
+          establishment: { mode: "resume", priorEmittedThreadId: attachment.providerSessionId },
+          // No record to reconcile: a resume only proceeds on an EMPTY slot (`resumeSession`
+          // checks).
+          admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
+        },
+        attachment.initializeFastMode,
+      );
     } catch (error) {
       const disposalNote = await disposeRefusedChannel(attachment.channel, "establishment_failed");
       // `recovery-needed`, not `reauth-required`: adoption failed after a resume that succeeded.
@@ -332,20 +365,30 @@ export class ClaudeSessionEstablishment {
       }
       validatedRollbackResult = validated.data;
 
-      this.#registerLiveSession({
-        sessionId: params.sessionId,
-        providerSessionId: attachment.providerSessionId,
-        channel: attachment.channel,
-        spawnBinding: predecessor.spawnBinding,
-        spawnBoundLegs: rewoundSpawnBoundLegs,
-        // Bases like a resume, keyed on the predecessor's id (the only one spend was emitted
-        // under); a zero base would re-meter earlier turns. If the provider's counter restarts on
-        // `--fork-session` (unmeasured), deltas floor at zero and a diagnostic is recorded.
-        establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
-        // Inherited: a fork continues the run already admitted, and re-reading the registry could
-        // re-bill a session the daemon never re-admitted.
-        admittedProviderAccountId: predecessor.admittedProviderAccountId,
-      });
+      // The fork is a fresh process too, so the level the predecessor accepted is applied again.
+      const appliedOutputSpeed = await this.#applyOutputSpeed(
+        attachment.channel,
+        params.sessionId,
+        predecessor.appliedOutputSpeed,
+      );
+      this.#registerLiveSession(
+        {
+          sessionId: params.sessionId,
+          providerSessionId: attachment.providerSessionId,
+          channel: attachment.channel,
+          spawnBinding: predecessor.spawnBinding,
+          spawnBoundLegs: rewoundSpawnBoundLegs,
+          appliedOutputSpeed,
+          // Bases like a resume, keyed on the predecessor's id (the only one spend was emitted
+          // under); a zero base would re-meter earlier turns. If the provider's counter restarts on
+          // `--fork-session` (unmeasured), deltas floor at zero and a diagnostic is recorded.
+          establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
+          // Inherited: a fork continues the run already admitted, and re-reading the registry could
+          // re-bill a session the daemon never re-admitted.
+          admittedProviderAccountId: predecessor.admittedProviderAccountId,
+        },
+        attachment.initializeFastMode,
+      );
     } catch (error) {
       const disposalNote = await disposeRefusedChannel(attachment.channel, "establishment_failed");
       return ForkConversationResultSchema.parse({
@@ -361,5 +404,17 @@ export class ClaudeSessionEstablishment {
     this.#releaseSupersededPredecessor(params.sessionId, predecessor);
     await disposeRefusedChannel(predecessor.channel, "session_closed");
     return validatedRollbackResult;
+  }
+
+  // Sent before registration, inside each leg's dispose-or-register window, so a transport failure
+  // disposes the channel; a refusal leaves the process on its own level and records none applied.
+  async #applyOutputSpeed(
+    channel: ClaudeProviderProcess,
+    sessionId: SessionId,
+    level: string | undefined,
+  ): Promise<string | undefined> {
+    return level === undefined
+      ? undefined
+      : await applyClaudeOutputSpeed(channel, sessionId, level, this.#diagnostics);
   }
 }

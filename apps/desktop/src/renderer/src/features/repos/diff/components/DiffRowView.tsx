@@ -52,6 +52,9 @@ export const DiffRowView: React.MemoExoticComponent<
         <span className="meridian-diff__file-path" role="cell" title={file?.path}>
           <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           {file?.path ?? ""}
+          {file?.stepName === undefined ? null : (
+            <span className="meridian-diff__file-step">{`Changed by ${file.stepName}`}</span>
+          )}
           {changeNotes.length === 0 ? null : (
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
           )}
@@ -126,9 +129,11 @@ export const DiffRowView: React.MemoExoticComponent<
       {/* One cell, not three: `role="row"` admits only cells, and the gutters belong to the
           line. */}
       <span
-        className={
-          "meridian-diff__side meridian-diff__side--unified " + `meridian-diff__side--${line.kind}`
-        }
+        className={[
+          "meridian-diff__side",
+          "meridian-diff__side--unified",
+          `meridian-diff__side--${line.kind}`,
+        ].join(" ")}
         role="cell"
       >
         <DiffGutter line={line} side="base" />

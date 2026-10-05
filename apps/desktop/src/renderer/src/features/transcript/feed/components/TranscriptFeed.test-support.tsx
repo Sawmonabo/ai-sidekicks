@@ -5,6 +5,7 @@
 
 import { act, render } from "@testing-library/react";
 
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/viewport-constants.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
@@ -16,6 +17,7 @@ import { registerTranscriptCommands } from "../../contributions/commands.js";
 import { TRANSCRIPT_OWNER } from "../../contributions/screens.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
+import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** An event count that fits inside the window cap. */
@@ -26,23 +28,32 @@ export const OVER_CAP_EVENT_COUNT: number = TRANSCRIPT_WINDOW_ROW_CAP + 50;
 /**
  * Mount the feed under a bridge, because the transcript reads the app's clock. `onRowMounted`
  * lets a case read the three decisions the list makes for a row, which reach the row renderer as
- * arguments and never as markup.
+ * arguments and never as markup. `messageAnchorCursor` opens the feed at that message, and
+ * `readEarlierPage` is the backward read the feed pages through.
  */
 export function renderFeed(
   sessionStore: SessionStore,
   onRowMounted?: (mount: TranscriptRowProps) => void,
   renderRowBody?: (mount: TranscriptRowProps) => React.JSX.Element,
+  options: {
+    readonly messageAnchorCursor?: string;
+    readonly readEarlierPage?: EarlierPageRead;
+  } = {},
 ): HTMLElement {
   const { container } = render(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
-      <TranscriptFeed
-        sessionStore={sessionStore}
-        renderTranscriptRow={(mount) => {
-          onRowMounted?.(mount);
-          return renderRowBody === undefined ? <p>{mount.row.summary}</p> : renderRowBody(mount);
-        }}
-        feedLabel="Transcript"
-      />
+      <LiveAnnouncerProvider>
+        <TranscriptFeed
+          sessionStore={sessionStore}
+          renderTranscriptRow={(mount) => {
+            onRowMounted?.(mount);
+            return renderRowBody === undefined ? <p>{mount.row.summary}</p> : renderRowBody(mount);
+          }}
+          feedLabel="Transcript"
+          messageAnchorCursor={options.messageAnchorCursor}
+          readEarlierPage={options.readEarlierPage}
+        />
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
   const feed = container.querySelector(".meridian-transcript-feed");
@@ -74,6 +85,11 @@ export function RetainingRowBody(props: TranscriptRowProps): React.JSX.Element {
       {props.row.summary}
     </button>
   );
+}
+
+/** A row body naming its row by id, so a case can tell which rows the window mounted. */
+export function RowIdBody(props: TranscriptRowProps): React.JSX.Element {
+  return <p data-row-id={props.row.id}>{props.row.summary}</p>;
 }
 
 /**

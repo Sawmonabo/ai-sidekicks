@@ -1,6 +1,12 @@
-// Window construction for the main process. `constructLockedWindow` owns the one
-// `webPreferences` literal; ESLint refuses a window built anywhere else under `src/main/` and a
-// security setting written as anything but its hardened literal.
+// Window construction for the main process. Every window is a `BaseWindow` hosting the renderer
+// in a `WebContentsView`, and `constructLockedWindow` owns the one `webPreferences` literal; ESLint
+// refuses a window or view built anywhere else under `src/main/` and a security setting written as
+// anything but its hardened literal.
+//
+// Two kinds of window come out of it. The first window loads the renderer document, with the
+// preload. Every further one adopts the `webContents` Chromium made for the renderer's own
+// `window.open`, which keeps the renderer's sandbox, context isolation and CSP and carries no
+// preload of its own: one renderer draws into every window.
 //
 // The window is served over `sidekicks-renderer://`, never `file://`, because the hardening
 // baseline disables the `GrantFileProtocolExtraPrivileges` fuse. The preload path uses
@@ -9,33 +15,57 @@
 // Electron's sandboxed preload runs only CommonJS; an ESM preload fails with `Cannot use import
 // statement outside a module`.
 
-import { BrowserWindow } from "electron";
+import { BaseWindow, WebContentsView, type Rectangle, type WebContents } from "electron";
 import path from "node:path";
 
-import { devServerUrl, installNavigationPolicy } from "./navigation.js";
+import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { RENDERER_INDEX_URL } from "../services/renderer-scheme.js";
+import { devServerUrl, installNavigationPolicy, type ChildWindowOpener } from "./navigation.js";
 import { loadDocument } from "./window-load-failure.js";
-import { applyRevealPreferences, revealWindow } from "./window-reveal.js";
+import { applyRevealPreferences, revealWindow, type RevealState } from "./window-reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
 
-/** The pixel size a window opens at, and the switches its renderer starts with. */
-export interface LockedWindowOptions {
-  readonly width: number;
-  readonly height: number;
+/** One window: the native window and the view its console document is shown in. */
+export interface RendererWindow {
+  readonly baseWindow: BaseWindow;
+  readonly view: WebContentsView;
+}
+
+/** Where a window opens and what it is painted with before its document draws. */
+export interface WindowFrame {
+  readonly bounds: Rectangle;
+  readonly reveal: RevealState;
+  /** The kept ground the first frame is painted in, `#rrggbb`. */
+  readonly background: string;
+  /** Answers the renderer's own `window.open` from this window. */
+  readonly openChildWindow: ChildWindowOpener;
+  /** Main's diagnostic log, where the window's refusals and failures are recorded. */
+  readonly log: Pick<MainDiagnosticLog, "write" | "drain">;
+}
+
+/** How a window is built: its frame, and either its renderer switches or a document to adopt. */
+interface LockedWindowOptions extends WindowFrame {
   /** Appended to the renderer's command line, where the preload reads them. */
   readonly additionalArguments: readonly string[];
+  readonly adoptedWebContents: WebContents | undefined;
 }
 
 /**
- * The single owner of the locked `webPreferences` block, and the only `new BrowserWindow(...)`
- * call site under `src/main/`; ESLint refuses a second one.
+ * The single owner of the locked `webPreferences` block, and the only `new BaseWindow(...)` and
+ * `new WebContentsView(...)` call site under `src/main/`; ESLint refuses a second one. An adopted
+ * `webContents` keeps the preferences it was made with, which Chromium copied from its opener's.
  */
-function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
-  const browserWindow = new BrowserWindow({
-    width: options.width,
-    height: options.height,
+function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
+  const baseWindow = new BaseWindow({
+    ...options.bounds,
     show: false,
+    // On macOS the console fills the window under the traffic lights; elsewhere the system's
+    // own title strip stays.
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    backgroundColor: options.background,
+  });
+  const view = new WebContentsView({
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -45,22 +75,54 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
       preload: PRELOAD_PATH,
       additionalArguments: [...options.additionalArguments],
     },
+    ...(options.adoptedWebContents === undefined
+      ? {}
+      : { webContents: options.adoptedWebContents }),
+  });
+  view.setBackgroundColor(options.background);
+  baseWindow.contentView.addChildView(view);
+  fitViewToWindow(baseWindow, view);
+  baseWindow.on("resize", () => {
+    fitViewToWindow(baseWindow, view);
   });
 
-  installNavigationPolicy(browserWindow);
-  applyRevealPreferences(browserWindow);
-
-  // Delegated so every window takes the same reveal decision (`./window-reveal.ts`).
-  browserWindow.once("ready-to-show", () => {
-    revealWindow(browserWindow);
+  const webContents = view.webContents;
+  installNavigationPolicy(webContents, options.openChildWindow, options.log);
+  applyRevealPreferences(webContents);
+  pairCloses(baseWindow, webContents);
+  webContents.on("page-title-updated", (_event, title: string) => {
+    baseWindow.setTitle(title);
   });
 
-  return browserWindow;
+  return { baseWindow, view };
+}
+
+/** The view fills the window's content area; `WebContentsView` does not size itself. */
+function fitViewToWindow(baseWindow: BaseWindow, view: WebContentsView): void {
+  const contentBounds = baseWindow.getContentBounds();
+  view.setBounds({ x: 0, y: 0, width: contentBounds.width, height: contentBounds.height });
 }
 
 /**
- * The document a window loads: the dev server under `electron-vite dev`, so hot reload works,
- * and otherwise the built bundle over the renderer scheme. The two origins have separate
+ * Closing either half closes the other. A `BaseWindow` leaves its views' `webContents` alive when
+ * it closes, and a page's own `window.close()` destroys the `webContents` and leaves its window.
+ */
+function pairCloses(baseWindow: BaseWindow, webContents: WebContents): void {
+  baseWindow.once("closed", () => {
+    if (!webContents.isDestroyed()) {
+      webContents.close();
+    }
+  });
+  webContents.once("destroyed", () => {
+    if (!baseWindow.isDestroyed()) {
+      baseWindow.close();
+    }
+  });
+}
+
+/**
+ * The document the first window loads: the dev server under `electron-vite dev`, so hot reload
+ * works, and otherwise the built bundle over the renderer scheme. The two origins have separate
  * browser-storage partitions; that store holds UI state only, so a split can cost a pane its
  * layout and never a draft.
  */
@@ -68,54 +130,56 @@ function resolveRendererDocumentUrl(): string {
   return devServerUrl()?.href ?? RENDERER_INDEX_URL;
 }
 
-/**
- * How a caller attaches to a window before its load begins. `beforeLoad` runs with the
- * constructed window as the last act before `loadURL`, so a listener for `did-finish-load`,
- * `did-fail-load` or `dom-ready` registered inside it cannot be late. One call that cannot be
- * mis-sequenced beats handing back an unloaded window, which would allow load-first and
- * forgot-to-load. A throw from `beforeLoad` destroys the window rather than leaving a blank
- * one behind.
- */
-export interface WindowLoadOptions {
-  readonly beforeLoad?: (browserWindow: BrowserWindow) => void;
+/** How the first window opens: its frame, its renderer switches, and the caller's load hook. */
+export interface RendererWindowOptions extends WindowFrame {
+  /**
+   * Renderer switches for this window: the app's facts, and on a fixture launch its scenario
+   * (`@shared/fixture-launch.ts`).
+   */
+  readonly additionalArguments: readonly string[];
+  /**
+   * Runs with the constructed window as the last act before the load, so a listener for
+   * `did-finish-load`, `did-fail-load` or `dom-ready` registered inside it cannot be late. A throw
+   * destroys the window rather than leaving a blank one behind, and is rethrown.
+   */
+  readonly beforeLoad?: (rendererWindow: RendererWindow) => void;
 }
 
-/** Runs the caller's pre-load hook, then starts the load, so the ordering lives in one place. */
-function prepareAndLoad(
-  browserWindow: BrowserWindow,
-  documentUrl: string,
-  options: WindowLoadOptions,
-): void {
+/** Builds a window that loads the renderer document, revealed once that document has loaded. */
+export function openRendererWindow(options: RendererWindowOptions): RendererWindow {
+  const rendererWindow = constructLockedWindow({ ...options, adoptedWebContents: undefined });
+  const { baseWindow, view } = rendererWindow;
+  view.webContents.once("did-finish-load", () => {
+    revealWindow(baseWindow, options.reveal);
+  });
+
   try {
-    options.beforeLoad?.(browserWindow);
+    options.beforeLoad?.(rendererWindow);
   } catch (error: unknown) {
-    if (!browserWindow.isDestroyed()) {
-      browserWindow.destroy();
+    if (!baseWindow.isDestroyed()) {
+      baseWindow.destroy();
     }
     throw error;
   }
 
-  loadDocument(browserWindow, documentUrl);
+  loadDocument(baseWindow, view.webContents, resolveRendererDocumentUrl(), options.log);
+  return rendererWindow;
 }
 
-/** How the main window opens, beyond the load hook every window shares. */
-export interface MainWindowOptions extends WindowLoadOptions {
-  /**
-   * Renderer switches for this window. Empty for a normal launch; a fixture launch names
-   * its scenario here (`@shared/fixture-launch.ts`).
-   */
-  readonly additionalArguments?: readonly string[];
-}
-
-/** The main session window. */
-export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
-  const browserWindow = constructLockedWindow({
-    width: 1280,
-    height: 800,
-    additionalArguments: options.additionalArguments ?? [],
+/**
+ * Builds a window around the `webContents` Chromium made for the renderer's `window.open`, and
+ * reveals it at once: the renderer that opened it draws its document, so there is no load to wait
+ * for.
+ */
+export function adoptRendererChild(
+  frame: WindowFrame,
+  handedWebContents: WebContents,
+): RendererWindow {
+  const rendererWindow = constructLockedWindow({
+    ...frame,
+    additionalArguments: [],
+    adoptedWebContents: handedWebContents,
   });
-
-  prepareAndLoad(browserWindow, resolveRendererDocumentUrl(), options);
-
-  return browserWindow;
+  revealWindow(rendererWindow.baseWindow, frame.reveal);
+  return rendererWindow;
 }

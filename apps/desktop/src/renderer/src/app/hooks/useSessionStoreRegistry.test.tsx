@@ -27,6 +27,7 @@ function queuedRunEvent(sessionId: string, sequence: number, runId: string): Pro
     id: `event-${String(sequence)}`,
     sessionId,
     sequence,
+    cursor: `cursor-at-${String(sequence)}`,
     kind: "run.queued",
     occurredAt: new Date(sequence).toISOString(),
     payload: { sessionId, runId, runVersion: 1, newState: "queued" },
@@ -112,23 +113,20 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
   });
 });
 
-describe(
-  "useSessionStoreRegistry — the window's " + "registry and the subscriber that feeds it",
-  () => {
-    it("mints a subscriber beside the registry and binds the open session", () => {
-      const { diagnosticsHolder, wrapper } = compositionHarness();
-      render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {
-        wrapper,
-      });
-
-      // Read through what the composition was handed, since the hook does not return the
-      // subscriber; this is also what the fixture composition puts on the page for the endurance
-      // tier.
-      const diagnostics = diagnosticsHolder.installed;
-      expect(diagnostics).toBeDefined();
-      expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
-
-      expect(diagnostics?.boundSessionIds()).toEqual([BOUND_SESSION_ID]);
+describe("useSessionStoreRegistry: the window's registry and the subscriber feeding it", () => {
+  it("mints a subscriber beside the registry and binds the open session", () => {
+    const { diagnosticsHolder, wrapper } = compositionHarness();
+    render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {
+      wrapper,
     });
-  },
-);
+
+    // Read through what the composition was handed, since the hook does not return the
+    // subscriber; this is also what the fixture composition puts on the page for the endurance
+    // tier.
+    const diagnostics = diagnosticsHolder.installed;
+    expect(diagnostics).toBeDefined();
+    expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
+
+    expect(diagnostics?.boundSessionIds()).toEqual([BOUND_SESSION_ID]);
+  });
+});

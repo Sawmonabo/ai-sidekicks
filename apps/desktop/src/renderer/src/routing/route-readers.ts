@@ -53,6 +53,44 @@ export function settingsRoute(page: string, selection: string | undefined): AppR
 }
 
 /**
+ * The run a workflows address opens, or `undefined` where it names none. `runId` exists on only
+ * the Runs tab's arm, so callers read it here instead of narrowing.
+ */
+export function workflowsRunId(route: AppRoute): string | undefined {
+  return route.kind === "workflows" && route.tab === "runs" ? route.runId : undefined;
+}
+
+/**
+ * The Runs tab's address, on one run's page where the caller names one. Omits the `runId` key
+ * when there is none, which the parse round trip depends on.
+ */
+export function workflowRunsRoute(runId: string | undefined): AppRoute {
+  return runId === undefined
+    ? { kind: "workflows", tab: "runs" }
+    : { kind: "workflows", tab: "runs", runId };
+}
+
+/**
+ * The message a session address opens at, as its event cursor, or `undefined` where it names
+ * none. `messageAnchorCursor` exists on only the session arm, so callers read it here.
+ */
+export function sessionMessageAnchorCursor(route: AppRoute): string | undefined {
+  return route.kind === "session" ? route.messageAnchorCursor : undefined;
+}
+
+/**
+ * The address of one session, opened at the message whose event cursor the caller names, such
+ * as the one a workflow run's `startedBy` carries. Without a cursor it opens the session as
+ * usual; a cursor the session's log does not hold opens it the same way. Omits the
+ * `messageAnchorCursor` key when there is none, which the parse round trip depends on.
+ */
+export function sessionRoute(sessionId: string, messageAnchorCursor: string | undefined): AppRoute {
+  return messageAnchorCursor === undefined
+    ? { kind: "session", sessionId }
+    : { kind: "session", sessionId, messageAnchorCursor };
+}
+
+/**
  * The session a route is scoped to, or `undefined` where it names none.
  * `sessionId` exists on only some arms, so callers read it here instead of narrowing.
  */
@@ -76,10 +114,19 @@ export function routesAreEqual(left: AppRoute, right: AppRoute): boolean {
   }
   switch (left.kind) {
     case "sessions":
-    case "workflows":
       return true;
+    case "workflows":
+      return (
+        right.kind === "workflows" &&
+        left.tab === right.tab &&
+        workflowsRunId(left) === workflowsRunId(right)
+      );
     case "session":
-      return right.kind === "session" && left.sessionId === right.sessionId;
+      return (
+        right.kind === "session" &&
+        left.sessionId === right.sessionId &&
+        left.messageAnchorCursor === right.messageAnchorCursor
+      );
     case "pane-harness":
       return (
         right.kind === "pane-harness" &&

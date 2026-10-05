@@ -1,5 +1,5 @@
-// The service's acts on everything it keeps for the person: export and erase. Settings ›
-// Runtime and the command line send the same verbs.
+// Everything the service keeps for the person: the data folder it lives in, and the two acts on
+// it, export and erase, which Settings › Runtime and the command line send as the same verbs.
 import { z } from "zod";
 
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
@@ -14,6 +14,12 @@ import {
 } from "./method-descriptor.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 import { countSchema } from "./internal/wire-scalars.js";
+
+/**
+ * The service's data folder, inside the person's home folder: its database, the machine's
+ * settings and every other file it keeps.
+ */
+export const DAEMON_DATA_FOLDER_NAME = ".ai-sidekicks" as const;
 
 // Export all data
 

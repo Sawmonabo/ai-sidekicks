@@ -12,7 +12,10 @@ import { AgentIdSchema, type AgentId } from "./agent-definition.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "./provider-driver.js";
-import { SessionAcknowledgementSchema, type SessionAcknowledgement } from "./session-controls.js";
+import {
+  SessionAcknowledgementSchema,
+  type SessionAcknowledgement,
+} from "./session-controls/methods.js";
 import {
   SessionIdSchema,
   wireFreeFormString,

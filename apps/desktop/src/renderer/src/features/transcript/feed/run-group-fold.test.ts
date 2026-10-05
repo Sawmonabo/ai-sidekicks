@@ -13,7 +13,10 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import { type RunGroup } from "../run-groups/run-groups.js";
 import { foldRunGroupHeaders, type RunGroupDisclosure } from "./run-group-fold.js";
 import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
-import { transcriptFixtureStampAt } from "../transcript-logs.test-support.js";
+import {
+  transcriptFixtureStampAt,
+  transcriptFixtureStreamCursor,
+} from "../transcript-logs.test-support.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 const SESSION_ID = "session-run-group-cap";
@@ -27,6 +30,7 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
     id: `event-${String(index)}`,
     sessionId: SESSION_ID,
     sequence: index,
+    cursor: transcriptFixtureStreamCursor(index),
     kind: index === memberCount - 1 ? "run.completed" : "assistant.message",
     occurredAt: transcriptFixtureStampAt(index),
     payload,

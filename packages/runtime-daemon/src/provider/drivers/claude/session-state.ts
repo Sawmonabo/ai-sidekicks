@@ -6,6 +6,7 @@
 import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider-driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
 import { type CompactionWaitScheduler } from "../../compaction-wait.js";
+import type { RunOutputSpeedSettledListener } from "../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   ThreadFrameRouter,
@@ -68,6 +69,12 @@ export interface LiveClaudeSession {
    * and a guess that omits the posture relaunches the session unsandboxed.
    */
   readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
+  /**
+   * The output-speed level this process last accepted with `apply_flag_settings`, or `undefined`
+   * when it accepted none. A rewind applies it to the forked process; a run asking for it sends
+   * nothing.
+   */
+  appliedOutputSpeed: string | undefined;
   /**
    * Usage base: zero for `fresh`, else the prior-emitted cumulative sum for `resume`, which after
    * a rewind is keyed by the predecessor's id because the fork announces a new one.
@@ -155,6 +162,11 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
+  /**
+   * Receives each run's settled declared fast-mode state, read from the handshake of the turn the
+   * run starts, after any `apply_flag_settings` it sent.
+   */
+  readonly onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
   /**
    * Receives the routing decision for a frame released from a hold, when no observer call can
    * answer for it. Only `carve-out-usage` and `suppress-child-transcript` occur; interactive

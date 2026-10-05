@@ -28,7 +28,7 @@ import {
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
+import { composeStaticOutputSpeedLevels } from "./provider-driver-descriptors.js";
 import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
@@ -350,7 +350,7 @@ export class DriverCapabilitiesWriter {
 
   /**
    * Rebuilds a driver's capabilities from the durable cache without asking the driver, in one
-   * DEFERRED read transaction. `outputSpeedLevels` comes from the provider's descriptor.
+   * DEFERRED read transaction. A static `outputSpeedLevels` comes from the provider's descriptor.
    */
   hydrate(driverName: ProviderName): DriverCapabilityHydrationResult {
     const cached: CachedDriverCapabilityRead = this.#readTxn.deferred(driverName);
@@ -370,10 +370,7 @@ export class DriverCapabilitiesWriter {
         // Copied: `CapabilityDetails.tools` is readonly, `GetCapabilitiesResult.tools` is mutable.
         tools: [...cached.snapshot.tools],
         cliVersion: cached.storedCliVersion,
-        // Present iff the cached flag says so; copied because the descriptor's arrays are frozen.
-        ...(cached.snapshot.flags.output_speed
-          ? { outputSpeedLevels: [...PROVIDER_DRIVER_DESCRIPTORS[driverName].outputSpeedLevels] }
-          : {}),
+        ...composeStaticOutputSpeedLevels(driverName, cached.snapshot.flags),
       },
     };
   }

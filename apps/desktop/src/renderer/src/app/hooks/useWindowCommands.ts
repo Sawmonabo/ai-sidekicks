@@ -10,7 +10,6 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
-import type { SchemePreference } from "@renderer/styles/tokens.js";
 import { subscribeToCommandContributions } from "@renderer/registries/commands/command-contributions.js";
 import { publishCommandRefusalSink } from "@renderer/registries/commands/command-refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
@@ -42,8 +41,8 @@ export interface WindowCommandsInput {
    * installed whether or not anybody opens the Keyboard page.
    */
   readonly keyboardMap: PlatformBridge["keyboardMap"];
-  /** This window's act for choosing a color scheme, which the `Color scheme` row cycles. */
-  readonly chooseScheme: (preference: SchemePreference) => void;
+  /** This window's act for the next color scheme in the cycle, which the `Color scheme` row runs. */
+  readonly chooseNextScheme: () => void;
   /** The screen registry this window mounts through, for the destinations' own warm-up. */
   readonly screenRegistry: ScreenRegistry;
 }
@@ -56,7 +55,7 @@ export interface WindowCommandsInput {
 export function useWindowCommands(
   input: WindowCommandsInput,
 ): Pick<CommandPaletteProps, "context" | "bindings" | "revision" | "open" | "onOpenChange"> {
-  const { route, lastOpenedSessionId, windowStore, keyboardMap, chooseScheme, screenRegistry } =
+  const { route, lastOpenedSessionId, windowStore, keyboardMap, chooseNextScheme, screenRegistry } =
     input;
 
   // Derived from the route, so the palette cannot disagree with the rail about where it is.
@@ -107,7 +106,7 @@ export function useWindowCommands(
   useEffect(() => {
     const windowCommands: readonly CommandDefinition[] = [
       ...buildNavigationCommands(windowStore, screenRegistry),
-      buildColorSchemeCommand(() => windowStore.getState().schemePreference, chooseScheme),
+      buildColorSchemeCommand(chooseNextScheme),
       ...bridgeCommands,
     ];
     registerCommands(windowCommands);
@@ -126,7 +125,7 @@ export function useWindowCommands(
         commandRegistry.unregister(command.id);
       }
     };
-  }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseScheme]);
+  }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseNextScheme]);
 
   // Not awaited: `hydrateFrom` turns a failed read into a read refusal, so a rejection is a
   // defect.

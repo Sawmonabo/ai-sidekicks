@@ -35,7 +35,7 @@ export interface StoreBoundReaderBinding<TReader extends StoreBoundReader<unknow
  *
  * The store is not part of the key: the seam cannot see a store replaced under the same key
  * (a projection rebuilt across a reconnect), so the reader is asked, and its replacement is
- * published through the seam, which closes the old one. Strict mode's replayed setup on a
+ * published through the seam, which closes the old one. Strict mode's re-run setup on a
  * closed reader is the seam's `isClosed`, and re-deriving it here would dispose that reader
  * twice. A new subject mints a new reader, so a caller holds its subject steady for as long
  * as the section should keep its reading.

@@ -54,64 +54,58 @@ function ApprovalCommandsHarness(props: {
 }
 
 describe("the approvals palette rows answer through the committed render", () => {
-  it(
-    "resolves through the on-screen render's dispatcher after a " + "discarded re-address",
-    async () => {
-      const committedResolve = vi.fn();
-      const abandonedResolve = vi.fn();
-      const readdress: { current: (() => void) | undefined } = { current: undefined };
-      render(
-        <ApprovalCommandsHarness
-          committedResolve={committedResolve}
-          abandonedResolve={abandonedResolve}
-          readdress={readdress}
-        />,
-      );
+  it("resolves through the on-screen dispatcher after a discarded re-address", async () => {
+    const committedResolve = vi.fn();
+    const abandonedResolve = vi.fn();
+    const readdress: { current: (() => void) | undefined } = { current: undefined };
+    render(
+      <ApprovalCommandsHarness
+        committedResolve={committedResolve}
+        abandonedResolve={abandonedResolve}
+        readdress={readdress}
+      />,
+    );
 
-      await abandonOneRenderPass(() => {
-        readdress.current?.();
-      });
-      commandRegistry.get(APPROVE_COMMAND_ID)?.run();
+    await abandonOneRenderPass(() => {
+      readdress.current?.();
+    });
+    commandRegistry.get(APPROVE_COMMAND_ID)?.run();
 
-      // The rows say the same thing in both passes, so the command object never changed, only
-      // what it dispatches through.
-      expect(abandonedResolve).not.toHaveBeenCalled();
-      expect(committedResolve).toHaveBeenCalledTimes(1);
-      expect(committedResolve.mock.calls[0]?.[0]).toStrictEqual({
-        approvalRequestId: PENDING_APPROVAL_ID,
-        decision: "approved",
-        clientResolutionId: expect.any(String),
-      });
-    },
-  );
+    // The rows say the same thing in both passes, so the command object never changed, only
+    // what it dispatches through.
+    expect(abandonedResolve).not.toHaveBeenCalled();
+    expect(committedResolve).toHaveBeenCalledTimes(1);
+    expect(committedResolve.mock.calls[0]?.[0]).toStrictEqual({
+      approvalRequestId: PENDING_APPROVAL_ID,
+      decision: "approved",
+      clientResolutionId: expect.any(String),
+    });
+  });
 
-  it(
-    "negative control: a committed re-address DOES move the row onto " + "the new dispatcher",
-    async () => {
-      // Without this the case above would pass over a hook that ignored its input.
-      const committedResolve = vi.fn();
-      const laterResolve = vi.fn();
-      const readdress: { current: (() => void) | undefined } = { current: undefined };
-      const { rerender } = render(
-        <ApprovalCommandsHarness
-          committedResolve={committedResolve}
-          abandonedResolve={laterResolve}
-          readdress={readdress}
-        />,
-      );
+  it("negative control: a committed re-address moves the row to the new dispatcher", async () => {
+    // Without this the case above would pass over a hook that ignored its input.
+    const committedResolve = vi.fn();
+    const laterResolve = vi.fn();
+    const readdress: { current: (() => void) | undefined } = { current: undefined };
+    const { rerender } = render(
+      <ApprovalCommandsHarness
+        committedResolve={committedResolve}
+        abandonedResolve={laterResolve}
+        readdress={readdress}
+      />,
+    );
 
-      // The same re-address, committed rather than abandoned.
-      rerender(
-        <ApprovalCommandsHarness
-          committedResolve={laterResolve}
-          abandonedResolve={laterResolve}
-          readdress={readdress}
-        />,
-      );
-      commandRegistry.get(APPROVE_COMMAND_ID)?.run();
+    // The same re-address, committed rather than abandoned.
+    rerender(
+      <ApprovalCommandsHarness
+        committedResolve={laterResolve}
+        abandonedResolve={laterResolve}
+        readdress={readdress}
+      />,
+    );
+    commandRegistry.get(APPROVE_COMMAND_ID)?.run();
 
-      expect(committedResolve).not.toHaveBeenCalled();
-      expect(laterResolve).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(committedResolve).not.toHaveBeenCalled();
+    expect(laterResolve).toHaveBeenCalledTimes(1);
+  });
 });

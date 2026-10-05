@@ -1,6 +1,7 @@
 // The pane context, the render, and the log the transcript pane suite is driven over.
 
 import { render } from "@testing-library/react";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { paneContext } from "@test/helpers/pane-context.js";
@@ -42,7 +43,9 @@ export function transcriptPaneContext(
 export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
   const { container } = render(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
-      <TranscriptPane {...props} />
+      <LiveAnnouncerProvider>
+        <TranscriptPane {...props} />
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
   const pane = container.querySelector(".meridian-pane");
@@ -64,6 +67,7 @@ export function openSessionStoreWithPaneLog(): SessionStore {
       id: "event-0",
       sessionId: TRANSCRIPT_PANE_SESSION_ID,
       sequence: 0,
+      cursor: "cursor-at-0",
       kind: "session.created",
       occurredAt: "2026-01-01T11:05:00.000Z",
       payload: { sessionId: TRANSCRIPT_PANE_SESSION_ID },
@@ -72,6 +76,7 @@ export function openSessionStoreWithPaneLog(): SessionStore {
       id: "event-1",
       sessionId: TRANSCRIPT_PANE_SESSION_ID,
       sequence: 1,
+      cursor: "cursor-at-1",
       kind: "run.running",
       occurredAt: "2026-01-01T11:05:01.000Z",
       payload: {

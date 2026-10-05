@@ -4,7 +4,7 @@
 // command-shaped and answers with a zero-turn success: no error, no model attribution, no token
 // accounting (measured against a pinned provider build).
 // - Neutralization changes only the bytes handed to the provider; the user's text is persisted,
-//   evented, replayed and rendered as authored.
+//   evented, rebuilt from and rendered as authored.
 // - `OutboundTextFrame` is nominal (`#private` field): a driver only gets text from the writer.
 // - The frame carries an origin, not a capability flag: an undeclared capability resolves
 //   fail-open, so an absent or unrecognized origin neutralizes.
@@ -104,7 +104,7 @@ const FRAME_MINT_TOKEN: unique symbol = Symbol("outbound-text-frame-mint");
  * the correlation value the tripwire joins on. Only {@link OutboundTextFrameWriter} mints one.
  */
 export class OutboundTextFrame {
-  /** The author's bytes, unchanged — what is persisted, evented, and replayed. */
+  /** The author's bytes, unchanged — what is persisted, evented, and rebuilt from. */
   readonly authoredText: string;
 
   /** The bytes to hand the provider process. Equal to `authoredText` unless neutralized. */

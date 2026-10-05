@@ -5,6 +5,12 @@ import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
+import {
+  BILLING_MODE_WORDS,
+  CREDENTIAL_KIND_WORDS,
+  PROVIDER_READINESS_STATE_WORDS,
+} from "@renderer/lib/account-plane-sentences.js";
+import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";
 import { observationAgeInDays } from "../quota-rows.js";
 
 /**
@@ -17,7 +23,8 @@ const STALE_OBSERVATION_DAYS = 14;
 
 /**
  * One registry row: the label, the provider, how it is charged, whether it is the default, and
- * the health reading with the moment it was taken.
+ * the health reading with the moment it was taken. Pressing it selects the account, and the
+ * caller makes a press on an account the mark is not on do what `Set as default` does.
  *
  * The health reading is a stored observation, not a claim of authentication, so the row says
  * what the last look found. An account never observed has `healthObservedAt: null`, which
@@ -36,6 +43,9 @@ export function AccountRow(props: {
       ? undefined
       : observationAgeInDays(account.healthObservedAt, nowMilliseconds);
   const isStale = ageInDays !== undefined && ageInDays >= STALE_OBSERVATION_DAYS;
+  // A token or API-key account reads the name the person gave it beside its credential's kind.
+  const credentialKind =
+    account.observedAuthMode === null ? null : CREDENTIAL_KIND_WORDS[account.observedAuthMode];
   return (
     <li>
       <button
@@ -46,17 +56,20 @@ export function AccountRow(props: {
           onSelect(account);
         }}
       >
-        <span className="meridian-accounts__row-label">{account.displayLabel}</span>
+        <span className="meridian-accounts__row-label">
+          {credentialKind === null
+            ? account.displayLabel
+            : `${account.displayLabel} · ${credentialKind(account.provider)}`}
+        </span>
         <span className="meridian-accounts__row-chips">
-          <Chip label={account.provider} mono />
+          <Chip label={PROVIDER_LABELS[account.provider]} />
           {/* The billing-mode label beside every money figure, so plan-included usage is never
               presented as billed currency; it rides the row because quota figures are read from
               here down. */}
-          <Chip label={account.billingMode} mono />
+          <Chip label={BILLING_MODE_WORDS[account.billingMode]} />
           {account.isDefault ? <Chip label="Default" tone="accent" glyph="check" /> : null}
           <Chip
-            label={account.healthState}
-            mono
+            label={PROVIDER_READINESS_STATE_WORDS[account.healthState](account.provider)}
             tone={account.healthState === "authenticated" && !isStale ? "neutral" : "attention"}
           />
         </span>
@@ -67,12 +80,6 @@ export function AccountRow(props: {
             <>
               <span className="meridian-settings-page__aside">Observed </span>
               <DerivedFigure text={formatDateTime(account.healthObservedAt)} />
-            </>
-          )}
-          {account.observedAuthMode === null ? null : (
-            <>
-              <span className="meridian-settings-page__aside"> · mode </span>
-              <WireFigure value={account.observedAuthMode} />
             </>
           )}
         </span>

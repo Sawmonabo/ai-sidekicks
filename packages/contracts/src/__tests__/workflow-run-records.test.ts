@@ -1,8 +1,9 @@
 // The run page, the runs table, the runs-needing-you section and the live stream read run
 // records. These tests hold the rules those readers depend on: the run read's chain and capture
-// facts, the runs table's filters, a row whose duration, live step and wait cause agree with its
-// status, a page that never outnumbers its total, account lines standing above the runs that need
-// a person, counted apart from them, and a removal that names its runs.
+// facts, Review only on a finished run, a live step only on a going one, the chain's question only
+// on its first run, the runs table's filters, a row whose duration, live step and wait cause agree
+// with its status, a page that never outnumbers its total, account lines standing above the runs
+// that need a person, counted apart from them, and a removal that names its runs.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,10 +28,12 @@ const ROW = {
   definitionName: "Summarize subfolder",
   status: "running",
   mode: "sub-workflow",
+  triggerKind: "trigger.sub-workflow",
   startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
   startedAt: "2026-09-29T06:00:00Z",
   stepCount: 3,
   liveStep: { index: 4, total: 9, nodeName: "run tests" },
+  keep: false,
 };
 
 describe("workflow.runRead", () => {
@@ -41,18 +44,22 @@ describe("workflow.runRead", () => {
     workflowVersionId: "wfv-5",
     state: "succeeded",
     mode: "sub-workflow",
+    triggerKind: "trigger.sub-workflow",
     startedBy: { kind: "parentWorkflow", parentWorkflowRunId: PARENT_RUN_ID },
     chainRoot: {
       runId: PARENT_RUN_ID,
       definitionId: "wfd-0",
-      workflowName: "Summarize folder",
+      workflowName: "Notes digest",
       startedAt: "2026-09-29T06:00:00Z",
+      runCount: 12,
     },
     executionContextCaptured: true,
     keep: false,
     steps: [],
     startedAt: "2026-09-29T06:00:01Z",
     endedAt: "2026-09-29T06:04:00Z",
+    edgeItemCounts: [{ edgeId: "e-read-summarize", itemCount: 3 }],
+    review: { state: "pinned", epoch: 1 },
   };
 
   it("accepts a chained run that captured its checkout", () => {
@@ -63,6 +70,30 @@ describe("workflow.runRead", () => {
     const { executionContextCaptured: _dropped, ...withoutCapture } = run;
     expect(WorkflowRunReadResponseSchema.safeParse(withoutCapture).success).toBe(false);
   });
+
+  it("keeps Review, the live step and the chain's question to the runs they belong on", () => {
+    const { endedAt: _ended, ...going } = run;
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "running" }).success).toBe(
+      false,
+    );
+    const liveStep = { index: 2, total: 3, nodeName: "Summarize" };
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, liveStep }).success).toBe(false);
+    const chainQuestion = { state: "open" };
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, chainQuestion }).success).toBe(false);
+    const firstRun = { ...run, chainRoot: { ...run.chainRoot, runId: RUN_ID }, chainQuestion };
+    expect(WorkflowRunReadResponseSchema.safeParse(firstRun).success).toBe(true);
+  });
+
+  it("carries an end exactly once the run has ended, which a failed run parked on its step has not", () => {
+    const { endedAt: _ended, review: _review, ...unended } = run;
+    expect(WorkflowRunReadResponseSchema.safeParse(unended).success).toBe(false);
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...unended, state: "failed" }).success).toBe(
+      true,
+    );
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...run, state: "failed" }).success).toBe(true);
+    const goingWithEnd = { ...run, state: "waiting", review: undefined };
+    expect(WorkflowRunReadResponseSchema.safeParse(goingWithEnd).success).toBe(false);
+  });
 });
 
 describe("workflow.runList", () => {
@@ -71,7 +102,7 @@ describe("workflow.runList", () => {
       definitionId: "wfd-1",
       workflowVersionId: "wfv-5",
       status: ["failed"],
-      mode: ["trigger", "webhook"],
+      triggerKind: ["trigger.schedule", "trigger.webhook"],
       startedAfter: "2026-09-22T00:00:00Z",
     };
     expect(WorkflowRunListRequestSchema.safeParse(request).success).toBe(true);

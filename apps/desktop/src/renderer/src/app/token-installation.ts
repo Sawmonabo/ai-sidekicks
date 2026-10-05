@@ -1,4 +1,4 @@
-// Getting the Meridian tokens into the document.
+// Getting the Meridian tokens and main's appearance record into the document.
 //
 // The token sheet is generated at mount from `generateMeridianCss()`, not committed as a `.css`
 // file, so there is one source of truth for every color and the sheet cannot drift from it. The
@@ -8,8 +8,8 @@
 // It lives in `app/` and not `styles/` because it is the one part that touches a `Document`, and
 // node-context tooling imports `styles/` with no DOM lib.
 
-import { SCHEME_ATTRIBUTE, generateMeridianCss } from "@renderer/styles/generate-css.js";
-import { type SchemePreference } from "@renderer/styles/tokens.js";
+import { generateMeridianCss } from "@renderer/styles/generate-css.js";
+import { composeRootAppearance, type AppearanceRecord } from "@shared/appearance.js";
 import { generateTypefaceCss } from "@renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */
@@ -33,17 +33,23 @@ export function installMeridianTokens(targetDocument: Document): boolean {
 }
 
 /**
- * Apply a scheme choice to the document root.
+ * Apply main's appearance record to the document root, as main stamped it on the served document.
  *
- * `"system"` removes the attribute rather than writing a resolved value: the sheet's
- * `prefers-color-scheme` layer is guarded by `:root:not([data-color-scheme="light"])`, so with
- * no attribute the OS keeps deciding, including after a later change.
+ * Under `"system"` the scheme attribute is removed rather than a resolved value written: the
+ * sheet's `prefers-color-scheme` layer is guarded by `:root:not([data-color-scheme="light"])`, so
+ * with no attribute the OS keeps deciding, including after a later change.
  */
-export function applyColorScheme(targetDocument: Document, scheme: SchemePreference): void {
+export function applyAppearance(targetDocument: Document, record: AppearanceRecord): void {
   const root = targetDocument.documentElement;
-  if (scheme === "system") {
-    root.removeAttribute(SCHEME_ATTRIBUTE);
-    return;
+  const { attributes, styleProperties } = composeRootAppearance(record);
+  for (const [name, value] of Object.entries(attributes)) {
+    if (value === undefined) {
+      root.removeAttribute(name);
+    } else {
+      root.setAttribute(name, value);
+    }
   }
-  root.setAttribute(SCHEME_ATTRIBUTE, scheme);
+  for (const [name, value] of Object.entries(styleProperties)) {
+    root.style.setProperty(name, value);
+  }
 }

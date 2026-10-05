@@ -23,7 +23,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 export interface AccountRegistryReading extends WireReadState {
   /** Every account the registry carries, in the order the daemon sent them. */
   readonly accounts: readonly ProviderAccount[];
-  /** What run admission would answer per provider, as the last READ computed it. */
+  /** Each provider's readiness entry and its one remedy, as the last read computed it. */
   readonly readiness: readonly ProviderReadiness[];
 }
 

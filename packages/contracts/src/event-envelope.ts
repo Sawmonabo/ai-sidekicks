@@ -90,8 +90,8 @@ export function compareEventEnvelopeVersion(
 
 /**
  * The largest `sequence` an envelope may carry, not a tunable: `sequence` travels as an IEEE-754
- * double, which holds integers exactly only up to 2^53 - 1, so above it two events would share a
- * replay key.
+ * double, which holds integers exactly only up to 2^53 - 1, so above it two events would share an
+ * order key.
  */
 export const EVENT_ENVELOPE_SEQUENCE_MAX: number = Number.MAX_SAFE_INTEGER;
 
@@ -112,7 +112,7 @@ export interface EventEnvelope {
   /** Opaque on the wire; the daemon assigns a UUID v7. */
   id: string;
   sessionId: SessionId;
-  /** Daemon-assigned, strictly increasing per session: the replay key. */
+  /** Daemon-assigned, strictly increasing per session: the order key. */
   sequence: number;
   /** ISO 8601; the append path normalizes it to RFC 3339 UTC with millisecond precision. */
   occurredAt: string;
@@ -160,7 +160,7 @@ export const buildCommonShape = (): {
       message:
         `sequence must be at most ${EVENT_ENVELOPE_SEQUENCE_MAX} ` +
         `(Number.MAX_SAFE_INTEGER): above it distinct sequences collapse onto the same ` +
-        `IEEE-754 double, so two different events would carry the same replay key.`,
+        `IEEE-754 double, so two different events would carry the same order key.`,
     }),
   occurredAt: isoDateTimeSchema,
   // `.nullable()` comes after the helper so its string checks run only on strings.

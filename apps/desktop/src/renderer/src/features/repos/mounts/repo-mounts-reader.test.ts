@@ -242,6 +242,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
         id: "event-2",
         sessionId: SESSION_ID,
         sequence: 2,
+        cursor: "cursor-at-2",
         kind: "run.queued",
         occurredAt: "2026-01-01T09:05:02.000Z",
       },
@@ -253,36 +254,33 @@ describe("RepoMountsReader — the reasons it reads again", () => {
 });
 
 describe("RepoMountsReader — teardown", () => {
-  it(
-    "is terminal: a disposed reader arms nothing, reads nothing " + "more, and stops listening",
-    async () => {
-      const added = vi.spyOn(window, "addEventListener");
-      const removed = vi.spyOn(window, "removeEventListener");
-      onTestFinished(() => {
-        added.mockRestore();
-        removed.mockRestore();
-      });
-      const clock = new ManualClock();
-      const reader = openReader(sessionOperations(), clock);
-      reader.start();
-      await settle(clock, reader);
-      // A read armed and not yet fired when the section unmounts.
-      reader.requestRead("window-focus");
-      const performedBeforeDispose = reader.performCount;
+  it("is terminal: a disposed reader arms nothing, reads no more, stops listening", async () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    onTestFinished(() => {
+      added.mockRestore();
+      removed.mockRestore();
+    });
+    const clock = new ManualClock();
+    const reader = openReader(sessionOperations(), clock);
+    reader.start();
+    await settle(clock, reader);
+    // A read armed and not yet fired when the section unmounts.
+    reader.requestRead("window-focus");
+    const performedBeforeDispose = reader.performCount;
 
-      reader.dispose();
-      window.dispatchEvent(new Event("focus"));
-      clock.advance(REFRESH_DEBOUNCE_MS * 10);
-      await Promise.resolve();
+    reader.dispose();
+    window.dispatchEvent(new Event("focus"));
+    clock.advance(REFRESH_DEBOUNCE_MS * 10);
+    await Promise.resolve();
 
-      expect(reader.performCount).toBe(performedBeforeDispose);
-      // No timer outlives the section that armed it.
-      expect(clock.pendingCount).toBe(0);
-      // Nor a focus listener holding the reader alive.
-      const focusListeners = (calls: readonly unknown[][]): unknown[] =>
-        calls.filter(([type]) => type === "focus").map(([, listener]) => listener);
-      expect(focusListeners(added.mock.calls)).toHaveLength(1);
-      expect(focusListeners(removed.mock.calls)).toStrictEqual(focusListeners(added.mock.calls));
-    },
-  );
+    expect(reader.performCount).toBe(performedBeforeDispose);
+    // No timer outlives the section that armed it.
+    expect(clock.pendingCount).toBe(0);
+    // Nor a focus listener holding the reader alive.
+    const focusListeners = (calls: readonly unknown[][]): unknown[] =>
+      calls.filter(([type]) => type === "focus").map(([, listener]) => listener);
+    expect(focusListeners(added.mock.calls)).toHaveLength(1);
+    expect(focusListeners(removed.mock.calls)).toStrictEqual(focusListeners(added.mock.calls));
+  });
 });

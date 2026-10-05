@@ -15,7 +15,7 @@
 // in the host's zone. An unreadable stamp renders the em dash used for any figure this module
 // cannot stand behind.
 
-import { parseInstant } from "./instant.js";
+import { MILLISECONDS_PER_DAY, parseInstant } from "./instant.js";
 import {
   dateTimeFormatFor,
   dollarFormatFor,
@@ -142,6 +142,31 @@ export function formatDuration(milliseconds: number, locale?: string): string {
 }
 
 /**
+ * A duration in milliseconds, in units: `4 ms` under a second, `38 s` under a minute,
+ * `6 m 41 s`, and `2 h 5 m 9 s` from an hour. Seconds are truncated, not rounded, so a span never
+ * claims a boundary it did not cross. A digital clock is `formatDuration`'s `6:41`, not this.
+ */
+export function formatUnitDuration(milliseconds: number, locale?: string): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return UNREADABLE_FIGURE;
+  }
+  const whole = numberFormatFor("wholeNumber", locale);
+  if (milliseconds < 1000) {
+    return `${whole.format(Math.floor(milliseconds))} ms`;
+  }
+  const wholeSeconds = Math.floor(milliseconds / 1000);
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const seconds = wholeSeconds % 60;
+  const parts = [
+    ...(hours > 0 ? [`${whole.format(hours)} h`] : []),
+    ...(hours > 0 || minutes > 0 ? [`${whole.format(minutes)} m`] : []),
+    `${whole.format(seconds)} s`,
+  ];
+  return parts.join(" ");
+}
+
+/**
  * A duration the wire states in whole days (a retention window). The unit is part of the figure,
  * so the whole text comes from `Intl` with `style: "unit"`, which handles the plural and the
  * locale's own word; `formatDuration` would render 7 days as `168:00:00`. A fractional input
@@ -167,19 +192,12 @@ export function formatRelativeTime(
   if (from.kind === "malformed") {
     return UNREADABLE_FIGURE;
   }
-  const deltaSeconds = (from.epochMilliseconds - nowMilliseconds) / 1000;
-  const relativeTimeFormat = relativeTimeFormatFor(locale);
-  const absoluteSeconds = Math.abs(deltaSeconds);
-  if (absoluteSeconds < 60) {
-    return relativeTimeFormat.format(Math.round(deltaSeconds), "second");
-  }
-  if (absoluteSeconds < 3600) {
-    return relativeTimeFormat.format(Math.round(deltaSeconds / 60), "minute");
-  }
-  if (absoluteSeconds < 86400) {
-    return relativeTimeFormat.format(Math.round(deltaSeconds / 3600), "hour");
-  }
-  return relativeTimeFormat.format(Math.round(deltaSeconds / 86400), "day");
+  const deltaMilliseconds = from.epochMilliseconds - nowMilliseconds;
+  const step = relativeTimeStepFor(deltaMilliseconds);
+  return relativeTimeFormatFor(locale).format(
+    Math.round(deltaMilliseconds / step.milliseconds),
+    step.unit,
+  );
 }
 
 /**
@@ -192,6 +210,47 @@ export function formatClockTime(iso: string, locale?: string): string {
     return UNREADABLE_FIGURE;
   }
   return dateTimeFormatFor("clockTime", locale).format(instant.epochMilliseconds);
+}
+
+/**
+ * An instant on the machine's own clock with its day in front unless it is today: `2:20 PM`,
+ * `Yesterday 5:31 PM`, `Tomorrow 2:00 AM`, `Mon 9:58 AM` within the week either side, and past
+ * that the date, `Sep 12, 2:00 AM`, with the year when it is not this one. The day is counted on
+ * this machine's calendar from `nowMilliseconds`, so the same instant reads differently tomorrow;
+ * {@link dayClockChangesAt} says when.
+ */
+export function formatDayClock(iso: string, nowMilliseconds: number, locale?: string): string {
+  const instant = parseInstant(iso);
+  if (instant.kind === "malformed") {
+    return UNREADABLE_FIGURE;
+  }
+  const atMilliseconds = instant.epochMilliseconds;
+  const days = calendarDaysBetween(nowMilliseconds, atMilliseconds);
+  if (days === 0) {
+    return dateTimeFormatFor("clockMinute", locale).format(atMilliseconds);
+  }
+  if (Math.abs(days) === 1) {
+    const dayWord = relativeTimeFormatFor(locale).format(days, "day");
+    const clock = dateTimeFormatFor("clockMinute", locale).format(atMilliseconds);
+    return `${dayWord.charAt(0).toLocaleUpperCase(locale)}${dayWord.slice(1)} ${clock}`;
+  }
+  if (Math.abs(days) < DAYS_PER_WEEK) {
+    return dateTimeFormatFor("weekdayClockMinute", locale).format(atMilliseconds);
+  }
+  const isThisYear =
+    new Date(atMilliseconds).getFullYear() === new Date(nowMilliseconds).getFullYear();
+  return dateTimeFormatFor(isThisYear ? "monthDayClockMinute" : "dateTime", locale).format(
+    atMilliseconds,
+  );
+}
+
+/**
+ * The next local midnight after `nowMilliseconds`, when every {@link formatDayClock} figure may
+ * read differently, so a view can wake then rather than poll.
+ */
+export function dayClockChangesAt(nowMilliseconds: number): number {
+  const now = new Date(nowMilliseconds);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
 }
 
 /**
@@ -251,4 +310,35 @@ function formatDescriptorMember(value: unknown): string {
     return UNSET_DESCRIPTOR_MEMBER_TEXT;
   }
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The units a relative time is written in, each used while the gap is under its threshold. */
+const RELATIVE_TIME_STEPS = [
+  { unit: "second", milliseconds: 1_000, belowMilliseconds: 60_000 },
+  { unit: "minute", milliseconds: 60_000, belowMilliseconds: 3_600_000 },
+  { unit: "hour", milliseconds: 3_600_000, belowMilliseconds: 86_400_000 },
+] as const;
+
+/** The unit a gap of a day or more is written in. */
+const RELATIVE_TIME_DAY_STEP = { unit: "day", milliseconds: 86_400_000 } as const;
+
+function relativeTimeStepFor(deltaMilliseconds: number): {
+  readonly unit: Intl.RelativeTimeFormatUnit;
+  readonly milliseconds: number;
+} {
+  const gap = Math.abs(deltaMilliseconds);
+  return RELATIVE_TIME_STEPS.find((step) => gap < step.belowMilliseconds) ?? RELATIVE_TIME_DAY_STEP;
+}
+
+/** How many days a week holds: an instant within one either side of today is named by weekday. */
+const DAYS_PER_WEEK = 7;
+
+/** How many calendar days on this machine's clock `to` falls after `from`; negative before it. */
+function calendarDaysBetween(fromMilliseconds: number, toMilliseconds: number): number {
+  const from = new Date(fromMilliseconds);
+  const to = new Date(toMilliseconds);
+  const fromDay = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const toDay = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  // Rounded, because a day that crosses a daylight-saving change is 23 or 25 hours long.
+  return Math.round((toDay - fromDay) / MILLISECONDS_PER_DAY);
 }

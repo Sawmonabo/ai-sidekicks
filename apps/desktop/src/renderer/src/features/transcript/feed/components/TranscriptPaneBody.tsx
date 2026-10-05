@@ -12,6 +12,8 @@ export interface TranscriptPaneBodyProps {
   /** The registered row renderer. */
   readonly renderTranscriptRow: TranscriptRowRenderer;
   readonly sessionStore: SessionStore | undefined;
+  /** The event cursor of the message the route opens the session at, or `undefined`. */
+  readonly messageAnchorCursor: string | undefined;
 }
 
 /**
@@ -37,6 +39,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       sessionStore={props.sessionStore}
       renderTranscriptRow={props.renderTranscriptRow}
       feedLabel="Transcript"
+      messageAnchorCursor={props.messageAnchorCursor}
     />
   );
 }

@@ -6,7 +6,7 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage } from "./AppearancePage.js";
-import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
+import { SCHEME_ATTRIBUTE } from "@shared/appearance.js";
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Mount the page and let its first effects land before anything is asserted. */

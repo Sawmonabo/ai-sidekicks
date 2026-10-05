@@ -22,7 +22,8 @@
 // and both `generate-css.ts` and `contrast.test.ts` read that record, so the number measured is
 // the number painted.
 
-import type { OklchColor } from "./color.js";
+import { MERIDIAN_GROUND_COLORS } from "@shared/appearance.js";
+import type { OklchColor } from "@shared/color.js";
 // The enumeration row height is a product of the type scale and line height from `typography.ts`,
 // a leaf that imports nothing local, and the spacing scale here.
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
@@ -52,7 +53,7 @@ function oklch(lightness: number, chroma: number, hueDegrees: number): OklchColo
  * overlay's, `surfaceSunken` a well (a code block, an input trough).
  */
 export const GROUND_TOKENS: Readonly<Record<string, SchemePair>> = {
-  ground: { light: oklch(0.965, 0.003, 255), dark: oklch(0.165, 0.011, 255) },
+  ground: MERIDIAN_GROUND_COLORS,
   surface: { light: oklch(0.995, 0.001, 255), dark: oklch(0.203, 0.013, 255) },
   "surface-raised": { light: oklch(1, 0, 255), dark: oklch(0.246, 0.014, 255) },
   "surface-sunken": { light: oklch(0.93, 0.005, 255), dark: oklch(0.132, 0.01, 255) },

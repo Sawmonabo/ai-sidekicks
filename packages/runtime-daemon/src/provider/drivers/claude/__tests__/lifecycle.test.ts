@@ -298,47 +298,36 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     expect(harness.transport.spawnRequests).toHaveLength(2);
   });
 
-  it(
-    "quarantines a session whose process will " + "not exit until a retry disposes that channel",
-    async () => {
-      // A rejected dispose leaves the process running; the retained channel is the only handle on
-      // it, and freeing the slot would put a second process under one session.
-      const harness = buildHarness();
-      const channel = await startLiveRun(harness);
-      channel.disposeFailure = new Error("the provider process would not exit");
+  it("quarantines a session with a stuck process until a retry disposes its channel", async () => {
+    // A rejected dispose leaves the process running; the retained channel is the only handle on
+    // it, and freeing the slot would put a second process under one session.
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness);
+    channel.disposeFailure = new Error("the provider process would not exit");
 
-      await expect(closeTestSession(harness)).rejects.toThrow(
-        "the provider process would not exit",
-      );
-      expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
-      await expect(createTestSession(harness)).rejects.toMatchObject({
-        ...SESSION_ALREADY_LIVE,
-        message: expect.stringMatching(/quarantined/),
-      });
-      expect((await resumeTestSession(harness)).status).toBe("failed");
-      await expect(closeTestSession(harness)).rejects.toThrow(
-        "the provider process would not exit",
-      );
-      await expect(createTestSession(harness)).rejects.toMatchObject(SESSION_ALREADY_LIVE);
+    await expect(closeTestSession(harness)).rejects.toThrow("the provider process would not exit");
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
+    await expect(createTestSession(harness)).rejects.toMatchObject({
+      ...SESSION_ALREADY_LIVE,
+      message: expect.stringMatching(/quarantined/),
+    });
+    expect((await resumeTestSession(harness)).status).toBe("failed");
+    await expect(closeTestSession(harness)).rejects.toThrow("the provider process would not exit");
+    await expect(createTestSession(harness)).rejects.toMatchObject(SESSION_ALREADY_LIVE);
 
-      channel.disposeFailure = undefined;
-      const { gate, release } = openGate();
-      channel.disposeGate = gate;
-      const retry = closeTestSession(harness);
-      await expect(createTestSession(harness)).rejects.toMatchObject(SESSION_ALREADY_LIVE);
-      release();
-      await retry;
+    channel.disposeFailure = undefined;
+    const { gate, release } = openGate();
+    channel.disposeGate = gate;
+    const retry = closeTestSession(harness);
+    await expect(createTestSession(harness)).rejects.toMatchObject(SESSION_ALREADY_LIVE);
+    release();
+    await retry;
 
-      expect(channel.disposals).toStrictEqual([
-        "session_closed",
-        "session_closed",
-        "session_closed",
-      ]);
-      expect(harness.transport.resumeRequests).toHaveLength(0);
-      await expect(createTestSession(harness)).resolves.toBeDefined();
-      expect(harness.transport.spawnRequests).toHaveLength(2);
-    },
-  );
+    expect(channel.disposals).toStrictEqual(["session_closed", "session_closed", "session_closed"]);
+    expect(harness.transport.resumeRequests).toHaveLength(0);
+    await expect(createTestSession(harness)).resolves.toBeDefined();
+    expect(harness.transport.spawnRequests).toHaveLength(2);
+  });
 });
 
 // Between the transport handing back a live channel and its registration, the binding minter,

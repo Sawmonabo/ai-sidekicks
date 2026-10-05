@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   McpGetResponseSchema,
   McpOauthLoginResponseSchema,
+  McpRemoveServerRequestSchema,
   McpSetEnabledRequestSchema,
   McpSetToolOverrideRequestSchema,
   McpUpsertServerRequestSchema,
@@ -29,6 +30,18 @@ describe("the binding a mutation names", () => {
       enabled: true,
     };
     expect(McpSetEnabledRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("switches a plugin's server but never writes or removes its declaration", () => {
+    const plugin = { ...PROJECT_BINDING, scope: "plugin", scopeRef: "docs-kit" };
+    const keyed = { ...plugin, clientIdempotencyKey: PRESS_ID };
+    const config = { transport: "stdio", command: "npx", args: [] };
+    expect(McpSetEnabledRequestSchema.safeParse({ ...keyed, enabled: false }).success).toBe(true);
+    expect(McpUpsertServerRequestSchema.safeParse({ ...keyed, config }).success).toBe(false);
+    expect(McpRemoveServerRequestSchema.safeParse(keyed).success).toBe(false);
+    expect(
+      McpUpsertServerRequestSchema.safeParse({ ...keyed, scope: "local", config }).success,
+    ).toBe(true);
   });
 
   it("refuses a user binding that names a folder", () => {

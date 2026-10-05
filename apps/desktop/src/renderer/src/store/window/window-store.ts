@@ -1,4 +1,6 @@
-// Window-level state: the route, the scheme, the modal-dialog flag, the banner stack.
+// Window-level state: the route, the modal-dialog flag, the banner stack, and the pane a screen
+// asked a session to open. The appearance is not here: main keeps it, and the window applies what
+// main kept (`app/hooks/useAppearance.ts`).
 //
 // Separate from `SessionStore`: session state is per session and arrives from the bridge, while
 // frame state is per window and arrives from the person. Merging them would re-render the rail on
@@ -9,12 +11,12 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
+import { PaneOpenRequests } from "./pane-open-requests.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
 import type { MainProcessState } from "@shared/daemon-status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE, mainProcessReportsAreEqual } from "./main-process-state.js";
 import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "@renderer/routing/route-readers.js";
-import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /**
  * One frame-level banner: the banner rendering of a refusal that changes what the whole room can
@@ -26,7 +28,7 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
   readonly dismissible: boolean;
 }
 
-/** The window store's state: route, scheme, modal-dialog flag, banners, focus, report. */
+/** The window store's state: route, modal-dialog flag, banners, focus, report. */
 export interface WindowStoreState {
   readonly route: AppRoute;
   /**
@@ -37,7 +39,6 @@ export interface WindowStoreState {
    * in. It is re-seeded from the hash the window opens at.
    */
   readonly lastOpenedSessionId: string | undefined;
-  readonly schemePreference: SchemePreference;
   /**
    * True while a modal dialog the frame cannot name owns the window. The dialog runs under
    * `modal="trap-focus"`, which leaves inerting the app root to `AppShell`; the frame knows the
@@ -55,9 +56,8 @@ export interface WindowStoreState {
   readonly isWindowFocused: boolean;
   /**
    * What the main process reported about itself, folded with this window's recovery state. It is
-   * window state because the supervisor, handshake, transport and keystore are facts about a
-   * process. It lives in `store/` because the settings pages read it and a feature may not import
-   * `layout/`.
+   * window state because the supervisor and the handshake are facts about a process. It lives in
+   * `store/` because the settings pages read it and a feature may not import `layout/`.
    */
   readonly mainProcessState: MainProcessState;
 }
@@ -65,7 +65,6 @@ export interface WindowStoreState {
 /** Construction options for {@link WindowStore}. */
 export interface WindowStoreOptions {
   readonly initialRoute?: AppRoute;
-  readonly initialSchemePreference?: SchemePreference;
 }
 
 /** The per-window frame store. No setter escapes the class. */
@@ -76,6 +75,7 @@ export class WindowStore {
    * here because a caller-supplied register could publish into a cell no dialog's claim reached.
    */
   readonly #modalDialogClaims: ModalDialogClaims;
+  readonly #paneOpenRequests = new PaneOpenRequests();
 
   public constructor(options: WindowStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
@@ -83,7 +83,6 @@ export class WindowStore {
       route: initialRoute,
       // Seeded from the opening route so a window opened at a session has it in hand at once.
       lastOpenedSessionId: routeSessionId(initialRoute),
-      schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isModalDialogOpen: false,
       banners: [],
       isWindowFocused: documentReportsWindowFocus(),
@@ -132,17 +131,20 @@ export class WindowStore {
     this.#setRoute(route);
   }
 
-  /** Record the person's color-scheme choice. */
-  public setSchemePreference(schemePreference: SchemePreference): void {
-    this.#store.setState({ schemePreference });
-  }
-
   /**
    * Where a feature's modal dialog takes and gives up its claim. Handed out rather than wrapped
    * in methods so a claim is something a dialog holds; the register has no clear-all.
    */
   public get modalDialogClaims(): ModalDialogClaims {
     return this.#modalDialogClaims;
+  }
+
+  /**
+   * The pane this window was asked to open in a session's pane layout, held until that layout
+   * takes it: how a screen with no layout of its own opens a pane in a session.
+   */
+  public get paneOpenRequests(): PaneOpenRequests {
+    return this.#paneOpenRequests;
   }
 
   /**

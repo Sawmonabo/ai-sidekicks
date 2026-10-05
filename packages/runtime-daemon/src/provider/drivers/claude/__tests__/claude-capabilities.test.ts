@@ -8,7 +8,10 @@ import {
   RecordingCapabilityProbeTransport,
   RecordingDeclarationSink,
 } from "../../../__fixtures__/capability-probe-doubles.js";
-import { claudeDefaultProbeReply } from "../__fixtures__/capability-probe-replies.js";
+import {
+  claudeDefaultProbeReply,
+  claudeSuccessReply,
+} from "../__fixtures__/capability-probe-replies.js";
 import type { SpawnedProviderVersionReading } from "../../../spawned-provider-version.js";
 import {
   CLAUDE_DRIVER_NAME,
@@ -17,6 +20,7 @@ import {
   resolveClaudeModelCatalog,
 } from "../capabilities.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
+import { DriverCapabilityCache } from "../../../capability-cache.js";
 import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
@@ -64,6 +68,29 @@ describe("getCapabilities()", () => {
     // A declared `output_speed` needs its published set, or the gate would admit every string.
     expect("outputSpeedLevels" in result).toBe(true);
     expect(result.outputSpeedLevels).toStrictEqual(["off", "on"]);
+
+    // The durable row stores no levels, yet every cache-served reply carries the live read's.
+    const { outputSpeedLevels: _unstored, ...durableResult } = result;
+    const cache = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => ({ hit: true, result: durableResult }),
+    });
+    expect(cache.read(CLAUDE_DRIVER_NAME).outputSpeedLevels).toStrictEqual(
+      result.outputSpeedLevels,
+    );
+    expect(cache.read(CLAUDE_DRIVER_NAME).outputSpeedLevels).toStrictEqual(
+      result.outputSpeedLevels,
+    );
+  });
+
+  it("withdraws the speed axis and its levels when `initialize` reports no state", async () => {
+    // Levels for a withdrawn axis would offer a choice the provider cannot honor.
+    const probe = new RecordingCapabilityProbeTransport(claudeDefaultProbeReply, {
+      replies: { initialize: claudeSuccessReply() },
+    });
+    const result = await makeReporter(undefined, probe).getCapabilities();
+
+    expect(result.capabilities.flags.output_speed).toBe(false);
+    expect(Object.hasOwn(result, "outputSpeedLevels")).toBe(false);
   });
 });
 

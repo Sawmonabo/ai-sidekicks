@@ -393,28 +393,25 @@ describe("deriveWorktreeBranchName", () => {
 // ----------------------------------------------------------------------------
 
 describe("WorktreeService.create", () => {
-  it(
-    "frees the bare name in the active-branch " + "index once the colliding row is retired",
-    async () => {
-      const service = makeService();
-      const suffixingInput: CreateWorktreeInput = {
-        repoMountId: REPO_MOUNT_ID,
-        sessionId: SESSION_ID,
-        runId: RUN_ID,
-        branchName: DERIVED_BRANCH_NAME,
-        onCollision: "suffix",
-      };
+  it("frees the bare name in the active-branch index once the colliding row retires", async () => {
+    const service = makeService();
+    const suffixingInput: CreateWorktreeInput = {
+      repoMountId: REPO_MOUNT_ID,
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      branchName: DERIVED_BRANCH_NAME,
+      onCollision: "suffix",
+    };
 
-      const first = await service.create(suffixingInput);
-      await service.retire(first.worktreeId);
-      const second = await service.create(suffixingInput);
+    const first = await service.create(suffixingInput);
+    await service.retire(first.worktreeId);
+    const second = await service.create(suffixingInput);
 
-      // This covers the database only: the index predicate excludes retired rows, so the bare name
-      // is free again. It does not claim the name is reusable end to end, because git keeps the
-      // branch after the worktree goes, which only a real-git test can observe.
-      expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login");
-    },
-  );
+    // This covers the database only: the index predicate excludes retired rows, so the bare name
+    // is free again. It does not claim the name is reusable end to end, because git keeps the
+    // branch after the worktree goes, which only a real-git test can observe.
+    expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login");
+  });
 
   it("refuses an option-like base ref before spawning git at all", async () => {
     const service = makeService();

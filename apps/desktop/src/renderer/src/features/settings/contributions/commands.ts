@@ -9,7 +9,6 @@
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { nextSchemePreference, type SchemePreference } from "@renderer/styles/tokens.js";
 
 /** Why a bridge-backed command could not complete. */
 export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
@@ -40,9 +39,9 @@ export function buildBridgeCommands(
         // fixture pins it so a rendered view does not move with the machine.
         const { version, platform, arch, locale } = bridge.app;
         await settle(onRefusal, "clipboard-unavailable", CLIPBOARD_REFUSAL_DETAIL, () =>
-          bridge.native.copyToClipboard(
-            `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
-          ),
+          bridge.native.copyToClipboard({
+            text: `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
+          }),
         );
       },
     },
@@ -64,21 +63,16 @@ export function buildBridgeCommands(
 }
 
 /**
- * The `Color scheme` row, which moves this window to the next scheme in the cycle. Built per
- * window because it reads and chooses through the window's own scheme.
+ * The `Color scheme` row, which moves to the next scheme in the cycle. Built per window because it
+ * asks through the window's own appearance act, which discloses a refusal itself.
  */
-export function buildColorSchemeCommand(
-  readScheme: () => SchemePreference,
-  chooseScheme: (preference: SchemePreference) => void,
-): CommandDefinition {
+export function buildColorSchemeCommand(chooseNextScheme: () => void): CommandDefinition {
   return {
     id: "settings.cycleColorScheme",
     title: "Color scheme",
     group: "App",
     keywords: ["dark", "light", "system"],
-    run: () => {
-      chooseScheme(nextSchemePreference(readScheme()));
-    },
+    run: chooseNextScheme,
   };
 }
 

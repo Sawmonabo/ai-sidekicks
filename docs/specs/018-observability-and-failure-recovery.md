@@ -7,7 +7,7 @@
 | **Slug** | `observability-and-failure-recovery` |
 | **Date** | `2026-04-14` |
 | **Author(s)** | `Codex` |
-| **Depends On** | [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
+| **Depends On** | [Persistence And Recovery](../specs/013-persistence-and-recovery.md), [Observability Architecture](../architecture/observability-architecture.md), [Data Architecture](../architecture/data-architecture.md) |
 | **Implementation Plan** | [Plan-017: Observability And Failure Recovery](../plans/017-observability-and-failure-recovery.md) |
 
 ## Purpose
@@ -40,7 +40,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 ## Required Behavior
 
-- The daemon must keep health and failure signals for itself, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in two places, neither of them a console read: its diagnostic logs and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
+- The daemon must keep health and failure signals for itself, provider drivers, rebuild state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in two places, neither of them a console read: its diagnostic logs and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
 - A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails puts the daemon in the degraded read-only mode of §Fallback Behavior.
 - The person must be able to distinguish:
   - transport failure
@@ -105,8 +105,8 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 
 ## Example Flows
 
-- `Example: The Codex service for one account dies. The daemon restarts it at once and resumes its conversations, each transcript carrying one faint row that says so. It dies twice more within five minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
-- `Example: Replay rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
+- `Example: The Codex service for one account dies. The daemon restarts it at once and resumes its conversations, writing the restart to its own log and nothing to any transcript. It dies twice more within five minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
+- `Example: Projection rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
 
 ## Implementation Notes
 
@@ -118,7 +118,7 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, the wo
 ## Pitfalls To Avoid
 
 - Treating all failures as generic provider errors
-- Accepting new mutable work during uncertain replay state
+- Accepting new mutable work during uncertain rebuild state
 - Hiding recovery failures behind silent retries only
 
 ## Acceptance Criteria
@@ -135,6 +135,6 @@ None.
 
 ## References
 
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Observability Architecture](../architecture/observability-architecture.md)
 - [Data Architecture](../architecture/data-architecture.md)

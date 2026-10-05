@@ -1,11 +1,14 @@
 // The refusal is never suppressed, and the handoff never becomes an act.
 
-import type { ProviderAccountId, ProviderRemedy } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccountId,
+  ProviderLoginExpiredRemedy,
+} from "@ai-sidekicks/contracts/provider-account";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { refuse } from "@renderer/lib/refusal.js";
-import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
+import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "@renderer/lib/account-plane-sentences.js";
 import { AccountPlaneRefusal } from "./AccountPlaneRefusal.js";
 
 afterEach(() => {
@@ -14,12 +17,13 @@ afterEach(() => {
 
 function renderRefusal(
   code: string,
-  carriedRemedy?: ProviderRemedy,
+  carriedRemedy?: ProviderLoginExpiredRemedy,
 ): { readonly container: HTMLElement; readonly openPage: ReturnType<typeof vi.fn> } {
   const openPage = vi.fn();
   const { container } = render(
     <AccountPlaneRefusal
       refusal={refuse("provider-account", code, "The daemon's own sentence, unchanged.")}
+      provider="claude"
       carriedRemedy={carriedRemedy}
       openPage={openPage}
     />,
@@ -32,7 +36,7 @@ describe("an account-plane refusal on a console screen", () => {
     const { container } = renderRefusal("provideraccount.not_registered");
     const text = container.textContent ?? "";
     expect(text.indexOf("provideraccount.not_registered")).toBeLessThan(
-      text.indexOf("Registering one closes this."),
+      text.indexOf("Sign in to run work on this provider."),
     );
     expect(text).toContain("The daemon's own sentence, unchanged.");
   });
@@ -53,8 +57,8 @@ describe("an account-plane refusal on a console screen", () => {
       accountId: "pa-0001" as ProviderAccountId,
     });
     const tokenText = tokenAccount.container.textContent ?? "";
-    expect(tokenText).toContain(ACCOUNT_PLANE_HANDOFF_SENTENCES.paste_token);
-    expect(tokenText).not.toContain(ACCOUNT_PLANE_HANDOFF_SENTENCES.sign_in);
+    expect(tokenText).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.paste_token("claude"));
+    expect(tokenText).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
     cleanup();
     const uncarried = renderRefusal("provideraccount.not_authenticated");
     expect(uncarried.container.querySelector(".meridian-account-handoff")).toBeNull();

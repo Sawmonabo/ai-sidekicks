@@ -15,9 +15,10 @@ export const WORKFLOW_COMMAND_VERBS = ["start"] as const;
 /** One such verb. Derived, so nothing restates the set. */
 export type WorkflowCommandVerb = (typeof WORKFLOW_COMMAND_VERBS)[number];
 
+const [START_VERB] = WORKFLOW_COMMAND_VERBS;
+
 /** What the palette entry types for somebody who found the command there. */
-export const WORKFLOW_START_COMMAND_PREFILL: string =
-  `/${WORKFLOW_COMMAND_ROOT} ` + `${WORKFLOW_COMMAND_VERBS[0]} `;
+export const WORKFLOW_START_COMMAND_PREFILL: string = `/${WORKFLOW_COMMAND_ROOT} ${START_VERB} `;
 
 /** What a line naming the workflow root reads as: no verb, an unknown verb, or `start`. */
 export type WorkflowCommandReading =

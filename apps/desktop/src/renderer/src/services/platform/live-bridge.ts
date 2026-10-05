@@ -31,9 +31,9 @@ export function readFixtureLaunch(): FixtureLaunch | undefined {
 export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
-    // Reported into by every subscription this window opens (`transport/observed-subscription.ts`),
-    // since whether `daemon.subscribe` returned or threw is the only connection state a live
-    // renderer has. One per window: a shared signal would mix two windows' transport readings.
+    // Reported into by main's `daemon.status` topic (`daemon/daemon-status.ts`) and by every
+    // subscription this window opens (`transport/observed-subscription.ts`). One per window: a
+    // shared signal would mix two windows' transport readings.
     transportReconnect: new TransportReconnectSignal(),
     source: "live",
   };
@@ -49,6 +49,7 @@ const PRELOAD_NAMESPACE_PRESENCE: Readonly<Record<keyof PreloadApi, true>> = {
   update: true,
   machineSettings: true,
   keyboardMap: true,
+  window: true,
   app: true,
 };
 

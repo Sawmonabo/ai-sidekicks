@@ -10,6 +10,7 @@ import type {
 } from "@ai-sidekicks/contracts/daemon-methods";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session";
+import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
@@ -153,16 +154,19 @@ export function withDaemonCall(
  * Replace one bridge's `daemon.subscribe` with an arm this suite decides; the twin of
  * {@link withDaemonCall}.
  *
- * `open` receives the pass-through, so a case can refuse the first attempt and hold the next,
- * plus the subscriber's handler and request, so it can deliver what no scenario plays, such as
- * a frame carrying the daemon's drop mark.
+ * `open` receives the pass-through, so a case can refuse the first attempt and hold the next, or
+ * hand the wrapped bridge a handler of its own to watch what is delivered, plus the subscriber's
+ * handler, request, end arm and stream name, so it can deliver what no scenario plays,
+ * such as a frame carrying the daemon's drop mark, or end one stream as main would.
  */
 export function withDaemonSubscribe(
   bridge: PlatformBridge,
   open: (
-    passThrough: () => Unsubscribe,
+    passThrough: (deliver?: (payload: unknown) => void) => Unsubscribe,
     handler: (payload: unknown) => void,
     request: unknown,
+    onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined,
+    event: string,
   ) => Unsubscribe,
 ): PlatformBridge {
   // Bound before the spread so the pass-through reaches the wrapped bridge, not the new arm.
@@ -170,6 +174,7 @@ export function withDaemonSubscribe(
     event: string,
     request: unknown,
     handler: (payload: unknown) => void,
+    onEnded?: (end: DaemonSubscriptionEnd) => void,
   ) => Unsubscribe;
   return {
     ...bridge,
@@ -179,11 +184,14 @@ export function withDaemonSubscribe(
         event: string,
         request: unknown,
         handler: (payload: unknown) => void,
+        onEnded?: (end: DaemonSubscriptionEnd) => void,
       ): Unsubscribe =>
         open(
-          () => wrappedSubscribe(event, request, handler),
+          (deliver = handler) => wrappedSubscribe(event, request, deliver, onEnded),
           handler,
           request,
+          onEnded,
+          event,
         )) as PlatformBridge["daemon"]["subscribe"],
     },
   };

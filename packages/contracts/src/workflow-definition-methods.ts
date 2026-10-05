@@ -734,8 +734,6 @@ export interface WorkflowDefinitionMethodDescriptors {
 
 /**
  * The `workflow.*` method table over definitions.
- *
- * @consumedBy the daemon's workflow definition handlers
  */
 export const WORKFLOW_DEFINITION_METHOD_DESCRIPTORS: WorkflowDefinitionMethodDescriptors =
   defineMethodDescriptors({

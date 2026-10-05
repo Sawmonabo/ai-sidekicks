@@ -10,7 +10,7 @@
 // Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
 // one press must reuse it, and a key minted per call would make every retry a new
 // operation. `mcp.reconnect` alone carries none, because it is unreceipted and there is no
-// replay for a key to describe.
+// saved result for a key to return.
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
@@ -21,6 +21,7 @@ import {
   MCP_SERVER_STATUS_SEVERITY_ORDER,
   type McpServerStatus,
 } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
@@ -69,31 +70,39 @@ export const MCP_APPROVAL_MODES: readonly McpApprovalMode[] = MCP_APPROVAL_MODE_
 export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> =
   z.enum(MCP_APPROVAL_MODE_VALUES);
 
-const MCP_CONFIG_SCOPE_VALUES = ["user", "project", "local"] as const;
+const MCP_BINDING_SCOPE_VALUES = ["user", "project", "local", "plugin"] as const;
 
 /**
- * Where a server binding applies: `user` on this machine in every project,
- * `project` in one project and saved with its repository, `local` in one project
- * on this machine only. Every scope exists on both providers; Codex has no private
- * per-project layer, so the daemon emulates `local` there with a user entry that
- * is off by default and switched on in that project's sessions.
+ * Where a server binding applies: `user` on this machine in every project, `project` in one
+ * project and saved with its repository, `local` in one project on this machine only, and
+ * `plugin` for a server an installed plugin carries. The first three are writable on both
+ * providers; Codex has no private per-project layer, so the daemon emulates `local` there with a
+ * user entry that is off by default and switched on in that project's sessions.
  */
-export type McpConfigScope = (typeof MCP_CONFIG_SCOPE_VALUES)[number];
-/** Every {@link McpConfigScope}, in the order above. */
-export const MCP_CONFIG_SCOPES: readonly McpConfigScope[] = MCP_CONFIG_SCOPE_VALUES;
-/** Parses an {@link McpConfigScope}. */
-export const McpConfigScopeSchema: z.ZodType<McpConfigScope, McpConfigScope> =
-  z.enum(MCP_CONFIG_SCOPE_VALUES);
+export type McpBindingScope = (typeof MCP_BINDING_SCOPE_VALUES)[number];
+/** Parses an {@link McpBindingScope}, as an event that carries no `scopeRef` names it. */
+export const McpBindingScopeSchema: z.ZodType<McpBindingScope, McpBindingScope> =
+  z.enum(MCP_BINDING_SCOPE_VALUES);
 
 /**
- * The scope-qualified identity of one server binding. A union on `scope`, so `user` carries no
- * `scopeRef` and `project` and `local` require one (the project's root folder), and same-named
- * servers in two scopes stay two rows.
+ * A binding in a scope the person writes: its declaration lives in a provider's own config, so
+ * it can be added, changed and removed. A union on `scope`, so `user` carries no `scopeRef` and
+ * `project` and `local` require one (the project's root folder).
  */
-export type McpServerBindingRef =
+export type McpWritableBindingRef =
   | { provider: ProviderName; scope: "user"; serverName: string }
   | { provider: ProviderName; scope: "project"; scopeRef: string; serverName: string }
   | { provider: ProviderName; scope: "local"; scopeRef: string; serverName: string };
+
+/**
+ * The scope-qualified identity of one server binding: a writable binding, or a server an
+ * installed plugin carries, its `scopeRef` the plugin's name. A plugin's server is switched on
+ * and off and takes tool overrides, but its declaration changes only with the plugin. Same-named
+ * servers in two scopes stay two rows.
+ */
+export type McpServerBindingRef =
+  | McpWritableBindingRef
+  | { provider: ProviderName; scope: "plugin"; scopeRef: string; serverName: string };
 
 const userBindingShape = {
   provider: ProviderNameSchema,
@@ -112,6 +121,20 @@ const localBindingShape = {
   scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN),
   serverName: McpServerNameSchema,
 };
+const pluginBindingShape = {
+  provider: ProviderNameSchema,
+  scope: z.literal("plugin"),
+  scopeRef: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "McpServerBindingRef.scopeRef"),
+  serverName: McpServerNameSchema,
+};
+
+// The writable arms with `extra` members added to each, every arm strict.
+const writableBindingArms = <Extra extends z.ZodRawShape>(extra: Extra) =>
+  [
+    z.object({ ...userBindingShape, ...extra }).strict(),
+    z.object({ ...projectBindingShape, ...extra }).strict(),
+    z.object({ ...localBindingShape, ...extra }).strict(),
+  ] as const;
 
 /**
  * The binding union with `extra` members added to each arm, every arm strict. A
@@ -119,12 +142,18 @@ const localBindingShape = {
  */
 const bindingAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
   z.discriminatedUnion("scope", [
-    z.object({ ...userBindingShape, ...extra }).strict(),
-    z.object({ ...projectBindingShape, ...extra }).strict(),
-    z.object({ ...localBindingShape, ...extra }).strict(),
+    ...writableBindingArms(extra),
+    z.object({ ...pluginBindingShape, ...extra }).strict(),
   ]);
 
-/** Parses an {@link McpServerBindingRef}; a shape outside the three arms is refused. */
+/**
+ * {@link bindingAddressed} over the writable scopes only, for a request that writes a
+ * declaration: a plugin's server is refused here, because its declaration is the plugin's.
+ */
+const writableBindingAddressed = <Extra extends z.ZodRawShape>(extra: Extra) =>
+  z.discriminatedUnion("scope", writableBindingArms(extra));
+
+/** Parses an {@link McpServerBindingRef}; a shape outside the four arms is refused. */
 export const McpServerBindingRefSchema: z.ZodType<McpServerBindingRef, McpServerBindingRef> =
   bindingAddressed({});
 
@@ -401,26 +430,31 @@ export const McpSubscribeRequestSchema: z.ZodType<McpSubscribeRequest, McpSubscr
   .strict();
 
 /**
- * Adds a binding or changes its declaration, at any scope on either provider. Every scope takes
- * what the person typed, values included, written in that provider's own file format.
+ * Adds a binding or changes its declaration, at any writable scope on either provider. Every
+ * scope takes what the person typed, values included, written in that provider's own file format.
  */
-export type McpUpsertServerRequest = McpServerBindingRef & {
+export type McpUpsertServerRequest = McpWritableBindingRef & {
   clientIdempotencyKey: string;
   config: McpServerConfigInput;
 };
-/** Parses an {@link McpUpsertServerRequest}. */
+/** Parses an {@link McpUpsertServerRequest}; a plugin's server is refused. */
 export const McpUpsertServerRequestSchema: z.ZodType<
   McpUpsertServerRequest,
   McpUpsertServerRequest
-> = bindingAddressed({
+> = writableBindingAddressed({
   clientIdempotencyKey: z.uuid(),
   config: McpServerConfigInputSchema,
 });
 
-/**
- * A keyed command on one binding with nothing else to say: removing it, or
- * starting the daemon's sign-in for it.
- */
+/** Removes a binding from its provider's config. A plugin's server leaves only with its plugin. */
+export type McpRemoveServerRequest = McpWritableBindingRef & { clientIdempotencyKey: string };
+/** Parses an {@link McpRemoveServerRequest}; a plugin's server is refused. */
+export const McpRemoveServerRequestSchema: z.ZodType<
+  McpRemoveServerRequest,
+  McpRemoveServerRequest
+> = writableBindingAddressed({ clientIdempotencyKey: z.uuid() });
+
+/** A keyed command on one binding with nothing else to say: starting the daemon's sign-in. */
 export type McpKeyedBindingRequest = McpServerBindingRef & { clientIdempotencyKey: string };
 /** Parses an {@link McpKeyedBindingRequest}. */
 export const McpKeyedBindingRequestSchema: z.ZodType<
@@ -487,7 +521,7 @@ export const McpOauthLogoutRequestSchema: z.ZodType<McpOauthLogoutRequest, McpOa
 
 /**
  * Asks the provider to open a binding's connection again. It carries no key: it
- * writes nothing, so there is no receipt to replay. `bindingId` names one live leg;
+ * writes nothing, so there is no receipt to return. `bindingId` names one live leg;
  * `sessionId` alone names every leg of that session; neither names every live leg.
  */
 export type McpReconnectRequest = McpServerBindingRef & {
@@ -669,8 +703,8 @@ export const McpToolOverrideMutationResultSchema: z.ZodType<McpToolOverrideMutat
 
 /**
  * What starting a sign-in answers with: the sign-in page's address for the client
- * to open. A replayed retry answers without it, because the address is used once
- * and never stored; that caller starts a new sign-in under a new key.
+ * to open. A retry answered with the saved result comes without it, because the address is
+ * used once and never stored; that caller starts a new sign-in under a new key.
  */
 export interface McpOauthLoginResponse {
   authorizationUrl?: string | undefined;

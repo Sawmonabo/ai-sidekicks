@@ -112,7 +112,13 @@ const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
 };
 
 /** One named date or time style. */
-export type DateTimeStyle = "clockTime" | "dateTime" | "date";
+export type DateTimeStyle =
+  | "clockTime"
+  | "clockMinute"
+  | "weekdayClockMinute"
+  | "monthDayClockMinute"
+  | "dateTime"
+  | "date";
 
 /**
  * Every date and time style a figure renders in, by name. The hour is `numeric` with no
@@ -120,6 +126,9 @@ export type DateTimeStyle = "clockTime" | "dateTime" | "date";
  */
 const DATE_TIME_STYLES: Readonly<Record<DateTimeStyle, Intl.DateTimeFormatOptions>> = {
   clockTime: { hour: "numeric", minute: "2-digit", second: "2-digit" },
+  clockMinute: { hour: "numeric", minute: "2-digit" },
+  weekdayClockMinute: { weekday: "short", hour: "numeric", minute: "2-digit" },
+  monthDayClockMinute: { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   dateTime: { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   date: { year: "numeric", month: "short", day: "numeric" },
 };

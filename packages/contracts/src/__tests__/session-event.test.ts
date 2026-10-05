@@ -2,22 +2,20 @@
 // written or read back, so a wrong row never reaches the log or a reader.
 import { describe, expect, it } from "vitest";
 
-import type { SessionEventType } from "../event-registry.js";
 import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../event.js";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   compareEventEnvelopeVersion,
-  type EventCategory,
 } from "../event-envelope.js";
+import { SessionNoticePayloadSchema } from "../session-controls/events.js";
 import {
   buildAssistantMessageEvent,
   buildSessionCreatedEvent,
 } from "./session-event.test-support.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const VERSION = "1.0";
 
 describe("SessionEventSchema", () => {
@@ -52,8 +50,8 @@ describe("SessionEventSchema", () => {
   it("rejects a category/type mismatch (usage_telemetry on session.created)", () => {
     // Wire-integrity check: the per-variant `category: z.literal(...)`
     // forbids cross-namespace smuggling. If this ever silently accepted,
-    // the log would store the event under the wrong category and replay
-    // would diverge.
+    // the log would store the event under the wrong category and a
+    // rebuild would diverge.
     const broken = { ...buildSessionCreatedEvent(), category: "usage_telemetry" as const };
     const result = SessionEventSchema.safeParse(broken);
     expect(result.success).toBe(false);
@@ -361,72 +359,36 @@ describe("SessionEventSchema — body-bearing assistant / tool variants", () => 
   );
 });
 
-// Payloads the personal-data split leaves in the event: the person's words move to the row's
-// personal-data partition, so the plain payload refuses them.
+describe("SessionNoticePayloadSchema", () => {
+  const updated = {
+    sessionId: SESSION_ID,
+    kind: "provider_updated",
+    provider: "codex",
+    fromVersion: "0.130.0",
+    toVersion: "0.131.0",
+  };
 
-const OWNER_SIDE_QUESTION_ID = "4f2b4d5e-eeee-4eee-8eee-eeeeeeeeeeee";
-
-const ownedVariantEvent = (
-  type: SessionEventType,
-  category: EventCategory,
-  payload: Record<string, unknown>,
-) => ({
-  id: `evt-${type}`,
-  sessionId: SESSION_ID,
-  sequence: 9,
-  occurredAt: "2026-09-29T19:30:00.000Z",
-  category,
-  type,
-  actor: null,
-  version: VERSION,
-  payload,
-});
-
-const SIDE_QUESTION = {
-  sessionId: SESSION_ID,
-  sideQuestionId: OWNER_SIDE_QUESTION_ID,
-};
-
-const PERSONAL_DATA_SPLIT_VARIANTS: ReadonlyArray<
-  readonly [
-    string,
-    string,
-    ReturnType<typeof ownedVariantEvent>,
-    ReturnType<typeof ownedVariantEvent>,
-  ]
-> = [
-  [
-    "side question",
-    "the person's question kept in the plain half",
-    ownedVariantEvent("session.side_question_answered", "session_lifecycle", SIDE_QUESTION),
-    ownedVariantEvent("session.side_question_answered", "session_lifecycle", {
-      ...SIDE_QUESTION,
-      question: "Why is the build slow?",
-    }),
-  ],
-  [
-    "rename",
-    "the plain half still carrying the name the split moves out",
-    ownedVariantEvent("session.renamed", "session_lifecycle", {
+  it("takes each notice kind with exactly the members it carries", () => {
+    const fastOutput = { sessionId: SESSION_ID, kind: "fast_output_unavailable" };
+    const missing = {
       sessionId: SESSION_ID,
-      origin: "user",
-      actor: USER_ID,
-    }),
-    ownedVariantEvent("session.renamed", "session_lifecycle", {
-      sessionId: SESSION_ID,
-      origin: "user",
-      actor: USER_ID,
-      name: "Fix the login redirect",
-    }),
-  ],
-];
-
-describe("SessionEventSchema — personal text never in the plain payload", () => {
-  it.each(PERSONAL_DATA_SPLIT_VARIANTS)(
-    "%s: accepts the split payload, and refuses %s",
-    (_label, _refusedCase, accepted, refused) => {
-      expect(SessionEventSchema.safeParse(accepted).success).toBe(true);
-      expect(SessionEventSchema.safeParse(refused).success).toBe(false);
-    },
-  );
+      kind: "provider_missing",
+      provider: "claude",
+      placeHasNeitherProvider: false,
+    };
+    const levelLeft = { sessionId: SESSION_ID, kind: "level_unavailable", level: "reviewed" };
+    for (const notice of [updated, fastOutput, missing, levelLeft]) {
+      expect(SessionNoticePayloadSchema.safeParse(notice).success).toBe(true);
+    }
+    expect(
+      SessionNoticePayloadSchema.safeParse({ ...fastOutput, reason: "Not on this plan." }).success,
+    ).toBe(true);
+    // A build change names both builds; a missing provider says whether the place has neither;
+    // the level left is a level the app has.
+    const { toVersion: _toVersion, ...oneBuild } = updated;
+    const { placeHasNeitherProvider: _place, ...unplaced } = missing;
+    for (const notice of [oneBuild, unplaced, { ...levelLeft, level: "auto" }]) {
+      expect(SessionNoticePayloadSchema.safeParse(notice).success).toBe(false);
+    }
+  });
 });

@@ -1,4 +1,4 @@
-// The workflows feature's pane kinds, `workflow-run` and `workflow-builder`.
+// The workflows feature's pane kind, `workflow-builder`.
 
 import {
   type PaneRegistration,
@@ -12,17 +12,10 @@ import {
 export const WORKFLOWS_OWNER = "workflows";
 
 /**
- * Both pane kinds this feature claims. Each body module applies `paneBodyForKind` itself,
- * since a loader-form registration carries a specifier, not a render.
+ * The pane kind this feature claims. Its body module applies `paneBodyForKind` itself, since a
+ * loader-form registration carries a specifier, not a render.
  */
 const WORKFLOW_PANES: readonly PaneRegistration[] = [
-  {
-    kind: "workflow-run",
-    owner: WORKFLOWS_OWNER,
-    // A loader: a run pane opens from the run list or a run address, so nothing paints it
-    // before a person asks.
-    body: () => import("../run-page/run-page-body.js"),
-  },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,

@@ -7,13 +7,14 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRef, type ReactNode } from "react";
 import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
+import { useRowWindow, type RowWindow } from "@renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "@renderer/lib/chord-format.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
 import type { CommandSearchResult } from "@renderer/registries/commands/command-ranking.js";
 import type { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import type { PaletteRowPressOutcome } from "./palette-latch.js";
 import type { PaletteListRow } from "./group-results.js";
-import { usePaletteRowWindow, type PaletteRowWindow } from "./hooks/usePaletteRowWindow.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
 /** What the palette's listbox renders its rows against. */
@@ -21,7 +22,7 @@ export interface PaletteResultListProps {
   /** Every category heading and every match, in display order. */
   readonly rows: readonly PaletteListRow[];
   /** Receives the list's window, so a highlighted row off screen can be scrolled into view. */
-  readonly rowWindowRef: React.Ref<PaletteRowWindow | null>;
+  readonly rowWindowRef: React.Ref<RowWindow | null>;
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
   /** Which chord convention to print. Passed in so a fixture can pin it. */
@@ -44,9 +45,16 @@ export interface PaletteResultListProps {
 export function PaletteResultList(props: PaletteResultListProps): React.JSX.Element {
   const { rows, context, platform, bindings, onRunResult } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const rowWindow = usePaletteRowWindow({
-    rows,
+  const clock = useBridgeClock();
+  // Rows are measured once drawn, so the estimate is only a first guess and the sheet stays the
+  // one source of size.
+  const { virtualizer } = useRowWindow({
+    rowCount: rows.length,
     getScrollElement: () => scrollerRef.current,
+    clock,
+    estimateRowHeightPx: (rowIndex) =>
+      rows[rowIndex]?.kind === "group-label" ? ESTIMATED_LABEL_HEIGHT_PX : ESTIMATED_ROW_HEIGHT_PX,
+    overscanRows: OVERSCAN_ROWS,
     rowWindowRef: props.rowWindowRef,
   });
 
@@ -56,16 +64,16 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
       <div
         role="presentation"
         className="command-palette__rows"
-        style={{ blockSize: rowWindow.getTotalSize() }}
+        style={{ blockSize: virtualizer.getTotalSize() }}
       >
-        {drawnCategoryRuns(rowWindow.getVirtualItems(), rows).map((run) => (
+        {drawnCategoryRuns(virtualizer.getVirtualItems(), rows).map((run) => (
           // One group per category's drawn run. Named by `aria-label`, not its heading, because
           // the heading row may be scrolled out of the window while its commands are drawn.
           <Combobox.Group key={run.group} className="command-palette__group" aria-label={run.group}>
             {run.drawnRows.map(({ virtualRow, row }) => {
               const placement = {
                 [WINDOWED_ROW_INDEX_ATTRIBUTE]: virtualRow.index,
-                ref: rowWindow.measureElement,
+                ref: virtualizer.measureElement,
                 style: { transform: `translateY(${String(virtualRow.start)}px)` },
               };
               if (row.kind === "group-label") {
@@ -187,3 +195,12 @@ function renderTitle(title: string, matchedIndices: readonly number[] | undefine
   }
   return segments;
 }
+
+/** A category heading's first guess, in CSS pixels. */
+const ESTIMATED_LABEL_HEIGHT_PX = 28;
+
+/** A command row's first guess, in CSS pixels. */
+const ESTIMATED_ROW_HEIGHT_PX = 36;
+
+/** Rows drawn past each edge, so a quick flick or arrow press does not meet an undrawn band. */
+const OVERSCAN_ROWS = 8;

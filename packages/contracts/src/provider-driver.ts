@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { wireFreeFormString } from "./session.js";
-import type { PermissionLevel } from "./session-controls.js";
+import type { PermissionLevel } from "./session-controls/methods.js";
 
 // ---- Branded ID ----
 
@@ -50,9 +50,13 @@ export interface ProviderModel {
   // providers and between models of one provider. A `string[]`, not a closed union, so a level the
   // installed build offers is never refused. Absent means the model has no effort axis.
   effortLevels?: string[] | undefined;
+  // The model's output-speed vocabulary where its provider publishes one per model (Codex's
+  // service-tier ids), carried verbatim. Absent means the model exposes no speed selection; a
+  // provider that publishes no per-model set has its set on the capability report instead.
+  outputSpeedLevels?: string[] | undefined;
   // Whether the model has a fast output mode, as its provider reports it (Claude Code's
-  // `supportsFastMode`, Codex's non-empty service-tier list). Required so a missing reading never
-  // looks like "no fast mode".
+  // `supportsFastMode`, the Codex tier its catalog names `Fast`). Required so a missing reading
+  // never looks like "no fast mode".
   fast: boolean;
   // The window in tokens as the provider reports it. Absent until a reading arrives; nothing fills
   // it from a table or a default.

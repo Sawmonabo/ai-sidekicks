@@ -3,7 +3,7 @@
 // words a connection state reads as. The topic's vocabulary is `@shared/daemon-status-topic.ts`;
 // this half lives in `store/` because the settings pages read it and `store/` sits below features.
 //
-// `unreported` is the state before main's first delivery: not `connected` and not `offline`,
+// `unreported` is the state before main's first delivery: not `connected` and not `degraded`,
 // since either would be a guess.
 
 import type {
@@ -17,9 +17,6 @@ import type {
 export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
   connection: { kind: "unreported" },
   negotiation: undefined,
-  lastHeartbeatAt: undefined,
-  transport: undefined,
-  keystore: undefined,
   startedByApp: undefined,
   whileSignedOut: undefined,
   cannotStart: undefined,
@@ -27,7 +24,7 @@ export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
 
 /**
  * Whether two reports say the same thing. The subscription answers with a fresh object per
- * frame, so without a comparison every heartbeat would re-render every reader. Written over the
+ * frame, so without a comparison every frame would re-render every reader. Written over the
  * union so a new arm is a compile error rather than a silent "always different".
  */
 export function mainProcessReportsAreEqual(
@@ -35,9 +32,6 @@ export function mainProcessReportsAreEqual(
   right: MainProcessState,
 ): boolean {
   return (
-    left.lastHeartbeatAt === right.lastHeartbeatAt &&
-    left.transport === right.transport &&
-    left.keystore === right.keystore &&
     left.startedByApp === right.startedByApp &&
     left.whileSignedOut === right.whileSignedOut &&
     cannotStartsAreEqual(left.cannotStart, right.cannotStart) &&
@@ -59,17 +53,19 @@ export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {
     case "unreported":
       return UNREPORTED_DAEMON_NOTICE.title;
-    case "probing":
+    case "connecting":
       return "Connecting to the background service…";
     case "starting":
       return "Starting the background service…";
     case "connected":
       return "Running";
-    case "reconnecting":
+    case "transient_disconnect":
       return "Reconnecting…";
     case "version-incompatible":
       return "Version mismatch";
-    case "offline":
+    // A loss main does not recognize reads exactly as one it gave up on, never as running.
+    case "unknown":
+    case "degraded":
       return "The background service is not answering.";
     case "stopped":
       return "Stopped";
@@ -82,25 +78,26 @@ function daemonConnectionsAreEqual(left: DaemonConnection, right: DaemonConnecti
   }
   switch (left.kind) {
     case "unreported":
-    case "probing":
+    case "connecting":
     case "starting":
     case "connected":
+    case "version-incompatible":
     case "stopped":
       return true;
-    case "reconnecting":
+    case "transient_disconnect":
       return (
-        right.kind === "reconnecting" &&
+        right.kind === "transient_disconnect" &&
         left.attempt === right.attempt &&
         left.attemptLimit === right.attemptLimit
       );
-    case "offline":
+    case "unknown":
+      return right.kind === "unknown" && left.lastError === right.lastError;
+    case "degraded":
       return (
-        right.kind === "offline" &&
+        right.kind === "degraded" &&
         left.attemptLimit === right.attemptLimit &&
         left.lastError === right.lastError
       );
-    case "version-incompatible":
-      return true;
   }
 }
 

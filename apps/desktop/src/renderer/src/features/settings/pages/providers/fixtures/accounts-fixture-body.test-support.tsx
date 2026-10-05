@@ -108,8 +108,6 @@ const READINESS: readonly ProviderReadiness[] = [
     remedy: {
       kind: "sign_in",
       accountId: PERSONAL_ACCOUNT_ID,
-      signInInvocation: "codex login",
-      credentialHomePath: "/home/person/.sidekicks/homes/pa-0002",
     },
   },
 ];
@@ -147,6 +145,8 @@ export function mountAccountsPage(options: {
     login: () => NEVER_SETTLES,
     cancelLogin: () => NEVER_SETTLES,
     register: () => NEVER_SETTLES,
+    probe: () => NEVER_SETTLES,
+    setCurrent: () => NEVER_SETTLES,
     ...options.operations,
   };
   const { container } = render(

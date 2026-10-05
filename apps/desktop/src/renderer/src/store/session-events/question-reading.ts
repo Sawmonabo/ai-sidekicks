@@ -1,9 +1,8 @@
 // An agent's question, read off a `question.asked` row's open payload with the typed readers of
 // `wire-payload.ts`; an absent or wrongly-typed member reads as `undefined`.
 //
-// The payload is the plain half of the question record: which question, the run holding it,
-// and its page count. The questions themselves are kept apart from it, so the card takes
-// their text and options as a prop. A question has no deadline on either provider and no
+// This reads which question it is, the run holding it, and its page count; the card takes the
+// questions' text and options as a prop. A question has no deadline on either provider and no
 // terminal event: the answer lands as the person's own turn and the card closes when the
 // question's attention entry resolves.
 

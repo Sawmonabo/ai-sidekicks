@@ -21,36 +21,33 @@ import { captureRejection, captureThrow } from "../../__fixtures__/capture-failu
 const directCtx: HandlerContext = {};
 
 describe("schema validates before dispatch", () => {
-  it(
-    "malformed params throw `invalid_params`, " + "mapped to -32602; handler is NEVER invoked",
-    async () => {
-      const registry = new MethodRegistryImpl();
-      const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(async () => ({
-        ok: true,
-      }));
-      registry.register(
-        "math.sum",
-        rejectingSchema<unknown>("malformed-sum-params"),
-        passthroughSchema<unknown>(),
-        handler,
-      );
-      const caught = await captureRejection(
-        registry.dispatch("math.sum", { bogus: true }, directCtx),
-      );
-      expect(caught).toBeInstanceOf(RegistryDispatchError);
-      if (caught instanceof RegistryDispatchError) {
-        expect(caught.registryCode).toBe("invalid_params");
-        expect(caught.issues).toBeDefined();
-        const issues = caught.issues ?? [];
-        expect(issues.length).toBeGreaterThan(0);
-      }
-      expect(handler).not.toHaveBeenCalled();
+  it("malformed params throw `invalid_params` (-32602); the handler is NEVER invoked", async () => {
+    const registry = new MethodRegistryImpl();
+    const handler = vi.fn<(p: unknown, c: HandlerContext) => Promise<unknown>>(async () => ({
+      ok: true,
+    }));
+    registry.register(
+      "math.sum",
+      rejectingSchema<unknown>("malformed-sum-params"),
+      passthroughSchema<unknown>(),
+      handler,
+    );
+    const caught = await captureRejection(
+      registry.dispatch("math.sum", { bogus: true }, directCtx),
+    );
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_params");
+      expect(caught.issues).toBeDefined();
+      const issues = caught.issues ?? [];
+      expect(issues.length).toBeGreaterThan(0);
+    }
+    expect(handler).not.toHaveBeenCalled();
 
-      const envelope = mapJsonRpcError(caught, 1);
-      expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-      expect(envelope.id).toBe(1);
-    },
-  );
+    const envelope = mapJsonRpcError(caught, 1);
+    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
+    expect(envelope.id).toBe(1);
+  });
 
   it(
     "`invalid_result` (handler returns malformed data) throws and maps to `-32603` (programmer " +
@@ -103,30 +100,27 @@ describe("method-not-found namespace isolation", () => {
 });
 
 describe("duplicate method registration rejected at register-time", () => {
-  it(
-    "registering the same method twice throws " + "`RegistryRegistrationError(`duplicate_method`)`",
-    () => {
-      const registry = new MethodRegistryImpl();
+  it("registering a method twice throws `RegistryRegistrationError(`duplicate_method`)`", () => {
+    const registry = new MethodRegistryImpl();
+    registry.register(
+      "math.sum",
+      passthroughSchema<unknown>(),
+      passthroughSchema<unknown>(),
+      async () => undefined,
+    );
+    const caught = captureThrow(() =>
       registry.register(
         "math.sum",
         passthroughSchema<unknown>(),
         passthroughSchema<unknown>(),
         async () => undefined,
-      );
-      const caught = captureThrow(() =>
-        registry.register(
-          "math.sum",
-          passthroughSchema<unknown>(),
-          passthroughSchema<unknown>(),
-          async () => undefined,
-        ),
-      );
-      expect(caught).toBeInstanceOf(RegistryRegistrationError);
-      if (caught instanceof RegistryRegistrationError) {
-        expect(caught.registryCode).toBe("duplicate_method");
-      }
-    },
-  );
+      ),
+    );
+    expect(caught).toBeInstanceOf(RegistryRegistrationError);
+    if (caught instanceof RegistryRegistrationError) {
+      expect(caught.registryCode).toBe("duplicate_method");
+    }
+  });
 });
 
 describe("method-name format validation", () => {

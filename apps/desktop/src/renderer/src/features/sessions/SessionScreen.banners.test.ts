@@ -25,24 +25,30 @@ import {
 } from "./SessionScreen.test-support.js";
 
 /**
- * How the store answers a write: `reject` fails outright, `refuse` becomes the store's own
- * refusal. Both are a failed save and say so in the same words.
+ * How the store's database answers a write: `throw` fails with an error of no kind the store
+ * knows, `full` refuses for want of room, `gone` refuses as a database that went away. Each is a
+ * failed save and says so in the same words.
  */
-type WriteMode = "accept" | "reject" | "refuse";
+type WriteMode = "accept" | "throw" | "full" | "gone";
 
 class ScriptedWriteAdapter extends MemoryPersistenceAdapter {
   public mode: WriteMode = "accept";
 
   public override async write(record: Parameters<MemoryPersistenceAdapter["write"]>[0]) {
-    if (this.mode === "reject") {
-      throw new Error("the store is closed");
+    switch (this.mode) {
+      case "throw":
+        throw new Error("the store is closed");
+      case "full":
+        throw new PersistenceAdapterError(
+          refusePersistence("quota-exceeded", "The store has no room left."),
+        );
+      case "gone":
+        throw new PersistenceAdapterError(
+          refusePersistence("adapter-unavailable", "The store went away."),
+        );
+      case "accept":
+        await super.write(record);
     }
-    if (this.mode === "refuse") {
-      throw new PersistenceAdapterError(
-        refusePersistence("adapter-unavailable", "The store went away."),
-      );
-    }
-    await super.write(record);
   }
 }
 
@@ -128,37 +134,37 @@ function bannerRows(container: HTMLElement): readonly HTMLElement[] {
 }
 
 describe("SessionScreen — the pane layout's save failure", () => {
-  it(
-    "draws one plain banner under the header and sends each " + "failure's code to the capture",
-    async () => {
-      const { store, adapter } = await storeWithSavedLayouts();
-      const { container } = render(
-        workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
-      );
-      await awaitRestoredPaneLayout(container);
-      const readSaveFailures = captureSaveFailures();
+  it("draws one plain banner under the header and sends each failure code to capture", async () => {
+    const { store, adapter } = await storeWithSavedLayouts();
+    const { container } = render(
+      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
+    );
+    await awaitRestoredPaneLayout(container);
+    const readSaveFailures = captureSaveFailures();
 
-      adapter.mode = "reject";
-      await commitArrangement(container);
-      await commitArrangement(container);
-      adapter.mode = "refuse";
-      await commitArrangement(container);
+    adapter.mode = "throw";
+    await commitArrangement(container);
+    adapter.mode = "full";
+    await commitArrangement(container);
+    adapter.mode = "gone";
+    await commitArrangement(container);
 
-      const rows = bannerRows(container);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.textContent).toBe(BANNER_TEXT);
-      expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
-      expect(readSaveFailures()).toStrictEqual([
-        `session ${SESSION_ID}: layout-save-failed`,
-        `session ${SESSION_ID}: layout-save-failed`,
-        `session ${SESSION_ID}: adapter-unavailable`,
-      ]);
+    const rows = bannerRows(container);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toBe(BANNER_TEXT);
+    expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
+    // Each failure's own code, and an error of no kind the store knows as the store's refusal
+    // for a database it cannot use, not a rejection the screen never hears.
+    expect(readSaveFailures()).toStrictEqual([
+      `session ${SESSION_ID}: adapter-unavailable`,
+      `session ${SESSION_ID}: quota-exceeded`,
+      `session ${SESSION_ID}: adapter-unavailable`,
+    ]);
 
-      rows[0]?.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]')?.click();
-      await crossMacrotaskBoundary();
-      expect(bannerRows(container)).toHaveLength(0);
-    },
-  );
+    rows[0]?.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]')?.click();
+    await crossMacrotaskBoundary();
+    expect(bannerRows(container)).toHaveLength(0);
+  });
 });
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
@@ -168,7 +174,7 @@ describe("SessionScreen — the banner column belongs to the session that raised
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);
-    adapter.mode = "reject";
+    adapter.mode = "throw";
     await commitArrangement(container);
     expect(bannerRows(container)).toHaveLength(1);
 
@@ -182,7 +188,7 @@ describe("SessionScreen — the banner column belongs to the session that raised
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);
-    adapter.mode = "reject";
+    adapter.mode = "throw";
     await commitArrangement(container);
 
     routeTo(otherSession());

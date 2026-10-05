@@ -47,25 +47,37 @@ const registerAnswering = (): Promise<ProviderAccountRegisterResponse> =>
   Promise.resolve(REGISTERED);
 
 describe("browser — the provider-account token field is write-only in the engine", () => {
-  /** The registration form over a register call that answers, mounted as a window mounts it. */
-  function renderRegistrationForm(): HTMLElement {
+  /**
+   * The registration form over a register call that answers, mounted as a window mounts it and
+   * opened by its `Paste a token instead` press.
+   */
+  async function renderRegistrationForm(): Promise<HTMLElement> {
     const { container } = render(
       <LiveAnnouncerProvider>
-        <TokenRegistrationForm register={registerAnswering} />
+        <TokenRegistrationForm register={registerAnswering} accounts={[]} />
       </LiveAnnouncerProvider>,
     );
     document.body.append(container);
+    const open = [...container.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Paste a token instead",
+    );
+    if (open === undefined) {
+      throw new Error("the registration form rendered no Paste a token instead press");
+    }
+    await act(async () => {
+      await userEvent.click(open);
+    });
     return container;
   }
 
   /** The token input, by the label the form gives it rather than by position. */
   function tokenFieldIn(container: HTMLElement): HTMLInputElement {
     const label = [...container.querySelectorAll("label")].find(
-      (candidate) => candidate.textContent === "Non-interactive token",
+      (candidate) => candidate.textContent === "Paste the token you minted at the provider.",
     );
     const field = label === undefined ? null : container.querySelector(`#${label.htmlFor}`);
     if (!(field instanceof HTMLInputElement)) {
-      throw new Error("the registration form rendered no non-interactive token field");
+      throw new Error("the registration form rendered no token field");
     }
     return field;
   }
@@ -78,7 +90,7 @@ describe("browser — the provider-account token field is write-only in the engi
     const label = container.querySelector<HTMLInputElement>('input[type="text"]');
     const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]');
     if (label === null || submit === null) {
-      throw new Error("the registration form rendered no label field or no submit");
+      throw new Error("the registration form rendered no name field or no submit");
     }
     // A real label is typed because the field is `required` and this engine refuses to submit
     // an empty required control. It runs inside `act` because these are real events, whose state
@@ -91,8 +103,8 @@ describe("browser — the provider-account token field is write-only in the engi
     });
   }
 
-  it("masks the value at the field rather than anywhere above it", () => {
-    const container = renderRegistrationForm();
+  it("masks the value at the field rather than anywhere above it", async () => {
+    const container = await renderRegistrationForm();
     const field = tokenFieldIn(container);
     expect(field.type).toBe("password");
     // Autofill would put the value back on a later mount, the one way a write-only field
@@ -101,7 +113,7 @@ describe("browser — the provider-account token field is write-only in the engi
   });
 
   it("holds nothing after the submit that sent it", async () => {
-    const container = renderRegistrationForm();
+    const container = await renderRegistrationForm();
     await typeAndSubmit(container);
 
     // The engine's own value after its editing pipeline ran: the handler read the ref, put it on
@@ -113,7 +125,7 @@ describe("browser — the provider-account token field is write-only in the engi
   });
 
   it("puts the typed secret nowhere in the document after the submit", async () => {
-    const container = renderRegistrationForm();
+    const container = await renderRegistrationForm();
     await typeAndSubmit(container);
 
     // Serialized markup first, the shape a crash report or a devtools copy captures.
@@ -130,7 +142,7 @@ describe("browser — the provider-account token field is write-only in the engi
   it("negative control: the typed value did reach the field before the submit", async () => {
     // Without this the cases above would pass over a form whose token input never received
     // anything.
-    const container = renderRegistrationForm();
+    const container = await renderRegistrationForm();
     const field = tokenFieldIn(container);
     await act(async () => {
       await userEvent.fill(field, TYPED_TOKEN);

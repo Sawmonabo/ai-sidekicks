@@ -101,7 +101,7 @@ WorkflowDefinition (1)
 
 ## Edge Cases
 
-- A workflow run may be canceled even if some steps have already succeeded. Their outputs remain addressable, and a canceled run preserves each parked step's recorded park reason and cause while clearing its live schedule and attention key.
+- A workflow run may be canceled even if some steps have already succeeded. Their outputs remain addressable, and the suspension events in the log keep each wait's cause, while each waiting step reads `canceled` with its live wait members — its `waitCause`, its instants and its spent account — cleared.
 - A workflow whose trigger feeds a single node is valid. A node that waits on a person holds the run `waiting` until it is answered; any other node runs and the run ends.
 - A waiting run survives a daemon restart or a client reconnect with its parks, its step state persisted in `workflow_steps`, one row per step attempt. A run that was `new` or `running` when the daemon stopped is swept to `crashed` on the next start, and the person retries it from a step or runs it again; no step resumes mid-attempt.
 - A full-tier Code step or a shell step whose sandbox cannot start at the Sandboxed level refuses with `workflow.sandbox_unavailable`, and the run takes the step's own `onError` from there; it never runs unprotected.

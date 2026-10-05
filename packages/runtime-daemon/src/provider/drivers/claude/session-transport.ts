@@ -70,8 +70,17 @@ interface ClaudeInterruptControlRequest {
   readonly cancelQueued: boolean;
 }
 
+// Flag settings live only in the process's memory and apply from its next run, so the driver sends
+// the output-speed level after every spawn.
+interface ClaudeApplyFlagSettingsControlRequest {
+  readonly subtype: "apply_flag_settings";
+  readonly settings: { readonly fastMode: boolean };
+}
+
 /** The control requests a channel can send; closed so an unrouted subtype cannot typecheck. */
-export type ClaudeControlRequest = ClaudeInterruptControlRequest;
+export type ClaudeControlRequest =
+  | ClaudeInterruptControlRequest
+  | ClaudeApplyFlagSettingsControlRequest;
 
 /** The settled `control_response` payload; a typed refusal is feature-detected at call time. */
 export type ClaudeControlResponse =
@@ -97,15 +106,22 @@ interface ClaudeCumulativeUsageObservation {
   readonly declaredPerTurn?: CumulativeAxisReadings | null;
 }
 
+/**
+ * A fast-mode declaration verbatim: `fast_mode_state` and `fast_mode_disabled_reason`, as the
+ * `initialize` reply and each `system/init` report them; `null` where the frame carries none.
+ */
+export interface ClaudeFastModeDeclaration {
+  readonly fastModeState: string | null;
+  readonly fastModeDisabledReason: string | null;
+}
+
 /** The `system/init` declaration, verbatim and whole; the cap applies to the composed reply. */
-export interface ClaudeHandshakeDeclaration {
+export interface ClaudeHandshakeDeclaration extends ClaudeFastModeDeclaration {
   /** `slash_commands` — interactively invocable, names WITHOUT a leading `/`. */
   readonly slashCommands: readonly string[];
   readonly skills: readonly string[];
   /** Run in the provider's terminal UI, not invocable here; kept out of `invocableCommandNames`. */
   readonly terminalSlashCommands: readonly string[];
-  readonly fastModeState: string | null;
-  readonly fastModeDisabledReason: string | null;
 }
 
 /** The only evidence that admits `applied`; `boundaryPosition` is `null` if none is named. */
@@ -202,8 +218,6 @@ export interface ClaudeSpawnBoundLegs {
    * shed, or a provider build could replace itself mid-session and invalidate the recorded version.
    */
   readonly mandatedEnvironment: readonly SpawnEnvPair[];
-  /** The requested output-speed level; spawn-bound because the provider settles it at start. */
-  readonly outputSpeed: string | undefined;
 }
 
 /** The request to start a provider process for a new session. */
@@ -236,6 +250,11 @@ export interface ClaudeSessionAttachment {
   // Announced on `system/init`; compared with the requested id, never assumed to match.
   readonly providerSessionId: string;
   readonly channel: ClaudeProviderProcess;
+  /**
+   * The fast-mode state the process's `initialize` reply reported, before any turn. Required, so
+   * every spawn, resume and rewind hands the binding its first output-speed observation.
+   */
+  readonly initializeFastMode: ClaudeFastModeDeclaration;
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   type TranscriptReadRequest,
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
@@ -32,6 +32,7 @@ function rowAt(sequence: number): TranscriptEventRow {
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID as SessionId,
     sequence,
+    cursor: `cursor-at-${String(sequence)}` as EventCursor,
     category: "session_lifecycle",
     type: "session.renamed",
     summary: `row ${String(sequence)}`,

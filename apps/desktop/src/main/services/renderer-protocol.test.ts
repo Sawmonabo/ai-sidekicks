@@ -30,6 +30,21 @@ import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../windows/load-failure-
 import { handleRendererRequest, registerRendererScheme } from "./renderer-protocol.js";
 import { RENDERER_CONTENT_SECURITY_POLICY } from "./renderer-scheme.js";
 
+/** The kept appearance record, on the dark scheme. */
+const RECORD_KEPT = {
+  record: {
+    theme: "meridian" as const,
+    scheme: "dark" as const,
+    textSize: 18 as const,
+    transcriptWidth: 40,
+    grounds: { light: "#ffffff", dark: "#101010" },
+  },
+  isSafeStart: false,
+};
+
+/** The built console document's opening, as `src/renderer/index.html` has it. */
+const CONSOLE_DOCUMENT = '<!doctype html>\n<html lang="en">\n  <head></head>\n</html>\n';
+
 let sandboxRoot = "";
 let rendererRoot = "";
 
@@ -40,6 +55,8 @@ beforeAll(async () => {
   await mkdir(rendererRoot, { recursive: true });
   // Planted on disk as a dev tree has it, so the 404 below is the guard refusing a readable file.
   await writeFile(path.join(rendererRoot, "bundle.js.map"), '{"sources":["secret.ts"]}', "utf8");
+  await writeFile(path.join(rendererRoot, "index.html"), CONSOLE_DOCUMENT, "utf8");
+  await writeFile(path.join(rendererRoot, "about.html"), CONSOLE_DOCUMENT, "utf8");
 });
 
 afterAll(async () => {
@@ -53,6 +70,7 @@ describe("the locked response policy", () => {
     const response = await handleRendererRequest(
       rendererRoot,
       "sidekicks-renderer://app/../outside/secret.txt",
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(403);
@@ -62,7 +80,11 @@ describe("the locked response policy", () => {
   });
 
   it("answers a miss with an empty-bodied 404 carrying the locked headers", async () => {
-    const response = await handleRendererRequest(rendererRoot, "sidekicks-renderer://app/nope.js");
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/nope.js",
+      RECORD_KEPT,
+    );
 
     expect(response.status).toBe(404);
     expect(await response.text()).toBe("");
@@ -73,6 +95,7 @@ describe("the locked response policy", () => {
     const response = await handleRendererRequest(
       rendererRoot,
       "sidekicks-renderer://app/bundle.js.map",
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(404);
@@ -85,6 +108,7 @@ describe("the load-failure document over the handler", () => {
     const response = await handleRendererRequest(
       rendererRoot,
       buildLoadFailureUrl("ERR_FILE_NOT_FOUND (-6)"),
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(200);
@@ -102,6 +126,7 @@ describe("the load-failure document over the handler", () => {
     const response = await handleRendererRequest(
       path.join(sandboxRoot, "no-such-tree"),
       buildLoadFailureUrl("ERR_FILE_NOT_FOUND (-6)"),
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(200);
@@ -112,6 +137,7 @@ describe("the load-failure document over the handler", () => {
     const response = await handleRendererRequest(
       rendererRoot,
       `sidekicks-renderer://app${LOAD_FAILURE_PATH}/../index.html`,
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(403);
@@ -122,9 +148,56 @@ describe("the load-failure document over the handler", () => {
     const response = await handleRendererRequest(
       rendererRoot,
       `sidekicks-renderer://evil${LOAD_FAILURE_PATH}?reason=x`,
+      RECORD_KEPT,
     );
 
     expect(response.status).toBe(403);
+  });
+});
+
+describe("the root stamp", () => {
+  it("is written on the console document's root", async () => {
+    electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/index.html#/sessions",
+      RECORD_KEPT,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
+    expect(await response.text()).toContain(
+      '<html lang="en" data-theme="meridian" data-color-scheme="dark" ' +
+        'style="font-size:18px;--meridian-transcript-width:40rem">',
+    );
+  });
+
+  it("marks a safe start on the console document's root, and only then", async () => {
+    electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/index.html",
+      { ...RECORD_KEPT, isSafeStart: true },
+    );
+
+    expect(await response.text()).toContain(
+      '<html lang="en" data-theme="meridian" data-color-scheme="dark" data-safe-start ' +
+        'style="font-size:18px;--meridian-transcript-width:40rem">',
+    );
+  });
+
+  it("leaves every other document as built", async () => {
+    electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/about.html",
+      RECORD_KEPT,
+    );
+
+    expect(await response.text()).toBe(CONSOLE_DOCUMENT);
   });
 });
 

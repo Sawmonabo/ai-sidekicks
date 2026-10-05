@@ -198,7 +198,7 @@ describe("SessionService — snapshot survives daemon restart", () => {
     expect(ctx.db.open).toBe(false);
 
     // Reopening the same file proves on-disk durability backs the projection. The reopened
-    // service has no append opt-in on purpose: it only replays, which reads allow.
+    // service has no append opt-in on purpose: it only rebuilds, which reads allow.
     const reopenedDb: DatabaseType = openDatabase(ctx.dbPath);
     const reopenedService: SessionService = new SessionService(reopenedDb);
 
@@ -277,7 +277,7 @@ async function runMigrationRace(
   const workers: Worker[] = [];
   const promises: Array<Promise<RaceWorkerResult>> = [];
   for (let i = 0; i < workerCount; i++) {
-    // The worker strips TypeScript natively; its loader hook (`migration-race-loader.mjs`)
+    // The worker strips TypeScript natively; its loader hook (`typescript-source-loader.mjs`)
     // rewrites `.js` specifiers to `.ts`.
     const w: Worker = new Worker(workerUrl, { workerData: raceWorkerData });
     workers.push(w);

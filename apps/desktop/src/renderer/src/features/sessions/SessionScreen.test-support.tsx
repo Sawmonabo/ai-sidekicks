@@ -45,14 +45,19 @@ export interface SessionWithStore {
   readonly store: SessionStore;
 }
 
-/** A registry whose bodies say which kind they are, so a pane is identifiable. */
+/**
+ * A registry whose bodies say which kind they are and what they were opened over, so a pane and
+ * its address are identifiable.
+ */
 export function testRegistry(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["transcript", "terminal"] as const) {
+  for (const kind of ["transcript", "terminal", "diff"] as const) {
     registry.register({
       kind,
       owner: "session-screen-test",
-      render: () => <TestPaneBody kind={kind} />,
+      render: (context) => (
+        <TestPaneBody kind={kind} entity={"entity" in context ? context.entity : undefined} />
+      ),
     });
   }
   return registry;
@@ -67,9 +72,16 @@ export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   return store;
 }
 
-/** A body that says which kind it is, so a pane is identifiable in the rendered pane layout. */
-function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
-  return <p data-body={props.kind}>{props.kind} body</p>;
+/** A body that says which kind it is and its entity, so a pane is identifiable on screen. */
+function TestPaneBody(props: {
+  readonly kind: string;
+  readonly entity: unknown;
+}): React.JSX.Element {
+  return (
+    <p data-body={props.kind} data-entity={JSON.stringify(props.entity)}>
+      {props.kind} body
+    </p>
+  );
 }
 
 /** A second session's id. */
@@ -173,15 +185,16 @@ export function workspaceFor(
   session: SessionWithStore,
   uiStateStore: UiStateStore,
   fixture: FixtureBridge = createFixtureBridge({ scenario: SCENARIO }),
+  frameStore: WindowStore = new WindowStore({
+    initialRoute: { kind: "session", sessionId: session.sessionId },
+  }),
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
         <SessionScreen
           bridge={fixture.bridge}
-          frameStore={
-            new WindowStore({ initialRoute: { kind: "session", sessionId: session.sessionId } })
-          }
+          frameStore={frameStore}
           sessionStore={session.store}
           uiStateStore={uiStateStore}
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}

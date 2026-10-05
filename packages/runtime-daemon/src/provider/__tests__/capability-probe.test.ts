@@ -266,36 +266,32 @@ describe("capability withdrawal is per capability", () => {
 });
 
 describe("detectionSource on the capability report", () => {
-  it(
-    "returns a REPORT when one probe refuses " + "— the session survives the withdrawal",
-    async () => {
-      // Through the driver's own composition: a refusing probe is a per-capability outcome, not a
-      // failed read. The declaration lands with one flag withdrawn and its provenance still
-      // `probed`.
-      const refusedFlag = withdrawalCanaryFor("codex");
-      const refusedName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, refusedFlag);
-      expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
-      const detection = await readCodexCapabilityDetection(
-        CODEX_VERSION_READING,
-        probeTransportFor("codex", { [refusedName]: codexUnknownMethodReply(refusedName) })
-          .exchange,
-        makeSilentDriverDiagnostics(),
-      );
+  it("returns a REPORT when one probe refuses; the session survives the withdrawal", async () => {
+    // Through the driver's own composition: a refusing probe is a per-capability outcome, not a
+    // failed read. The declaration lands with one flag withdrawn and its provenance still
+    // `probed`.
+    const refusedFlag = withdrawalCanaryFor("codex");
+    const refusedName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, refusedFlag);
+    expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
+    const detection = await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      probeTransportFor("codex", { [refusedName]: codexUnknownMethodReply(refusedName) }).exchange,
+      makeSilentDriverDiagnostics(),
+    );
 
-      const result = getCodexCapabilities(CODEX_VERSION_READING, detection);
-      expect(result.capabilities.flags[refusedFlag]).toBe(false);
-      expect(result.detectionSource?.[refusedFlag]).toBe("probed");
-      for (const flag of DRIVER_CAPABILITY_FLAGS) {
-        if (flag === refusedFlag) {
-          continue;
-        }
-        expect(result.capabilities.flags[flag]).toBe(CODEX_CAPABILITY_FLAGS[flag]);
+    const result = getCodexCapabilities(CODEX_VERSION_READING, detection);
+    expect(result.capabilities.flags[refusedFlag]).toBe(false);
+    expect(result.detectionSource?.[refusedFlag]).toBe("probed");
+    for (const flag of DRIVER_CAPABILITY_FLAGS) {
+      if (flag === refusedFlag) {
+        continue;
       }
-      // The frozen module constant is untouched: a withdrawal on one reading must not poison later
-      // declarations in the process.
-      expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
-    },
-  );
+      expect(result.capabilities.flags[flag]).toBe(CODEX_CAPABILITY_FLAGS[flag]);
+    }
+    // The frozen module constant is untouched: a withdrawal on one reading must not poison later
+    // declarations in the process.
+    expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
+  });
 });
 
 describe("a flag whose consumers call several wire names", () => {

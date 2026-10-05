@@ -10,6 +10,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { createLiveBridge } from "@renderer/services/platform/live-bridge.js";
 import {
   FIXTURE_APP_META,
+  FIXTURE_WINDOW_ID,
   type FixtureBridge,
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
@@ -58,9 +59,10 @@ export function frameProps(
  *
  * `AppFrame` mounts the live announcer, which arms the one timeout the app's idle budget
  * counts, so the clock is a property of the window and the frame reads it from the resolution.
- * Both arms are real: `createStubBridge()` is what the preload exposes to a shipped window, and
- * `createFixtureBridge` builds the real engine over a scenario, whose frozen clock a case hands
- * in beside it. Without a clock the window runs on real time.
+ * Both arms are real: `createStubBridge()` is the object the preload starts from, every
+ * round-trip member throwing `NotImplementedError` until the preload replaces it with its IPC
+ * call to main, and `createFixtureBridge` builds the real engine over a scenario, whose frozen
+ * clock a case hands in beside it. Without a clock the window runs on real time.
  */
 export function bridgeWrapper(
   bridge: PlatformBridge,
@@ -99,7 +101,7 @@ export function FixtureBridgeProvider(props: {
 export function liveBridgeWrapper(): (props: {
   readonly children: ReactNode;
 }) => React.JSX.Element {
-  return bridgeWrapper(createLiveBridge(createStubBridge(FIXTURE_APP_META)));
+  return bridgeWrapper(createLiveBridge(createStubBridge(FIXTURE_APP_META, FIXTURE_WINDOW_ID)));
 }
 
 /** The frame's background wrapper, which the frame makes inert behind an open overlay. */

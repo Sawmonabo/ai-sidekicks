@@ -62,6 +62,7 @@ import {
   RunUsageCreditsChoiceRequestedPayloadSchema,
   RunUsageCreditsChoiceResolvedPayloadSchema,
 } from "./run-provider-choice.js";
+import { UserMessagePayloadSchema } from "./run-queue.js";
 import { RunQueuedPayloadSchema } from "./run-queued.js";
 import {
   ModerationReviewFlaggedPayloadSchema,
@@ -70,7 +71,7 @@ import {
   SessionNoticePayloadSchema,
   SessionSideQuestionAnsweredPayloadSchema,
   SessionSpendLimitReachedPayloadSchema,
-} from "./session-controls.js";
+} from "./session-controls/events.js";
 import { SessionConvertedPayloadSchema } from "./session-convert.js";
 import { SessionCreatedPayloadSchema } from "./session-created.js";
 import {
@@ -93,6 +94,7 @@ import {
 } from "./workflow-run-control.js";
 import {
   WorkflowGateResolvedPayloadSchema,
+  WorkflowPhaseSuspendedPayloadSchema,
   WorkflowStepCanceledPayloadSchema,
   WorkflowStepFailedPayloadSchema,
   WorkflowStepFinishedPayloadSchema,
@@ -375,6 +377,11 @@ const questionAskedVariantSchema = buildSessionEventVariantSchema(
   "interactive_request",
   QuestionAskedPayloadSchema,
 );
+const userMessageVariantSchema = buildSessionEventVariantSchema(
+  "user.message",
+  "interactive_request",
+  UserMessagePayloadSchema,
+);
 const mcpServerOauthCompletedVariantSchema = buildSessionEventVariantSchema(
   "mcp.server_oauth_completed",
   "mcp_governance",
@@ -595,6 +602,11 @@ const workflowResultsPostedVariantSchema = buildSessionEventVariantSchema(
   "workflow_lifecycle",
   WorkflowResultsPostedPayloadSchema,
 );
+const workflowPhaseSuspendedVariantSchema = buildSessionEventVariantSchema(
+  "workflow.phase_suspended",
+  "workflow_phase_lifecycle",
+  WorkflowPhaseSuspendedPayloadSchema,
+);
 const workflowStepStartedVariantSchema = buildSessionEventVariantSchema(
   "workflow.step_started",
   "workflow_phase_lifecycle",
@@ -721,6 +733,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   planAcceptedVariantSchema,
   planHandedOffVariantSchema,
   questionAskedVariantSchema,
+  userMessageVariantSchema,
   mcpServerOauthCompletedVariantSchema,
   cloudTaskUpdatedVariantSchema,
   sessionRestoreFinishedVariantSchema,
@@ -763,6 +776,7 @@ const SESSION_EVENT_VARIANT_SCHEMAS = [
   workflowResumedVariantSchema,
   workflowCanceledVariantSchema,
   workflowResultsPostedVariantSchema,
+  workflowPhaseSuspendedVariantSchema,
   workflowStepStartedVariantSchema,
   workflowStepFinishedVariantSchema,
   workflowStepFailedVariantSchema,

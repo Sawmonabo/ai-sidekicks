@@ -3,6 +3,7 @@
 // `native.copyToClipboard` resolves.
 
 import { describe, expect, it } from "vitest";
+import type { ClipboardContent } from "@shared/preload-api.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -74,14 +75,14 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
   it("copies the meta the bridge reports rather than the host's own", async () => {
     // The command must read `app` off the bridge: the fixture pins that meta, and a command
     // reading `navigator` would pass every assertion above.
-    let copied: string | undefined;
+    let copied: ClipboardContent | undefined;
     const bridge = fixtureBridge();
     const instrumented: PlatformBridge = {
       ...bridge,
       native: {
         ...bridge.native,
-        copyToClipboard: async (text: string) => {
-          copied = text;
+        copyToClipboard: async (content) => {
+          copied = content;
         },
       },
     };
@@ -90,6 +91,8 @@ describe("palette bridge commands — a refused act is rendered, never dropped",
     await commandById(commands, "bridge.copyBuildDetails").run();
 
     const { version, platform, arch, locale } = bridge.app;
-    expect(copied).toBe(`AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`);
+    expect(copied).toStrictEqual({
+      text: `AI Sidekicks ${version} — ${platform}/${arch} — ${locale}`,
+    });
   });
 });

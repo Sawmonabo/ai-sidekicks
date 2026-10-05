@@ -292,11 +292,13 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
  * succeeds, and on the step it failed in. `code` is the step failure's own code where
  * one names it (a timed-out step, a sandbox that did not start, a Code step over its
  * budget …) with that code's `details`; a failure with no code of its own carries the
- * message alone.
+ * message alone. `itemIndex` names the input item the step failed on: the same zero-based
+ * index an expression reads as `$itemIndex`, drawn as it stands (`Item 1` for 1).
  */
 export interface WorkflowStepError {
   message: string;
   nodeId?: WorkflowNodeId | undefined;
+  itemIndex?: number | undefined;
   code?: string | undefined;
   details?: Record<string, unknown> | undefined;
 }
@@ -305,6 +307,7 @@ export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepE
   .object({
     message: z.string().min(1),
     nodeId: WorkflowNodeIdSchema.optional(),
+    itemIndex: countSchema.optional(),
     code: z
       .string()
       .regex(/^workflow\.[a-z][a-z_]*$/u)

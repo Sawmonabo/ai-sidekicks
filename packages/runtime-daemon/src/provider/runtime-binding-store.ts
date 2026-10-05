@@ -126,7 +126,7 @@ export function withSpawnedVersionCarriers(
 
 /**
  * `update` patch: the mutable columns only. `spawnConfig` and `cliVersion` are absent because a
- * relaunch mints a new row; patching them would rewrite the provenance recovery replays from.
+ * relaunch mints a new row; patching them would rewrite the provenance recovery rebuilds from.
  */
 export interface UpdateRuntimeBindingPatch {
   readonly contractVersion?: string;
@@ -204,12 +204,12 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   outputSpeed: "resume-leg",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
 
+type ResumeDisposition = typeof SPAWN_CONFIG_RESUME_DISPOSITION;
+
 /** The `spawn_config` members a resumed leg re-realizes through its params. */
 type ResumeLegSpawnConfigKey = {
-  [Key in keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION]: (typeof SPAWN_CONFIG_RESUME_DISPOSITION)[Key] extends "resume-leg"
-    ? Key
-    : never;
-}[keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION];
+  [Key in keyof ResumeDisposition]: ResumeDisposition[Key] extends "resume-leg" ? Key : never;
+}[keyof ResumeDisposition];
 
 /** Raised when a binding cannot describe a resumable leg; recovery should relaunch, not retry. */
 export class RuntimeBindingNotResumableError extends Error {

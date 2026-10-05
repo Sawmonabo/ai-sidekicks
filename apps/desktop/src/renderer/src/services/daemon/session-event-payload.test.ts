@@ -19,6 +19,12 @@ const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 /** The daemon's opaque row id for the event under test. */
 const EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 
+/**
+ * The position the stream delivered the change at: opaque, and not the event's id, so a decode
+ * that copied the id into the cursor would be told apart.
+ */
+const CHANGE_CURSOR = "stream-position-41";
+
 /** The user a user-attributed envelope names. */
 const USER_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 
@@ -76,9 +82,9 @@ function registeredEnvelope(
   };
 }
 
-/** One frame carrying one change, the given envelope at its own id's cursor. */
+/** One frame carrying one change, the given envelope at the change's cursor. */
 function frameCarrying(envelope: unknown): Readonly<Record<string, unknown>> {
-  return { changes: [{ cursor: EVENT_ID, event: envelope }] };
+  return { changes: [{ cursor: CHANGE_CURSOR, event: envelope }] };
 }
 
 /** The frame carrying one envelope, read. */
@@ -92,7 +98,7 @@ function readOneEvent(envelope: unknown): ProjectedSessionEvent | undefined {
 }
 
 describe("readSessionStreamFrame — the registered envelope", () => {
-  it("decodes a wire envelope into the app's event, carrying its type as the kind", () => {
+  it("decodes a wire envelope into the app's event, carrying its type and cursor", () => {
     const reading = readFrameOf(registeredEnvelope({ actor: USER_ID }));
 
     expect(reading).toStrictEqual({
@@ -101,6 +107,7 @@ describe("readSessionStreamFrame — the registered envelope", () => {
           id: EVENT_ID,
           sessionId: SESSION_ID,
           sequence: 7,
+          cursor: CHANGE_CURSOR,
           kind: "run.running",
           occurredAt: OCCURRED_AT,
           actorId: USER_ID,
@@ -109,6 +116,7 @@ describe("readSessionStreamFrame — the registered envelope", () => {
       ],
       unreadableEventCount: 0,
       dropped: false,
+      resumeCursor: CHANGE_CURSOR,
     });
   });
 
@@ -134,6 +142,8 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
     // The refusal is the event's; the frame's other changes are not lost with it.
     expect(reading?.events).toStrictEqual([]);
     expect(reading?.unreadableEventCount).toBe(1);
+    // A stream opened again resumes past the refused change too, so the daemon never sends it twice.
+    expect(reading?.resumeCursor).toBe(CHANGE_CURSOR);
   });
 
   it("admits a type the census does not register, whatever category it names", () => {
@@ -157,6 +167,7 @@ describe("readSessionStreamFrame — the drop mark", () => {
       events: [],
       unreadableEventCount: 0,
       dropped: true,
+      resumeCursor: EVENT_ID,
     });
   });
 });

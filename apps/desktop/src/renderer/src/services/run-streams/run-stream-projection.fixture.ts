@@ -67,6 +67,7 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   failureCause: true,
   recoveryCondition: true,
   providerFailureDetail: true,
+  processExit: true,
   completionKind: true,
   intendedClose: true,
   executionPosture: true,

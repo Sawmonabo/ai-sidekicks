@@ -35,6 +35,7 @@ import {
   withProfileRemoval,
 } from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
+import { startIsolatedService } from "./isolated-service.js";
 import { composeLaunchArgs } from "./launch-args.js";
 import { BodyAllowance, withBoundedBody } from "./launch-body.js";
 import {
@@ -87,7 +88,8 @@ export interface LaunchAppOptions {
   /**
    * Which scripted scenario the launched app plays, passed as `--fixture`.
    *
-   * Absent, the app launches normally. A tier reads the id off the scenario module it drives,
+   * Absent, the app launches normally, beside a background service of the test's own
+   * (`isolated-service.ts`). A tier reads the id off the scenario module it drives,
    * so a renamed scenario is a compile error; an unknown id fails the launch because the main
    * process refuses it and exits before any window opens.
    */
@@ -125,6 +127,13 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   // readiness wait reserves the two later slices off it. Cleanup takes its slice as a ceiling, so
   // it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
+  // A launch that plays no scenario runs main's supervisor, which looks for the service; it
+  // finds the test's own and starts none on the person's account. A scenario launch reaches no
+  // service. The wait draws on the readiness slice, since the launch cannot be ready without it.
+  const serviceEnvironment =
+    options.scenarioId === undefined
+      ? (await startIsolatedService(deadline.remainingMs(POST_READINESS_RESERVE_MS))).environment
+      : {};
   const profile = createLaunchProfile();
   let application: ElectronApplication;
   try {
@@ -138,6 +147,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
       }),
       env: {
         ...process.env,
+        ...serviceEnvironment,
         ...options.env,
         // Every automated launch asks for an unobtrusive window: an ordinary macOS reveal
         // activates the application, steals focus and switches Space. A fixture build honors

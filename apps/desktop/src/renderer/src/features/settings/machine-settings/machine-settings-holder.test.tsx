@@ -1,5 +1,5 @@
 // Whose store a page is on, and when the holder mints or disposes one. Acquiring disposes, so
-// a render React replays or abandons must never dispose the store the committed tree is
+// a render React re-runs or abandons must never dispose the store the committed tree is
 // subscribed to. The abandoned-render case needs a real React render, hence `.tsx`.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -19,12 +19,14 @@ import { effectiveSettings } from "./machine-settings-snapshot.js";
 
 /** A service whose feed never delivers and whose writes never answer. */
 const UNANSWERING_SERVICE: PlatformBridge["machineSettings"] = {
+  read: () => NEVER_SETTLES,
   write: () => NEVER_SETTLES,
   subscribe: () => () => undefined,
 };
 
 /** A service whose feed never delivers and whose every write answers the file it holds. */
 const ACCEPTING_SERVICE: PlatformBridge["machineSettings"] = {
+  read: () => NEVER_SETTLES,
   write: () => Promise.resolve({ ...MACHINE_SETTINGS_DEFAULTS, updatesAutomatic: false }),
   subscribe: () => () => undefined,
 };
@@ -160,7 +162,7 @@ describe("machine settings — a superseded store", () => {
 
 describe("machine settings — the lookup a render body performs", () => {
   it("answers nothing for a bridge the holder is not on, and disposes nothing", () => {
-    // Purity: a render body calls this for passes React may replay or abandon, and an acquiring
+    // Purity: a render body calls this for passes React may re-run or abandon, and an acquiring
     // form would dispose the committed store.
     const committedBridge = freshBridge();
     const committed = machineSettingsHolder.acquire(committedBridge);

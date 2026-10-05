@@ -19,13 +19,12 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set so a new kind fails to compile here.
- * `workflow-run` and `workflow-builder` share a glyph on purpose, to keep the glyph set small.
+ * `workflow-builder` wears the rail's workflows glyph, so the glyph set stays small.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
   transcript: "transcript",
   inspector: "inspector",
   diff: "diff",
-  "workflow-run": "workflow",
   "workflow-builder": "workflow",
   browser: "browser",
   terminal: "terminal",
@@ -35,13 +34,12 @@ export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
 /**
  * What a pane kind is called everywhere: the heading, the trail's current crumb and the
  * mismatch refusal. Total like `GLYPH_BY_PANE_KIND`; the kind string is a wire-shaped identifier
- * (`workflow-run`) and a person reads a phrase (`Workflow run`).
+ * (`workflow-builder`) and a person reads a phrase (`Workflow builder`).
  */
 export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
   transcript: "Transcript",
   inspector: "Inspector",
   diff: "Review",
-  "workflow-run": "Workflow run",
   "workflow-builder": "Workflow builder",
   browser: "Preview",
   terminal: "Terminal",
@@ -77,8 +75,8 @@ export interface PaneFrameProps {
 /**
  * One pane's frame: kind glyph, breadcrumb, control strip, body. The section has `tabIndex={-1}`
  * so the pane layout can route focus to it without a tab stop per pane. It is named by its whole
- * trail through `aria-labelledby`, so its name is "session-1 run-01 Workflow run" rather than
- * "Workflow run" for every such pane.
+ * trail through `aria-labelledby`, so its name is "session-1 worktree-01 Inspector" rather than
+ * "Inspector" for every such pane.
  */
 export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const mintedHeadingId = useId();

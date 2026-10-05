@@ -33,14 +33,14 @@ apps/desktop/
 | `layout/` | `AppShell/` (the frame, the three-column grid), `NavigationRail/`, `Header/` (where the header lives once it is built), `CommandPalette/` (the palette's UI; its command machinery is a registry and its commands are feature contributions) and `NotificationsList/`. |
 | `features/` | `agents/`, `composer/`, `inspector/`, `preview/`, `repos/`, `sessions/`, `settings/`, `terminal/`, `transcript/`, `workflows/`; and `remote-control/` and `skills/`, where Remote Control's and Skills' screens live once they are built. |
 | `registries/` | The mechanisms for panes, screens, inline cards, the composer, entity projectors, commands and keybindings. The screen view is one generic `ScreenView<S extends AnyScreen>` over a typed `Screen<Id, Params>` union, each case naming a rail destination and the parameters it opens with, so the compiler checks that whatever opens a screen hands it the right parameters. |
-| `services/` | Transport, the daemon client, run streams, the per-session daemon subscription (`session-events/`), the platform bridge (`platform/`), and the other external clients (`wire-shapes`, `wire-reads`, `driver-capabilities`, and `provider-accounts` for its deliveries and refusals only). The window client over the `window.*` contract, the Preview client over the `preview.*` contract and `approvals` live here once they are built. |
+| `services/` | Transport, the daemon client, run streams, the per-session daemon subscription (`session-events/`), the platform bridge (`platform/`), and the other external clients (`wire-reads`, `driver-capabilities`, and `provider-accounts` for its deliveries and refusals only). The window client over the `window.*` contract, the Preview client over the `preview.*` contract and `approvals` live here once they are built. |
 | `store/` | The applied session events (`session-events/`), attention (`attention/`), the window's own state (`window/`, `WindowStore`), persistence (`persistence/`), every read trigger and push-driven read (`reads/`), `session/`, `session-directory/`, `artifacts/`, `driver-capabilities/`, `provider-accounts/` (the account fold and the notification hold) and `subject-scoped/` (the session subject and the session-scoped state hook). |
 | `hooks/` | Shared hooks, one `useThing.ts` each, and `subject-scoped/` (the subject-scoped resource and state hooks). |
 | `components/` | Shared UI, one PascalCase folder per component with its tests and CSS (`Glyph/`, `PaneFrame/`, `Refusal/` and `ErrorBoundary/` among them). |
 | `routing/` | Route addresses and their parsing: `routes.ts` (the app's routes as data), `route-readers.ts`, `settings-page-ids.ts`, `panes/` (pane addresses and kinds) and `hooks/` (`useLocationHash`). |
 | `assets/` | `assets/icons/signature/`, which the glyph map (`components/Glyph/glyph-icons.ts`) and the icon build step (`vitest/icon-compilation.ts`, the `signature` collection) read. |
 | `styles/` | The design tokens and the sheet generated from them (`tokens.ts`, `palette.ts`, `typography.ts` and `generate-css.ts` among them), and the global sheets `global-sheets.ts` imports. |
-| `lib/` | Generic non-UI code: time (`clock.ts`, `instant.ts`, `deadlines.ts`), wire figures and errors (`wire-figures.ts`, `wire-errors.ts`, `wire-rejection.ts`), refusals, the `Intl` formatter cache, keyed registries, read scheduling (`reads/`, with `reads/refresh-scheduler.ts`), the subject-scoped holders (`subject-scoped/`), `diagnostic-capture/` and `performance-meters/`. |
+| `lib/` | Generic non-UI code: time (`clock.ts`, `instant.ts`, `deadlines.ts`), wire figures and errors (`wire-figures.ts`, `wire-errors.ts`, `wire-rejection.ts`), refusals, the `Intl` formatter cache, keyed registries, read scheduling (`reads/`, with `reads/refresh-scheduler.ts`), the subject-scoped holders (`subject-scoped/`), the scroll chokepoint and its geometry (`scroll/`, with `scroll/scroll-chokepoint.ts`), `diagnostic-capture/` and `performance-meters/`. |
 
 What some features hold:
 
@@ -54,7 +54,7 @@ What some features hold:
 - `settings/` holds the settings pages only.
 - `skills/` will hold the Skills screen, once it is built.
 - `terminal/` is split by responsibility into `emulator/`, `lease/` and `pane/`.
-- `workflows/` holds `schema-form/`, which only workflows uses.
+- `workflows/` holds `param-form/`, which only workflows uses.
 
 ## Inside a Feature
 
@@ -73,9 +73,14 @@ features/<feature>/
 
 ## Main, Preload and Shared
 
-- **`src/main/`** holds `index.ts`, `menu.ts` and `fixture-launch.ts` at its root, and `windows/` (the one window factory and main's registry of windows, every window alike, with the navigation policy and the load-failure handling), `bridge/` (main's handler for each preload bridge method), `services/` and `probes/`.
-- **`src/preload/`** holds `index.ts` and `api.ts`, which builds the bridge object.
-- **`src/shared/`** holds flat files, `preload-api.ts` (`PreloadApi` and `createStubBridge`) among them.
+- **`src/main/`** holds `index.ts`, `menu.ts` and `fixture-launch.ts` at its root, and:
+  - `windows/` — the one window factory and main's registry of windows, every window alike, with the navigation policy and the load-failure handling; `windows/places/` holds the window-place file and fitting a kept place onto the displays.
+  - `appearance/` — main's appearance record, its file, and the platform scheme and first-frame grounds it drives.
+  - `bridge/` — main's handler for each preload bridge method; `bridge/native/` holds the `native` namespace's handlers, with `bridge/native/editors/` for finding and opening the editors.
+  - `services/` — main's own services: the diagnostic log, the crash reporter, the renderer's scheme and protocol, and owner-only files; `services/daemon/` holds starting, supervising and linking to the background service.
+  - `probes/` — the smoke and garbage-collection probes, built only into the smoke bundle.
+- **`src/preload/`** holds `index.ts`; `api.ts`, which builds the bridge object; and one module per namespace it carries to main over IPC (`daemon-wire.ts`, `machine-settings-bridge.ts`, `window-bridge.ts`).
+- **`src/shared/`** holds flat files, `preload-api.ts` (`PreloadApi` and `createStubBridge`) among them, and `window/`, the window's id switch and size.
 
 ## Fixtures
 
@@ -90,7 +95,7 @@ The numbers match `apps/desktop/AGENTS.md` and the ESLint messages that cite the
 2. Renderer source, both spellings: the bare global and `window` / `globalThis`-qualified.
 3. Everywhere but the package-root tool configs, which their tools load by default export. Off for `**/*.d.ts`, where the `export default` inside an ambient `declare module` types a default-exporting virtual module.
 4. Shipped renderer source. Lifted for `*.test.{ts,tsx}` and `*.test-support.{ts,tsx}`: a `let` reassigned in `beforeEach` is the standard Vitest shape and holds no state anything else can reach.
-5. The static import, the dynamic `import()` and the `require` form alike, across `tests/**`, `src/main/**` and `scripts/**`. `spawnSync` is untouched: it settles before the next statement and leaves no child to own.
+5. The static import, the dynamic `import()` and the `require` form alike, across `tests/**`, `src/main/**` and `scripts/**`. `spawnSync` is untouched: it settles before the next statement and leaves no child to own. One lift beyond `tests/helpers/electron-child.ts`: `src/main/services/daemon/service-start.ts`, main's start of the background service, whose child is detached to outlive the app on purpose; a test that starts it kills it by process id in teardown.
 6. The `toMatchScreenshot` matcher, everywhere. A never-saved `page.screenshot({ save: false })` read is a measurement, not a capture, and is outside the rule.
 7. Relative and `@renderer/` specifiers; a chunk root is `*-body.{ts,tsx}`. A vendor sheet reached by package specifier is outside the rule. Which file in a folder imports the sheet is a review point.
 8. The literal carries a `*`, so a raw read of one named module is untouched.

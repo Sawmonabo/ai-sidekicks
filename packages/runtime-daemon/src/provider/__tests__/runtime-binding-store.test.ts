@@ -630,32 +630,29 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it(
-    "keeps a printed version that did not parse, " + "and refuses a parse with no printed version",
-    () => {
-      const store = makeStore();
-      const created = store.create({
-        runId: RUN_ID,
-        driverName: DRIVER_NAME,
-        contractVersion: CONTRACT_VERSION,
-        cliVersion: { rawVersion: "Claude Code (unknown build)" },
-        spawnConfig: {},
-      });
-      expect(store.findById(created.id)?.cliVersion).toStrictEqual({
-        rawVersion: "Claude Code (unknown build)",
-      });
-      expect(readRawCliVersion(created.id)).toEqual({
-        cli_version_raw: "Claude Code (unknown build)",
-        cli_version_semver: null,
-      });
+  it("keeps an unparsed printed version; refuses a parse with no printed version", () => {
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      cliVersion: { rawVersion: "Claude Code (unknown build)" },
+      spawnConfig: {},
+    });
+    expect(store.findById(created.id)?.cliVersion).toStrictEqual({
+      rawVersion: "Claude Code (unknown build)",
+    });
+    expect(readRawCliVersion(created.id)).toEqual({
+      cli_version_raw: "Claude Code (unknown build)",
+      cli_version_semver: null,
+    });
 
-      // The seam cannot express a parse without its printed version, so only SQL can stage one.
-      expect(() =>
-        insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
-      ).toThrow(/CHECK constraint failed/);
-      expect(countBindings()).toBe(1);
-    },
-  );
+    // The seam cannot express a parse without its printed version, so only SQL can stage one.
+    expect(() =>
+      insertRawBinding({ id: "parse-only", cliVersionRaw: null, cliVersionSemver: "2.1.245" }),
+    ).toThrow(/CHECK constraint failed/);
+    expect(countBindings()).toBe(1);
+  });
 
   it("the two-column CHECK survives an UPDATE that names neither column", () => {
     // SQLite re-evaluates every CHECK on a row for every write to it, so the update path must

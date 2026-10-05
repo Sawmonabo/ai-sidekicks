@@ -96,8 +96,8 @@ export interface PersistenceAdapter {
   /**
    * Drops least-recently-touched session partitions until at most `keepSessionPartitions`
    * remain, and returns how many were dropped. `PERSISTENCE_GLOBAL_PARTITION` is never a
-   * candidate: it holds the color scheme, written once at boot, so recency would make it the
-   * first casualty.
+   * candidate: it holds the window-wide state (the pins, the run filters), which no session's
+   * recency speaks for.
    */
   trimPartitions(keepSessionPartitions: number): Promise<number>;
   measureQuota(): Promise<QuotaGauge>;
@@ -122,18 +122,11 @@ export class PersistenceAdapterError extends RefusalError {
 }
 
 /**
- * The partition holding preferences that belong to the window rather than one session (the
- * color scheme). A reserved identifier rather than an empty string, so a bug that loses a
- * session id writes somewhere obviously wrong.
+ * The partition holding state that belongs to the window rather than one session (the pins, the
+ * run filters). A reserved identifier rather than an empty string, so a bug that loses a session
+ * id writes somewhere obviously wrong.
  */
 export const PERSISTENCE_GLOBAL_PARTITION = "global";
-
-/**
- * The key the color scheme occupies inside that partition. Kept beside the partition because
- * partition and key are one address, and a reader and writer that disagree about a key each
- * work against different records.
- */
-export const SCHEME_PREFERENCE_KEY = "scheme";
 
 /** True when the reading is a quota problem rather than an ordinary failure. */
 export function isQuotaExceeded(error: unknown): boolean {

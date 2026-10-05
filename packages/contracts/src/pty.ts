@@ -198,14 +198,14 @@ export const PtyOutputSubscribeRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema, terminalId: TerminalIdSchema }).strict();
 
 /**
- * One frame of a shell's output stream. The first is always `replay`: the replay window starting at
- * its first whole line, the columns and rows it was last drawn at (so a running program's boxes
- * come back unwrapped), and who holds it. Then `output` in the order the shell wrote it, and
- * `exited` once its program ends.
+ * One frame of a shell's output stream. The first is always `scrollback`: the scrollback window
+ * starting at its first whole line, the columns and rows it was last drawn at (so a running
+ * program's boxes come back unwrapped), and who holds it. Then `output` in the order the shell
+ * wrote it, and `exited` once its program ends.
  */
 export type PtyOutputFrame =
   | {
-      kind: "replay";
+      kind: "scrollback";
       sessionId: SessionId;
       terminalId: TerminalId;
       data: string;
@@ -219,7 +219,7 @@ export type PtyOutputFrame =
 export const PtyOutputFrameSchema: z.ZodType<PtyOutputFrame> = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal("replay"),
+      kind: z.literal("scrollback"),
       sessionId: SessionIdSchema,
       terminalId: TerminalIdSchema,
       data: z.string(),

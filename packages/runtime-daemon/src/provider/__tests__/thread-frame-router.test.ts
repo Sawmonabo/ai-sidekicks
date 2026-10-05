@@ -228,20 +228,17 @@ describe("ThreadFrameRouter", () => {
     },
   );
 
-  it(
-    "the pending-hold buffer is bounded: exceeding " + "the cap sheds the oldest with a diagnostic",
-    () => {
-      const { router, diagnostics } = makeRouter({ maxPendingHoldFrames: 2 });
-      router.registerSessionThread("session-thread");
-      router.routeFrame(usageFrame("racing-child", "held-0"), 0);
-      router.routeFrame(usageFrame("racing-child", "held-1"), 1);
-      router.routeFrame(usageFrame("racing-child", "held-2"), 2);
-      expect(router.pendingHeldFrameCount()).toBe(2);
-      const shedRecords = diagnostics.recentRecordsOfKind("thread_pending_hold_shed");
-      expect(shedRecords).toHaveLength(1);
-      expect(shedRecords[0]?.rawWireType).toBe("held-0");
-    },
-  );
+  it("the pending-hold buffer is capped: overflow sheds the oldest with a diagnostic", () => {
+    const { router, diagnostics } = makeRouter({ maxPendingHoldFrames: 2 });
+    router.registerSessionThread("session-thread");
+    router.routeFrame(usageFrame("racing-child", "held-0"), 0);
+    router.routeFrame(usageFrame("racing-child", "held-1"), 1);
+    router.routeFrame(usageFrame("racing-child", "held-2"), 2);
+    expect(router.pendingHeldFrameCount()).toBe(2);
+    const shedRecords = diagnostics.recentRecordsOfKind("thread_pending_hold_shed");
+    expect(shedRecords).toHaveLength(1);
+    expect(shedRecords[0]?.rawWireType).toBe("held-0");
+  });
 
   it(
     "registration derives from declared lineage: an " +

@@ -57,82 +57,76 @@ function fixtureRepository() {
   return root;
 }
 
-test(
-  "every source file lands in exactly one shard, " + "and the heaviest file gets a shard to itself",
-  () => {
-    const root = fixtureRepository();
-    try {
-      const output = execFileSync("node", [TOOL, "plan"], {
-        cwd: root,
-        env: { ...process.env, MUTATION_SHARDS: '{"sample": 2}', BASE_SHA: "" },
-      });
-      const shards = JSON.parse(output.toString()).include.map((entry) => entry.mutate.split(","));
-      assert.deepEqual(shards.flat().sort(), [
-        "src/light.ts",
-        "src/medium.ts",
-        "src/unmeasured.ts",
-        "src/weighty.ts",
-      ]);
-      assert.deepEqual(
-        shards.find((files) => files.includes("src/weighty.ts")),
-        ["src/weighty.ts"],
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
+test("every source file lands in exactly one shard; the heaviest gets a shard to itself", () => {
+  const root = fixtureRepository();
+  try {
+    const output = execFileSync("node", [TOOL, "plan"], {
+      cwd: root,
+      env: { ...process.env, MUTATION_SHARDS: '{"sample": 2}', BASE_SHA: "" },
+    });
+    const shards = JSON.parse(output.toString()).include.map((entry) => entry.mutate.split(","));
+    assert.deepEqual(shards.flat().sort(), [
+      "src/light.ts",
+      "src/medium.ts",
+      "src/unmeasured.ts",
+      "src/weighty.ts",
+    ]);
+    assert.deepEqual(
+      shards.find((files) => files.includes("src/weighty.ts")),
+      ["src/weighty.ts"],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
-test(
-  "a merge takes each shard's own files, keeps " + "what no shard re-ran, and drops deleted files",
-  () => {
-    const root = fixtureRepository();
-    try {
-      // Each shard's report also carries a stale copy of the other shard's file.
-      const shards = [
-        {
-          name: "sample--0",
-          mutated: "src/light.ts",
-          fresh: "src/light.ts",
-          stale: "src/medium.ts",
-        },
-        {
-          name: "sample--1",
-          mutated: "src/medium.ts",
-          fresh: "src/medium.ts",
-          stale: "src/light.ts",
-        },
-      ];
-      for (const shard of shards) {
-        const directory = join(root, "results", shard.name);
-        mkdirSync(directory, { recursive: true });
-        writeFileSync(join(directory, "mutated-files.txt"), `${shard.mutated}\n`);
-        writeFileSync(
-          join(directory, "incremental.json"),
-          JSON.stringify({
-            files: {
-              [shard.fresh]: { mutants: [mutant(7)] },
-              [shard.stale]: { mutants: [mutant(1)] },
-            },
-            testFiles: {},
-          }),
-        );
-      }
-      execFileSync("node", [TOOL, "merge", join(root, "results")], { cwd: root });
-      const merged = JSON.parse(
-        readFileSync(join(root, "packages", "sample", ".stryker", "incremental.json"), "utf8"),
+test("a merge takes each shard's files, keeps what no shard re-ran, drops deleted files", () => {
+  const root = fixtureRepository();
+  try {
+    // Each shard's report also carries a stale copy of the other shard's file.
+    const shards = [
+      {
+        name: "sample--0",
+        mutated: "src/light.ts",
+        fresh: "src/light.ts",
+        stale: "src/medium.ts",
+      },
+      {
+        name: "sample--1",
+        mutated: "src/medium.ts",
+        fresh: "src/medium.ts",
+        stale: "src/light.ts",
+      },
+    ];
+    for (const shard of shards) {
+      const directory = join(root, "results", shard.name);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, "mutated-files.txt"), `${shard.mutated}\n`);
+      writeFileSync(
+        join(directory, "incremental.json"),
+        JSON.stringify({
+          files: {
+            [shard.fresh]: { mutants: [mutant(7)] },
+            [shard.stale]: { mutants: [mutant(1)] },
+          },
+          testFiles: {},
+        }),
       );
-      assert.deepEqual(Object.keys(merged.files).sort(), [
-        "src/light.ts",
-        "src/medium.ts",
-        "src/weighty.ts",
-      ]);
-      assert.equal(merged.files["src/light.ts"].mutants[0].testsCompleted, 7);
-      assert.equal(merged.files["src/medium.ts"].mutants[0].testsCompleted, 7);
-      assert.equal(merged.files["src/weighty.ts"].mutants[0].testsCompleted, 2000);
-      assert.deepEqual(Object.keys(merged.testFiles), ["src/__tests__/sample.test.ts"]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
     }
-  },
-);
+    execFileSync("node", [TOOL, "merge", join(root, "results")], { cwd: root });
+    const merged = JSON.parse(
+      readFileSync(join(root, "packages", "sample", ".stryker", "incremental.json"), "utf8"),
+    );
+    assert.deepEqual(Object.keys(merged.files).sort(), [
+      "src/light.ts",
+      "src/medium.ts",
+      "src/weighty.ts",
+    ]);
+    assert.equal(merged.files["src/light.ts"].mutants[0].testsCompleted, 7);
+    assert.equal(merged.files["src/medium.ts"].mutants[0].testsCompleted, 7);
+    assert.equal(merged.files["src/weighty.ts"].mutants[0].testsCompleted, 2000);
+    assert.deepEqual(Object.keys(merged.testFiles), ["src/__tests__/sample.test.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -20,7 +20,7 @@ export interface SessionStoreState {
   readonly partitions: SessionPartitions;
   /**
    * The session's transcript: its ordered event log. Append-only at the tail, and
-   * grown at the head only through `prependEarlierEvents`: the stream replays from the position
+   * grown at the head only through `prependEarlierEvents`: the stream catches up from the position
    * this user was last acknowledged at, so the log below it exists but was never sent here.
    */
   readonly transcript: readonly ProjectedSessionEvent[];
@@ -56,7 +56,7 @@ export interface SessionStoreState {
 
 /**
  * Where a store opens when its base state carries no position: the bottom of the stream. The
- * subscription replays from there, so a base state ahead of it would drop unseen events.
+ * subscription catches up from there, so a base state ahead of it would drop unseen events.
  */
 export const BASE_STATE_CURSOR = 0;
 

@@ -83,7 +83,7 @@ export function composeScenarioEventEnvelope(
 /**
  * Compose the `session.subscribe` frames one batch of beats is delivered in: frames of at most
  * `STREAM_FRAME_MAX_CHANGES`, oldest first. The fixture never falls behind, so no frame carries
- * the drop mark, and an empty batch is no frame at all. Each change's cursor is its event's id.
+ * the drop mark, and an empty batch is no frame at all. Each change carries its beat's cursor.
  */
 export function composeScenarioSessionFrames(
   events: readonly ProjectedSessionEvent[],
@@ -92,7 +92,7 @@ export function composeScenarioSessionFrames(
   for (let start = 0; start < events.length; start += STREAM_FRAME_MAX_CHANGES) {
     frames.push({
       changes: events.slice(start, start + STREAM_FRAME_MAX_CHANGES).map((event) => ({
-        cursor: event.id,
+        cursor: event.cursor,
         event: composeScenarioEventEnvelope(event),
       })),
     });

@@ -25,12 +25,12 @@ describe("scenario contract — the shipped scenarios", () => {
     }
     const broken: Scenario = {
       ...EMPTY_SESSION_SCENARIO,
-      replies: [sessionRead, sessionRead, { call: "workflow.runList", result: [] }],
+      replies: [sessionRead, sessionRead, { call: "workflow.runsList", result: [] }],
     };
 
     expect(findScenarioContractDefects([broken]).map((defect) => defect.subject)).toStrictEqual([
       'reply "session.read"',
-      'reply "workflow.runList"',
+      'reply "workflow.runsList"',
     ]);
   });
 

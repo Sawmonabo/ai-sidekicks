@@ -33,7 +33,7 @@ describe("ProviderAccountNotificationHold", () => {
     expect(hold.isHolding).toBe(false);
   });
 
-  it("a read begun after a release starts empty rather than replaying the last one's", () => {
+  it("a read begun after a release starts empty rather than handing back the last one's", () => {
     // Frames handed to the caller once must not be handed over again.
     const hold = new ProviderAccountNotificationHold();
     hold.begin();

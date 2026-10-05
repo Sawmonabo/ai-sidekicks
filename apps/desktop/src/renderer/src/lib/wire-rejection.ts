@@ -25,6 +25,7 @@ import {
 
 import {
   readRefusalExtensions,
+  wireDetailsExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type RefusalExtensions,
@@ -136,7 +137,8 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
  *      a realm or a structured clone.
  *   3. The JSON-RPC `data` envelope: the dotted code at `data.type`, extensions from
  *      `data.fields`.
- *   4. A flat `{ code, message }` wire envelope keeps its code verbatim.
+ *   4. A flat `{ code, message }` wire envelope keeps its code verbatim, extensions from
+ *      `details`.
  *
  * Both wire arms are admitted by their code alone; the sentence is whatever
  * {@link envelopeDetail} allows.
@@ -159,18 +161,20 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    // The retry bound rides on `data.fields` in this envelope.
-    return withRefusalExtensions(
-      refuse(origin, dottedCode, envelopeDetail(message, fallback)),
-      wireRetryExtension(readGuardedProperty(data, "fields")),
-    );
+    // The retry bound and the named members both ride on `data.fields` in this envelope.
+    const fields = readGuardedProperty(data, "fields");
+    return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
+      ...wireRetryExtension(fields),
+      ...wireDetailsExtension(fields),
+    });
   }
-  // The flat envelope, from the readings already taken. It carries its retry bound at the root.
+  // The flat envelope, from the readings already taken. It carries its retry bound at the root
+  // and its named members on `details`.
   if (typeof members.code === "string") {
-    return withRefusalExtensions(
-      refuse(origin, members.code, envelopeDetail(message, fallback)),
-      wireRetryExtension(rejection),
-    );
+    return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
+      ...wireRetryExtension(rejection),
+      ...wireDetailsExtension(readGuardedProperty(rejection, "details")),
+    });
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);

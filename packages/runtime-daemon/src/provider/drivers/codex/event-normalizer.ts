@@ -358,7 +358,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     reason:
       "Codex's safety hold on a running turn is a live detail of the run's working status: " +
       "it is relayed on the run's state stream as the hold frame and never written to the " +
-      "session's history, so a re-opened session does not replay it",
+      "session's history, so a re-opened session does not show it again",
   },
   // `process/*` frames land in `tool.result`; output and exit differ only in kind.
   "process/outputDelta": {
@@ -454,9 +454,10 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     nativeMethod: "thread/settings/updated",
     transport: "server-notification",
     reason:
-      "provider-side settings echo; agent configuration is daemon-owned and settles as " +
-      "`agent.provider_binding_changed` when the daemon applies it, so adopting the echo " +
-      "would double-record a mutation the daemon authored",
+      "the thread's settings as the provider declares them; the driver reads the service tier " +
+      "from it as the binding's declared output speed and each run's settled one, which reach " +
+      "no transcript row, while the agent's own configuration settles as " +
+      "`agent.provider_binding_changed` when the daemon applies it",
   },
   // The diff is a `tool.result` row (kind `diff`), not `artifact_publication`.
   "turn/diff/updated": {
@@ -559,11 +560,17 @@ const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
  */
 export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
 
+/** The `item/started` method, which names its turn; a run's output speed settles on the first. */
+export const CODEX_ITEM_STARTED_METHOD = "item/started" as const;
+
 /** The `thread/compacted` method; `./lifecycle.ts` compares against this symbol. */
 export const CODEX_THREAD_COMPACTED_METHOD = "thread/compacted" as const;
 
 /** The `skills/changed` method; `./lifecycle.ts` compares against this symbol. */
 export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed" as const;
+
+/** The `thread/settings/updated` method; `./output-speed.ts` compares against this symbol. */
+export const CODEX_THREAD_SETTINGS_UPDATED_METHOD = "thread/settings/updated" as const;
 
 /**
  * The `ThreadSourceKind` arms that mark a provider-attributed subagent child, whose spend is

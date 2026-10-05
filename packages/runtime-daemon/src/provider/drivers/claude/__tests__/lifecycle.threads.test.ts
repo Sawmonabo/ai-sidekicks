@@ -188,35 +188,32 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     expect(channel.deliveredFrameKinds).toContain("control_request/can_use_tool");
   });
 
-  it(
-    "routes the predecessor's frames through an " + "in-flight rewind and quarantines them after",
-    async () => {
-      // Quarantining during the fork would hole the transcript of a session that continues if the
-      // fork fails; projecting after would let an undead process write into a slot it lost.
-      const harness = buildRoutingHarness();
-      const predecessorChannel = await createLiveSession(harness);
-      const { gate, release } = openGate();
-      harness.transport.establishmentGate = gate;
-      harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
+  it("routes the predecessor's frames during a rewind and quarantines them after it", async () => {
+    // Quarantining during the fork would hole the transcript of a session that continues if the
+    // fork fails; projecting after would let an undead process write into a slot it lost.
+    const harness = buildRoutingHarness();
+    const predecessorChannel = await createLiveSession(harness);
+    const { gate, release } = openGate();
+    harness.transport.establishmentGate = gate;
+    harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
 
-      const rollback = rewindTestSession(harness);
-      await Promise.resolve();
-      const duringRewind = predecessorChannel.emitStreamFrame(
-        "system/task_progress",
-        usageObservation(30),
-      );
-      release();
-      expect((await rollback).status).toBe("applied");
-      const afterRewind = predecessorChannel.emitStreamFrame(
-        "system/task_progress",
-        usageObservation(60),
-      );
+    const rollback = rewindTestSession(harness);
+    await Promise.resolve();
+    const duringRewind = predecessorChannel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(30),
+    );
+    release();
+    expect((await rollback).status).toBe("applied");
+    const afterRewind = predecessorChannel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(60),
+    );
 
-      expect(duringRewind.decision).toBe("project");
-      expect(afterRewind.decision).toBe("quarantined");
-      expect(meteredInput(harness)).toEqual([30]);
-    },
-  );
+    expect(duringRewind.decision).toBe("project");
+    expect(afterRewind.decision).toBe("quarantined");
+    expect(meteredInput(harness)).toEqual([30]);
+  });
 
   it("leaves the predecessor routing and metering across a rewind that fails", async () => {
     const harness = buildRoutingHarness();
@@ -235,21 +232,18 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     expect(meteredInput(harness)).toEqual([30, 45]);
   });
 
-  it(
-    "quarantines a frame from a channel the " + "session no longer holds, and meters nothing",
-    async () => {
-      const harness = buildRoutingHarness();
-      const staleChannel = await createLiveSession(harness);
-      await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+  it("quarantines a frame from a channel the session no longer holds; meters nothing", async () => {
+    const harness = buildRoutingHarness();
+    const staleChannel = await createLiveSession(harness);
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
 
-      // The driver holds no kill, so a disowned process can still emit.
-      const route = staleChannel.emitStreamFrame("system/task_progress", usageObservation(9_999));
+    // The driver holds no kill, so a disowned process can still emit.
+    const route = staleChannel.emitStreamFrame("system/task_progress", usageObservation(9_999));
 
-      expect(route.decision).toBe("quarantined");
-      expect(harness.meteredUsage).toStrictEqual([]);
-      expect(staleChannel.deliveredFrameKinds).toStrictEqual([]);
-    },
-  );
+    expect(route.decision).toBe("quarantined");
+    expect(harness.meteredUsage).toStrictEqual([]);
+    expect(staleChannel.deliveredFrameKinds).toStrictEqual([]);
+  });
 
   it("meters only the excess over the sum already emitted before a resume", async () => {
     const harness = buildRoutingHarness({ readPriorEmittedUsage: () => ({ input: 500 }) });

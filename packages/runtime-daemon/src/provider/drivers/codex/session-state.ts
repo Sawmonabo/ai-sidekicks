@@ -4,7 +4,9 @@
  */
 
 import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RunOutputSpeedSettledListener } from "../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type ChildThreadAnnouncement,
@@ -30,6 +32,7 @@ import {
 } from "../../outbound-frame.js";
 import type { CodexAppServerConnection, CodexConnectionOptions } from "./app-server-connection.js";
 import type { CodexSessionConfig } from "./session-config.js";
+import type { CodexModelCatalogExchange } from "./capabilities.js";
 import { type CodexSessionSlotState } from "./session-errors.js";
 import type { CodexSessionServerRequestResponder } from "./server-requests.js";
 import { isPlainObject } from "../../record-readers.js";
@@ -91,6 +94,31 @@ export interface CodexSessionRecord {
    * `forkConversation`, as `threadId` is.
    */
   providerNetworkAccess: boolean | undefined;
+  /**
+   * The model a turn runs on when its run names none: the session's at establishment, then each
+   * accepted turn's, since a turn's model is a thread setting from that turn on.
+   */
+  model: string;
+  /**
+   * The output-speed level the carriers last asked for: the session's at establishment, then each
+   * accepted turn's. A run carrying none asks for it again, re-resolved when the model changes.
+   */
+  outputSpeedRequest: string | undefined;
+  /**
+   * The level the thread was sent for `outputSpeedRequest` on `model`: the request where the
+   * model's catalog row lists it, else standard. Never a level the model does not list.
+   */
+  outputSpeed: string | undefined;
+  /**
+   * The tier the thread declared on its establishment reply, replaced by each
+   * `thread/settings/updated` for this thread. Held for the binding's life and written nowhere.
+   */
+  declaredOutputSpeed: ProviderOutputSpeedState | undefined;
+  /**
+   * Accepted turns, by turn id, whose run has yet to report the tier it settled at; each entry
+   * leaves on its settlement, at the latest on the turn's `turn/completed`.
+   */
+  readonly unsettledOutputSpeedRuns: Map<string, CodexUnsettledOutputSpeedRun>;
   /** The subagent policy, re-sent on `thread/fork` so the new thread keeps its caps. */
   readonly subagentPolicy: SubagentPolicy | undefined;
   /**
@@ -297,6 +325,11 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * cannot represent a per-session policy and would relaunch a tightened posture unreported.
    */
   readonly resolveCredentialEnvPolicy: CodexCredentialEnvPolicyResolver;
+  /**
+   * The live `model/list` read: `listModels()` answers from it, and a carried output-speed level is
+   * resolved against the tier list it publishes for the model, standard where the list lacks it.
+   */
+  readonly modelCatalogExchange: CodexModelCatalogExchange;
   /** Mints `DriverResumeResult.bindingId`; supply the store's minter in the daemon. */
   readonly newBindingId?: (() => string) | undefined;
   /**
@@ -343,6 +376,18 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
+  /**
+   * Receives each run's settled declared tier: the thread's tier from the settings notice its
+   * `turn/start` produced, or, where the turn left the tier alone, at the turn's first item.
+   */
+  readonly onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
+}
+
+/** A run whose turn is accepted and whose settled output speed is not yet reported. */
+interface CodexUnsettledOutputSpeedRun {
+  readonly runId: RunId;
+  /** Whether the turn changed the declared tier, so it settles on the notice that change sends. */
+  readonly awaitsSettingsNotice: boolean;
 }
 
 /**

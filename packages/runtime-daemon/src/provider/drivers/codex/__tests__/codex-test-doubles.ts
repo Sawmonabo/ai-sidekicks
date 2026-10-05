@@ -19,6 +19,7 @@ import {
 } from "../../../__fixtures__/manual-scheduler.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
+import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
@@ -410,6 +411,8 @@ export function createHarness(
     subscribeToPtySession?: CodexPtySessionSubscriber;
     resumeSpawnConfig?: CodexSessionConfig;
     resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
+    modelCatalogExchange?: CodexModelCatalogExchange;
+    onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
   } = {},
 ): Harness {
   const server = new FakeCodexAppServer();
@@ -424,7 +427,7 @@ export function createHarness(
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
-    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
+    modelCatalogExchange: options.modelCatalogExchange ?? STUB_MODEL_CATALOG_READ,
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
       textNeutralizationFailures.push({
         sessionId,
@@ -446,6 +449,7 @@ export function createHarness(
       options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
+    onRunOutputSpeedSettled: options.onRunOutputSpeedSettled,
   });
   return { server, driver, diagnostics, driverDiagnostics, textNeutralizationFailures, scheduler };
 }
@@ -552,6 +556,7 @@ export function createManagerHarness(options: ManagerHarnessOptions = {}): Manag
   let firstNotificationThrown = false;
   const manager = new CodexLifecycleManager({
     ptyHost: server,
+    modelCatalogExchange: STUB_MODEL_CATALOG_READ,
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => {
       const dispose = server.subscribe(ptySessionId, listeners);

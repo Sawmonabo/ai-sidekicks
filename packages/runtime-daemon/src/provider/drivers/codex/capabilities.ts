@@ -39,7 +39,7 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * Capability-contract semver the writer compares to detect change; it moves whenever the shape of
  * what this driver advertises changes.
  */
-const CODEX_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
+const CODEX_CAPABILITY_CONTRACT_VERSION: string = "3.1.0";
 
 /** A flag is `true` only where the driver delivers the capability at its own boundary. */
 export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
@@ -75,9 +75,9 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     context_compaction: true,
     // The provider publishes an enumerable skill surface (`skills/list`) and signals invalidation.
     provider_commands: true,
-    // No settable output-speed vocabulary and no read of the current tier: the wire only carries a
-    // per-turn `serviceTier` override and a runtime per-model tier catalog.
-    output_speed: false,
+    // The service tier rides thread establishment, resume and each turn, the thread declares its
+    // tier back, and each model's levels are read from the catalog (`normalizeCodexModelCatalog`).
+    output_speed: true,
   });
 
 /**
@@ -176,6 +176,15 @@ export async function refreshCodexCapabilities(
 }
 
 /**
+ * The provider's own word for standard speed: listed first on every model that publishes a tier,
+ * and requested by clearing the thread's tier.
+ */
+export const CODEX_STANDARD_OUTPUT_SPEED = "default";
+
+// The name the catalog gives the tier that speeds output up; its id is free-form.
+const CODEX_FAST_TIER_NAME = "Fast";
+
+/**
  * One `model/list` request on the driver's existing connection, returning `unknown` because the
  * reply is untrusted. It starts no turn, so a billed turn is unrepresentable.
  */
@@ -187,8 +196,8 @@ function codexCatalogUnreadable(detail: string): ModelCatalogUnreadableError {
 
 /**
  * Strictly normalizes one `model/list` reply, throwing {@link ModelCatalogUnreadableError}
- * for the whole reply on any fault. Refuses a paginated reply, a duplicate id and a present
- * non-array effort or service-tier list; drops hidden rows.
+ * for the whole reply on any fault. Refuses a paginated reply, a duplicate id, a present
+ * non-array effort or service-tier list and a tier with no id; drops hidden rows.
  */
 export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -236,12 +245,35 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     ) {
       throw codexCatalogUnreadable(`model '${id}' has an unreadable \`serviceTiers\``);
     }
+    const tierIds: string[] = [];
+    let hasFastTier = false;
+    for (const rawServiceTier of Array.isArray(rawServiceTiers) ? rawServiceTiers : []) {
+      // A tier is `{ id, name, description }`; the id is what a turn request carries.
+      const tierId = isPlainObject(rawServiceTier)
+        ? readNonEmptyString(rawServiceTier, "id")
+        : undefined;
+      if (tierId === undefined) {
+        throw codexCatalogUnreadable(`model '${id}' has an unreadable service-tier entry`);
+      }
+      tierIds.push(tierId);
+      hasFastTier ||=
+        isPlainObject(rawServiceTier) && rawServiceTier["name"] === CODEX_FAST_TIER_NAME;
+    }
     const model: ProviderModel = {
       id,
       name: displayName,
       capabilities: [],
-      fast: Array.isArray(rawServiceTiers) && rawServiceTiers.length > 0,
+      // A tier list alone is not fast output: a model could list only a slower tier.
+      fast: hasFastTier,
     };
+    // Absent, not empty, when the model publishes no tier: it has no speed selection. Standard
+    // leads, so a person can ask for it back; a tier the provider itself names so is not doubled.
+    if (tierIds.length > 0) {
+      model.outputSpeedLevels = [
+        CODEX_STANDARD_OUTPUT_SPEED,
+        ...tierIds.filter((tierId) => tierId !== CODEX_STANDARD_OUTPUT_SPEED),
+      ];
+    }
     // `null` counts as absence: refusing it would cost the whole catalog, as any entry fault does.
     const rawEfforts = entry["supportedReasoningEfforts"];
     if (rawEfforts !== undefined && rawEfforts !== null && !Array.isArray(rawEfforts)) {

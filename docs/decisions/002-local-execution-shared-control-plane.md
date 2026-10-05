@@ -43,7 +43,7 @@ Hosted execution fails the product's local-execution requirement and increases t
 
 - **What:** Execution stays on local runtime nodes; coordination lives in shared services.
 - **Steel man:** Best match for privacy, local code access, and driving a session from any device.
-- **Weaknesses:** Requires careful transport, replay, and device-liveness design.
+- **Weaknesses:** Requires careful transport, catch-up, and device-liveness design.
 
 ### Option B: Central Hosted Execution Plane (Rejected)
 

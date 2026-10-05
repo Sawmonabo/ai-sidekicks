@@ -5,12 +5,6 @@ import { z } from "zod";
 
 /** The JSON-RPC method name of the negotiation handshake. */
 export const DAEMON_HELLO_METHOD = "daemon.hello" as const;
-/**
- * The type of {@link DAEMON_HELLO_METHOD}.
- *
- * @consumedBy the client's `daemon.hello` negotiation
- */
-export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
 
 /**
  * The longest a free-form negotiation string (`clientId`, a capability tag) may be. The framing
@@ -27,6 +21,19 @@ export const SUPPORTED_PROTOCOLS_MAX_LEN = 32;
  */
 export const PROTOCOL_VERSION_REGEX: RegExp = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The protocol version this build speaks: the version a client offers in `daemon.hello`, and the
+ * newest one the daemon accepts.
+ */
+export const CURRENT_PROTOCOL_VERSION = "2026-05-01";
+
+/**
+ * The protocol versions this build speaks, newest last: its own, and the one before it once a
+ * release has shipped one, so an app and a service one release apart still agree. The daemon
+ * accepts exactly these, and a client offers exactly these in `daemon.hello`.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [CURRENT_PROTOCOL_VERSION];
+
 /** A protocol version: a `YYYY-MM-DD` date string. */
 export const ProtocolVersionSchema: z.ZodString = z.string().regex(PROTOCOL_VERSION_REGEX);
 
@@ -35,7 +42,8 @@ const NegotiationFreeFormString = z.string().min(1).max(NEGOTIATION_FIELD_MAX_LE
 
 /**
  * The `daemon.hello` request, the first call on a connection: the client's preferred
- * `protocolVersion` and its full `supportedProtocols` set, which defaults to `[protocolVersion]`.
+ * `protocolVersion`, its full `supportedProtocols` set, which defaults to `[protocolVersion]`, and
+ * the daemon's session token read from its token file.
  */
 export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
   .object({
@@ -46,6 +54,7 @@ export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
       .max(SUPPORTED_PROTOCOLS_MAX_LEN)
       .optional(),
     clientId: NegotiationFreeFormString.optional(),
+    sessionToken: NegotiationFreeFormString.optional(),
     capabilities: z.array(NegotiationFreeFormString).max(SUPPORTED_PROTOCOLS_MAX_LEN).optional(),
   })
   .strict() as unknown as z.ZodType<DaemonHello>;
@@ -58,6 +67,12 @@ export interface DaemonHello {
   readonly protocolVersion: string;
   readonly supportedProtocols?: ReadonlyArray<string>;
   readonly clientId?: string;
+  /**
+   * The session token the daemon wrote to its token file at this start. Optional in the shape so
+   * the daemon answers its absence with `auth.token_invalid`, as it does a wrong one; it serves
+   * nothing on a connection whose hello lacks the right token.
+   */
+  readonly sessionToken?: string;
   readonly capabilities?: ReadonlyArray<string>;
 }
 

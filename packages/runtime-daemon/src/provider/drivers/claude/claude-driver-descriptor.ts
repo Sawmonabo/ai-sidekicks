@@ -10,9 +10,12 @@ import type {
 import { isPlainObject } from "../../record-readers.js";
 import { CLAUDE_BUILT_IN_TOOLS } from "./tools.js";
 
+/** The control request whose reply reports the fast-mode state before any turn. */
+const CLAUDE_FAST_MODE_PROBE_NAME = "initialize";
+
 /**
  * The detection table. The one zero-turn channel is the control-request registry: an unknown
- * subtype answers `Unsupported control request subtype: <name>`. No entry is currently `probed`.
+ * subtype answers `Unsupported control request subtype: <name>`. Only `output_speed` is `probed`.
  */
 const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.freeze({
   resume: {
@@ -122,32 +125,35 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
   },
   context_compaction: {
     detectionSource: "static",
-    failingConjuncts: ["zero-turn"],
+    failingConjuncts: ["zero-turn", "non-mutating"],
     rationale:
       "The compaction this driver's leg dispatches is the provider's OWN command, and the " +
-      "only evidence that command exists on this build is its presence in the " +
-      "session-handshake command enumeration — which the provider emits as part of a " +
-      "turn-bearing exchange. Reading it therefore costs a turn, so the one conjunct that " +
-      "fails is zero-turn rather than decisiveness: the enumeration WOULD decide the flag, " +
-      "and is simply not free to obtain.",
+      "evidence that command exists on this build is the command enumeration. The session " +
+      "handshake carries it as part of a turn-bearing exchange, so that reading costs a turn; " +
+      "`reload_plugins` answers the same lists with no turn, but by reloading the process's " +
+      "skills, commands and plugins. The enumeration WOULD decide the flag; no channel " +
+      "yields it both free and without effect.",
   },
   provider_commands: {
     detectionSource: "static",
-    failingConjuncts: ["zero-turn"],
+    failingConjuncts: ["zero-turn", "non-mutating"],
     rationale:
-      "The enumeration IS the capability here, and it rides that same turn-bearing session " +
-      "handshake. Same failing conjunct as the compaction entry above and for the same " +
-      "reason: the reading is decisive and simply not free.",
+      "The enumeration IS the capability here, and it arrives on the same two channels as " +
+      "the compaction entry above: the turn-bearing session handshake and the reloading " +
+      "`reload_plugins`. Same failing conjuncts for the same reason: the reading is " +
+      "decisive and not obtainable both free and without effect.",
   },
   output_speed: {
-    detectionSource: "static",
-    failingConjuncts: ["zero-turn"],
-    rationale:
-      "TRUE on this driver. The declared speed state arrives on the same turn-bearing " +
-      "session handshake, so obtaining it costs a user-message request — which is exactly " +
-      "the conjunct that keeps this entry static, and exactly why the axis's value set is " +
-      "declared from this driver's own table rather than read from the provider: a " +
-      "vocabulary obtained by reading would contradict its own detection source.",
+    detectionSource: "probed",
+    probe: {
+      probeNames: [CLAUDE_FAST_MODE_PROBE_NAME],
+      decisiveness:
+        "The `initialize` reply reports `fast_mode_state` before any turn (`off` with " +
+        "`sdk_opt_in_required` before the opt-in), on a connection that starts no session, " +
+        "and a state present there is the axis. The reply classifier reads that member, so " +
+        "a build whose reply carries no state withdraws the flag. The settable levels stay " +
+        "declared in this driver's table: the provider reports a state and lists no modes.",
+    },
   },
 });
 
@@ -155,9 +161,10 @@ const CLAUDE_UNSUPPORTED_SUBTYPE_PREFIX = "Unsupported control request subtype:"
 
 /**
  * Classifies one `control_response`, given the full envelope or the inner response object. The
- * refusal is name-level already, so the probe name is not read.
+ * refusal is name-level already; the probe name is read only for the fast-mode probe, whose
+ * acceptance counts only when the reply carries the state.
  */
-function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
+function classifyClaudeProbeReply(payload: unknown, probeName: string): ProbeAnswer {
   if (!isPlainObject(payload)) {
     return "unrecognized";
   }
@@ -165,7 +172,13 @@ function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
   const response = isPlainObject(inner) ? inner : payload;
   const subtype = response["subtype"];
   if (subtype === "success") {
-    return "accepted";
+    if (probeName !== CLAUDE_FAST_MODE_PROBE_NAME) {
+      return "accepted";
+    }
+    const body = response["response"];
+    return isPlainObject(body) && typeof body["fast_mode_state"] === "string"
+      ? "accepted"
+      : "unrecognized";
   }
   if (subtype !== "error") {
     return "unrecognized";
@@ -187,6 +200,12 @@ function readClaudeReportedVersion(payload: unknown): ReportedVersionReading {
   return typeof version === "string" ? { version } : { unreadableReply: "" };
 }
 
+/** The requestable level that turns fast output on. */
+export const CLAUDE_FAST_OUTPUT_SPEED = "on";
+
+/** The requestable level for standard speed, and the one any level outside the table runs at. */
+export const CLAUDE_STANDARD_OUTPUT_SPEED = "off";
+
 /** Claude Code's static facts. */
 export const CLAUDE_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   capabilityDetectionTable: CLAUDE_CAPABILITY_DETECTION_TABLE,
@@ -202,6 +221,6 @@ export const CLAUDE_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze(
   ),
   // The pinned build declares its state from a three-value vocabulary; only these two are
   // requestable, the third is entered by the provider after a rate limit.
-  outputSpeedLevels: Object.freeze(["off", "on"]),
+  outputSpeedLevels: Object.freeze([CLAUDE_STANDARD_OUTPUT_SPEED, CLAUDE_FAST_OUTPUT_SPEED]),
   builtInTools: CLAUDE_BUILT_IN_TOOLS,
 });

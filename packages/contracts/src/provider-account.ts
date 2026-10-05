@@ -10,7 +10,7 @@
 // and never throws.
 import { z } from "zod";
 
-import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { wireFreeFormString } from "./session.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 // Length caps. Wire-only bounds that stop one oversized member long before the transport's
@@ -26,8 +26,6 @@ export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
 export const PROVIDER_ACCOUNT_ORG_ID_MAX_LEN = 256;
 /** Longest provider-reported organization name. */
 export const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN = 256;
-/** Longest sign-in command; the command is shown, never run. */
-export const PROVIDER_SIGN_IN_INVOCATION_MAX_LEN = 512;
 /** Longest daemon-minted id of one sign-in attempt. */
 export const PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN = 256;
 /** Longest sign-in failure text shown to the person. */
@@ -218,7 +216,7 @@ export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, Credent
   .min(CREDENTIAL_GENERATION_MIN);
 
 // `ProviderAccount` is a projection of the table row, not a mirror. Left out on purpose:
-// `credential_home_path` (reaches a screen only through `ProviderSignInRemedy`),
+// `credential_home_path` (no screen shows it),
 // `created_at` / `updated_at` (`updated_at` moves on a relabel, so beside the health pair it
 // would look like a fresh observation), and `removal_intent` (a marked row is refused at
 // admission and never shown). The three memory-import columns become `memoryImport`, and
@@ -390,10 +388,6 @@ export interface ProviderSignInRemedy {
   kind: "sign_in";
   /** The resolved account; required because this is the arm where an account resolved. */
   accountId: ProviderAccountId;
-  /** The provider's own sign-in command, for display. Neither the daemon nor a client runs it. */
-  signInInvocation: string;
-  /** The home that command signs in to; display only. */
-  credentialHomePath: string;
 }
 
 /**
@@ -432,16 +426,6 @@ const signInRemedySchema = z
   .object({
     kind: z.literal("sign_in"),
     accountId: ProviderAccountIdSchema,
-    signInInvocation: wireFreeFormString(
-      PROVIDER_SIGN_IN_INVOCATION_MAX_LEN,
-      "ProviderSignInRemedy.signInInvocation",
-    ),
-    // Absoluteness is not checked here: a `startsWith("/")` test would refuse Windows
-    // paths (`C:\Users\...\.claude`). The daemon checks the rules that need a filesystem.
-    credentialHomePath: wireFreeFormString(
-      FILE_PATH_MAX_LEN,
-      "ProviderSignInRemedy.credentialHomePath",
-    ),
   })
   .strict();
 const pasteTokenRemedySchema = z
@@ -505,9 +489,9 @@ export interface ProviderReadiness {
    */
   observedAt?: string | undefined;
   /**
-   * The daemon sends it on every state except `authenticated`. It is optional here because a
-   * strict parser cannot require it per state without splitting this interface; the parser
-   * does reject a present remedy that is the wrong kind for the state.
+   * Required on every state except `authenticated`, which refuses one. Optional in this type
+   * because requiredness follows `state`; the parser refuses a missing remedy and one of the
+   * wrong kind for the state.
    */
   remedy?: ProviderRemedy | undefined;
 }
@@ -542,10 +526,20 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
   .strict()
   .superRefine((entry, context) => {
     const { remedy } = entry;
+    const allowedKinds = REMEDY_KINDS_FOR_READINESS_STATE[entry.state];
     if (remedy === undefined) {
+      // A state the person must act on renders bare without its remedy.
+      if (allowedKinds !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["remedy"],
+          message:
+            `\`state: "${entry.state}"\` must carry the ` +
+            `${allowedKinds.map((kind) => `\`${kind}\``).join(" or ")} remedy`,
+        });
+      }
       return;
     }
-    const allowedKinds = REMEDY_KINDS_FOR_READINESS_STATE[entry.state];
     if (allowedKinds === null || !allowedKinds.includes(remedy.kind)) {
       context.addIssue({
         code: "custom",
@@ -672,7 +666,7 @@ export interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
   /**
    * The stored quota rows, sent on the read because the subscription is a live tail, not a
-   * replay; a client opened later would otherwise miss them until the next reading. Each
+   * catch-up; a client opened later would otherwise miss them until the next reading. Each
    * keeps the `source` it was observed under, so a stored window may carry `"run"`.
    */
   usageWindows: ProviderAccountUsageWindow[];

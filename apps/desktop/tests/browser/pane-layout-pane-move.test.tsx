@@ -43,51 +43,49 @@ function paneContextFor(pane: SessionPane): PaneContext {
 }
 
 describe("browser — moving a pane", () => {
-  it(
-    "moves the focused pane right with " + "Alt+Shift+ArrowRight and keeps the layout mounted",
-    async () => {
-      installMeridianTokens(document);
-      const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-      const first = layout.open({ kind: "transcript" });
-      const second = layout.open({ kind: "terminal" });
-      const { container } = await renderSettled(
-        <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
-          <LiveAnnouncerProvider>
-            <SessionPaneLayout
-              layout={layout}
-              registry={registryWithButtons()}
-              paneContextFor={paneContextFor}
-            />
-          </LiveAnnouncerProvider>
-        </FixtureBridgeProvider>,
-      );
+  it("moves the focused pane right on Alt+Shift+ArrowRight, layout still mounted", async () => {
+    installMeridianTokens(document);
+    const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
+    const first = layout.open({ kind: "transcript" });
+    const second = layout.open({ kind: "terminal" });
+    const { container } = await renderSettled(
+      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+        <LiveAnnouncerProvider>
+          <SessionPaneLayout
+            layout={layout}
+            registry={registryWithButtons()}
+            paneContextFor={paneContextFor}
+          />
+        </LiveAnnouncerProvider>
+      </FixtureBridgeProvider>,
+    );
 
-      const firstPaneButton = container.querySelector("[data-panel] button");
-      if (!(firstPaneButton instanceof HTMLButtonElement)) {
-        throw new Error("the first pane rendered no button");
-      }
+    const firstPaneButton = container.querySelector("[data-panel] button");
+    if (!(firstPaneButton instanceof HTMLButtonElement)) {
+      throw new Error("the first pane rendered no button");
+    }
 
-      // React reports an error thrown in a layout effect to the window and unmounts the tree.
-      const errors: unknown[] = [];
-      const recordError = (event: ErrorEvent): void => {
-        errors.push(event.error);
-      };
-      window.addEventListener("error", recordError);
-      try {
-        await userEvent.click(firstPaneButton);
-        await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
-      } finally {
-        window.removeEventListener("error", recordError);
-      }
+    // React reports an error thrown in a layout effect to the window and unmounts the tree.
+    const errors: unknown[] = [];
+    const recordError = (event: ErrorEvent): void => {
+      errors.push(event.error);
+    };
+    window.addEventListener("error", recordError);
+    try {
+      await userEvent.click(firstPaneButton);
+      await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+    } finally {
+      window.removeEventListener("error", recordError);
+    }
 
-      expect(errors).toStrictEqual([]);
-      expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([second, first]);
-      expect(
-        [...container.querySelectorAll("[data-panel]")].map((panel) => panel.id),
-      ).toStrictEqual([second, first]);
-      expect(container.querySelector('[role="separator"]')?.getAttribute("aria-controls")).toBe(
-        second,
-      );
-    },
-  );
+    expect(errors).toStrictEqual([]);
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([second, first]);
+    expect([...container.querySelectorAll("[data-panel]")].map((panel) => panel.id)).toStrictEqual([
+      second,
+      first,
+    ]);
+    expect(container.querySelector('[role="separator"]')?.getAttribute("aria-controls")).toBe(
+      second,
+    );
+  });
 });

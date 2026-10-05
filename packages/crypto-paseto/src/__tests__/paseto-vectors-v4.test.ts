@@ -84,17 +84,14 @@ describe("PASETO v4.local vector conformance (4-E-*)", () => {
         expect(utf8Decode(recovered)).toBe(v.payload);
       });
 
-      it(
-        `${v.name} (positive) — deterministic encrypt reproduces ` + `vector token byte-exact`,
-        () => {
-          const key = hex(v.key!);
-          const nonce = hex(v.nonce!);
-          const footer = utf8(v.footer);
-          const ia = utf8(v["implicit-assertion"]);
-          const produced = encryptV4LocalDeterministic(utf8(v.payload!), key, nonce, footer, ia);
-          expect(produced).toBe(v.token);
-        },
-      );
+      it(`${v.name} (positive) — deterministic encrypt reproduces the token byte-exact`, () => {
+        const key = hex(v.key!);
+        const nonce = hex(v.nonce!);
+        const footer = utf8(v.footer);
+        const ia = utf8(v["implicit-assertion"]);
+        const produced = encryptV4LocalDeterministic(utf8(v.payload!), key, nonce, footer, ia);
+        expect(produced).toBe(v.token);
+      });
     }
   }
 });

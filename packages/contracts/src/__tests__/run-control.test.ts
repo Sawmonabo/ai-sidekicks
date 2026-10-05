@@ -14,7 +14,7 @@ import {
   RunStateChangeEventSchema,
 } from "../run-control.js";
 import { RunStateSchema } from "../run-state.js";
-import { RunSafetyBufferingUpdatedPayloadSchema } from "../session-controls.js";
+import { RunSafetyBufferingUpdatedPayloadSchema } from "../session-controls/events.js";
 
 const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
@@ -52,7 +52,7 @@ describe("InterventionRequestPayload", () => {
   });
 
   it.each(arms)("refuses the %s arm without its mandatory comparand", (_type, payload) => {
-    // An optional comparand would let a caller bypass the stale-replay guard, so absence must
+    // An optional comparand would let a caller bypass the stale-request guard, so absence must
     // refuse on every arm.
     const { expectedRunVersion: _omitted, ...withoutComparand } = payload;
     expect(() => InterventionRequestPayloadSchema.parse(withoutComparand)).toThrow();
@@ -161,6 +161,7 @@ describe("RunStateChangeEvent", () => {
   describe("a turn the provider refused", () => {
     const refusal = {
       cause: "refused",
+      origin: "provider",
       model: "claude-opus-4-1",
       explanation: "This request looks like it could help with a cyberattack.",
       safetyCategory: "cyber",
@@ -182,6 +183,15 @@ describe("RunStateChangeEvent", () => {
         }).success,
       ).toBe(false);
     });
+  });
+
+  it("carries a provider process's own exit only on the transition into failed", () => {
+    const processExit = { signal: "SIGKILL", outputTail: "Killed" };
+    const failed = { ...minimalRunStateChange, newState: "failed", processExit };
+    expect(RunStateChangeEventSchema.parse(failed)).toEqual(failed);
+    expect(
+      RunStateChangeEventSchema.safeParse({ ...minimalRunStateChange, processExit }).success,
+    ).toBe(false);
   });
 
   describe("the executionPosture member", () => {
@@ -243,8 +253,8 @@ describe("the run.subscribeState arms", () => {
   it("keeps the state change, the rollback and the safety hold disjoint", () => {
     // The stream carries no wire tag, so the arms are told apart by shape and each must refuse
     // the others; a rollback paired with a previous and current state would corrupt the
-    // transition stream consumers replay. Positive controls come first, so the refusals are the
-    // crossing and not a bad fixture.
+    // transition stream consumers rebuild from. Positive controls come first, so the refusals are
+    // the crossing and not a bad fixture.
     expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
     expect(stateStream.parse(safetyHold)).toEqual(safetyHold);

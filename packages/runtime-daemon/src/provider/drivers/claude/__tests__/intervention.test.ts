@@ -46,44 +46,38 @@ function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
 }
 
 describe("ClaudeInterventionDispatcher steer", () => {
-  it(
-    "degrades with the queue_and_interrupt " + "fallback and sends nothing to the provider",
-    async () => {
-      const harness = buildHarness();
+  it("degrades to the queue_and_interrupt fallback and sends the provider nothing", async () => {
+    const harness = buildHarness();
 
-      const result = await harness.dispatcher.applyIntervention(
-        buildSteerParams("try the other fix"),
-      );
+    const result = await harness.dispatcher.applyIntervention(
+      buildSteerParams("try the other fix"),
+    );
 
-      expect(result).toStrictEqual({
-        status: "degraded",
-        fallbackAction: STEER_FALLBACK_ACTION,
-      });
-      expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-      // The degrade is never a partial application.
-      expect(harness.channel.sentWireTexts).toStrictEqual([]);
-      expect(harness.channel.controlRequests).toStrictEqual([]);
-      expect(harness.channel.outboundCallCount).toBe(0);
-    },
-  );
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: STEER_FALLBACK_ACTION,
+    });
+    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
+    // The degrade is never a partial application.
+    expect(harness.channel.sentWireTexts).toStrictEqual([]);
+    expect(harness.channel.controlRequests).toStrictEqual([]);
+    expect(harness.channel.outboundCallCount).toBe(0);
+  });
 });
 
 describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
-  it(
-    "routes an interrupt to the interrupt control " + "request without canceling queued input",
-    async () => {
-      const harness = buildHarness();
+  it("routes an interrupt to the interrupt control request, keeping queued input", async () => {
+    const harness = buildHarness();
 
-      const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
+    const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
 
-      expect(result).toStrictEqual({ status: "applied" });
-      expect(harness.channel.controlRequests).toStrictEqual([
-        { subtype: "interrupt", cancelQueued: false },
-      ]);
-      expect(harness.channel.sentWireTexts).toStrictEqual([]);
-      expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-    },
-  );
+    expect(result).toStrictEqual({ status: "applied" });
+    expect(harness.channel.controlRequests).toStrictEqual([
+      { subtype: "interrupt", cancelQueued: false },
+    ]);
+    expect(harness.channel.sentWireTexts).toStrictEqual([]);
+    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
+  });
 
   it("routes a cancel to the same control request with queued input canceled", async () => {
     const harness = buildHarness();
@@ -96,33 +90,27 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     ]);
   });
 
-  it(
-    "degrades — never throws — when the CLI " + "answers with a typed control refusal",
-    async () => {
-      const harness = buildHarness();
-      harness.channel.controlResponse = {
-        subtype: "error",
-        error: "Unsupported control request subtype: interrupt",
-      };
+  it("degrades, never throws, when the CLI answers with a typed control refusal", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = {
+      subtype: "error",
+      error: "Unsupported control request subtype: interrupt",
+    };
 
-      const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
+    const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
 
-      expect(result).toStrictEqual({ status: "degraded" });
-      expect(result.fallbackAction).toBeUndefined();
-      expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-    },
-  );
+    expect(result).toStrictEqual({ status: "degraded" });
+    expect(result.fallbackAction).toBeUndefined();
+    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
+  });
 
-  it(
-    "refuses an interrupt for a run with no " + "live channel rather than claiming a degrade",
-    async () => {
-      const dispatcher = buildDispatcherWithoutLiveRun();
+  it("refuses an interrupt on a run with no live channel, never claiming a degrade", async () => {
+    const dispatcher = buildDispatcherWithoutLiveRun();
 
-      await expect(dispatcher.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
-        ClaudeSessionUnavailableError,
-      );
-    },
-  );
+    await expect(dispatcher.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
+      ClaudeSessionUnavailableError,
+    );
+  });
 });
 
 describe("ClaudeInterventionDispatcher cancel receipt grading", () => {

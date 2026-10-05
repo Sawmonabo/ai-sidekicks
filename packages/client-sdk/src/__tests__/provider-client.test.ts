@@ -231,31 +231,28 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
 // A daemon refusal reaches the caller typed
 
 describe("driver.* — a refusal surfaces as its registered code", () => {
-  it(
-    "surfaces driver.capability_unsupported on " + "compactContext as the typed remote refusal",
-    async () => {
-      // The static gate's refusal must stay a remote error; `{ status: 'refused' }` would claim the
-      // caller was adjudicated when the driver simply lacks the capability.
-      const { client } = buildDriverClient({
-        [METHOD_COMPACT_CONTEXT]: () => ({
-          error: {
-            code: JsonRpcErrorCode.InvalidRequest,
-            message: "Requested capability is not supported by the driver",
-            data: { type: "driver.capability_unsupported" },
-          },
-        }),
-      });
+  it("surfaces capability_unsupported on compactContext as the typed remote refusal", async () => {
+    // The static gate's refusal must stay a remote error; `{ status: 'refused' }` would claim the
+    // caller was adjudicated when the driver simply lacks the capability.
+    const { client } = buildDriverClient({
+      [METHOD_COMPACT_CONTEXT]: () => ({
+        error: {
+          code: JsonRpcErrorCode.InvalidRequest,
+          message: "Requested capability is not supported by the driver",
+          data: { type: "driver.capability_unsupported" },
+        },
+      }),
+    });
 
-      let caught: unknown = null;
-      try {
-        await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(JsonRpcRemoteError);
-      if (caught instanceof JsonRpcRemoteError) {
-        expect(caught.data?.type).toBe("driver.capability_unsupported");
-      }
-    },
-  );
+    let caught: unknown = null;
+    try {
+      await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.data?.type).toBe("driver.capability_unsupported");
+    }
+  });
 });

@@ -10,7 +10,7 @@ import {
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
   TRANSCRIPT_WINDOW_ROW_CAP,
 } from "./viewport-constants.js";
-import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import {
   CALM,

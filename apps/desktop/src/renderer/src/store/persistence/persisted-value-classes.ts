@@ -22,7 +22,6 @@
 // is keyed by the union, so the two halves cannot drift.
 
 import { isWireRecord } from "@renderer/lib/wire-record.js";
-import { SCHEME_PREFERENCES, isSchemePreference } from "@renderer/styles/tokens.js";
 import {
   IDENTIFIER_MAX_LENGTH,
   isIdentifierShaped,
@@ -41,7 +40,6 @@ export const PERSISTED_VALUE_CLASSES = [
   "selection",
   "pin",
   "expansion",
-  "scheme",
   "preference",
 ] as const;
 
@@ -191,10 +189,6 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
     }
     return undefined;
   },
-  scheme: (value) =>
-    isSchemePreference(value)
-      ? undefined
-      : invalid(`scheme is one of ${SCHEME_PREFERENCES.join(", ")}`),
   /**
    * A settings record: identifier-named switches to booleans, and nothing else. Booleans only,
    * or this becomes the arbitrary-JSON class the enumeration exists to refuse: a string would

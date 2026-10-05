@@ -5,7 +5,7 @@
 // exactly as `Every project` is.
 //
 // `repo.projectList` is a live list: the acknowledgement is the shared `SubscribeAckResponse`,
-// and each emission carries the whole list, so a late subscriber needs no replay and a dropped
+// and each emission carries the whole list, so a late subscriber needs no resend and a dropped
 // frame costs nothing.
 //
 // This module imports nothing from `./event.js` and nothing that reaches it, because an import
@@ -15,6 +15,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
+  BranchNamePatternChangeSchema,
   BranchNamePatternSchema,
   EnvironmentRowSchema,
   type EnvironmentRow,
@@ -216,4 +217,6 @@ export interface ProjectBranchPatternUpdateRequest {
 export const ProjectBranchPatternUpdateRequestSchema: z.ZodType<
   ProjectBranchPatternUpdateRequest,
   ProjectBranchPatternUpdateRequest
-> = z.object({ projectId: ProjectIdSchema, pattern: BranchNamePatternSchema.nullable() }).strict();
+> = z
+  .object({ projectId: ProjectIdSchema, pattern: BranchNamePatternChangeSchema.nullable() })
+  .strict();

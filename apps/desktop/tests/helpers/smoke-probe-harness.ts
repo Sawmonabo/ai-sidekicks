@@ -8,6 +8,11 @@ import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "@shared/probe-tags.js
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./fixture-bundle.js";
+import {
+  ISOLATED_SERVICE_READY_TIMEOUT_MS,
+  ISOLATED_SERVICE_START_CEILING_MS,
+  startIsolatedService,
+} from "./isolated-service.js";
 import { createLaunchProfile } from "./launch-profile.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
@@ -40,12 +45,13 @@ export const SPAWN_TIMEOUT_MS = 30_000;
 
 /**
  * The enclosing vitest budget, derived from the phases it contains: the display gate, the
- * spawned tree's host queries, the spawn deadline, the diagnostic collection ceiling, the
- * SIGTERM to SIGKILL grace, and slack. A phase left out lets vitest's generic timeout win over
- * the harness's own report.
+ * isolated service's start, the spawned tree's host queries, the spawn deadline, the diagnostic
+ * collection ceiling, the SIGTERM to SIGKILL grace, and slack. A phase left out lets vitest's
+ * generic timeout win over the harness's own report.
  */
 export const BOOT_TEST_TIMEOUT_MS: number =
   DISPLAY_READY_TIMEOUT_MS +
+  ISOLATED_SERVICE_START_CEILING_MS +
   SPAWNED_TREE_HOST_QUERY_CEILING_MS +
   SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
@@ -85,7 +91,7 @@ export interface SpawnResult {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly elapsedMs: number;
-  // Ordered `dom-ready` / `ready-to-show` breadcrumbs from the child's output. Empty means the
+  // Ordered `dom-ready` / `did-finish-load` breadcrumbs from the child's output. Empty means the
   // renderer never reached even the first.
   readonly readinessBreadcrumbs: readonly string[];
   // Environment readings taken at spawn and at the deadline.
@@ -113,12 +119,12 @@ const LINUX_HEADLESS_CHROMIUM_SWITCHES: readonly string[] = [
 ];
 
 /**
- * Spawns Electron on a private profile and resolves with everything it produced. It never
- * rejects: a refused or failed spawn resolves with a null probe and the reason in the output. The
- * profile comes off disk after the child is gone, at the end of the test; a removal that fails
- * fails the test.
+ * Spawns Electron on a private profile, beside a background service of the test's own, and
+ * resolves with everything it produced. It never rejects: a refused or failed spawn resolves with
+ * a null probe and the reason in the output. The profile comes off disk after the child is gone,
+ * at the end of the test; a removal that fails fails the test.
  */
-export function spawnElectron(): Promise<SpawnResult> {
+export async function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
   const spawnBudgetMs = SPAWN_TIMEOUT_MS;
@@ -126,30 +132,44 @@ export function spawnElectron(): Promise<SpawnResult> {
   // Resolved once so the display the harness gated on is the one the child receives.
   const childDisplay = resolvedDisplay();
 
+  /** A spawn refused before Electron started, with the reason as its only output. */
+  const refusedBeforeSpawn = (reason: string): SpawnResult => ({
+    probe: null,
+    malformedProbeLines: [],
+    stdout: "",
+    stderr: reason,
+    combinedOutput: reason,
+    exitCode: null,
+    signal: null,
+    elapsedMs: Date.now() - startedAt,
+    readinessBreadcrumbs: [],
+    diagnostics: captureDiagnostics("refused-before-spawn", null, null),
+    spawnBudgetMs,
+    timedOut: false,
+    diagnosticCollectionMs: null,
+    childDisplay,
+  });
+
   // Refuse before spawning when the named display is not serving, instead of discovering it as a
   // spawn-deadline silence.
   const display = resolvedDisplay();
   if (display !== undefined && !needsXvfb()) {
     const displayFailure = awaitDisplayReady(display);
     if (displayFailure !== null) {
-      const refusal: SpawnResult = {
-        probe: null,
-        malformedProbeLines: [],
-        stdout: "",
-        stderr: displayFailure,
-        combinedOutput: displayFailure,
-        exitCode: null,
-        signal: null,
-        elapsedMs: Date.now() - startedAt,
-        readinessBreadcrumbs: [],
-        diagnostics: captureDiagnostics("refused-before-spawn", null, null),
-        spawnBudgetMs,
-        timedOut: false,
-        diagnosticCollectionMs: null,
-        childDisplay,
-      };
-      return Promise.resolve(refusal);
+      return refusedBeforeSpawn(displayFailure);
     }
+  }
+
+  // The launch plays no scenario, so main's supervisor looks for the service; it finds this one
+  // and starts none of its own on the person's account.
+  let serviceEnvironment: Readonly<Record<string, string>>;
+  try {
+    serviceEnvironment = (await startIsolatedService(ISOLATED_SERVICE_READY_TIMEOUT_MS))
+      .environment;
+  } catch (serviceFailure: unknown) {
+    return refusedBeforeSpawn(
+      serviceFailure instanceof Error ? serviceFailure.message : String(serviceFailure),
+    );
   }
 
   // A private profile makes Electron's `SingletonLock` per-spawn. On the default profile a second
@@ -178,13 +198,14 @@ export function spawnElectron(): Promise<SpawnResult> {
         cwd: PACKAGE_ROOT,
         env: {
           ...process.env,
+          ...serviceEnvironment,
           // Pinned so a regressed readiness gate cannot let the child open on the developer's
           // real display and pass.
           ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
           // Opt-in for the main-process smoke branch, which the compile-time smoke build flag
           // removes from release bundles.
           SIDEKICKS_SMOKE_PROBE: "1",
-          // Emit the `dom-ready` / `ready-to-show` breadcrumbs beside `did-finish-load`.
+          // Emit the `dom-ready` breadcrumb beside `did-finish-load`.
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the app (smoke build only; see
           // `src/main/windows/window-reveal.ts`).

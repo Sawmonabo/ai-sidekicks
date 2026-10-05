@@ -1,8 +1,8 @@
-// The session log one scenario has delivered: the record a late `session.subscribe` sink is
-// replayed. Beats are delivered at their authored sequences, which stay monotonic and dense as
+// The session log one scenario has delivered: the record a late `session.subscribe` sink catches up
+// from. Beats are delivered at their authored sequences, which stay monotonic and dense as
 // `store/session/sequence-reconciler.ts` requires (it drops anything at or below its cursor as a
-// duplicate and records a skip as a gap). The script itself is never rewritten, so
-// `scenario.beats` stays the authored record the contract check reads.
+// duplicate and records a skip as a gap). The script itself is never rewritten, so `scenario.beats`
+// stays the authored record the contract check reads.
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
@@ -18,7 +18,7 @@ export class ScenarioSessionLog {
     return [...this.#delivered];
   }
 
-  /** How many frames have been delivered. The engine's replay predicate reads this. */
+  /** How many frames have been delivered. The engine's catch-up predicate reads this. */
   public get deliveredCount(): number {
     return this.#delivered.length;
   }

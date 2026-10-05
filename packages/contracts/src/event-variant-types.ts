@@ -61,6 +61,7 @@ import type {
   RunUsageCreditsChoiceRequestedPayload,
   RunUsageCreditsChoiceResolvedPayload,
 } from "./run-provider-choice.js";
+import type { UserMessagePayload } from "./run-queue.js";
 import type { RunQueuedPayload } from "./run-queued.js";
 import type {
   ModerationReviewFlaggedPayload,
@@ -69,7 +70,7 @@ import type {
   SessionNoticePayload,
   SessionSideQuestionAnsweredPayload,
   SessionSpendLimitReachedPayload,
-} from "./session-controls.js";
+} from "./session-controls/events.js";
 import type { SessionConvertedPayload } from "./session-convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "./session-goal.js";
 import type { SessionRestoreFinishedPayload } from "./session-restore.js";
@@ -87,6 +88,7 @@ import type {
 } from "./workflow-run-control.js";
 import type {
   WorkflowGateResolvedPayload,
+  WorkflowPhaseSuspendedPayload,
   WorkflowStepEventPayload,
   WorkflowStepFailedPayload,
   WorkflowStepFinishedPayload,
@@ -174,6 +176,12 @@ export type QuestionAskedEvent = SessionEventVariant<
   "question.asked",
   "interactive_request",
   QuestionAskedPayload
+>;
+/** Emitted when the daemon accepts a message the person sent, or a voice call hears one. */
+export type UserMessageEvent = SessionEventVariant<
+  "user.message",
+  "interactive_request",
+  UserMessagePayload
 >;
 /** Emitted when an MCP server sign-in ends, in success or failure. */
 export type McpServerOauthCompletedEvent = SessionEventVariant<
@@ -450,6 +458,12 @@ export type WorkflowResultsPostedEvent = SessionEventVariant<
   "workflow_lifecycle",
   WorkflowResultsPostedPayload
 >;
+/** Emitted when a workflow step starts waiting, with what it waits on. */
+export type WorkflowPhaseSuspendedEvent = SessionEventVariant<
+  "workflow.phase_suspended",
+  "workflow_phase_lifecycle",
+  WorkflowPhaseSuspendedPayload
+>;
 /** Emitted when a workflow step starts, with the input it ran on. */
 export type WorkflowStepStartedEvent = SessionEventVariant<
   "workflow.step_started",
@@ -532,6 +546,7 @@ export type SessionEvent =
   | PlanAcceptedEvent
   | PlanHandedOffEvent
   | QuestionAskedEvent
+  | UserMessageEvent
   | McpServerOauthCompletedEvent
   | CloudTaskUpdatedEvent
   | SessionRestoreFinishedEvent
@@ -574,6 +589,7 @@ export type SessionEvent =
   | WorkflowResumedEvent
   | WorkflowCanceledEvent
   | WorkflowResultsPostedEvent
+  | WorkflowPhaseSuspendedEvent
   | WorkflowStepStartedEvent
   | WorkflowStepFinishedEvent
   | WorkflowStepFailedEvent

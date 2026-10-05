@@ -42,6 +42,8 @@ import {
   composeScriptBeats,
   type ScriptEntry,
   createRunEntryBuilders,
+  findBeatCursor,
+  newestBeatInstant,
 } from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
 import {
@@ -50,7 +52,9 @@ import {
   composeResolvedAgent,
   findScenarioMember,
 } from "../data/opening-entries.js";
+import { GITFLOW_DIFF_REPLIES } from "../data/gitflow-diff-replies.js";
 import { SETTINGS_PAGE_REPLIES } from "../data/settings-page-replies.js";
+import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow-replies.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -508,6 +512,13 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
+const CONCURRENT_STREAMING_BEATS = composeScriptBeats({
+  sessionId: SESSION_ID,
+  eventIdStem: EVENT_ID_STEM,
+  startedAtMs,
+  entries: CONCURRENT_STREAMING_SCRIPT,
+});
+
 /** Four agents streaming at once, with a mid-stream approval, a parked lane and a helper run. */
 export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   id: CONCURRENT_STREAMING_SCENARIO_ID,
@@ -518,12 +529,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
     "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
-    sessionId: SESSION_ID,
-    eventIdStem: EVENT_ID_STEM,
-    startedAtMs,
-    entries: CONCURRENT_STREAMING_SCRIPT,
-  }),
+  beats: CONCURRENT_STREAMING_BEATS,
   replies: [
     {
       // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
@@ -533,12 +539,17 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           id: SESSION_ID,
           state: "active",
           createdAt: STARTED_AT_ISO,
-          updatedAt: "2026-01-01T14:20:02.450Z",
+          updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
           draft: "",
         },
-        transcriptCursors: { latest: "concurrent-streaming-cursor-45" },
+        transcriptCursors: {
+          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length),
+        },
       },
     },
     ...SETTINGS_PAGE_REPLIES,
+    ...WORKFLOW_REPLIES,
+    ...GITFLOW_DIFF_REPLIES,
   ],
+  openingNotices: WORKFLOW_OPENING_NOTICES,
 };

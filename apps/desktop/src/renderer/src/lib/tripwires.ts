@@ -83,7 +83,7 @@ export class TripwireRegistry {
   }
 
   /**
-   * Attaches a diagnostic sink. Past reports are not replayed, and the returned function is the
+   * Attaches a diagnostic sink. Past reports are not resent, and the returned function is the
    * only way to detach, so one subsystem's install cannot drop another's.
    */
   public subscribeToReports(sink: TripwireSink): Unsubscribe {

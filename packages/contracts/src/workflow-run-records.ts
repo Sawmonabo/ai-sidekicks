@@ -4,6 +4,7 @@
 // list reads, with their method table.
 import { z } from "zod";
 
+import { ApprovalDecisionSchema, type ApprovalDecision } from "./approval.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
@@ -31,6 +32,7 @@ import {
   WorkflowRunStatusSchema,
   WorkflowStartedBySchema,
   WorkflowStepSchema,
+  WorkflowTriggerKindSchema,
   WorkflowWaitCauseSchema,
   type WorkflowCost,
   type WorkflowRunId,
@@ -38,12 +40,13 @@ import {
   type WorkflowRunStatus,
   type WorkflowStartedBy,
   type WorkflowStep,
+  type WorkflowTriggerKind,
   type WorkflowWaitCause,
 } from "./workflow-run.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The statuses of a run that is still going: new, running or waiting. */
-const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
+export const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
 
 // workflow.runRead
 
@@ -57,15 +60,34 @@ export const WorkflowRunReadRequestSchema: z.ZodType<
   WorkflowRunReadRequest
 > = z.object({ workflowRunId: WorkflowRunIdSchema }).strict();
 
+/** Where a going run is: the live step's place in the run and its node's name. */
+export interface WorkflowLiveStep {
+  index: number;
+  total: number;
+  nodeName: string;
+}
+/** Wire schema for {@link WorkflowLiveStep}. */
+export const WorkflowLiveStepSchema: z.ZodType<WorkflowLiveStep> = z
+  .object({
+    index: z.number().int().positive(),
+    total: z.number().int().positive(),
+    nodeName: z.string().min(1),
+  })
+  .strict()
+  .refine((live) => live.index <= live.total, { message: "The live step is within the run." });
+
 /**
  * The first run of a run's chain: runs a run starts join its chain, and a first run
- * names itself. The header links the first run only when it is another run.
+ * names itself. The header links the first run only when it is another run. `runCount` is
+ * how many runs the chain has started from that first run, the first run included, which
+ * the chain's question and a held step's live line both read.
  */
 export interface WorkflowChainRoot {
   runId: WorkflowRunId;
   definitionId: WorkflowDefinitionId;
   workflowName: string;
   startedAt: string;
+  runCount: number;
 }
 /** Wire schema for {@link WorkflowChainRoot}. */
 export const WorkflowChainRootSchema: z.ZodType<WorkflowChainRoot> = z
@@ -74,8 +96,58 @@ export const WorkflowChainRootSchema: z.ZodType<WorkflowChainRoot> = z
     definitionId: WorkflowDefinitionIdSchema,
     workflowName: z.string().min(1),
     startedAt: isoDateTimeSchema,
+    runCount: z.number().int().positive(),
   })
   .strict();
+
+/**
+ * The chain's question as its first run's page carries it: open, or answered with the decision
+ * and the run count it was taken at, which its receipt reads (`Kept going at 100 runs`). It is an
+ * approval the engine raises on the first run and answers through `workflow.gateResolve` naming no
+ * node: `approved` keeps the chain going, `rejected` stops every run of it.
+ */
+export type WorkflowChainQuestion =
+  | { state: "open" }
+  | { state: "answered"; decision: ApprovalDecision; runCount: number; answeredAt: string };
+/** Wire schema for {@link WorkflowChainQuestion}. */
+export const WorkflowChainQuestionSchema: z.ZodType<WorkflowChainQuestion> = z.discriminatedUnion(
+  "state",
+  [
+    z.object({ state: z.literal("open") }).strict(),
+    z
+      .object({
+        state: z.literal("answered"),
+        decision: ApprovalDecisionSchema,
+        runCount: z.number().int().positive(),
+        answeredAt: isoDateTimeSchema,
+      })
+      .strict(),
+  ],
+);
+
+/** How many items went through one edge of the run's graph, summed over every pass. */
+export interface WorkflowEdgeItemCount {
+  edgeId: string;
+  itemCount: number;
+}
+/** Wire schema for {@link WorkflowEdgeItemCount}. */
+export const WorkflowEdgeItemCountSchema: z.ZodType<WorkflowEdgeItemCount> = z
+  .object({ edgeId: z.string().min(1), itemCount: countSchema })
+  .strict();
+
+/**
+ * The end snapshot a finished run's `Open in Review` compares with its start. Pinned, it names
+ * the execution whose start and end snapshots are compared; missing, it carries the daemon's words
+ * for why the end snapshot could not be taken, and the door stays in place saying so.
+ */
+export type WorkflowRunReview =
+  | { state: "pinned"; epoch: number }
+  | { state: "missing"; reason: string };
+/** Wire schema for {@link WorkflowRunReview}. */
+const WorkflowRunReviewSchema: z.ZodType<WorkflowRunReview> = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pinned"), epoch: countSchema }).strict(),
+  z.object({ state: z.literal("missing"), reason: z.string().min(1) }).strict(),
+]);
 
 /**
  * The `workflow.runRead` result: the run's header facts and every step. The page draws
@@ -83,9 +155,15 @@ export const WorkflowChainRootSchema: z.ZodType<WorkflowChainRoot> = z
  *
  * `executionContextCaptured` is true when the run recorded its checkout and snapshot
  * points, which is what lets `Open in Review` open the run's changes; a run in a chat
- * session records none. `keep` holds the run's step data past the time bound.
+ * session records none. `keep` is the Keep mark, which `Delete runs older than…` leaves.
+ * `endedAt` is present exactly once the run has ended: a `failed` run parked on its failed step
+ * has not ended and carries none, so `Cancel` and `Resume` still act on it.
  * `fixSessionId` names the session a failed step was opened in to be fixed, linked for
- * the life of the run. `failureReason` also carries a cancellation's reason.
+ * the life of the run. `failureReason` also carries a cancellation's reason. `cost` is summed
+ * from the steps' stored amounts; a going run carries its `liveStep`; `edgeItemCounts` names
+ * every edge items went through; a finished run whose checkout was captured carries `review`,
+ * the snapshots `Open in Review` compares; and the chain's first run carries the chain's question
+ * once one has been asked.
  */
 export interface WorkflowRunReadResponse {
   workflowRunId: WorkflowRunId;
@@ -94,6 +172,7 @@ export interface WorkflowRunReadResponse {
   workflowVersionId: string;
   state: WorkflowRunStatus;
   mode: WorkflowRunMode;
+  triggerKind: WorkflowTriggerKind;
   startedBy: WorkflowStartedBy;
   chainRoot: WorkflowChainRoot;
   executionContextCaptured: boolean;
@@ -103,6 +182,11 @@ export interface WorkflowRunReadResponse {
   failureReason?: string | undefined;
   startedAt: string;
   endedAt?: string | undefined;
+  cost?: WorkflowCost | undefined;
+  liveStep?: WorkflowLiveStep | undefined;
+  edgeItemCounts: WorkflowEdgeItemCount[];
+  review?: WorkflowRunReview | undefined;
+  chainQuestion?: WorkflowChainQuestion | undefined;
 }
 /** Wire schema for {@link WorkflowRunReadResponse}. */
 export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> = z
@@ -113,6 +197,7 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
     workflowVersionId: WorkflowVersionIdSchema,
     state: WorkflowRunStatusSchema,
     mode: WorkflowRunModeSchema,
+    triggerKind: WorkflowTriggerKindSchema,
     startedBy: WorkflowStartedBySchema,
     chainRoot: WorkflowChainRootSchema,
     executionContextCaptured: z.boolean(),
@@ -122,13 +207,38 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
     failureReason: z.string().min(1).optional(),
     startedAt: isoDateTimeSchema,
     endedAt: isoDateTimeSchema.optional(),
+    cost: WorkflowCostSchema.optional(),
+    liveStep: WorkflowLiveStepSchema.optional(),
+    edgeItemCounts: z.array(WorkflowEdgeItemCountSchema),
+    review: WorkflowRunReviewSchema.optional(),
+    chainQuestion: WorkflowChainQuestionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((run) => GOING_RUN_STATUSES.includes(run.state) || run.liveStep === undefined, {
+    path: ["liveStep"],
+    message: "Only a going run has a live step.",
+  })
+  .refine(
+    (run) =>
+      run.state === "failed" ||
+      GOING_RUN_STATUSES.includes(run.state) === (run.endedAt === undefined),
+    { path: ["endedAt"], message: "A run carries its end exactly once it has ended." },
+  )
+  .refine(
+    (run) =>
+      run.review === undefined ||
+      (run.executionContextCaptured && !GOING_RUN_STATUSES.includes(run.state)),
+    { path: ["review"], message: "Only a finished run with a captured checkout is reviewed." },
+  )
+  .refine((run) => run.chainQuestion === undefined || run.chainRoot.runId === run.workflowRunId, {
+    path: ["chainQuestion"],
+    message: "The chain's question sits on the chain's first run.",
+  });
 
 // workflow.runList
 
 /**
- * The `workflow.runList` input: the runs table's filters (workflow, status, trigger
+ * The `workflow.runList` input: the runs table's filters (workflow, status, trigger kind
  * and date range) and the version scope `Show runs` hands in. Without
  * `sessionId` it lists every run this daemon ran.
  */
@@ -137,7 +247,7 @@ export interface WorkflowRunListRequest {
   definitionId?: WorkflowDefinitionId | undefined;
   workflowVersionId?: string | undefined;
   status?: WorkflowRunStatus[] | undefined;
-  mode?: WorkflowRunMode[] | undefined;
+  triggerKind?: WorkflowTriggerKind[] | undefined;
   startedAfter?: string | undefined;
   startedBefore?: string | undefined;
   limit?: number | undefined;
@@ -153,7 +263,7 @@ export const WorkflowRunListRequestSchema: z.ZodType<
     definitionId: WorkflowDefinitionIdSchema.optional(),
     workflowVersionId: WorkflowVersionIdSchema.optional(),
     status: z.array(WorkflowRunStatusSchema).min(1).optional(),
-    mode: z.array(WorkflowRunModeSchema).min(1).optional(),
+    triggerKind: z.array(WorkflowTriggerKindSchema).min(1).optional(),
     startedAfter: isoDateTimeSchema.optional(),
     startedBefore: isoDateTimeSchema.optional(),
     limit: z.number().int().positive().optional(),
@@ -161,18 +271,11 @@ export const WorkflowRunListRequestSchema: z.ZodType<
   })
   .strict();
 
-/** Where a going run is: the live step's place in the run and its node's name. */
-export interface WorkflowLiveStep {
-  index: number;
-  total: number;
-  nodeName: string;
-}
-
 /**
  * One row of the runs table, in the order the row reads it. It names the definition
  * the run came from, because a list answers with runs nobody named, and the run's
  * session, which the row opens. While the run is going it carries its live step and no
- * duration; a waiting run names its cause.
+ * duration; a waiting run names its cause. `keep` is the Keep mark the row shows.
  */
 export interface WorkflowRunSummary {
   workflowRunId: WorkflowRunId;
@@ -181,6 +284,7 @@ export interface WorkflowRunSummary {
   definitionName: string;
   status: WorkflowRunStatus;
   mode: WorkflowRunMode;
+  triggerKind: WorkflowTriggerKind;
   startedBy: WorkflowStartedBy;
   startedAt: string;
   durationMs?: number | undefined;
@@ -189,6 +293,7 @@ export interface WorkflowRunSummary {
   cost?: WorkflowCost | undefined;
   waitCause?: WorkflowWaitCause | undefined;
   resumeAt?: string | undefined;
+  keep: boolean;
 }
 /** Wire schema for {@link WorkflowRunSummary}. */
 export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
@@ -199,22 +304,16 @@ export const WorkflowRunSummarySchema: z.ZodType<WorkflowRunSummary> = z
     definitionName: z.string().min(1),
     status: WorkflowRunStatusSchema,
     mode: WorkflowRunModeSchema,
+    triggerKind: WorkflowTriggerKindSchema,
     startedBy: WorkflowStartedBySchema,
     startedAt: isoDateTimeSchema,
     durationMs: countSchema.optional(),
     stepCount: countSchema,
-    liveStep: z
-      .object({
-        index: z.number().int().positive(),
-        total: z.number().int().positive(),
-        nodeName: z.string().min(1),
-      })
-      .strict()
-      .refine((live) => live.index <= live.total, { message: "The live step is within the run." })
-      .optional(),
+    liveStep: WorkflowLiveStepSchema.optional(),
     cost: WorkflowCostSchema.optional(),
     waitCause: WorkflowWaitCauseSchema.optional(),
     resumeAt: isoDateTimeSchema.optional(),
+    keep: z.boolean(),
   })
   .strict()
   .refine((row) => GOING_RUN_STATUSES.includes(row.status) === (row.durationMs === undefined), {
@@ -629,8 +728,6 @@ export interface WorkflowRunRecordMethodDescriptors {
 
 /**
  * The `workflow.*` methods that read, list and keep run records.
- *
- * @consumedBy the daemon's workflow run record handlers
  */
 export const WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS: WorkflowRunRecordMethodDescriptors =
   defineMethodDescriptors({

@@ -36,6 +36,7 @@ import {
 } from "@renderer/app/fixture-global-names.js";
 import type { SessionDiagnostics } from "@renderer/services/session-events/session-diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "@renderer/services/daemon/selection.fixture.js";
+import { formatRoute } from "@renderer/routing/routes.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
@@ -66,8 +67,10 @@ export const ENDURANCE_LAUNCH_OPTIONS: LaunchAppOptions = enduranceLaunchOptions
 export const CONCURRENT_STREAMING_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /** The hash route of the concurrent-streaming session. */
-export const CONCURRENT_STREAMING_SESSION_ROUTE: string =
-  `#/session/` + `${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
+export const CONCURRENT_STREAMING_SESSION_ROUTE: string = formatRoute({
+  kind: "session",
+  sessionId: CONCURRENT_STREAMING_SESSION_ID,
+});
 
 /** The hash route of the settings destination. */
 export const SETTINGS_ROUTE: string = "#/settings";

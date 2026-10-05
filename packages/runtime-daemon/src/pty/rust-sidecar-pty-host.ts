@@ -133,8 +133,8 @@ export class RustSidecarPtyHost implements PtyHost {
     await this.childProcess.ensureChild(this.shuttingDown);
     // The session is registered in `resolveOutstanding`, not after this await: frames dispatch
     // synchronously, so a `DataFrame` following the response in the same chunk would find no
-    // session. Frames arriving before the response are held and correlated by
-    // `correlateBufferedSpawnEvents`.
+    // session. Frames arriving before the response are held and delivered by
+    // `deliverBufferedSpawnEvents`.
     const response = await this.sendRequest(spec, "spawn_response");
     if (response.kind !== "spawn_response") {
       throw new Error(`RustSidecarPtyHost.spawn: unexpected response kind ${response.kind}`);
@@ -437,7 +437,7 @@ export class RustSidecarPtyHost implements PtyHost {
         const bytes: Uint8Array = Buffer.from(envelope.bytes, "base64");
         // Alive: fire onData. Closed: drop, close() already removed the record. Unknown: buffer,
         // because the sidecar's reader task and its random-order writer can put a frame or exit
-        // notification on the wire before the SpawnResponse; correlateBufferedSpawnEvents
+        // notification on the wire before the SpawnResponse; deliverBufferedSpawnEvents
         // delivers it.
         if (this.sessions.has(envelope.session_id)) {
           this.dataListener(envelope.session_id, bytes);
@@ -565,8 +565,8 @@ export class RustSidecarPtyHost implements PtyHost {
       return;
     }
     // Registered here, not after spawn()'s await, so frames trailing this SpawnResponse in the same
-    // stdout chunk see `sessions.has(id)`. Earlier frames are correlated by
-    // correlateBufferedSpawnEvents, deferred so the caller's `await spawn()` records the id before
+    // stdout chunk see `sessions.has(id)`. Earlier frames are delivered by
+    // deliverBufferedSpawnEvents, deferred so the caller's `await spawn()` records the id before
     // onData or onExit fires.
     if (envelope.kind === "spawn_response") {
       // A spawn racing shutdown() slips past runShutdown's snapshot, and the sidecar's exit
@@ -584,7 +584,7 @@ export class RustSidecarPtyHost implements PtyHost {
         return;
       }
       this.sessions.set(envelope.session_id, { hasExited: false });
-      this.correlateBufferedSpawnEvents(envelope.session_id);
+      this.deliverBufferedSpawnEvents(envelope.session_id);
     }
     head.resolve(envelope);
   }
@@ -603,7 +603,7 @@ export class RustSidecarPtyHost implements PtyHost {
    * `spawn()` caller's continuation records the id first. `unref()` keeps the timer from holding
    * the daemon open.
    */
-  private correlateBufferedSpawnEvents(sessionId: string): void {
+  private deliverBufferedSpawnEvents(sessionId: string): void {
     const { dataFrames, exit } = this.preSpawnBuffer.takePreSpawnEvents(sessionId);
     if (dataFrames === undefined && exit === undefined) {
       return;

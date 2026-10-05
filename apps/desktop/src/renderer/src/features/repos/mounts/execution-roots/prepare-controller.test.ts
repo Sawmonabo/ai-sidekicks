@@ -60,57 +60,51 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 });
 
 describe("ExecutionRootPrepareController — the prepare", () => {
-  it(
-    "publishes the root the daemon put on disk, settled the only way " + "a prepare settles",
-    async () => {
-      // `ready`, not `preparing`: the execution-root service awaits the preparation's completion
-      // before answering, so "prepared / preparing" is a pair no daemon can send.
-      const { controller, clock } = open();
-      controller.checkReuse("feat/fresh-root");
-      await settlePrerequisiteRead(controller, clock);
-      await controller.prepare("feat/fresh-root", false);
-      const { act } = controller.snapshot;
-      expect(act.status).toBe("prepared");
-      expect(act.status === "prepared" && act.executionRoot.length).toBeGreaterThan(0);
-      expect(act.status === "prepared" && act.state).toBe("ready");
-    },
-  );
-  it(
-    "asks about its own mount, and names the checked candidate with " + "the consent it was given",
-    async () => {
-      // A prepare naming another mount's candidate, or none, would reuse or rebuild the wrong
-      // worktree; a consent sent without its candidate would consent to nothing.
-      const daemon = preparingDaemon();
-      const mountsChecked: string[] = [];
-      const prepares: Parameters<PrepareOperations["prepareExecutionRoot"]>[0][] = [];
-      const { controller, clock } = open({
-        checkWorktreeReuse: async (repoMountId, branchName, signal) => {
-          mountsChecked.push(repoMountId);
-          return await daemon.checkWorktreeReuse(repoMountId, branchName, signal);
-        },
-        prepareExecutionRoot: async (request) => {
-          prepares.push(request);
-          return await daemon.prepareExecutionRoot(request);
-        },
-      });
+  it("publishes the root the daemon put on disk, settled as every prepare settles", async () => {
+    // `ready`, not `preparing`: the execution-root service awaits the preparation's completion
+    // before answering, so "prepared / preparing" is a pair no daemon can send.
+    const { controller, clock } = open();
+    controller.checkReuse("feat/fresh-root");
+    await settlePrerequisiteRead(controller, clock);
+    await controller.prepare("feat/fresh-root", false);
+    const { act } = controller.snapshot;
+    expect(act.status).toBe("prepared");
+    expect(act.status === "prepared" && act.executionRoot.length).toBeGreaterThan(0);
+    expect(act.status === "prepared" && act.state).toBe("ready");
+  });
+  it("asks about its own mount, naming the checked candidate with the consent given", async () => {
+    // A prepare naming another mount's candidate, or none, would reuse or rebuild the wrong
+    // worktree; a consent sent without its candidate would consent to nothing.
+    const daemon = preparingDaemon();
+    const mountsChecked: string[] = [];
+    const prepares: Parameters<PrepareOperations["prepareExecutionRoot"]>[0][] = [];
+    const { controller, clock } = open({
+      checkWorktreeReuse: async (repoMountId, branchName, signal) => {
+        mountsChecked.push(repoMountId);
+        return await daemon.checkWorktreeReuse(repoMountId, branchName, signal);
+      },
+      prepareExecutionRoot: async (request) => {
+        prepares.push(request);
+        return await daemon.prepareExecutionRoot(request);
+      },
+    });
 
-      controller.checkReuse(DIRTY_BRANCH);
-      await settlePrerequisiteRead(controller, clock);
-      await controller.prepare(DIRTY_BRANCH, true);
-      controller.checkReuse("feat/fresh-root");
-      await settlePrerequisiteRead(controller, clock);
-      await controller.prepare("feat/fresh-root", true);
+    controller.checkReuse(DIRTY_BRANCH);
+    await settlePrerequisiteRead(controller, clock);
+    await controller.prepare(DIRTY_BRANCH, true);
+    controller.checkReuse("feat/fresh-root");
+    await settlePrerequisiteRead(controller, clock);
+    await controller.prepare("feat/fresh-root", true);
 
-      expect(mountsChecked).toStrictEqual(["mount-sidekicks", "mount-sidekicks"]);
-      expect(prepares).toStrictEqual([
-        {
-          workspaceId: "workspace-sidekicks",
-          branchName: DIRTY_BRANCH,
-          reuseWorktreeId: "worktree-dirty",
-          acknowledgeDirtyCandidate: true,
-        },
-        { workspaceId: "workspace-sidekicks", branchName: "feat/fresh-root" },
-      ]);
-    },
-  );
+    expect(mountsChecked).toStrictEqual(["mount-sidekicks", "mount-sidekicks"]);
+    expect(prepares).toStrictEqual([
+      {
+        workspaceId: "workspace-sidekicks",
+        branchName: DIRTY_BRANCH,
+        reuseWorktreeId: "worktree-dirty",
+        acknowledgeDirtyCandidate: true,
+      },
+      { workspaceId: "workspace-sidekicks", branchName: "feat/fresh-root" },
+    ]);
+  });
 });

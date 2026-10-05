@@ -130,16 +130,13 @@ describe("provider-account schema", () => {
       expect(() => insertAccount({ billingMode: NON_MEMBER })).toThrow(CHECK_FAILURE);
     });
 
-    it(
-      "stores every health state and NULL (never " + "probed), and refuses one outside the union",
-      () => {
-        for (const healthState of Object.keys(HEALTH_STATE_MEMBERS)) {
-          expect(() => insertAccount({ healthState })).not.toThrow();
-        }
-        expect(() => insertAccount({ healthState: null })).not.toThrow();
-        expect(() => insertAccount({ healthState: NON_MEMBER })).toThrow(CHECK_FAILURE);
-      },
-    );
+    it("stores every health state and NULL (never probed), refusing one outside the union", () => {
+      for (const healthState of Object.keys(HEALTH_STATE_MEMBERS)) {
+        expect(() => insertAccount({ healthState })).not.toThrow();
+      }
+      expect(() => insertAccount({ healthState: null })).not.toThrow();
+      expect(() => insertAccount({ healthState: NON_MEMBER })).toThrow(CHECK_FAILURE);
+    });
 
     it("stores the contract's generation floor and refuses a generation below it", () => {
       expect(() =>

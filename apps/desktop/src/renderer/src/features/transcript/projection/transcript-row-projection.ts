@@ -1,6 +1,6 @@
 // The log-derived row projection: this window's event log read as `TranscriptEventRow`s. The app
 // receives raw events, not the daemon's read projection, so rows carry what the log supports
-// (id, sequence, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
+// (id, sequence, cursor, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
 // restated, since no registered payload carries one. The id is the daemon's opaque one, carried not
 // composed: the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it,
 // so a `session:sequence` key would resolve for no caller.
@@ -13,7 +13,7 @@ import {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
 
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -135,6 +135,7 @@ function commonRowFields(
   readonly id: string;
   readonly sessionId: SessionId;
   readonly sequence: number;
+  readonly cursor: EventCursor;
   readonly category: EventCategory;
   readonly type: string;
   readonly summary: string;
@@ -145,6 +146,7 @@ function commonRowFields(
     id: event.id,
     sessionId: event.sessionId as SessionId,
     sequence: event.sequence,
+    cursor: event.cursor as EventCursor,
     category,
     type: event.kind,
     // The wire type restated: no registered payload carries a summary.

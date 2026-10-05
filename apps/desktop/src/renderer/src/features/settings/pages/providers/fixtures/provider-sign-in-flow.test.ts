@@ -12,13 +12,11 @@ import {
   PROVIDER_SIGN_IN_ATTEMPT,
 } from "./account-plane-bridge.test-support.js";
 import {
-  cancelProviderSignIn,
   readRegistrationFields,
   startProviderSignIn,
   submitTokenRegistration,
   TOKEN_REGISTRATION_REFUSAL_ORIGIN,
   type RegistrationFieldReading,
-  type ProviderSignInFlowState,
 } from "./provider-sign-in-flow.js";
 
 const ACCOUNT_ID = "pa-0001" as ProviderAccountId;
@@ -44,11 +42,6 @@ const REGISTERED: ProviderAccountRegisterResponse = {
   },
 };
 
-/** The sentence one settled flow state carries, or the empty string where it has none. */
-function endedBecause(state: ProviderSignInFlowState): string {
-  return state.kind === "ended" ? state.because : "";
-}
-
 describe("startProviderSignIn", () => {
   it("answers a live flow carrying the attempt and the account it is for", async () => {
     const state = await startProviderSignIn(
@@ -62,27 +55,6 @@ describe("startProviderSignIn", () => {
       accountId: ACCOUNT_ID,
       attempt: PROVIDER_SIGN_IN_ATTEMPT,
     });
-  });
-});
-
-describe("cancelProviderSignIn", () => {
-  it("says the sign-in was canceled when the daemon canceled one", async () => {
-    const state = await cancelProviderSignIn(
-      accountPlaneCalls({ cancel: { status: "canceled" } }).cancelLogin,
-      PROVIDER_SIGN_IN_ATTEMPT,
-    );
-    expect(endedBecause(state)).toContain("was canceled");
-  });
-
-  // Guards the two statuses staying apart: a `notFound` reported as a cancellation would
-  // claim the console stopped something it did not.
-  it("reports a notFound as nothing to cancel, never as a cancellation", async () => {
-    const state = await cancelProviderSignIn(
-      accountPlaneCalls({ cancel: { status: "notFound" } }).cancelLogin,
-      PROVIDER_SIGN_IN_ATTEMPT,
-    );
-    expect(endedBecause(state)).toContain("no sign-in left to cancel");
-    expect(endedBecause(state)).not.toContain("was canceled");
   });
 });
 
@@ -117,19 +89,26 @@ describe("readRegistrationFields", () => {
     return reading.kind === "refused" ? reading.refusal : undefined;
   }
 
-  it("admits a label with the surrounding whitespace trimmed off it", () => {
-    expect(readRegistrationFields(typed("  Metered  "))).toStrictEqual<RegistrationFieldReading>({
+  it("admits a trimmed name that only another provider's account carries", () => {
+    const claudeAccount = { ...REGISTERED.account, provider: "claude" } as const;
+    expect(
+      readRegistrationFields(typed("  Metered  "), [claudeAccount]),
+    ).toStrictEqual<RegistrationFieldReading>({
       kind: "admitted",
       fields: { provider: "codex", displayLabel: "Metered", billingMode: "metered" },
     });
   });
 
-  it("refuses a label of nothing but whitespace, which the browser's own check accepts", () => {
+  it("refuses a blank name and a name that provider's other account has", () => {
     // `required` accepts any non-empty value, so this blank passes the markup and the
     // reading has to catch it.
-    const refusal = refusalOf(readRegistrationFields(typed("   ")));
-    expect(refusal?.code).toBe("registration-label-blank");
-    expect(refusal?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
-    expect(refusal?.detail ?? "").toContain("label");
+    const blank = refusalOf(readRegistrationFields(typed("   "), []));
+    expect(blank?.code).toBe("registration-label-blank");
+    expect(blank?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
+    expect(blank?.detail).toBe("Name this account.");
+    // Compared without case or surrounding spaces, so two rows can never read alike.
+    const taken = refusalOf(readRegistrationFields(typed(" metered "), [REGISTERED.account]));
+    expect(taken?.code).toBe("registration-label-taken");
+    expect(taken?.detail).toBe("Another Codex account already has this name.");
   });
 });

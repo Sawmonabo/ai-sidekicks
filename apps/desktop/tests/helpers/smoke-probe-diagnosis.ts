@@ -115,7 +115,7 @@ function renderDiagnosticDump(result: SpawnResult): string {
   const breadcrumbs =
     result.readinessBreadcrumbs.length > 0
       ? result.readinessBreadcrumbs.join("\n")
-      : "<none — the renderer never reached dom-ready, ready-to-show, or did-finish-load>";
+      : "<none — the renderer never reached dom-ready or did-finish-load>";
   return (
     `--- readiness events observed ---\n${breadcrumbs}\n` +
     `--- environment ---\n${result.diagnostics.join("\n")}\n` +
@@ -183,7 +183,7 @@ function diagnoseMissingProbe(result: SpawnResult): string {
   // with code 1, so a signal test would hand this case to the `exitCode === 1` arm.
   if (result.timedOut) {
     // Breadcrumbs split one timeout into distinguishable shapes: nothing reached, `dom-ready`
-    // only, or `ready-to-show` with no parsed document.
+    // only, or `did-finish-load` with no probe line after it.
     const reached =
       result.readinessBreadcrumbs.length > 0
         ? `Readiness reached: ${result.readinessBreadcrumbs.join(", ")}.`

@@ -13,8 +13,10 @@ const VALID_BASE_CONFIG: SecureDefaultsConfig = {
   localIpcPath: "/tmp/ai-sidekicks-test.sock",
 };
 
-let SecureDefaults: typeof import("../secure-defaults.js").SecureDefaults;
-let SecureDefaultsValidationError: typeof import("../secure-defaults.js").SecureDefaultsValidationError;
+type SecureDefaultsModule = typeof import("../secure-defaults.js");
+
+let SecureDefaults: SecureDefaultsModule["SecureDefaults"];
+let SecureDefaultsValidationError: SecureDefaultsModule["SecureDefaultsValidationError"];
 let assertLoadedForBind: typeof import("../index.js").assertLoadedForBind;
 let bootstrap: typeof import("../index.js").bootstrap;
 let mapJsonRpcError: typeof import("../../ipc/jsonrpc-error-mapping.js").mapJsonRpcError;

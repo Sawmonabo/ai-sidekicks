@@ -1,10 +1,10 @@
-// Reads a session's events back in `sequence ASC` order and replays them to a record. Replay
-// does not persist snapshots; it rebuilds state from the event log each time.
+// Reads a session's events back in `sequence ASC` order and rebuilds its record from the stored
+// events on every call; no snapshot is persisted.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { DaemonSessionRecord, StoredEvent } from "./types.js";
-import { rebuildSession } from "./session-projector.js";
+import { rebuildSession as rebuildSessionFromEvents } from "./session-projector.js";
 
 // A row as better-sqlite3 returns it from the events query. `safeIntegers` applies to every
 // integer column of a statement, so `sequence` and `monotonic_ns` both arrive as bigint.
@@ -55,7 +55,7 @@ export class SessionService {
 
   /** Rebuilds a session's record from its events, or `null` when it has no events. */
   rebuildSession(sessionId: string): DaemonSessionRecord | null {
-    return rebuildSession(this.readEvents(sessionId));
+    return rebuildSessionFromEvents(this.readEvents(sessionId));
   }
 }
 

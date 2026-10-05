@@ -153,7 +153,7 @@ The kinds, the text, the stable id, the replacement in place and the withdrawal 
 
 ## Implementation Notes
 
-- Attention projection should be small and queryable without requiring full transcript replay in the foreground client.
+- Attention projection should be small and queryable without rebuilding from the full transcript in the foreground client.
 - Users need suppression controls, but suppression must not erase actual blocking session state.
 - Notification channels should be policy-aware and platform-aware.
 - The digest sends with Nodemailer, loaded on the first send, rather than hand-written SMTP: it is MIT-0 licensed with no runtime dependencies, handles TLS and STARTTLS (with `requireTLS` and without `opportunisticTLS`, a refused upgrade fails instead of sending the password in the clear), and ships a maintained map from an address's domain to its mail server. A mail API SDK and signing in to send with Google or Microsoft are not used, because each needs an account or a registered application that the person or the project would have to hold. The web address is signed with `node:crypto`; the `standardwebhooks` library is used only in tests, to verify what the daemon signs.

@@ -54,6 +54,7 @@ describe("what makes the attention read run again", () => {
         id: "event-1",
         sessionId,
         sequence: 1,
+        cursor: "cursor-at-1",
         kind: "run.queued",
         occurredAt: "2026-01-01T10:06:00.000Z",
       },

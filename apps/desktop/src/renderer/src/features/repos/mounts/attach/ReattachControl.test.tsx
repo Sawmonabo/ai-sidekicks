@@ -54,18 +54,15 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
 const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses("meridian-reattach");
 
 describe("ReattachControl — the confirm press keeps its settlement", () => {
-  it(
-    "still reports the re-attach as sent once the confirm control " + "has closed the dialog",
-    async () => {
-      const { container } = renderControl(operationsHoldingTheCall());
+  it("still reports the re-attach as sent once confirming has closed the dialog", async () => {
+    const { container } = renderControl(operationsHoldingTheCall());
 
-      await pressOpen();
-      await pressConfirm();
+    await pressOpen();
+    await pressConfirm();
 
-      expect(container.textContent).toContain("Re-attaching.");
-      expect(trigger()?.disabled).toBe(true);
-    },
-  );
+    expect(container.textContent).toContain("Re-attaching.");
+    expect(trigger()?.disabled).toBe(true);
+  });
 });
 
 describe("ReattachControl — a discarded consideration", () => {

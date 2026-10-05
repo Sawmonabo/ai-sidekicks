@@ -2,8 +2,22 @@
 // is the one declaration; the static `PaneAddress` union and the runtime table that
 // `parse-pane-address.ts` reads both derive from it, so they cannot drift.
 
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "@renderer/lib/entity-kinds.js";
 import { type PaneKind } from "./pane-kinds.js";
+
+/**
+ * What Review is opened over for a workflow run: the run, and the two of its snapshot points it
+ * compares. The points ride the address so a saved layout restores the same comparison; the
+ * pane's identity is still the run alone, so a second `Open in Review` re-points that pane.
+ */
+export interface WorkflowRunComparisonRef {
+  readonly kind: "workflow-run";
+  readonly id: string;
+  readonly from: WorkflowRunSnapshotPoint;
+  readonly to: WorkflowRunSnapshotPoint;
+}
 
 /** A `EntityRef` narrowed to the kinds one pane kind admits. */
 type ScopedEntityRef<TEntityKind extends EntityKind> = EntityRef & {
@@ -78,9 +92,11 @@ interface PaneEntityScopeByKind {
   readonly transcript: never;
   /** Keyed by the inspected checkout's own kind; there is nothing to inspect without one. */
   readonly inspector: ScopedEntityRef<CheckoutEntityKind>;
-  /** The changes of the checkout the pane was opened from, so the same kinds. */
-  readonly diff: ScopedEntityRef<CheckoutEntityKind>;
-  readonly "workflow-run": ScopedEntityRef<"workflow-run">;
+  /**
+   * Review: the changes of the checkout it was opened from, so the same kinds, or what one
+   * workflow run changed between two of its snapshot points.
+   */
+  readonly diff: ScopedEntityRef<CheckoutEntityKind> | WorkflowRunComparisonRef;
   /** Bare from the workflows destination; over a definition once one is saved. */
   readonly "workflow-builder": ScopedEntityRef<"workflow-definition"> | undefined;
   /**
@@ -122,8 +138,7 @@ const PANE_ENTITY_SCOPES: {
 } = {
   transcript: { entityKinds: [], entityRequired: false },
   inspector: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
-  diff: { entityKinds: CHECKOUT_ENTITY_KINDS, entityRequired: true },
-  "workflow-run": { entityKinds: ["workflow-run"], entityRequired: true },
+  diff: { entityKinds: [...CHECKOUT_ENTITY_KINDS, "workflow-run"], entityRequired: true },
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
   browser: { entityKinds: [], entityRequired: false },
   terminal: { entityKinds: [], entityRequired: false },

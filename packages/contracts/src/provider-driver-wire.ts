@@ -115,8 +115,9 @@ export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapab
 
 /**
  * One driver's entry in the `driver.listCapabilities` reply: its flags, the output-speed levels it
- * offers, and `builtInTools`, the provider's own tool names in its own words, which the
- * tool-allowlist picker offers.
+ * declares for every model, and `builtInTools`, the provider's own tool names in its own words,
+ * which the tool-allowlist picker offers. A provider that publishes its speed levels per model
+ * carries them on `ProviderModel.outputSpeedLevels` instead.
  */
 export interface DriverCapabilityReport {
   driverName: ProviderName;
@@ -132,7 +133,8 @@ export interface ListCapabilitiesResult {
 
 /**
  * Validates a {@link DriverCapabilityReport}. The daemon sends `outputSpeedLevels` exactly when
- * `output_speed` is true; the schema bounds only its length.
+ * `output_speed` is true and the driver declares its levels statically; the schema bounds only its
+ * length.
  */
 export const DriverCapabilityReportSchema: z.ZodType<
   DriverCapabilityReport,
@@ -170,6 +172,11 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
     // No `.default([])`: absent means the model has no effort axis, which an empty list would deny.
     effortLevels: z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.effortLevels"))
+      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
+      .optional(),
+    // No `.default([])` either: absent means the model has no speed selection.
+    outputSpeedLevels: z
+      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.outputSpeedLevels"))
       .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
     fast: z.boolean(),

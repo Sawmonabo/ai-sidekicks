@@ -283,28 +283,25 @@ describe("attaching yields a durable repo mount with canonical-root metadata", (
     expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([]);
   });
 
-  it(
-    "answers reads through a stack rebuilt " + "on the reopened handle, appending nothing",
-    async () => {
-      const attached = await attachAcceptanceMounts();
+  it("answers reads via a stack rebuilt on the reopened handle, appending nothing", async () => {
+    const attached = await attachAcceptanceMounts();
 
-      harness.db.close();
-      harness.db = openDatabase(harness.dbPath);
-      harness.stack = buildDaemonStack(harness.db, harness.now);
+    harness.db.close();
+    harness.db = openDatabase(harness.dbPath);
+    harness.stack = buildDaemonStack(harness.db, harness.now);
 
-      const alphaRead = await harness.stack.mounts.read(attached.alpha.repoMountId);
-      expect(alphaRead.id).toBe(attached.alpha.repoMountId);
-      expect(alphaRead.canonicalRoot).toBe(fixtures.repositoryRoot);
-      expect(alphaRead.localPath).toBe(fixtures.nestedDirectory);
-      expect(alphaRead.vcsType).toBe("git");
-      expect(alphaRead.state).toBe("attached");
-      // Health is derived on each read; there is no persisted column to trust.
-      expect(alphaRead.health.status).toBe("healthy");
+    const alphaRead = await harness.stack.mounts.read(attached.alpha.repoMountId);
+    expect(alphaRead.id).toBe(attached.alpha.repoMountId);
+    expect(alphaRead.canonicalRoot).toBe(fixtures.repositoryRoot);
+    expect(alphaRead.localPath).toBe(fixtures.nestedDirectory);
+    expect(alphaRead.vcsType).toBe("git");
+    expect(alphaRead.state).toBe("attached");
+    // Health is derived on each read; there is no persisted column to trust.
+    expect(alphaRead.health.status).toBe("healthy");
 
-      // Reads are not transitions.
-      expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([]);
-    },
-  );
+    // Reads are not transitions.
+    expect(readLifecycleEventTypes(harness.db, SESSION_ID)).toEqual([]);
+  });
 });
 
 describe("one session binds workspaces across multiple repo mounts", () => {

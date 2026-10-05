@@ -11,10 +11,6 @@
 
 AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agents that delegate to other agents, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent works under your own provider account. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
-<p align="center">
-  <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
-</p>
-
 ---
 
 ## Table of Contents
@@ -155,10 +151,6 @@ Any device you have linked drives the same session with full parity — read the
 The CLI (`sidekicks`) is the first client delivery track — it proves the typed SDK and IPC contract before the desktop UI ships.
 
 A short alias `sk` installs alongside it; if an unrelated `sk` is already on your `PATH` (Homebrew ships one), `PATH` order alone decides which runs — check with `which -a sk`, and use `sidekicks` when you need certainty.
-
-<p align="center">
-  <img src="assets/hero/cli-terminal-hero.png" alt="AI Sidekicks CLI" width="720" />
-</p>
 
 ---
 

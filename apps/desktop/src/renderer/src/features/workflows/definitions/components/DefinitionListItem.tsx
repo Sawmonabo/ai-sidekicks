@@ -19,8 +19,6 @@ interface DefinitionListItemProps {
 /**
  * One definition's row, memoized: the table re-renders on every page of a cursor-paged fetch,
  * and row values are frozen wire summaries.
- *
- * @consumedBy the Workflows tab's table of definitions
  */
 export const DefinitionListItem: React.MemoExoticComponent<
   (props: DefinitionListItemProps) => React.JSX.Element

@@ -127,6 +127,7 @@ function runBeat(kind: string, payload: Readonly<Record<string, unknown>>): Proj
     id: "019b79ee-0280-7ea1-8110-e5e0d1150804",
     sessionId: SYNTHETIC_SESSION_ID,
     sequence: 1,
+    cursor: "cursor-at-1",
     kind,
     occurredAt: "2026-01-01T14:20:00.500Z",
     payload,

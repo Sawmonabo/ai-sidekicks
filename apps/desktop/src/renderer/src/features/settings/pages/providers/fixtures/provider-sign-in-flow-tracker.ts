@@ -7,11 +7,11 @@
 // The tracker takes the start and cancel calls bound, not a bridge: they are acts, not
 // readings that go stale. The words for what is in the way are composed once, here.
 //
-// Exactly two things end a flow: a cancel that answered `canceled` or `notFound`, and
-// the registry's own tail reporting that attempt completed
-// ({@link ProviderSignInFlowTracker.noteLoginCompleted}). A start or a cancel the service
-// refuses is drawn on that account's row in the service's own words: a refused start frees
-// the flow, and a refused cancel leaves it running.
+// Exactly two things end a flow: a cancel the daemon answered, `canceled` or `notFound` alike,
+// and the registry's own tail reporting that attempt completed
+// ({@link ProviderSignInFlowTracker.noteLoginCompleted}), where a failed attempt stays on screen
+// as not finished. A start or a cancel the service refuses is drawn on that account's row in the
+// service's own words: a refused start frees the flow, and a refused cancel leaves it running.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
 import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider-account-sign-in";
@@ -21,12 +21,12 @@ import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
+import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
 import {
   IDLE_PROVIDER_SIGN_IN_FLOW,
-  PROVIDER_SIGN_IN_ENDED_BY_REGISTRY,
+  flowAfterLoginCompleted,
   isProviderSignInRunning,
   readProviderSignInAccountId,
-  type ProviderSignInCancelOutcome,
   type ProviderSignInFlowState,
   type ProviderSignInStartOutcome,
 } from "./provider-sign-in-flow.js";
@@ -70,10 +70,11 @@ export interface ProviderSignInFlowTrackerOptions {
   readonly startProviderSignIn: (
     accountId: ProviderAccountId,
   ) => Promise<ProviderSignInStartOutcome>;
-  /** Cancel the flow this tracker holds. Likewise supplied by the caller. */
-  readonly cancelProviderSignIn: (
-    attempt: ProviderAccountLoginResponse,
-  ) => Promise<ProviderSignInCancelOutcome>;
+  /**
+   * Cancel the flow this tracker holds. Likewise supplied by the caller. Either answer the daemon
+   * gives means it holds no flow of this window's, so a settled cancel leaves nothing to draw.
+   */
+  readonly cancelProviderSignIn: (attempt: ProviderAccountLoginResponse) => Promise<void>;
   /**
    * Called once a canceled flow has settled, either way.
    *
@@ -93,9 +94,7 @@ export class ProviderSignInFlowTracker {
   readonly #startProviderSignIn: (
     accountId: ProviderAccountId,
   ) => Promise<ProviderSignInStartOutcome>;
-  readonly #cancelProviderSignIn: (
-    attempt: ProviderAccountLoginResponse,
-  ) => Promise<ProviderSignInCancelOutcome>;
+  readonly #cancelProviderSignIn: (attempt: ProviderAccountLoginResponse) => Promise<void>;
   readonly #onFlowSettled: () => void;
   readonly #changes = new Emitter<void>("sign-in flow change");
   /**
@@ -109,10 +108,10 @@ export class ProviderSignInFlowTracker {
    * The newest attempt the registry has reported finished.
    *
    * A fast flow can report completion while its start reply is still traveling; without
-   * this the tracker would record a finished attempt as running. One id is enough because
+   * this the tracker would record a finished attempt as running. One is enough because
    * the daemon runs one brokered flow at a time.
    */
-  #completedAttemptId: string | undefined = undefined;
+  #newestCompletion: ProviderLoginCompletion | undefined = undefined;
   #snapshot: ProviderSignInFlowTrackerSnapshot = NOTHING_STARTED;
   #isDisposed = false;
 
@@ -160,11 +159,12 @@ export class ProviderSignInFlowTracker {
     this.#startProviderSignIn(accountId).then(
       (outcome) => {
         claim.settle(() => {
-          if (outcome.attempt.attemptId === this.#completedAttemptId) {
+          const completion = this.#newestCompletion;
+          if (outcome.attempt.attemptId === completion?.attemptId) {
             // The registry reported this attempt finished before its start reply arrived;
             // recording it would put a card on screen for a flow that is over.
             claim.release();
-            this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
+            this.#settleEndedFlow(flowAfterLoginCompleted(completion));
             return;
           }
           this.#publish({ flow: outcome });
@@ -197,11 +197,10 @@ export class ProviderSignInFlowTracker {
     const round = this.#flows.currentClaim(this, PROVIDER_SIGN_IN_FLOW_KEY);
     this.#publish({ flow: { kind: "canceling", accountId, attempt } });
     this.#cancelProviderSignIn(attempt).then(
-      (outcome) => {
+      () => {
         round.settle(() => {
           this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
-          this.#publish({ flow: outcome });
-          this.#onFlowSettled();
+          this.#settleEndedFlow(IDLE_PROVIDER_SIGN_IN_FLOW);
         });
       },
       (error: unknown) => {
@@ -222,17 +221,17 @@ export class ProviderSignInFlowTracker {
    * on the same machine-wide tail and must not clear this card's verification code. Every
    * completion is remembered, matched or not, for {@link start} to read.
    */
-  public noteLoginCompleted(attemptId: string): void {
+  public noteLoginCompleted(completion: ProviderLoginCompletion): void {
     if (this.#isDisposed) {
       return;
     }
-    this.#completedAttemptId = attemptId;
+    this.#newestCompletion = completion;
     const { flow } = this.#snapshot;
-    if (!("attempt" in flow) || flow.attempt.attemptId !== attemptId) {
+    if (!("attempt" in flow) || flow.attempt.attemptId !== completion.attemptId) {
       return;
     }
     this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
-    this.#settleEndedFlow(PROVIDER_SIGN_IN_ENDED_BY_REGISTRY);
+    this.#settleEndedFlow(flowAfterLoginCompleted(completion));
   }
 
   /** Terminal. A settlement landing after this installs nothing. */
@@ -242,13 +241,13 @@ export class ProviderSignInFlowTracker {
   }
 
   /**
-   * Leave the flow ended and ask the owner of the registry read to take a fresh one.
+   * Leave the flow where it ended and ask the owner of the registry read to take a fresh one.
    *
    * A flow ending is never a verdict about the account, so every path that ends one owes
    * the same re-read.
    */
-  #settleEndedFlow(because: string): void {
-    this.#publish({ flow: { kind: "ended", because } });
+  #settleEndedFlow(flow: ProviderSignInFlowState): void {
+    this.#publish({ flow });
     this.#onFlowSettled();
   }
 

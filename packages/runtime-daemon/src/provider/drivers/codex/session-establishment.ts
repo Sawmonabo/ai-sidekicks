@@ -24,6 +24,7 @@ import {
   reportDiagnosticFromDetachedFrame,
 } from "./transport-diagnostics.js";
 import type { CodexSpawnPosture } from "./spawn-posture.js";
+import { composeCodexServiceTier, type CodexOutputSpeed } from "./output-speed.js";
 import type { CodexNotificationRouting } from "./notification-routing.js";
 import type { CodexProviderCommandCache } from "./provider-command-cache.js";
 import type { CodexTextNeutralization } from "./text-neutralization.js";
@@ -73,6 +74,10 @@ function composeSessionRecord(
     | "providerNetworkAccess"
     | "subagentPolicy"
     | "spawnConfig"
+    | "model"
+    | "outputSpeedRequest"
+    | "outputSpeed"
+    | "declaredOutputSpeed"
   >,
 ): CodexSessionRecord {
   return {
@@ -83,6 +88,7 @@ function composeSessionRecord(
     settledTurnIds: new Set(),
     inFlightSteers: 0,
     interruptedRunIdByTurnId: new Map(),
+    unsettledOutputSpeedRuns: new Map(),
   };
 }
 
@@ -94,6 +100,7 @@ export interface CodexSessionEstablishmentDependencies {
   readonly runtimeBindingQuarantine: RuntimeBindingQuarantine;
   readonly pendingCompactions: PendingCompactionRegistry;
   readonly spawnPosture: CodexSpawnPosture;
+  readonly outputSpeed: CodexOutputSpeed;
   readonly notificationRouting: CodexNotificationRouting;
   readonly providerCommands: CodexProviderCommandCache;
   readonly textNeutralization: CodexTextNeutralization;
@@ -113,6 +120,7 @@ export class CodexSessionEstablishment {
   readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine;
   readonly #pendingCompactions: PendingCompactionRegistry;
   readonly #spawnPosture: CodexSpawnPosture;
+  readonly #outputSpeed: CodexOutputSpeed;
   readonly #notificationRouting: CodexNotificationRouting;
   readonly #providerCommands: CodexProviderCommandCache;
   readonly #textNeutralization: CodexTextNeutralization;
@@ -127,6 +135,7 @@ export class CodexSessionEstablishment {
     this.#runtimeBindingQuarantine = dependencies.runtimeBindingQuarantine;
     this.#pendingCompactions = dependencies.pendingCompactions;
     this.#spawnPosture = dependencies.spawnPosture;
+    this.#outputSpeed = dependencies.outputSpeed;
     this.#notificationRouting = dependencies.notificationRouting;
     this.#providerCommands = dependencies.providerCommands;
     this.#textNeutralization = dependencies.textNeutralization;
@@ -140,6 +149,8 @@ export class CodexSessionEstablishment {
     // Composed before the connection exists, so an unresolvable posture costs no process. Create
     // has no result type, so it raises the same `CodexDriverConfigError` as its config parse.
     const config = await this.#spawnPosture.composeCreateSpawnConfig(params);
+    // Before the connection exists too, so a level the model does not list reaches no provider.
+    const outputSpeed = await this.#outputSpeed.resolveLevel(params.model, params.outputSpeed);
     const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
       // Inside the guard: `open()` tears down only the paths it owns, not a throwing
@@ -157,6 +168,8 @@ export class CodexSessionEstablishment {
         // bypasses the approval pipeline. The per-turn pin on `turn/start` is needed too.
         // Present on ThreadStartParams at codex-cli 0.150.1.
         approvalsReviewer: "user",
+        model: params.model,
+        ...composeCodexServiceTier(outputSpeed),
       });
       const thread = readThread(response, "thread/start");
       this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
@@ -171,6 +184,10 @@ export class CodexSessionEstablishment {
           providerNetworkAccess: readThreadNetworkAccess(response),
           subagentPolicy: params.subagentPolicy,
           spawnConfig: config,
+          model: params.model,
+          outputSpeedRequest: params.outputSpeed,
+          outputSpeed,
+          declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
         }),
       );
       // A fresh process now answers for this session id, so a prior trip's refusal is released.
@@ -196,6 +213,9 @@ export class CodexSessionEstablishment {
       // Composed inside the `try` so a posture refusal arrives as the typed `failed` result, not as
       // an exception out of `resumeSession`.
       const spawnConfig = await this.#spawnPosture.composeResumeSpawnConfig(existing, params);
+      // The level rebuilt from the spawn record; one the model no longer lists resumes the
+      // conversation at standard rather than failing it.
+      const outputSpeed = await this.#outputSpeed.resolveLevel(params.model, params.outputSpeed);
       await connection.open(spawnConfig);
       const response = await connection.request("thread/resume", {
         threadId: params.resumeHandle,
@@ -207,6 +227,9 @@ export class CodexSessionEstablishment {
         ),
         // The same pin as `thread/start`: a resumed thread must not inherit an auto-review path.
         approvalsReviewer: "user",
+        model: params.model,
+        // Re-realized like the posture: a resume without it relaunches at the provider's tier.
+        ...composeCodexServiceTier(outputSpeed),
       });
       const thread = readThread(response, "thread/resume");
       // Checked before the position: Codex may answer an unhonorable resume with a different
@@ -254,6 +277,10 @@ export class CodexSessionEstablishment {
           providerNetworkAccess: readThreadNetworkAccess(response),
           subagentPolicy: params.subagentPolicy,
           spawnConfig,
+          model: params.model,
+          outputSpeedRequest: params.outputSpeed,
+          outputSpeed,
+          declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
         }),
       );
       // Discarded: the held enumeration is a read from the replaced process, and its
@@ -327,6 +354,9 @@ export class CodexSessionEstablishment {
           record.subagentPolicy,
         ),
         approvalsReviewer: "user",
+        model: record.model,
+        // The held level, already resolved for this model, so the fork runs at the same speed.
+        ...composeCodexServiceTier(record.outputSpeed),
       });
     } catch (cause) {
       // A build without `ThreadForkParams.lastTurnId` becomes `driver.capability_unsupported`;
@@ -351,6 +381,7 @@ export class CodexSessionEstablishment {
     }
     record.threadId = forkedThread.id;
     record.providerNetworkAccess = readThreadNetworkAccess(response);
+    record.declaredOutputSpeed = this.#outputSpeed.readDeclaredTier(params.sessionId, response);
     // The routing and metering band moves with the record. Based like a resume on the pre-fork
     // thread, the only key the earlier spend exists under. The wire reference does not say whether
     // the counter continues across a fork: if it restarts, the decrease floor gives loud

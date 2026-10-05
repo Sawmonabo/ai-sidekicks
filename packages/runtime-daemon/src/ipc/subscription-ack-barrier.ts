@@ -2,7 +2,7 @@
 // subscribe-init response `{ subscriptionId }` reaches the wire before the first
 // `$/subscription/notify` frame for that subscription.
 //
-// * Why a barrier: a source may replay history synchronously inside the handler body,
+// * Why a barrier: a source may send its catch-up history synchronously inside the handler body,
 //   so its emit callback can fire before the handler returns. The gateway writes the init response
 //   in the dispatch promise's `.then` microtask, so an emission sent straight to the producer
 //   would reach the socket ahead of the response. The SDK registers a subscription only after the
@@ -74,7 +74,7 @@ export function createSubscriptionAckBarrier<EmissionType>(
   let released = false;
   let scheduled = false;
 
-  const runOrQueue = (action: () => void, failureKind: "live-tail" | "replay"): void => {
+  const runOrQueue = (action: () => void, failureKind: "live-tail" | "catch-up"): void => {
     if (!released) {
       pendingActions.push(action);
       return;
@@ -116,7 +116,7 @@ export function createSubscriptionAckBarrier<EmissionType>(
         } catch (err) {
           cancelAfterDetachedFailure(
             producer,
-            `[${methodName}] replay event validation/emission failed for subscriptionId=` +
+            `[${methodName}] catch-up event validation/emission failed for subscriptionId=` +
               `${producer.subscriptionId}; subscription canceled`,
             err,
           );

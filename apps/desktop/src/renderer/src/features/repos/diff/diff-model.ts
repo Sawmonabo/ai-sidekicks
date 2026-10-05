@@ -3,6 +3,8 @@
 // per rendered row by `intraline-segment-cache.ts`, never at parse time, because computing
 // every pair up front costs the whole change set before the virtualizer places a row.
 
+import type { DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
+
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
 
@@ -88,6 +90,10 @@ export interface DiffFile {
   readonly modeChange?: DiffFileModeChange;
   /** True where the patch states the two sides differ and carries no text for it. */
   readonly binary?: boolean;
+  /** Why the daemon could not read the file's contents, where it could not. */
+  readonly unreadable?: DiffFileUnreadableReason;
+  /** On a workflow run's comparison, the name of the step that changed the file. */
+  readonly stepName?: string;
   readonly hunks: readonly DiffHunk[];
 }
 
@@ -161,5 +167,14 @@ export function diffFileChangeNotes(file: DiffFile): readonly string[] {
   if (file.binary === true) {
     notes.push("binary — contents not shown");
   }
+  if (file.unreadable !== undefined) {
+    notes.push(UNREADABLE_REASON_COPY[file.unreadable]);
+  }
   return notes;
 }
+
+/** What a file the daemon could not read says, naming the cause in the console's own words. */
+const UNREADABLE_REASON_COPY: Readonly<Record<DiffFileUnreadableReason, string>> = {
+  permission_denied: "Permission denied",
+  not_regular_file: "Not a regular file",
+};

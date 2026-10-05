@@ -4,16 +4,20 @@
 import { z } from "zod";
 
 import { ChildHandleSchema, type ChildHandle } from "./agent.js";
+import { EVENT_FIELD_MAX_LEN } from "./event-core.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
+import { ArtifactIdSchema, RunIdSchema, type ArtifactId, type RunId } from "./provider-driver.js";
 import { DRIVER_WIRE_REASON_MAX_LEN } from "./provider-driver-wire.js";
+import { QuestionIdSchema, type QuestionId } from "./question.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
 import {
+  FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   wireUncappedFreeFormString,
   type SessionId,
 } from "./session.js";
+import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** Identifies one queued message. */
@@ -50,16 +54,39 @@ export interface QueueItemCreateRequest {
   workspaceId?: WorkspaceId | undefined;
   /** Orders the stored items; never what the person sees, which `run.queueReorder` sets. */
   priority?: number | undefined;
-  /** A retried send with the same key replays the first answer. */
+  /** A retried send with the same key returns the saved result. */
   clientIdempotencyKey: string;
   content: string;
   attachments?: ArtifactId[] | undefined;
+  /**
+   * Each skill picked from the composer's `/` list, in the order picked, its name and `SKILL.md`
+   * path as `skill.list` gives them. The daemon refuses a pick that matches no row of the
+   * session's `skill.list` (`skill.path_refused`, `not_listed`).
+   */
+  skills?: QueuedSkillPick[] | undefined;
   /**
    * Edits this waiting message in place: it keeps its place and the old item reads `superseded`.
    * Refused once the agent has taken it.
    */
   replacesQueueItemId?: QueueItemId | undefined;
+  /**
+   * The question this send answers, a question the agent does not wait for. The daemon copies it
+   * onto the `user.message` row it writes, which marks the question answered.
+   */
+  answersQuestionId?: QuestionId | undefined;
 }
+
+/** One skill a send picked: its front-matter name and its `SKILL.md` path. */
+export interface QueuedSkillPick {
+  name: string;
+  path: string;
+}
+const QueuedSkillPickSchema: z.ZodType<QueuedSkillPick, QueuedSkillPick> = z
+  .object({
+    name: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.name"),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.path"),
+  })
+  .strict();
 /** Parses a {@link QueueItemCreateRequest}. */
 export const QueueItemCreateRequestSchema: z.ZodType<
   QueueItemCreateRequest,
@@ -74,7 +101,40 @@ export const QueueItemCreateRequestSchema: z.ZodType<
     clientIdempotencyKey: z.uuid(),
     content: messageContentSchema("QueueItemCreateRequest.content"),
     attachments: messageAttachmentsSchema.optional(),
+    skills: z.array(QueuedSkillPickSchema).optional(),
     replacesQueueItemId: QueueItemIdSchema.optional(),
+    answersQuestionId: QuestionIdSchema.optional(),
+  })
+  .strict();
+
+/**
+ * The `user.message` payload: the person's message as a transcript row, written when the daemon
+ * accepts the send. `origin` marks the words a voice call heard; `answersQuestionId` names the
+ * question a message answers, which is that question's answered mark, and is absent on every
+ * other message; `deviceId` is the device that sent it.
+ */
+export type UserMessagePayload = {
+  sessionId: SessionId;
+  queueItemId?: QueueItemId | undefined;
+  runId?: RunId | undefined;
+  /** Repeats the envelope's actor. */
+  actor: string;
+  deviceId?: DeviceId | undefined;
+  message: string;
+  origin?: "voice" | undefined;
+  answersQuestionId?: QuestionId | undefined;
+};
+/** Parses a {@link UserMessagePayload}. */
+export const UserMessagePayloadSchema: z.ZodType<UserMessagePayload, UserMessagePayload> = z
+  .object({
+    sessionId: SessionIdSchema,
+    queueItemId: QueueItemIdSchema.optional(),
+    runId: RunIdSchema.optional(),
+    actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UserMessagePayload.actor"),
+    deviceId: DeviceIdSchema.optional(),
+    message: messageContentSchema("UserMessagePayload.message"),
+    origin: z.literal("voice").optional(),
+    answersQuestionId: QuestionIdSchema.optional(),
   })
   .strict();
 
@@ -159,7 +219,7 @@ export const QueueItemListResponseSchema: z.ZodType<QueueItemListResponse> = z
 
 /**
  * Opens a queue's stream, the lead's or, with `childHandle`, a child's.
- * Session-scoped, with no replay cursor.
+ * Session-scoped, with no catch-up cursor.
  */
 export interface RunQueueSubscribeRequest {
   sessionId: SessionId;

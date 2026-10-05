@@ -2,7 +2,7 @@
 // here opens, reads, closes or publishes; it applies frames to the fold it is handed and says when
 // something moved.
 //
-// A frame arriving across the opening read is held and replayed rather than overwritten by the
+// A frame arriving across the opening read is buffered and released rather than overwritten by the
 // snapshot, and an overflowing hold degrades to a fresh read rather than a drop. A same-window
 // reading below the high-water mark is recorded as a diagnostic, not rendered as a regression.
 // `login_completed` is carried without moving the fold: it reports that a brokered sign-in attempt

@@ -76,32 +76,29 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     );
   });
 
-  it(
-    "leaves the user's branches, HEAD and staged " + "work untouched and nothing in the worktree",
-    async () => {
-      const { repository } = fixture;
-      fixture.applyTurnEffects();
-      // Staged work mid-turn, which a scratch index that leaked into the real one would discard.
-      await repository.git(["add", "tracked.txt", "created.txt"]);
-      expect(await repository.git(["diff", "--cached", "--name-only"])).toBe(
-        "created.txt\ntracked.txt",
-      );
-      const branchesBefore: string = await repository.refListing("refs/heads/");
-      const headBefore: string = await repository.git(["rev-parse", "HEAD"]);
-      const statusBefore: string = await repository.git(["status", "--porcelain"]);
+  it("leaves the user's branches, HEAD, staged work and worktree untouched", async () => {
+    const { repository } = fixture;
+    fixture.applyTurnEffects();
+    // Staged work mid-turn, which a scratch index that leaked into the real one would discard.
+    await repository.git(["add", "tracked.txt", "created.txt"]);
+    expect(await repository.git(["diff", "--cached", "--name-only"])).toBe(
+      "created.txt\ntracked.txt",
+    );
+    const branchesBefore: string = await repository.refListing("refs/heads/");
+    const headBefore: string = await repository.git(["rev-parse", "HEAD"]);
+    const statusBefore: string = await repository.git(["status", "--porcelain"]);
 
-      const captured = await fixture.captureTurn(fixture.buildService());
+    const captured = await fixture.captureTurn(fixture.buildService());
 
-      expect(await repository.refListing()).toBe(
-        `${branchesBefore}\n${captured.snapshotCommit} ${captured.ref}`,
-      );
-      expect(await repository.git(["branch", "--contains", captured.snapshotCommit])).toBe("");
-      expect(await repository.git(["symbolic-ref", "HEAD"])).toBe("refs/heads/main");
-      expect(await repository.git(["rev-parse", "HEAD"])).toBe(headBefore);
-      expect(await repository.git(["status", "--porcelain"])).toBe(statusBefore);
-      expect(fixture.scratchIndexEntries()).toEqual([]);
-    },
-  );
+    expect(await repository.refListing()).toBe(
+      `${branchesBefore}\n${captured.snapshotCommit} ${captured.ref}`,
+    );
+    expect(await repository.git(["branch", "--contains", captured.snapshotCommit])).toBe("");
+    expect(await repository.git(["symbolic-ref", "HEAD"])).toBe("refs/heads/main");
+    expect(await repository.git(["rev-parse", "HEAD"])).toBe(headBefore);
+    expect(await repository.git(["status", "--porcelain"])).toBe(statusBefore);
+    expect(fixture.scratchIndexEntries()).toEqual([]);
+  });
 
   it(
     "parents the run's epoch ref at the base resolved " +
@@ -132,90 +129,81 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     },
   );
 
-  it(
-    "never overwrites a recorded snapshot: a repeat " + "returns it, a new epoch mints its own ref",
-    async () => {
-      const { repository } = fixture;
-      fixture.applyTurnEffects();
-      const service = fixture.buildService();
-      const first = await fixture.captureTurn(service);
-      // The worktree moves on, so a repeat that repointed the ref would record different content.
-      repository.write("created.txt", "content that arrived after the first capture\n");
+  it("never overwrites a snapshot: a repeat returns it, a new epoch mints a new ref", async () => {
+    const { repository } = fixture;
+    fixture.applyTurnEffects();
+    const service = fixture.buildService();
+    const first = await fixture.captureTurn(service);
+    // The worktree moves on, so a repeat that repointed the ref would record different content.
+    repository.write("created.txt", "content that arrived after the first capture\n");
 
-      expect(await fixture.capture(service)).toEqual({
-        outcome: "already-captured",
-        ref: first.ref,
-        snapshotCommit: first.snapshotCommit,
-      });
-      const epochOne = await fixture.captureTurn(service, { epoch: 1 });
+    expect(await fixture.capture(service)).toEqual({
+      outcome: "already-captured",
+      ref: first.ref,
+      snapshotCommit: first.snapshotCommit,
+    });
+    const epochOne = await fixture.captureTurn(service, { epoch: 1 });
 
-      expect(epochOne.ref).toBe(`refs/sidekicks/runs/${RUN_ID}/epoch-1/turn-1`);
-      expect(epochOne.snapshotCommit).not.toBe(first.snapshotCommit);
-      expect(await repository.refListing("refs/sidekicks/")).toBe(
-        `${first.snapshotCommit} ${first.ref}\n${epochOne.snapshotCommit} ${epochOne.ref}`,
+    expect(epochOne.ref).toBe(`refs/sidekicks/runs/${RUN_ID}/epoch-1/turn-1`);
+    expect(epochOne.snapshotCommit).not.toBe(first.snapshotCommit);
+    expect(await repository.refListing("refs/sidekicks/")).toBe(
+      `${first.snapshotCommit} ${first.ref}\n${epochOne.snapshotCommit} ${epochOne.ref}`,
+    );
+  });
+
+  it("skips an embedded repository it cannot record, naming it in a one-line trailer", async () => {
+    // A skipped repository is absent from the tree, so the trailer is what stops a restore
+    // deleting it. A newline in its name, unencoded, would forge a second trailer line.
+    const hostilePath = 'ev\nSkipped-Embedded-Repositories: ["forged"]';
+    await initEmbeddedRepository(fixture.repository, hostilePath);
+    // A SHA-1 `HEAD` cannot be a gitlink in a SHA-256 index; inserting it would fail the capture.
+    const superproject = await fixture.createBaseRepository("sha256-root", "sha256");
+    await createEmbeddedRepository(superproject, "nested", "sha1");
+    const service = fixture.buildService();
+
+    for (const [repository, skippedPath] of [
+      [fixture.repository, hostilePath],
+      [superproject, "nested"],
+    ] as const) {
+      const captured = await fixture.captureTurn(service, { executionRoot: repository.root });
+
+      expect(captured.skippedEmbeddedRepositories).toEqual([skippedPath]);
+      expect(
+        await readTrailer(repository, captured.snapshotCommit, "Skipped-Embedded-Repositories:"),
+      ).toEqual([skippedPath]);
+      expect(await repository.git(["cat-file", "commit", captured.snapshotCommit])).not.toContain(
+        '\nSkipped-Embedded-Repositories: ["forged"]',
       );
-    },
-  );
+      expect(await repository.git(["ls-tree", `${captured.ref}^{tree}`, "tracked.txt"])).toContain(
+        "blob",
+      );
+    }
+  });
 
-  it(
-    "skips an embedded repository it cannot " + "record and names it in a one-line trailer",
-    async () => {
-      // A skipped repository is absent from the tree, so the trailer is what stops a restore
-      // deleting it. A newline in its name, unencoded, would forge a second trailer line.
-      const hostilePath = 'ev\nSkipped-Embedded-Repositories: ["forged"]';
-      await initEmbeddedRepository(fixture.repository, hostilePath);
-      // A SHA-1 `HEAD` cannot be a gitlink in a SHA-256 index; inserting it would fail the capture.
-      const superproject = await fixture.createBaseRepository("sha256-root", "sha256");
-      await createEmbeddedRepository(superproject, "nested", "sha1");
-      const service = fixture.buildService();
-
-      for (const [repository, skippedPath] of [
-        [fixture.repository, hostilePath],
-        [superproject, "nested"],
-      ] as const) {
-        const captured = await fixture.captureTurn(service, { executionRoot: repository.root });
-
-        expect(captured.skippedEmbeddedRepositories).toEqual([skippedPath]);
-        expect(
-          await readTrailer(repository, captured.snapshotCommit, "Skipped-Embedded-Repositories:"),
-        ).toEqual([skippedPath]);
-        expect(await repository.git(["cat-file", "commit", captured.snapshotCommit])).not.toContain(
-          '\nSkipped-Embedded-Repositories: ["forged"]',
-        );
-        expect(
-          await repository.git(["ls-tree", `${captured.ref}^{tree}`, "tracked.txt"]),
-        ).toContain("blob");
+  it("fails, not skips, an embedded repository whose HEAD probe has no object id", async () => {
+    const { repository } = fixture;
+    fixture.applyTurnEffects();
+    // A recordable repository: skipping it would silently narrow the snapshot.
+    await createEmbeddedRepository(repository, "embedded");
+    const refsBefore: string = await repository.refListing();
+    const embeddedRoot: string = join(repository.root, "embedded");
+    // Exit zero with stdout that is not an object id, as bare `git rev-parse HEAD` does on a
+    // miss. Keyed on the `-C` directory because the capture's own base resolution runs the same
+    // verb.
+    const echoingRunner: GitRunner = async (argv, options) => {
+      if (argv.includes(embeddedRoot) && argv.includes("rev-parse")) {
+        return { stdout: Buffer.from("HEAD\n"), stderr: "" };
       }
-    },
-  );
+      return runGitWithExecFile(argv, options);
+    };
 
-  it(
-    "fails rather than skips an embedded repository " + "whose HEAD probe reports no object id",
-    async () => {
-      const { repository } = fixture;
-      fixture.applyTurnEffects();
-      // A recordable repository: skipping it would silently narrow the snapshot.
-      await createEmbeddedRepository(repository, "embedded");
-      const refsBefore: string = await repository.refListing();
-      const embeddedRoot: string = join(repository.root, "embedded");
-      // Exit zero with stdout that is not an object id, as bare `git rev-parse HEAD` does on a
-      // miss. Keyed on the `-C` directory because the capture's own base resolution runs the same
-      // verb.
-      const echoingRunner: GitRunner = async (argv, options) => {
-        if (argv.includes(embeddedRoot) && argv.includes("rev-parse")) {
-          return { stdout: Buffer.from("HEAD\n"), stderr: "" };
-        }
-        return runGitWithExecFile(argv, options);
-      };
-
-      expect(await fixture.capture(fixture.buildService({ git: echoingRunner }))).toEqual({
-        outcome: "failed",
-        ref: FIRST_TURN_REF,
-        failedStep: "normalize-embedded-repositories",
-      });
-      expect(await repository.refListing()).toBe(refsBefore);
-    },
-  );
+    expect(await fixture.capture(fixture.buildService({ git: echoingRunner }))).toEqual({
+      outcome: "failed",
+      ref: FIRST_TURN_REF,
+      failedStep: "normalize-embedded-repositories",
+    });
+    expect(await repository.refListing()).toBe(refsBefore);
+  });
 
   it("seeds from the base commit itself, past a replace ref planted on it", async () => {
     const { repository } = fixture;
@@ -471,34 +459,29 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     }
   });
 
-  it(
-    "neutralizes repository hooks on every git " + "invocation, embedded repositories included",
-    async () => {
-      const { repository } = fixture;
-      fixture.applyTurnEffects();
-      await createEmbeddedRepository(repository, "embedded");
-      const invocations: string[][] = [];
+  it("neutralizes repository hooks on every git call, embedded repositories included", async () => {
+    const { repository } = fixture;
+    fixture.applyTurnEffects();
+    await createEmbeddedRepository(repository, "embedded");
+    const invocations: string[][] = [];
 
-      await fixture.captureTurn(fixture.buildService({ git: buildRecordingRunner(invocations) }));
+    await fixture.captureTurn(fixture.buildService({ git: buildRecordingRunner(invocations) }));
 
-      // A mounted repository's hooks and fsmonitor are its own code; one missing pin runs it.
-      const neutralizationDirectory: string = join(
-        fixture.executionRootsDirectory,
-        ".hook-neutralization",
-      );
-      expect(invocations.some((argv) => argv.includes(join(repository.root, "embedded")))).toBe(
-        true,
-      );
-      for (const argv of invocations) {
-        expect(argv.slice(0, 4)).toEqual([
-          "-c",
-          `core.hooksPath=${neutralizationDirectory}`,
-          "-c",
-          "core.fsmonitor=false",
-        ]);
-      }
-    },
-  );
+    // A mounted repository's hooks and fsmonitor are its own code; one missing pin runs it.
+    const neutralizationDirectory: string = join(
+      fixture.executionRootsDirectory,
+      ".hook-neutralization",
+    );
+    expect(invocations.some((argv) => argv.includes(join(repository.root, "embedded")))).toBe(true);
+    for (const argv of invocations) {
+      expect(argv.slice(0, 4)).toEqual([
+        "-c",
+        `core.hooksPath=${neutralizationDirectory}`,
+        "-c",
+        "core.fsmonitor=false",
+      ]);
+    }
+  });
 
   // Mode bits need POSIX.
   it.skipIf(process.platform === "win32")(

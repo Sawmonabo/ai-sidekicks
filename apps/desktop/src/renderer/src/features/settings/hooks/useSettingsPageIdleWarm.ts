@@ -31,7 +31,7 @@ export function useSettingsPageIdleWarm(
   const [warmScheduler] = useState(() => scheduler);
   useEffect(() => {
     // Built inside the setup: a walk is once-per-instance and permanently cancelable, so under
-    // `StrictMode` a held walk would be canceled by the replayed cleanup and stay cold.
+    // `StrictMode` a held walk would be canceled by the re-run's cleanup and stay cold.
     const walk = new LazyBodyIdleWarm(pages, warmScheduler);
     walk.start();
     return () => {

@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import { CALM, attachedController, syntheticRows } from "./viewport-controller.test-support.js";
 

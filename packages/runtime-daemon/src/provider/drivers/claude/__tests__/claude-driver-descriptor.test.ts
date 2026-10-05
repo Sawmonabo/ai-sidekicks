@@ -6,13 +6,14 @@ import type { ProbeAnswer } from "../../../capability-probe.js";
 import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import {
   claudeContextualRefusalReply,
+  claudeInitializeReply,
   claudeSuccessReply,
   claudeUnsupportedSubtypeReply,
 } from "../__fixtures__/capability-probe-replies.js";
 
-// The Claude classifier reads no probe name: its refusal is name-level already.
-function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
-  return CLAUDE_DRIVER_DESCRIPTOR.classifyCapabilityProbeReply(payload, "");
+// Its refusal is name-level already; only the fast-mode probe's name changes the reading.
+function classifyClaudeProbeReply(payload: unknown, probeName = ""): ProbeAnswer {
+  return CLAUDE_DRIVER_DESCRIPTOR.classifyCapabilityProbeReply(payload, probeName);
 }
 
 describe("Claude capability-probe reply classification", () => {
@@ -28,5 +29,11 @@ describe("Claude capability-probe reply classification", () => {
     expect(classifyClaudeProbeReply(null)).toBe("unrecognized");
     expect(classifyClaudeProbeReply([])).toBe("unrecognized");
     expect(classifyClaudeProbeReply({ subtype: "mystery" })).toBe("unrecognized");
+  });
+
+  it("accepts the `initialize` probe only when its reply carries the fast-mode state", () => {
+    // A build whose reply reports no state has no axis this driver can read, so it withdraws.
+    expect(classifyClaudeProbeReply(claudeInitializeReply(), "initialize")).toBe("accepted");
+    expect(classifyClaudeProbeReply(claudeSuccessReply(), "initialize")).toBe("unrecognized");
   });
 });

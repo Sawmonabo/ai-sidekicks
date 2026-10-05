@@ -95,6 +95,7 @@ export function contextWindowEvent(sequence: number): ProjectedSessionEvent {
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
+    cursor: `cursor-at-${String(sequence)}`,
     kind: CONTEXT_WINDOW_EVENT_KIND,
     occurredAt: "2026-01-01T00:00:10.000Z",
     payload: {

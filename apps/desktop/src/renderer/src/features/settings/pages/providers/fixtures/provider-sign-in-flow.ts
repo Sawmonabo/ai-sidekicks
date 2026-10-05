@@ -7,9 +7,14 @@
 
 import type {
   BillingMode,
+  ProviderAccount,
   ProviderAccountId,
   ProviderName,
 } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccountProbeResponse,
+  ProviderAccountSetCurrentResponse,
+} from "@ai-sidekicks/contracts/provider-account-methods";
 import type {
   ProviderAccountLoginCancelResponse,
   ProviderAccountLoginResponse,
@@ -18,6 +23,8 @@ import type {
 } from "@ai-sidekicks/contracts/provider-account-sign-in";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
+import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";
+import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
 /**
@@ -39,21 +46,10 @@ export type ProviderSignInFlowState =
       readonly accountId: ProviderAccountId;
       readonly attempt: ProviderAccountLoginResponse;
     }
-  | { readonly kind: "ended"; readonly because: string };
+  | { readonly kind: "unfinished"; readonly failureReason: string | undefined };
 
 /** The state a flow starts in and returns to. Shared so it has one spelling. */
 export const IDLE_PROVIDER_SIGN_IN_FLOW: ProviderSignInFlowState = { kind: "idle" };
-
-/**
- * What a flow ending on the registry's own tail says.
- *
- * Its own sentence: this ending is neither a cancellation nor a reply to a call. The
- * report comes from the provider and is not a claim the account is authenticated.
- */
-export const PROVIDER_SIGN_IN_ENDED_BY_REGISTRY: string =
-  "This machine reports the provider's sign-in finished. That is " +
-  "not a claim the account is authenticated — the registry is " +
-  "being read again to see what became of it.";
 
 /**
  * Whether the daemon is running a flow of this window's making, per kind.
@@ -67,7 +63,7 @@ const PROVIDER_SIGN_IN_RUNNING_BY_KIND: Readonly<Record<ProviderSignInFlowState[
     starting: true,
     live: true,
     canceling: true,
-    ended: false,
+    unfinished: false,
   };
 
 /**
@@ -78,12 +74,6 @@ export interface ProviderSignInStartOutcome {
   readonly kind: "live";
   readonly accountId: ProviderAccountId;
   readonly attempt: ProviderAccountLoginResponse;
-}
-
-/** What one cancel answered: the flow is over. */
-export interface ProviderSignInCancelOutcome {
-  readonly kind: "ended";
-  readonly because: string;
 }
 
 /** What a token registration did, as far as this fixture body may claim. */
@@ -114,6 +104,22 @@ export type ProviderAccountRegisterCall = (
   request: ProviderAccountRegisterRequest,
 ) => Promise<ProviderAccountRegisterResponse>;
 
+/**
+ * Checks one account now. The daemon reads at once when the account's last read is at least a
+ * minute old and otherwise answers with that last read, so the reply looks the same either way.
+ */
+export type ProviderAccountProbeCall = (request: {
+  readonly accountId: ProviderAccountId;
+}) => Promise<ProviderAccountProbeResponse>;
+
+/**
+ * Makes one account its provider's default. A refusal carries the account's own remedy where its
+ * login is gone, and nothing moves.
+ */
+export type ProviderAccountSetCurrentCall = (request: {
+  readonly accountId: ProviderAccountId;
+}) => Promise<ProviderAccountSetCurrentResponse>;
+
 /** Whether this flow is running. The one reading of the table above. */
 export function isProviderSignInRunning(flow: ProviderSignInFlowState): boolean {
   return PROVIDER_SIGN_IN_RUNNING_BY_KIND[flow.kind];
@@ -139,27 +145,28 @@ export async function startProviderSignIn(
 }
 
 /**
- * Cancel a sign-in that is still in flight.
- *
- * `canceled` is the daemon stopping a running flow; `notFound` means there was nothing to
- * stop because it finished or expired first. Reporting that as a cancellation would claim
- * the console stopped something it did not.
+ * Where a flow stands once the registry reports its attempt over: a failed attempt did not
+ * finish and keeps the provider's own reason; a finished or canceled one leaves nothing to draw,
+ * since what became of the account is the registry's to say.
  */
-export async function cancelProviderSignIn(
-  cancel: ProviderAccountLoginCancelCall,
-  attempt: ProviderAccountLoginResponse,
-): Promise<ProviderSignInCancelOutcome> {
-  const reply = await cancel({ attemptId: attempt.attemptId });
-  return {
-    kind: "ended",
-    because:
-      reply.status === "canceled"
-        ? "The sign-in was canceled. Nothing about this account has " +
-          "changed until the registry is read again."
-        : "There was no sign-in left to cancel — it had already finished " +
-          "or expired. Read the registry again to see what became of the " +
-          "account.",
-  };
+export function flowAfterLoginCompleted(
+  completion: Pick<ProviderLoginCompletion, "outcome" | "failureReason">,
+): ProviderSignInFlowState {
+  return completion.outcome === "failed"
+    ? { kind: "unfinished", failureReason: completion.failureReason }
+    : IDLE_PROVIDER_SIGN_IN_FLOW;
+}
+
+/**
+ * Read a write-only token field once and clear it in the same step, so the value lives only in
+ * the submit handler that sends it: never in component state, a `FormData` entry or the field.
+ */
+export function takeWriteOnlyToken(tokenInput: HTMLInputElement | null): string {
+  const token = tokenInput?.value ?? "";
+  if (tokenInput !== null) {
+    tokenInput.value = "";
+  }
+  return token;
 }
 
 /** The outcome a form starts in and returns to. Shared so it has one spelling. */
@@ -186,15 +193,19 @@ export type RegistrationFieldReading =
 /**
  * Read the form's ordinary fields, before anything is sent and before the token is read.
  *
- * Runs before the token exists in the submit handler, so a refused label cannot discard a
- * typed credential; a label of only spaces passes the browser's `required` check and is
- * refused here. The refusal never echoes the label, which is user content.
+ * Runs before the token exists in the submit handler, so a refused name cannot discard a typed
+ * credential. The name is required and differs from that provider's other account names,
+ * compared without case or surrounding spaces; a name of only spaces passes the browser's
+ * `required` check and is refused here. The refusal never echoes the name, which is user content.
  */
-export function readRegistrationFields(typed: {
-  readonly displayLabel: string;
-  readonly provider: ProviderName;
-  readonly billingMode: BillingMode;
-}): RegistrationFieldReading {
+export function readRegistrationFields(
+  typed: {
+    readonly displayLabel: string;
+    readonly provider: ProviderName;
+    readonly billingMode: BillingMode;
+  },
+  accounts: readonly ProviderAccount[],
+): RegistrationFieldReading {
   const displayLabel = typed.displayLabel.trim();
   if (displayLabel === "") {
     return {
@@ -202,9 +213,23 @@ export function readRegistrationFields(typed: {
       refusal: refuse(
         TOKEN_REGISTRATION_REFUSAL_ORIGIN,
         "registration-label-blank",
-        "Give the account a label with at least one visible character — " +
-          "spaces alone are not a name anything can be found by. Nothing " +
-          "was sent, and the token field still holds what you typed.",
+        "Name this account.",
+      ),
+    };
+  }
+  const comparedName = displayLabel.toLowerCase();
+  const isTaken = accounts.some(
+    (account) =>
+      account.provider === typed.provider &&
+      account.displayLabel.trim().toLowerCase() === comparedName,
+  );
+  if (isTaken) {
+    return {
+      kind: "refused",
+      refusal: refuse(
+        TOKEN_REGISTRATION_REFUSAL_ORIGIN,
+        "registration-label-taken",
+        `Another ${PROVIDER_LABELS[typed.provider]} account already has this name.`,
       ),
     };
   }

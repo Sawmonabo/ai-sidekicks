@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { ApprovalDecisionSchema, type ApprovalDecision } from "./approval.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { SessionIdSchema, type SessionId } from "./session.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
@@ -25,9 +26,11 @@ import {
   WorkflowCostSchema,
   WorkflowPayloadRefSchema,
   WorkflowRunIdSchema,
+  WorkflowWaitCauseSchema,
   type WorkflowCost,
   type WorkflowPayloadRef,
   type WorkflowRunId,
+  type WorkflowWaitCause,
 } from "./workflow-run.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
@@ -78,8 +81,8 @@ export const WorkflowStepReadRequestSchema: z.ZodType<
   .strict();
 
 /**
- * The `workflow.stepRead` result: the payload inline, as an artifact reference, or
- * expired, with a cursor while more remains.
+ * The `workflow.stepRead` result: the payload inline or as an artifact reference, with a
+ * cursor while more remains.
  */
 export interface WorkflowStepReadResponse {
   nodeId: WorkflowNodeId;
@@ -342,7 +345,7 @@ export const WorkflowFixSessionCreateResponseSchema: z.ZodType<WorkflowFixSessio
 /**
  * An approval answered, a form read or a form submitted on a step that is no longer
  * waiting, an answer after the step's `Timeout` passed included, even before its timer
- * has run.
+ * has run; also a chain's question answered once it is no longer open.
  *
  * @consumedBy the handler that returns the `workflow.step_not_waiting` error
  */
@@ -414,6 +417,40 @@ export const WorkflowStepFailedPayloadSchema: z.ZodType<WorkflowStepFailedPayloa
     failedItemIndex: countSchema.optional(),
   })
   .strict();
+
+/**
+ * `workflow.phase_suspended`: a step started waiting: its `waitCause`, the durable resume
+ * instant where the wait armed one, and, for an `account` wait, the spent account the
+ * attention read groups it under. The deadline a `Timeout` arms is written on the step's row
+ * as truth and rides no event.
+ */
+export interface WorkflowPhaseSuspendedPayload extends WorkflowStepEventPayload {
+  waitCause: WorkflowWaitCause;
+  /** Only on an account wait; absent, only the person resumes it. */
+  resumeAt?: string | undefined;
+  /** Present exactly on an `account` wait. */
+  providerAccountId?: ProviderAccountId | undefined;
+}
+/** Wire schema for {@link WorkflowPhaseSuspendedPayload}. */
+export const WorkflowPhaseSuspendedPayloadSchema: z.ZodType<WorkflowPhaseSuspendedPayload> = z
+  .object({
+    ...workflowStepEventFields,
+    waitCause: WorkflowWaitCauseSchema,
+    resumeAt: isoDateTimeSchema.optional(),
+    providerAccountId: ProviderAccountIdSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (payload) => (payload.waitCause === "account") === (payload.providerAccountId !== undefined),
+    {
+      path: ["providerAccountId"],
+      message: "An account wait names its spent account, and no other wait carries one.",
+    },
+  )
+  .refine((payload) => payload.waitCause === "account" || payload.resumeAt === undefined, {
+    path: ["resumeAt"],
+    message: "Only an account wait resumes itself.",
+  });
 
 /** `workflow.step_skipped`: the step's input carried no items, or its node is disabled. */
 export interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
@@ -497,8 +534,6 @@ export interface WorkflowStepMethodDescriptors {
 
 /**
  * The `workflow.*` methods on one step.
- *
- * @consumedBy the daemon's workflow step handlers
  */
 export const WORKFLOW_STEP_METHOD_DESCRIPTORS: WorkflowStepMethodDescriptors =
   defineMethodDescriptors({

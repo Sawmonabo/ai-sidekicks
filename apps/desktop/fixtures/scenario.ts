@@ -10,7 +10,10 @@
 import type { UpdateState } from "@shared/preload-api.js";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
+import type {
+  ScenarioOpeningNotice,
+  ScenarioReply,
+} from "@renderer/services/daemon/scenario-reply.fixture.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
@@ -28,6 +31,8 @@ export interface Scenario {
   readonly sessionId: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
+  /** The frames machine streams open with, where the daemon sends one first. */
+  readonly openingNotices?: readonly ScenarioOpeningNotice[];
   /**
    * What the main process's updater reports, when the scenario states one.
    *

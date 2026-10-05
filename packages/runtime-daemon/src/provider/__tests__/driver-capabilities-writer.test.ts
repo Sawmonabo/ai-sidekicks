@@ -262,30 +262,27 @@ describe("DriverCapabilitiesWriter — a write failing mid-declare", () => {
 });
 
 describe("DriverCapabilitiesWriter — cli_version pair persistence", () => {
-  it(
-    "updates the pair on a CAPABILITY-changing " + "declare that also carries a new reading",
-    async () => {
-      const writer = makeWriter();
-      await writer.declare({
-        driverName: DRIVER_NAME,
-        result: makeResult(),
-      });
+  it("updates the pair on a capability-changing declare carrying a new reading", async () => {
+    const writer = makeWriter();
+    await writer.declare({
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
 
-      // A provider upgrade that also flipped a capability: both move in one transaction.
-      const outcome = await writer.declare({
-        driverName: DRIVER_NAME,
-        result: makeResult({
-          capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
-          cliVersion: UPGRADED_CLI_VERSION_REPORT,
-        }),
-      });
-      expect(outcome).toEqual({ snapshotChange: "changed", cliVersionRefreshed: true });
-      expect(readCliVersionPair(DRIVER_NAME)).toEqual({
-        cli_version_raw: UPGRADED_CLI_VERSION_REPORT.rawVersion,
-        cli_version_semver: UPGRADED_CLI_VERSION_REPORT.parsedVersion,
-      });
-    },
-  );
+    // A provider upgrade that also flipped a capability: both move in one transaction.
+    const outcome = await writer.declare({
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: { flags: makeFlags({ steer: true }), contractVersion: CONTRACT_VERSION },
+        cliVersion: UPGRADED_CLI_VERSION_REPORT,
+      }),
+    });
+    expect(outcome).toEqual({ snapshotChange: "changed", cliVersionRefreshed: true });
+    expect(readCliVersionPair(DRIVER_NAME)).toEqual({
+      cli_version_raw: UPGRADED_CLI_VERSION_REPORT.rawVersion,
+      cli_version_semver: UPGRADED_CLI_VERSION_REPORT.parsedVersion,
+    });
+  });
 
   it("VERSION-ONLY change: 'unchanged' with cliVersionRefreshed:true", async () => {
     // Change detection excludes `cliVersion` (cache currency, not a capability), so without a
@@ -566,7 +563,7 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
       "axis",
     async () => {
       // The result must carry this member whenever `flags.output_speed` is true. The cache stores
-      // flag values but no vocabulary, so a hydrate that only replayed columns would omit it.
+      // flag values but no vocabulary, so a hydrate that only rebuilt from columns would omit it.
       const writer = makeWriter();
       await writer.declare({
         driverName: DRIVER_NAME,
@@ -583,9 +580,9 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
       expect(hydrated.capabilities.flags.output_speed).toBe(true);
       expect(Object.hasOwn(hydrated, "outputSpeedLevels")).toBe(true);
       // Compared with the table the live declaration reads, so the two paths cannot drift.
-      expect(hydrated.outputSpeedLevels).toStrictEqual([
-        ...PROVIDER_DRIVER_DESCRIPTORS.claude.outputSpeedLevels,
-      ]);
+      expect(hydrated.outputSpeedLevels).toStrictEqual(
+        PROVIDER_DRIVER_DESCRIPTORS.claude.outputSpeedLevels,
+      );
     },
   );
 });

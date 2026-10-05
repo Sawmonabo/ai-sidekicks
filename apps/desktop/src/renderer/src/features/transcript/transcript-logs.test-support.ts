@@ -26,6 +26,14 @@ export function transcriptFixtureEventId(sequence: number): string {
   return `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`;
 }
 
+/**
+ * The position the session's stream delivered the event at one log position, the cursor a link
+ * to that message names. Not the row id, so a lookup that confused the two would find nothing.
+ */
+export function transcriptFixtureStreamCursor(sequence: number): string {
+  return `stream-position-${String(sequence)}`;
+}
+
 /** A run that has ENDED, so a case can name the run group it expects a header for. */
 export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 
@@ -41,6 +49,7 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
       id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
+      cursor: transcriptFixtureStreamCursor(index),
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(index),
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
@@ -61,6 +70,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
       id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
+      cursor: transcriptFixtureStreamCursor(index),
       kind: "tool.invoked",
       occurredAt: transcriptFixtureStampAt(index),
       payload: {
@@ -74,7 +84,10 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
   return sessionStore;
 }
 
-/** A log of general rows, so no run group is open and the cap may actually apply. */
+/**
+ * A log of general rows, so no run group is open and the cap may actually apply. Each event
+ * carries the cursor the stream delivered it at.
+ */
 export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: -1, entities: [] });
@@ -83,6 +96,7 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
       id: transcriptFixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
+      cursor: transcriptFixtureStreamCursor(index),
       kind: "user.message",
       occurredAt: transcriptFixtureStampAt(index),
       payload: {},

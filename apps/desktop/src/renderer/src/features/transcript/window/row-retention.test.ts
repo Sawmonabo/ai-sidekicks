@@ -9,6 +9,7 @@ import { type ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 import {
   transcriptFixtureEventId,
   transcriptFixtureStampAt,
+  transcriptFixtureStreamCursor,
 } from "../transcript-logs.test-support.js";
 import { TranscriptRowRetention } from "./row-retention.js";
 import { deriveTranscriptWindow } from "./transcript-window.js";
@@ -23,6 +24,7 @@ function logEntry(
     id: transcriptFixtureEventId(sequence),
     sessionId: SESSION_ID,
     sequence,
+    cursor: transcriptFixtureStreamCursor(sequence),
     kind: "user.message",
     occurredAt: transcriptFixtureStampAt(sequence),
     payload,

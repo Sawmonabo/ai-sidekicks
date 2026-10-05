@@ -114,6 +114,17 @@ CREATE TABLE session_drafts (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
+-- This machine: its id, minted at the daemon's first start, and the friendly
+-- name read then. One row, kept the same at every later start.
+-- ---------------------------------------------------------------------------
+CREATE TABLE local_machine (
+  singleton   INTEGER PRIMARY KEY CHECK (singleton = 1),
+  node_id     TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  minted_at   TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
+) STRICT;
+
+-- ---------------------------------------------------------------------------
 -- This machine's registration: one row per machine and owning user.
 -- ---------------------------------------------------------------------------
 CREATE TABLE node_trust_state (
@@ -355,12 +366,12 @@ CREATE TABLE interventions (
   -- The admitting connection's device; NULL when the daemon itself wrote the row.
   device_id               TEXT,
   result                  TEXT,                       -- JSON outcome
-  -- Why a request was rejected. A rejected outcome carries no result, so an
-  -- an idempotent rebuild recomputes rejectionReason from here.
+  -- Why a request was rejected. A rejected outcome carries no result, so a retry's
+  -- saved result is rebuilt from here.
   rejection_reason        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
-  -- An identical retry replays the recorded outcome; a reused key with a
+  -- An identical retry returns the saved result; a reused key with a
   -- different payload is refused (intervention.idempotency_conflict).
   UNIQUE (target_run_id, client_idempotency_key)
 ) STRICT;

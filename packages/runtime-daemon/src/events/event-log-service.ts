@@ -59,7 +59,7 @@ export interface EventLogAppendOptions {
    */
   readonly content?: EventLogAppendContent;
 
-  /** `monotonic_ns`: within-daemon ordering only, never the replay key; defaults to the clock. */
+  /** `monotonic_ns`: within-daemon ordering only, never the order key; defaults to the clock. */
   readonly monotonicNs?: bigint;
 }
 

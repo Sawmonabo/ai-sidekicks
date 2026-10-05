@@ -2,9 +2,9 @@
 // renderer reads in fixture mode. `dispose()` is final; a later advance is dropped and reported on
 // the tripwire, never delivered into a torn-down subscriber.
 //
-// The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out, replay
-// and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and the
-// machine notices a settled reply pushes, against engine time. `advance`, the one reach that
+// The engine decides what is due; `event-delivery.fixture.ts` decides who gets it (fan-out,
+// catch-up and the delivered log) and `held-reply-queue.fixture.ts` schedules parked replies, and
+// the machine notices a settled reply pushes, against engine time. `advance`, the one reach that
 // delivers, is guarded here by the disposed flag. Attaching a sink needs no guard, since
 // `dispose()` clears the emitters.
 
@@ -107,15 +107,12 @@ export class ScenarioEngine {
   /**
    * Subscribe to delivered beats. Returns an idempotent unsubscribe.
    *
-   * Tail by default, replay-then-tail on request, because the two are different registered
-   * subscriptions (named in `session-event-streams.ts`). A disposed engine replays nothing, as a
-   * replay is a delivery; the sink still attaches.
+   * Follow only by default, catch up, then follow on request, because the two are different
+   * registered subscriptions (named in `session-event-streams.ts`). A disposed engine catches
+   * nothing up, as a catch-up is a delivery; the sink still attaches.
    */
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
-    return this.#delivery.subscribeToBeats(
-      sink,
-      options?.resendDeliveredEvents === true && !this.#disposed,
-    );
+    return this.#delivery.subscribeToBeats(sink, options?.catchUp === true && !this.#disposed);
   }
 
   /**

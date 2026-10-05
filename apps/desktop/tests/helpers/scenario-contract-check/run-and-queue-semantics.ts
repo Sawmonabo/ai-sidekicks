@@ -23,7 +23,7 @@ import {
 import {
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
-} from "@ai-sidekicks/contracts/session-controls";
+} from "@ai-sidekicks/contracts/session-controls/events";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
 import { z } from "zod";

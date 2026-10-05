@@ -9,15 +9,22 @@
 
 import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp-event";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
+import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-records";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
 
-import type { ScenarioNotice, ScenarioRefusalEnvelope } from "./scenario-reply.fixture.js";
-import { daemonMethodBindingFor } from "./daemon-reply-registry.js";
+import { daemonMethodBindingFor } from "@shared/daemon-method-bindings.js";
+import { parseInstant } from "@renderer/lib/instant.js";
+import type {
+  RequestStampReader,
+  ScenarioNotice,
+  ScenarioRefusalEnvelope,
+} from "./scenario-reply.fixture.js";
 import type { DeliveredNotice, ScenarioEngine } from "./engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "./refusal.fixture.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
+  WORKFLOW_NOTICE_STREAM,
   type MachineNoticeStreamName,
 } from "./session-event-streams.js";
 
@@ -27,6 +34,8 @@ const MACHINE_NOTICE_EMISSION_SCHEMAS: Readonly<Record<MachineNoticeStreamName, 
     [MCP_NOTICE_STREAM]: MCP_EVENT_METHOD_DESCRIPTORS[MCP_NOTICE_STREAM].emissionSchema,
     [PROVIDER_ACCOUNT_NOTICE_STREAM]:
       PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionSchema,
+    [WORKFLOW_NOTICE_STREAM]:
+      WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionSchema,
   });
 
 /**
@@ -89,6 +98,7 @@ export async function settleScriptedReply(
       engine.clock.now(),
       engine.nextComputedReplyOrdinal(call),
       (answeredCall) => engine.answeredRequests(answeredCall),
+      requestStampReaderFor(call),
     );
     // A request the scenario does not answer is `unscripted`, not an empty resolution: it
     // scripts the method and not this entity.
@@ -144,7 +154,7 @@ export async function resolveScriptedReply(
 /**
  * Hold one resolved scripted reply to the shape the corpus registers for its method.
  *
- * Reads the same `daemon-reply-registry.ts` table `daemon-reply.ts` parses live replies against,
+ * Reads the same `@shared/daemon-method-bindings.ts` table `daemon-reply.ts` parses live replies against,
  * so an impossible reply fails in the scenario's own tests and two tables cannot disagree. It
  * asserts and does not substitute: the original value travels on, so a scenario cannot lean on a
  * coercion or default a live daemon lacks. A method the registry does not bind passes through.
@@ -167,28 +177,60 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
 }
 
 /**
+ * Hold one machine notice to its stream's registered emission shape, naming `source` (the call
+ * that pushed it, or the stream that opened with it) when it is off contract. It asserts and does
+ * not substitute: the original payload travels on.
+ */
+export function assertNoticeOnContract(
+  source: string,
+  stream: MachineNoticeStreamName,
+  payload: unknown,
+): unknown {
+  if (!MACHINE_NOTICE_EMISSION_SCHEMAS[stream].safeParse(payload).success) {
+    throw new FixtureBridgeError(
+      source,
+      "reply-off-contract",
+      `the scenario pushes a ${stream} notice this build does ` +
+        `not register for that stream. Script the registered shape ` +
+        `rather than teaching a view a frame the daemon cannot send.`,
+    );
+  }
+  return payload;
+}
+
+/**
+ * Read the stamps one call's requests carry. The screens send UTC stamps, so any other spelling is
+ * a fixture fault, refused off contract.
+ */
+export function requestStampReaderFor(call: string): RequestStampReader {
+  return (stamp) => {
+    const instant = parseInstant(stamp, "utc-only");
+    if (instant.kind === "malformed") {
+      throw new FixtureBridgeError(
+        call,
+        "reply-off-contract",
+        `the scenario reads only UTC stamps, not ${JSON.stringify(stamp)}.`,
+      );
+    }
+    return instant.epochMilliseconds;
+  };
+}
+
+/**
  * Schedule one notice a resolved answer pushes. Its payload is composed when it comes due and
  * held to its stream's registered emission shape then, so a drifted notice fails whoever moved
  * the clock rather than reaching a subscriber that would read it as nothing.
  */
 function pushScriptedNotice(engine: ScenarioEngine, call: string, notice: ScenarioNotice): void {
   const composeAtDelivery = (): DeliveredNotice | undefined => {
-    const payload = notice.payloadAtDelivery((answeredCall) =>
-      engine.answeredRequests(answeredCall),
+    const payload = notice.payloadAtDelivery(
+      (answeredCall) => engine.answeredRequests(answeredCall),
+      requestStampReaderFor(call),
     );
     if (payload === undefined) {
       return undefined;
     }
-    if (!MACHINE_NOTICE_EMISSION_SCHEMAS[notice.stream].safeParse(payload).success) {
-      throw new FixtureBridgeError(
-        call,
-        "reply-off-contract",
-        `the scenario pushes a ${notice.stream} notice this build does ` +
-          `not register for that stream. Script the registered shape ` +
-          `rather than teaching a view a frame the daemon cannot send.`,
-      );
-    }
-    return { stream: notice.stream, payload };
+    return { stream: notice.stream, payload: assertNoticeOnContract(call, notice.stream, payload) };
   };
   if (!engine.scheduleNotice(notice.afterMs, composeAtDelivery)) {
     throw new FixtureBridgeError(

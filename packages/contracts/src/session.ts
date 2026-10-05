@@ -142,7 +142,7 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
 // `session.subscribe` answers with a `subscriptionId`; events then arrive as
 // `$/subscription/notify` frames keyed by it, until the client sends `$/subscription/cancel`.
 
-/** The `session.subscribe` input: the session to follow and an `afterCursor` to replay from. */
+/** The `session.subscribe` input: the session to follow and an `afterCursor` to catch up from. */
 export interface SessionSubscribeRequest {
   sessionId: SessionId;
   afterCursor?: EventCursor | undefined;
@@ -408,12 +408,13 @@ export const SessionRenameOriginSchema: z.ZodType<SessionRenameOrigin> = z.enum(
 ]);
 
 /**
- * The stored `session.renamed` payload: the half the personal-data split leaves in the
- * event. The new name and the previous one are text a person or a provider wrote, so the
- * emitter moves both into the row's personal-data partition, and neither is a member here.
+ * The `session.renamed` payload: the new name, `null` when the name was cleared, the name it
+ * replaced where there was one, and who renamed it. A rename to the current name writes no event.
  */
 export interface SessionRenamedPayload {
   sessionId: SessionId;
+  name: string | null;
+  previousName?: string | undefined;
   origin: SessionRenameOrigin;
   actor?: UserId | undefined;
 }
@@ -421,6 +422,11 @@ export interface SessionRenamedPayload {
 export const SessionRenamedPayloadSchema: z.ZodType<SessionRenamedPayload> = z
   .object({
     sessionId: SessionIdSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.name").nullable(),
+    previousName: wireFreeFormString(
+      SESSION_NAME_MAX_LEN,
+      "SessionRenamedPayload.previousName",
+    ).optional(),
     origin: SessionRenameOriginSchema,
     actor: UserIdSchema.optional(),
   })

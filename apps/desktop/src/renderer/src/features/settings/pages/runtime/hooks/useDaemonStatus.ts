@@ -90,7 +90,7 @@ export function useDaemonStatus(
 /**
  * The subject one status answer belongs to.
  *
- * The connection's kind and never the whole connection: `reconnecting` carries an
+ * The connection's kind and never the whole connection: `transient_disconnect` carries an
  * attempt number and the healthy path a heartbeat timestamp, and keying on either would
  * put a read on the wire per attempt and per beat.
  */

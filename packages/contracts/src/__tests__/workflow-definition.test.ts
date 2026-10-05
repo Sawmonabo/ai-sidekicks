@@ -38,7 +38,7 @@ const FULL_DOCUMENT = {
       id: "summary",
       kind: "output.write-summary",
       kindVersion: 1,
-      name: "Write summary",
+      name: "Save the notes",
       order: 0,
       params: { text: "={{ $json.summary }}" },
     },

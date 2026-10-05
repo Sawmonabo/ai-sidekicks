@@ -108,7 +108,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
 
   /**
    * Whether this reader is over, terminally. The binding asks so it can mint a replacement:
-   * strict-mode's replayed setup would otherwise `start()` a disposed reader that returns early.
+   * strict-mode's re-run setup would otherwise `start()` a disposed reader that returns early.
    */
   public get isDisposed(): boolean {
     return this.#disposed;

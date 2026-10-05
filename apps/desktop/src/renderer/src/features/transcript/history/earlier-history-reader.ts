@@ -1,4 +1,4 @@
-// Reaches the rows before the window this transcript was given. A resumed stream replays from
+// Reaches the rows before the window this transcript was given. A resumed stream catches up from
 // the last acknowledged position, so the window's head can sit mid-log, and only a backward
 // `beforeCursor` page moves it. This holds a position and a verdict, not rows: pages go
 // into the session store through `prependEarlierEvents`.

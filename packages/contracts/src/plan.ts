@@ -16,7 +16,7 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-import { PermissionLevelSchema, type PermissionLevel } from "./session-controls.js";
+import { PermissionLevelSchema, type PermissionLevel } from "./session-controls/methods.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */

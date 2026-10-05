@@ -3,9 +3,10 @@
 // through their registries.
 //
 // The layout is restored once at mount and saved through the persistence hook. An empty
-// layout opens the transcript alone at full width. A save that failed raises one banner
-// under the header; its code goes to the window's diagnostic capture, as does every part of
-// a saved arrangement the restore left closed. The screen is not
+// layout opens the transcript alone at full width. A pane another screen asked this session
+// for (Review from a workflow run's page) opens once the restore has landed. A save that failed
+// raises one banner under the header; its code goes to the window's diagnostic capture, as does
+// every part of a saved arrangement the restore left closed. The screen is not
 // remounted between two open sessions, so banners are scoped to (bridge, session): the
 // arriving session reads an empty column, and a bridge replacement clears it too.
 
@@ -37,6 +38,7 @@ import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
 import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
 import type { SessionPane } from "./pane-layout/pane-layout.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
+import { usePaneOpenRequests } from "./pane-layout/hooks/usePaneOpenRequests.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import { findComposerRenderer } from "@renderer/registries/composer/composer-registry.js";
 import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
@@ -117,12 +119,19 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [clock],
   );
 
+  const layoutRestored = usePaneOpenRequests({
+    layout,
+    requests: props.frameStore.paneOpenRequests,
+    sessionId,
+  });
+
   usePaneLayoutPersistence({
     layout,
     uiStateStore: props.uiStateStore,
     sessionId,
     onSaveRefused: saveRefused,
     onRestoreRefused: restoreRefused,
+    onRestored: layoutRestored,
   });
 
   const paneContextFor = useCallback(

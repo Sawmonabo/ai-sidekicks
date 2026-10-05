@@ -7,9 +7,9 @@
 //     questions. A registry miss means the driver is not loaded; a miss here, never declared.
 //   * The report is `GetCapabilitiesResult` without `tools`, `cliVersion` and `detectionSource`,
 //     plus `driverName` and `builtInTools`, composed here (the wire schema is `.strict()`).
-//   * `outputSpeedLevels` and `builtInTools` are driver constants, re-derived on every read and
-//     never stored, so a redeploy cannot leave a client rendering choices the driver rejects. An
-//     entry holds `DriverCapabilities` only.
+//   * A driver's static `outputSpeedLevels` and its `builtInTools` are driver constants,
+//     re-derived on every read and never stored, so a redeploy cannot leave a client rendering
+//     choices the driver rejects. An entry holds `DriverCapabilities` only.
 //   * A re-declaration reporting `changed` invalidates through an injected subscription. Without
 //     one, the caller must call `invalidate()` wherever it re-declares.
 
@@ -18,7 +18,10 @@ import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider-dr
 import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 
 import type { DriverCapabilityHydrationResult } from "./driver-capabilities-writer.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
+import {
+  composeStaticOutputSpeedLevels,
+  PROVIDER_DRIVER_DESCRIPTORS,
+} from "./provider-driver-descriptors.js";
 import { DriverUnavailableError } from "./provider-registry.js";
 
 /** Dependencies this cache reads through, so it holds no database handle, driver or timer. */
@@ -77,18 +80,12 @@ export class DriverCapabilityCache {
     const capabilities = this.#capabilitiesFor(driverName);
     const descriptor = PROVIDER_DRIVER_DESCRIPTORS[driverName];
 
-    // `!== true` is the fail-closed comparison `ProviderRegistry.checkCapability` makes. Without
-    // `output_speed` the member is absent (an empty array would claim a settable axis with no
-    // values). The arrays are copied because the descriptors are frozen.
-    const builtInTools = [...descriptor.builtInTools];
-    if (capabilities.flags.output_speed !== true) {
-      return { driverName, capabilities, builtInTools };
-    }
+    // Copied because the descriptors are frozen.
     return {
       driverName,
       capabilities,
-      outputSpeedLevels: [...descriptor.outputSpeedLevels],
-      builtInTools,
+      ...composeStaticOutputSpeedLevels(driverName, capabilities.flags),
+      builtInTools: [...descriptor.builtInTools],
     };
   }
 

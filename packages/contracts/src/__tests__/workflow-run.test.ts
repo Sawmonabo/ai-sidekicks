@@ -1,7 +1,8 @@
 // A run's steps cross from the daemon to the run page, the runs table and the live
 // stream. These tests hold the step record's own rules: only a waiting step names its
-// cause and its instants, an inline payload stays under its cap, and a failure's
-// details never travel without its code.
+// cause and its instants, only a reply wait holds a question and only an answered step its
+// answer, an inline payload stays under its cap, and a failure's details never travel without
+// its code, and only a failed step says how its process exited.
 import { describe, expect, it } from "vitest";
 
 import { WorkflowStepErrorSchema } from "../workflow-definition.js";
@@ -21,7 +22,7 @@ const STEP = {
   startedAt: "2026-09-29T14:00:00Z",
   inputRef: { kind: "inline", items: [{ json: { ok: true } }] },
   outputRef: EMPTY,
-  logRef: { kind: "expired" },
+  logRef: EMPTY,
 };
 
 describe("WorkflowStepSchema", () => {
@@ -54,6 +55,31 @@ describe("WorkflowStepSchema", () => {
   it("refuses a resume instant on a step that is not waiting", () => {
     const canceled = { ...STEP, status: "canceled", resumeAt: "2026-09-29T19:00:00Z" };
     expect(WorkflowStepSchema.safeParse(canceled).success).toBe(false);
+  });
+
+  it("carries a question only while waiting for a reply, and an answer only once answered", () => {
+    const question = {
+      questionId: "66666666-6666-4666-8666-666666666666",
+      waitId: "77777777-7777-4777-8777-777777777777",
+      prompt: "Which label?",
+    };
+    const asking = { ...STEP, status: "waiting", waitCause: "reply" };
+    expect(WorkflowStepSchema.safeParse({ ...asking, question }).success).toBe(true);
+    expect(WorkflowStepSchema.safeParse(asking).success).toBe(false);
+    const approving = { ...STEP, status: "waiting", waitCause: "approval" };
+    expect(WorkflowStepSchema.safeParse({ ...approving, question }).success).toBe(false);
+    const resolution = { kind: "approved", at: "2026-09-29T14:14:00Z" };
+    expect(WorkflowStepSchema.safeParse({ ...STEP, status: "succeeded", resolution }).success).toBe(
+      true,
+    );
+    expect(WorkflowStepSchema.safeParse({ ...approving, resolution }).success).toBe(false);
+  });
+
+  it("carries how its process exited only on a failed step", () => {
+    const processExit = { exitCode: 1, outputTail: "2 tests failed" };
+    const failed = { ...STEP, status: "failed", processExit };
+    expect(WorkflowStepSchema.safeParse(failed).success).toBe(true);
+    expect(WorkflowStepSchema.safeParse({ ...failed, status: "succeeded" }).success).toBe(false);
   });
 });
 
@@ -90,5 +116,13 @@ describe("WorkflowStepErrorSchema", () => {
   it("refuses details with no code", () => {
     const uncoded = { message: "failed", details: { cause: "step_timeout" } };
     expect(WorkflowStepErrorSchema.safeParse(uncoded).success).toBe(false);
+  });
+
+  it("carries the failing item's index from 0, and no negative one", () => {
+    const itemFailure = { message: "The summary came back empty", itemIndex: 0 };
+    expect(WorkflowStepErrorSchema.safeParse(itemFailure).success).toBe(true);
+    expect(WorkflowStepErrorSchema.safeParse({ ...itemFailure, itemIndex: -1 }).success).toBe(
+      false,
+    );
   });
 });

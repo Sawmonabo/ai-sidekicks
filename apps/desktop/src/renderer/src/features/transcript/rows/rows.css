@@ -9,6 +9,11 @@
   min-width: 0;
 }
 
+/* Marks what a selection copies out of the row, and takes no box of its own. */
+.meridian-message-card__body {
+  display: contents;
+}
+
 .meridian-message-card__kind-label {
   display: inline-flex;
   align-items: center;

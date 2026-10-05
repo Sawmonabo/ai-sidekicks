@@ -64,6 +64,7 @@ type ClaudeDriverOperations = Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
+  | "observedOutputSpeedFor"
 >;
 
 /** The composition root's dependencies: the lifecycle's plus the model-catalog exchange. */
@@ -147,13 +148,8 @@ export class ClaudeDriver implements ClaudeDriverOperations {
   }
 
   /**
-   * The output-speed state this session's binding holds from the provider's handshake, or
-   * `undefined` when it holds none.
-   *
-   * Deliberately not part of `ClaudeDriverOperations`: the other provider declares no such axis,
-   * so a contract operation for it would force that driver to stub it. It is public because
-   * `ProviderRegistry` hands callers this class, and the lifecycle that holds the state is private.
-   * Delegation only; the lifecycle owns the parsing and the absent answer.
+   * The output-speed state this session's binding holds from the process's `initialize` reply or
+   * a later `system/init`; see {@link ClaudeSessionLifecycle.observedOutputSpeedFor}.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     return this.#lifecycle.observedOutputSpeedFor(sessionId);

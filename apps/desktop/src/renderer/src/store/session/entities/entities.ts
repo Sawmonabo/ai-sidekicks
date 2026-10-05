@@ -64,6 +64,12 @@ export interface ProjectedSessionEvent {
   readonly sessionId: string;
   /** Monotonic position within the session. Dedupe and gap detection key on it. */
   readonly sequence: number;
+  /**
+   * The position the session's log holds the event at, wire-verbatim and opaque, so a link that
+   * names a message by its cursor can find its row. The stream delivers it with each change, and
+   * a backward `transcript.read` page with each row.
+   */
+  readonly cursor: string;
   /** Wire-verbatim event type, e.g. `run.queued`. Rendered as received. */
   readonly kind: string;
   /** ISO-8601, wire-verbatim. Formatted at render time, never re-parsed into a store. */
@@ -87,7 +93,7 @@ export interface ProjectedSessionEvent {
  * projection of the events it renders.
  *
  * A projector is pure: it reads the event and nothing else (not the store, clock or bridge),
- * which makes replaying a log deterministic and lets gap healing re-run a prefix safely.
+ * which makes rebuilding from a log deterministic and lets gap healing re-run a prefix safely.
  */
 export type EntityProjector = (event: ProjectedSessionEvent) => readonly EntityMutation[];
 

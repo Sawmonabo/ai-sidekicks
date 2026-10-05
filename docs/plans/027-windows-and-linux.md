@@ -63,7 +63,7 @@ Linux: every Linux implementation of an interface the earlier phases build on ma
 - **T27.2.8 — The app's address.** "`MimeType=x-scheme-handler/sidekicks`" in the `.desktop` entry, so a `sidekicks://` address opens the app. Implements [Plan-020](./020-desktop-app-and-renderer.md) T-020r-4-3's deep-link handler.
 - **T27.2.9 — Both sandboxes on Ubuntu.** "Both sandboxes on a real Ubuntu desktop": Claude Code's and Codex's sandboxes started by the service, each with its tool's own error. Implements the full-tier step sandbox in [Plan-014](./014-workflow-authoring-and-execution.md).
 - **T27.2.10 — The waiting signal.** "The waiting signal through `/proc/<pid>/wchan`", for a command waiting on a pipe; a stopped terminal read restarts on Linux. Implements the command wrapper in [Plan-003](./003-provider-driver-contract-and-capabilities.md) T3.28.
-- **T27.2.11 — The clone.** "The clone where the disk has one". Implements the captures in [Plan-012](./012-persistence-recovery-and-replay.md) T15.6 and T15.7.
+- **T27.2.11 — The clone.** "The clone where the disk has one". Implements the captures in [Plan-012](./012-persistence-and-recovery.md) T15.6 and T15.7.
 - **T27.2.12 — The backup folder.** "The backup folder's Linux default." Implements the backups in [Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-13.
 - **T27.2.13 — Finding a provider.** "The provider lookup table's Linux rows." Implements the lookup order in [Plan-023](./023-provider-accounts-and-credential-homes.md) Phase 4.
 - **T27.2.14 — Window chrome and key legends.** "The Linux window chrome and key legends." Implements [Plan-020](./020-desktop-app-and-renderer.md)'s frame and keyboard legends.

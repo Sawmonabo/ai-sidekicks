@@ -3,8 +3,9 @@
 // those throws at import time.
 import { z } from "zod";
 
-// A NodeId is a daemon-minted opaque string, not a UUID. The `ZodType<NodeId, NodeId>` annotation
-// keeps the input type `NodeId`, not `unknown`, where the schema is composed into a request.
+// A NodeId is minted by the daemon at its first start as a UUID v7, and every reader treats it as
+// an opaque string. The `ZodType<NodeId, NodeId>` annotation keeps the input type `NodeId`, not
+// `unknown`, where the schema is composed into a request.
 
 /** The longest NodeId, in characters. */
 export const NODE_ID_MAX_LEN = 256;

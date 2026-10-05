@@ -555,26 +555,23 @@ describe("provisioned-worktree mode on real git", () => {
 });
 
 describe("bound-root mode on real git", () => {
-  it(
-    "binds the main checkout without moving a " + "byte, and refuses it once HEAD is detached",
-    async () => {
-      insertWorkspace("bound-root");
-      const before = await snapshotMainCheckout(ctx.repository);
+  it("binds the main checkout without moving a byte, refusing it once HEAD detaches", async () => {
+    insertWorkspace("bound-root");
+    const before = await snapshotMainCheckout(ctx.repository);
 
-      const prepared = await prepare(DEFAULT_BRANCH);
+    const prepared = await prepare(DEFAULT_BRANCH);
 
-      expect(prepared.executionMode).toBe("bound-root");
-      expect(prepared.executionRoot).toBe(ctx.repository.root);
-      expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
+    expect(prepared.executionMode).toBe("bound-root");
+    expect(prepared.executionRoot).toBe(ctx.repository.root);
+    expect(await snapshotMainCheckout(ctx.repository)).toEqual(before);
 
-      // A detached HEAD makes `symbolic-ref --quiet` exit 1; read as a mismatch, the bind refuses
-      // rather than letting a run commit onto no branch.
-      await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
-      const detached = await snapshotMainCheckout(ctx.repository);
-      const rejection = await captureRejection(() => prepare(DEFAULT_BRANCH));
-      expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
-      expect(rejection).toMatchObject({ currentBranchName: "(detached HEAD)" });
-      expect(await snapshotMainCheckout(ctx.repository)).toEqual(detached);
-    },
-  );
+    // A detached HEAD makes `symbolic-ref --quiet` exit 1; read as a mismatch, the bind refuses
+    // rather than letting a run commit onto no branch.
+    await ctx.repository.git(["checkout", "--quiet", "--detach", "HEAD"]);
+    const detached = await snapshotMainCheckout(ctx.repository);
+    const rejection = await captureRejection(() => prepare(DEFAULT_BRANCH));
+    expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
+    expect(rejection).toMatchObject({ currentBranchName: "(detached HEAD)" });
+    expect(await snapshotMainCheckout(ctx.repository)).toEqual(detached);
+  });
 });

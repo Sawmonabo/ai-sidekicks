@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-018: Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md) |
 | **Required ADRs** | [ADR-003](../decisions/003-daemon-backed-queue-and-interventions.md), [ADR-004](../decisions/004-sqlite-local-state-and-postgres-control-plane.md), [ADR-005](../decisions/005-provider-drivers-use-a-normalized-interface.md), [ADR-014](../decisions/014-v1-feature-scope-definition.md), [ADR-016](../decisions/016-shared-event-sourcing-scope.md) |
-| **Dependencies** | [Plan-012](./012-persistence-recovery-and-replay.md) (persistence layer) |
+| **Dependencies** | [Plan-012](./012-persistence-and-recovery.md) (persistence layer) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
 ## Goal
@@ -122,7 +122,7 @@ Each phase builds one of the §Implementation Steps above: Phase 1 Step 1, Phase
 
 - **T2.2 — The workflow engine's diagnostic bucket.**
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — the `workflow_engine_events` bucket)
-  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T2.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for replay, projection rebuild, verification or audit.
+  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T2.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for projection rebuild, verification or audit.
   - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — a day's file past the configured TTL is deleted and the current day's is kept.
   - **Acceptance:** the engine record lives only in this bucket, under the same bound and erase as every other bucket.
   - **Spec coverage:** Spec-018 §PII in Diagnostics; [Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)
@@ -134,7 +134,7 @@ Each phase builds one of the §Implementation Steps above: Phase 1 Step 1, Phase
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — the `tool_traces` switch and the `driver_raw_events` switch)
   - `Record traces` (`recordTraces`) and `Record raw provider messages` (`recordProviderMessages`), both off by default, are read from the daemon's configuration ([Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10) and take effect from the change on. The `tool_traces` bucket is written only while `Record traces` is on. While `Record raw provider messages` is on, `driver_raw_events` writes every message Claude Code or Codex sends the daemon, word for word, into the folder at `providerMessagesPath`, which the Runtime page names, so a turn the daemon translated wrongly can be debugged; while it is off nothing is written to `driver_raw_events`. Both are diagnostic logs: deleted whole past `Keep diagnostic logs for` by T2.1's purge driver, deleted with the data folder by `Erase all data`, and never sent off the machine.
   - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — with each switch off a run writes nothing to its file; turned on, the next event lands in it; turned off again, nothing more is written.
-  - **Acceptance:** nothing is traced or logged for replay while its switch is off.
+  - **Acceptance:** nothing is traced or logged for diagnosis while its switch is off.
   - **Spec coverage:** Spec-018 §PII in Diagnostics
   - **Verifies invariant:** I-017-1, I-017-2
   - **Consumes:** the purge driver ← T2.1; the two switches ← [Plan-005](./005-local-ipc-and-daemon-control.md) T-005r-1-10

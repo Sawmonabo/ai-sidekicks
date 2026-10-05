@@ -8,6 +8,9 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
+import { RefusalError } from "@renderer/lib/refusal.js";
+import { readArtifactPayload } from "@renderer/services/artifacts/artifact-payload-read.js";
+import { abandonedReadRefusal } from "@renderer/services/daemon/daemon-reply.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
 import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import { withReplacedRow } from "./artifact-list-reading.js";
@@ -44,13 +47,15 @@ export class ArtifactPayloadFetches {
   }
 
   /**
-   * Ask for one artifact's bytes, because the user pressed for them.
+   * Ask for one artifact's whole payload, because the user pressed for them.
    *
-   * The same call as the manifest re-read, told apart by `includePayload`. Never run on mount,
+   * The same call as the manifest re-read, told apart by `includePayload`; a payload too large
+   * for one message is read window by window. Never run on mount,
    * because a payload is bounded only by the ingest cap, and not routed through the scheduler,
    * which would make a refresh silently re-fetch bytes. A second press while a fetch is on
    * the wire throws; the `fetching` arm holds the control, so only a caller that offers the
-   * act unheld reaches it. A rejected call propagates and the reading returns to no payload.
+   * act unheld reaches it. A rejected call, or a window that comes back short, propagates and
+   * the reading returns to no payload.
    */
   public async fetch(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     const round = this.#fetches.claim(this, PAYLOAD_FETCH_KEY);
@@ -77,17 +82,27 @@ export class ArtifactPayloadFetches {
     artifactId: ArtifactId,
     round: GenerationClaim,
   ): Promise<ArtifactPayloadOutcome> {
-    const answer = await this.#readArtifact({ artifactId, includePayload: true });
+    // A disposal mid-read stops the windows still to come rather than fetching them for nobody.
+    const read = await readArtifactPayload(async (request) => {
+      if (!round.isCurrent) {
+        return { status: "refused", refusal: abandonedReadRefusal() };
+      }
+      return { status: "served", value: await this.#readArtifact(request) };
+    }, artifactId);
     if (!round.isCurrent) {
       return { status: "superseded" };
     }
-    const payload = artifactPayloadReadingFrom(artifactId, answer);
+    if (read.status === "refused") {
+      throw new RefusalError(read.refusal);
+    }
+    const { reply, encoding, content } = read.value;
+    const payload = artifactPayloadReadingFrom(artifactId, encoding, content);
     const reading = this.#publisher.currentReading();
     this.#publisher.publish({
       ...reading,
       // The reply's manifest is fresher than the row; dropping it would leave the row stating
       // an older read beside bytes from this one.
-      artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(answer.manifest)),
+      artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(reply.manifest)),
       payload,
     });
     return { status: "settled", payload };

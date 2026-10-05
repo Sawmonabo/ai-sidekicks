@@ -7,8 +7,9 @@
 // background throttling off, because a revealed one steals the person's focus and Space. So
 // there is no `show` timestamp, and a wall clock read in either process would compare two clocks
 // across a process boundary. The renderer records the instant itself: `revealWindow` runs from
-// `ready-to-show`, emitted once the page has rendered, so the renderer's own
-// `first-contentful-paint` entry is the instant the window became showable. It sits on
+// the console view's `did-finish-load`, so the window is shown no earlier than the page has
+// drawn, and the renderer's own `first-contentful-paint` entry is the instant the window had
+// something to show. It sits on
 // `performance`'s monotonic transcript, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //

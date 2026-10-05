@@ -2,28 +2,23 @@
 // reading (the service's diagnostics or accounts, the machine's settings) has no session and no
 // repair edge, so this is where its `reconnect` refresh reason comes from.
 //
-// The signal observes rather than polls. It is told what happened by every daemon subscription the
-// window opens, through `observed-subscription.ts` (reported into by
-// `services/daemon/daemon-streams.ts` and the session-event subscriber), and under the fixture by
-// the scenario's scripted outages.
-// There is no timer, probe or retry ladder, and no connection state is inferred from an unrelated
-// call, since the supervisor owns that. No single consumer is also the only producer, or a window
-// whose only session failed to bind could never emit the edge that retries it.
+// The signal observes rather than polls. Its authority is main's `daemon.status` topic, which
+// `services/daemon/daemon-status.ts` reads into it: the supervisor owns the link, so a loss after
+// every stream is open still reaches here, and so does the link coming back. Every daemon
+// subscription the window opens also reports, through `observed-subscription.ts` (from
+// `services/daemon/daemon-streams.ts` and the session-event subscriber), and under the fixture the
+// scenario's scripted outages do. There is no timer, probe or retry ladder, and no connection
+// state is inferred from an unrelated call. No single consumer is also the only producer, or a
+// window whose only session failed to bind could never emit the edge that retries it.
 //
-// The live half sees one moment: whether `daemon.subscribe` returned or threw. A subscription that
-// opened and then died (daemon exit, IPC closing, stream ending) reaches this signal through
-// nothing, so a window whose wire goes away after every stream is open stays `reachable` and no
-// edge fires. That is a missing signal, not a missing observer: the handler has no error, end or
-// close arm and no bridge member reports connection state, and the alternatives, a heartbeat probe
-// or treating a failed unrelated call as a loss, are the ones this design refuses. When the
-// preload contract grows a stream-termination arm, `openObservedSubscription` reports
-// `unreachable` from it.
+// A subscription that ends is not a loss of the wire: main tells its owner through the end arm,
+// and the owner opens it again. Only the status topic says the service is unreachable.
 //
 // The signal has three states and only `unreachable → reachable` emits. `unknown` is where a
 // window starts, and a first `reachable` is the transport coming up, not back; a reading's own
 // `subscribe` reason already covers that, and firing too would put two reads behind every mounting
 // view. Repeated observations of the same state are free, since every subscription reports. It is
-// not on `PreloadApi` because the preload exposes no connection state; it sits on `PlatformBridge`.
+// one edge, not a connection state, so it sits on `PlatformBridge` rather than `PreloadApi`.
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

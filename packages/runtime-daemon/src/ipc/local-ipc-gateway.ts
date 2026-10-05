@@ -17,7 +17,7 @@ import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jso
 import type {
   JsonRpcErrorResponse,
   JsonRpcId,
-  JsonRpcMessage,
+  JsonRpcNotification,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts/jsonrpc";
 import {
@@ -28,27 +28,34 @@ import {
   MAX_MESSAGE_BYTES,
 } from "@ai-sidekicks/contracts/jsonrpc";
 import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-
-import { assertLoadedForBind } from "../bootstrap/index.js";
-import { SecureDefaults } from "../bootstrap/secure-defaults.js";
 import {
-  CONTENT_LENGTH_HEADER,
+  encodeFrame,
   FramingError,
-  HEADER_BODY_SEPARATOR,
   parseFrame,
   type ParseFrameResult,
-} from "./content-length-framing.js";
+} from "@ai-sidekicks/contracts/content-length-framing";
+
+import { assertLoadedForBind } from "../bootstrap/index.js";
+import { assertSocketPathFits, SecureDefaults } from "../bootstrap/secure-defaults.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
+import { readSocketPathLimit } from "./socket-path-limit.js";
 
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
 
 /**
+ * How long a stop lets each connection send what is already written to it, a stop's own reply
+ * among them, before it cuts the connection. A local socket hands over a reply at once; only a
+ * client that stopped reading holds a connection this long.
+ */
+const CONNECTION_CLOSE_WAIT_MS = 500;
+
+/**
  * The largest accepted or emitted frame body, in bytes. The value lives in
- * `@ai-sidekicks/contracts` so a producer sizing a reply shares it with the framer; enforcement is
- * only here: the gateway hands it to `parseFrame` as the body limit, and `encodeFrame` refuses to
- * emit an oversized body.
+ * `@ai-sidekicks/contracts` so a producer sizing a reply shares it with the framer; inbound
+ * enforcement is only here, where the gateway hands it to `parseFrame` as the body limit, and the
+ * shared `encodeFrame` refuses to emit an oversized body.
  */
 export { MAX_MESSAGE_BYTES };
 
@@ -100,29 +107,6 @@ export interface SupervisionHooks {
   onError(transport: SupervisionTransport, err: unknown): void;
 }
 
-/**
- * Encode a JSON-RPC envelope as a Content-Length frame; the header carries the body's UTF-8 byte
- * count. Throws `FramingError("oversized_body")` past `MAX_MESSAGE_BYTES`, so the daemon's own
- * oversized reply fails here with provenance instead of tripping the peer's inbound check.
- */
-export function encodeFrame(envelope: JsonRpcMessage): Buffer {
-  const bodyText = JSON.stringify(envelope);
-  const bodyBytes = Buffer.from(bodyText, "utf8");
-  const declaredLength = bodyBytes.byteLength;
-
-  if (declaredLength > MAX_MESSAGE_BYTES) {
-    throw new FramingError(
-      "oversized_body",
-      `encodeFrame: encoded body length ${declaredLength} exceeds ${MAX_MESSAGE_BYTES} byte limit`,
-      { limit: MAX_MESSAGE_BYTES, observed: declaredLength },
-    );
-  }
-
-  const header = `${CONTENT_LENGTH_HEADER}: ${declaredLength}${HEADER_BODY_SEPARATOR}`;
-  const headerBytes = Buffer.from(header, "ascii");
-  return Buffer.concat([headerBytes, bodyBytes]);
-}
-
 // --------------------------------------------------------------------------
 // Error-message sanitization
 // --------------------------------------------------------------------------
@@ -159,7 +143,9 @@ export function sanitizeErrorMessage(value: unknown): string {
   const sanitized = redactPathsFromString(raw);
 
   if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
-    return `${sanitized.slice(0, SANITIZED_MESSAGE_MAX_LEN - "…[truncated]".length)}…[truncated]`;
+    const truncationMarker = "…[truncated]";
+    const keptLength = SANITIZED_MESSAGE_MAX_LEN - truncationMarker.length;
+    return `${sanitized.slice(0, keptLength)}${truncationMarker}`;
   }
   return sanitized;
 }
@@ -256,9 +242,10 @@ export class LocalIpcGateway {
 
   /**
    * Bind the listener to the path in `SecureDefaults.effectiveSettings()`. Rejects if
-   * `SecureDefaults.load` has not completed, if the gateway is already started, or on a bind
-   * failure such as EADDRINUSE; a failed bind leaves the instance unstarted so `start()` can be
-   * retried.
+   * `SecureDefaults.load` has not completed, if the gateway is already started, with
+   * `invalid_local_ipc_path` before the bind when the path is longer than the platform's socket
+   * address field, or on a bind failure such as EADDRINUSE; a failed start leaves the instance
+   * unstarted so `start()` can be retried.
    */
   async start(): Promise<void> {
     if (this.#started) {
@@ -270,6 +257,11 @@ export class LocalIpcGateway {
 
     const settings = SecureDefaults.effectiveSettings();
     const listenPath = settings.localIpcPath;
+    // A Unix domain socket path must fit the platform's address field; a Windows pipe name has no
+    // such field.
+    if (process.platform !== "win32") {
+      assertSocketPathFits(listenPath, await readSocketPathLimit());
+    }
 
     const server = net.createServer((socket) => {
       this.#onSocketConnect(socket);
@@ -304,8 +296,10 @@ export class LocalIpcGateway {
 
   /**
    * Close the listener and every open connection, each of which fires
-   * `onDisconnect(transport, "server_close")`. Unlike `start()`, it is idempotent and a no-op on an
-   * unstarted or stopped gateway, so error handlers can call it without knowing the state.
+   * `onDisconnect(transport, "server_close")`. Each connection first sends what is already written
+   * to it, within a short wait, so a stop's own reply reaches its client. Unlike `start()`, it is
+   * idempotent and a no-op on an unstarted or stopped gateway, so error handlers can call it
+   * without knowing the state.
    */
   async stop(): Promise<void> {
     if (!this.#started || this.#server === null) {
@@ -314,16 +308,17 @@ export class LocalIpcGateway {
 
     // Snapshot: disconnecting mutates the map.
     const connections = Array.from(this.#connections.values());
-    for (const conn of connections) {
+    const closings = connections.map((conn) => {
       this.#emitDisconnect(conn, "server_close");
-      conn.socket.destroy();
-    }
+      return closeAfterSending(conn.socket);
+    });
     this.#connections.clear();
 
     const server = this.#server;
     this.#server = null;
     this.#started = false;
 
+    await Promise.all(closings);
     await new Promise<void>((resolve, reject) => {
       server.close((err) => {
         if (err !== null && err !== undefined) {
@@ -333,6 +328,19 @@ export class LocalIpcGateway {
         }
       });
     });
+  }
+
+  /**
+   * Writes one notification to one connection, as a subscription's values go out. A connection
+   * that has already closed takes nothing: its subscriptions end with it, so a value in flight
+   * as it closed has no reader.
+   */
+  notify(transportId: number, notification: JsonRpcNotification<unknown>): void {
+    const state = this.#connections.get(transportId);
+    if (state === undefined) {
+      return;
+    }
+    this.#sendEnvelope(state, notification);
   }
 
   // ------------------------------------------------------------------------
@@ -415,12 +423,12 @@ export class LocalIpcGateway {
     }
   }
 
-  #dispatchFrame(state: ConnectionState, body: Buffer): void {
+  #dispatchFrame(state: ConnectionState, body: Uint8Array): void {
     // A body that is not valid JSON is a `-32700` parse error with id null. The connection stays
     // open: the framing was intact, so the next frame may parse.
     let parsed: unknown;
     try {
-      parsed = JSON.parse(body.toString("utf8")) as unknown;
+      parsed = JSON.parse(new TextDecoder().decode(body)) as unknown;
     } catch (err) {
       const wrapped = new FramingError(
         "invalid_json",
@@ -581,15 +589,18 @@ export class LocalIpcGateway {
   // ------------------------------------------------------------------------
 
   /**
-   * The single outbound seam: every success response and error response is written here. Error
-   * envelopes come from `mapJsonRpcError`, which sanitizes them. Nothing is sent once the
+   * The single outbound seam: every response, error response and notification is written here.
+   * Error envelopes come from `mapJsonRpcError`, which sanitizes them. Nothing is sent once the
    * connection is disposed.
    */
-  #sendEnvelope(state: ConnectionState, envelope: JsonRpcResponse | JsonRpcErrorResponse): void {
+  #sendEnvelope(
+    state: ConnectionState,
+    envelope: JsonRpcResponse | JsonRpcErrorResponse | JsonRpcNotification<unknown>,
+  ): void {
     if (state.disposed) {
       return;
     }
-    let frame: Buffer;
+    let frame: Uint8Array;
     try {
       frame = encodeFrame(envelope);
     } catch (err) {
@@ -638,4 +649,23 @@ function extractIdSafely(envelope: Record<string, unknown>): JsonRpcId {
     return isJsonRpcIdWithinBound(candidate) ? candidate : null;
   }
   return null;
+}
+
+// Ends the socket, which sends what is already written to it and then closes it, and destroys it
+// if it has not closed within the wait.
+function closeAfterSending(socket: net.Socket): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (socket.closed) {
+      resolve();
+      return;
+    }
+    const cutTimer = setTimeout(() => {
+      socket.destroy();
+    }, CONNECTION_CLOSE_WAIT_MS);
+    socket.once("close", () => {
+      clearTimeout(cutTimer);
+      resolve();
+    });
+    socket.end();
+  });
 }

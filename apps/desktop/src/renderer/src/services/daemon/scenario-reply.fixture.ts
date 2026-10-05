@@ -7,6 +7,13 @@
 import type { WireErrorEnvelope } from "@renderer/lib/wire-errors.js";
 import type { MachineNoticeStreamName } from "./session-event-streams.js";
 
+/**
+ * A stamp a request carries, as epoch milliseconds, read through the app's one instant reader,
+ * so a scenario compares it with its own instants without parsing text. A stamp that is not a UTC
+ * instant is a fixture fault and throws.
+ */
+export type RequestStampReader = (stamp: string) => number;
+
 /** A canned reply that answers with a value. */
 export interface ScenarioResolvingReply extends ScenarioReplyBase {
   readonly result: unknown;
@@ -57,7 +64,7 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * identity each time; an instant cannot, since two parked calls released by one advance read the
  * same tick. And it is handed the requests the playback has already answered for any write, held
  * by the engine, so a read reflects a write the daemon would have applied: a switched-off binding
- * reads back switched off.
+ * reads back switched off. A stamp the request carries is read through `readRequestStamp`.
  */
 export interface ScenarioComputedReply extends ScenarioReplyBase {
   readonly resultFor: (
@@ -65,6 +72,7 @@ export interface ScenarioComputedReply extends ScenarioReplyBase {
     settledAtMilliseconds: number,
     computedReplyOrdinal: number,
     answeredRequestsFor: (call: string) => readonly unknown[],
+    readRequestStamp: RequestStampReader,
   ) => unknown;
   readonly result?: never;
   readonly refusal?: never;
@@ -91,6 +99,20 @@ export interface ScenarioNotice {
   /** The frame to push, or `undefined` when a write since the reply means there is none. */
   readonly payloadAtDelivery: (
     answeredRequestsFor: (call: string) => readonly unknown[],
+    readRequestStamp: RequestStampReader,
+  ) => unknown;
+}
+
+/**
+ * The frame a machine stream sends first, the moment it is opened, as `workflow.subscribe` sends
+ * the current start hold before anything else. Composed when the subscriber opens the stream,
+ * from the writes the playback has answered by then, so a hold switched on earlier opens on.
+ */
+export interface ScenarioOpeningNotice {
+  readonly stream: MachineNoticeStreamName;
+  readonly payloadAtOpen: (
+    answeredRequestsFor: (call: string) => readonly unknown[],
+    readRequestStamp: RequestStampReader,
   ) => unknown;
 }
 

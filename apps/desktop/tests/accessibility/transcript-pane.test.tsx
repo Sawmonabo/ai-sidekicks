@@ -3,9 +3,10 @@
 // label on a tinted ground, rows mounted and unmounted under the reader, a hover-revealed
 // control shipped without a name.
 //
-// The pane is mounted directly, not through `AppProviders`. The store is opened on the
-// scenario's own log because content delivered by scripted beats depends on how far a frozen
-// clock was advanced, so the amount of transcript under test would be an accident of the test.
+// The pane is mounted directly, not through `AppProviders`, under the window's one announcer.
+// The store is opened on the scenario's own log because content delivered by scripted beats
+// depends on how far a frozen clock was advanced, so the amount of transcript under test would be
+// an accident of the test.
 //
 // Everything else is the real composition: `SessionStore`, the projection, the
 // `@tanstack/react-virtual` instance, the registered row renderer, and the
@@ -25,6 +26,8 @@ import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { ManualClock } from "@renderer/lib/clock.js";
 // Imported deeply, not through the feature's `index.ts`: widening the public entry for one test
 // would be wrong.
 import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
@@ -66,9 +69,11 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
-      <SessionScreenContainer>
-        <TranscriptPane context={transcriptPaneContext(sessionStore, scenario.sessionId)} />
-      </SessionScreenContainer>
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <SessionScreenContainer>
+          <TranscriptPane context={transcriptPaneContext(sessionStore, scenario.sessionId)} />
+        </SessionScreenContainer>
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
   return container;
@@ -104,19 +109,16 @@ describe("accessibility — the transcript", () => {
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
 
-    it(
-      `has no axe violation over the transcript's ` + `empty state in the ${scheme} scheme`,
-      async () => {
-        await emulateSystemScheme(scheme);
-        const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
+    it(`has no axe violation on the transcript's empty state in the ${scheme} scheme`, async () => {
+      await emulateSystemScheme(scheme);
+      const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 
-        // The same control from the other side: the pane must actually have reached the empty
-        // state, which a scenario that grew a beat would silently stop doing.
-        expect(container.textContent).toContain("No messages yet. Say what you are after.");
-        expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
+      // The same control from the other side: the pane must actually have reached the empty
+      // state, which a scenario that grew a beat would silently stop doing.
+      expect(container.textContent).toContain("No messages yet. Say what you are after.");
+      expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
-        expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-      },
-    );
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+    });
   }
 });

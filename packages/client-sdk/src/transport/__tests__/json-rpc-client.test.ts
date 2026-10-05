@@ -482,47 +482,44 @@ describe("protocolVersion is sent as the caller gave it", () => {
 // the numeric code.
 
 describe("JsonRpcRemoteError surfaces error.data on rejection", () => {
-  it(
-    "rejects with data.type + data.fields when " + "the daemon returns a typed domain error",
-    async () => {
-      const transport = createScriptedDaemon();
-      const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
-      const paramsSchema = z.object({ repoId: z.string() });
-      const resultSchema = z.unknown();
+  it("rejects with data.type and data.fields for the daemon's typed domain error", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
+    const paramsSchema = z.object({ repoId: z.string() });
+    const resultSchema = z.unknown();
 
-      const promise = client.call("repo.mountRead", { repoId: "r-7" }, paramsSchema, resultSchema);
+    const promise = client.call("repo.mountRead", { repoId: "r-7" }, paramsSchema, resultSchema);
 
-      const sentEnvelope = transport.sentEnvelopes[0];
-      if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
-        throw new Error("unreachable — call() emits a request envelope");
-      }
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — call() emits a request envelope");
+    }
 
-      // A typed domain error: -32602 with data.type and data.fields.
-      transport.deliverInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: sentEnvelope.id,
-        error: {
-          code: -32602,
-          message: "repo r-7 is not attached",
-          data: { type: "repo.not_found", fields: { repoId: "r-7" } },
-        },
-      });
+    // A typed domain error: -32602 with data.type and data.fields.
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: sentEnvelope.id,
+      error: {
+        code: -32602,
+        message: "repo r-7 is not attached",
+        data: { type: "repo.not_found", fields: { repoId: "r-7" } },
+      },
+    });
 
-      let caught: unknown = null;
-      try {
-        await promise;
-      } catch (err) {
-        caught = err;
-      }
-      expect(caught).toBeInstanceOf(JsonRpcRemoteError);
-      if (caught instanceof JsonRpcRemoteError) {
-        expect(caught.code).toBe(-32602);
-        // The dotted discriminator surfaces verbatim — clients switch on this.
-        expect(caught.data?.type).toBe("repo.not_found");
-        expect(caught.data?.fields).toEqual({ repoId: "r-7" });
-      }
-    },
-  );
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.code).toBe(-32602);
+      // The dotted discriminator surfaces verbatim — clients switch on this.
+      expect(caught.data?.type).toBe("repo.not_found");
+      expect(caught.data?.fields).toEqual({ repoId: "r-7" });
+    }
+  });
 });
 
 // A slow consumer and a failed cancel both end the subscription with an error the caller sees
@@ -543,70 +540,64 @@ describe("subscription ends with an error instead of growing or vanishing", () =
     );
   }
 
-  it(
-    "a consumer past the queue bound gets the " + "queued values, then the overflow error",
-    async () => {
-      const transport = createScriptedDaemon();
-      const client = new JsonRpcClient(transport, {
-        ...TEST_CLIENT_OPTIONS,
-        maxQueuedValuesPerSubscription: 2,
-      });
-      const subscription = client.subscribe(
-        "test.subscribe",
-        { topic: "x" },
-        TOPIC_PARAMS_SCHEMA,
-        valueSchema,
-      );
-      transport.deliverInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: requestIdAt(transport, 0),
-        result: { subscriptionId },
-      });
-      for (const seq of [1, 2, 3, 4]) {
-        transport.deliverInbound(buildSubscriptionNotify(subscriptionId, { seq }));
-      }
+  it("a consumer past the queue bound gets the queued values, then an overflow error", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, {
+      ...TEST_CLIENT_OPTIONS,
+      maxQueuedValuesPerSubscription: 2,
+    });
+    const subscription = client.subscribe(
+      "test.subscribe",
+      { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
+      valueSchema,
+    );
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 0),
+      result: { subscriptionId },
+    });
+    for (const seq of [1, 2, 3, 4]) {
+      transport.deliverInbound(buildSubscriptionNotify(subscriptionId, { seq }));
+    }
 
-      expect(cancelFrames(transport).length).toBe(1);
-      transport.deliverInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: requestIdAt(transport, 1),
-        result: { canceled: true },
-      });
-      expect(await subscription.next()).toEqual({ seq: 1 });
-      expect(await subscription.next()).toEqual({ seq: 2 });
-      await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcSubscriptionOverflowError);
-    },
-  );
+    expect(cancelFrames(transport).length).toBe(1);
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 1),
+      result: { canceled: true },
+    });
+    expect(await subscription.next()).toEqual({ seq: 1 });
+    expect(await subscription.next()).toEqual({ seq: 2 });
+    await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcSubscriptionOverflowError);
+  });
 
-  it(
-    "a cancel sent before the subscribe reply " + "waits for it and keeps the daemon's refusal",
-    async () => {
-      const transport = createScriptedDaemon();
-      const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
-      const subscription = client.subscribe(
-        "test.subscribe",
-        { topic: "x" },
-        TOPIC_PARAMS_SCHEMA,
-        valueSchema,
-      );
-      const cancelPromise = subscription.cancel();
-      expect(cancelFrames(transport).length).toBe(0);
+  it("a cancel sent before the subscribe reply waits for it, keeping the refusal", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
+    const subscription = client.subscribe(
+      "test.subscribe",
+      { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
+      valueSchema,
+    );
+    const cancelPromise = subscription.cancel();
+    expect(cancelFrames(transport).length).toBe(0);
 
-      transport.deliverInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: requestIdAt(transport, 0),
-        result: { subscriptionId },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(cancelFrames(transport).length).toBe(1);
-      transport.deliverInbound({
-        jsonrpc: JSONRPC_VERSION,
-        id: requestIdAt(transport, 1),
-        error: { code: -32603, message: "cancel failed" },
-      });
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 0),
+      result: { subscriptionId },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cancelFrames(transport).length).toBe(1);
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      id: requestIdAt(transport, 1),
+      error: { code: -32603, message: "cancel failed" },
+    });
 
-      await cancelPromise;
-      await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcRemoteError);
-    },
-  );
+    await cancelPromise;
+    await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcRemoteError);
+  });
 });

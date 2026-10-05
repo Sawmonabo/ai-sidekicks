@@ -5,7 +5,7 @@
 // `Answer` stays closed until every question has an answer, then sends one per question in
 // one call. The card never settles the question itself.
 
-import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/contracts/question";
+import type { QuestionAnswer, QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { useQuestionDrafts } from "./hooks/useQuestionDrafts.js";
@@ -22,7 +22,7 @@ import "./question-card.css";
 export interface QuestionCardProps {
   readonly question: QuestionReading;
   /** Every question of the record, in its own order. */
-  readonly questions: QuestionAskedPersonalData["questions"];
+  readonly questions: QuestionAskedPayload["questions"];
   /** Where the last dispatched answer has got to; held by the mount, which owns the wire call. */
   readonly delivery: AnswerDelivery;
   /** Deliver one answer per question, in the record's order. */

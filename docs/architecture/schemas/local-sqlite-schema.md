@@ -21,7 +21,7 @@ PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so
 ## Session Events (Plan-001, extended by Plans 004, 012)
 
 ```sql
--- Owner: Plan-001 | Extended by: Plan-004 (event taxonomy), Plan-025 (received-row provenance marker), Plan-012 (replay cursors)
+-- Owner: Plan-001 | Extended by: Plan-004 (event taxonomy), Plan-025 (received-row provenance marker), Plan-012 (projection cursors)
 CREATE TABLE session_events (
   id                     TEXT PRIMARY KEY,           -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved node-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
@@ -94,7 +94,7 @@ END;
 CREATE TABLE session_snapshots (
   id                    TEXT PRIMARY KEY,
   session_id            TEXT NOT NULL,
-  as_of_sequence        INTEGER NOT NULL,           -- snapshot reflects events up to this sequence (replay-cursor state)
+  as_of_sequence        INTEGER NOT NULL,           -- snapshot reflects events up to this sequence (projection-cursor state)
   state_blob            BLOB NOT NULL,              -- serialized session state
   created_at            TEXT NOT NULL,
   FOREIGN KEY (session_id, as_of_sequence) REFERENCES session_events(session_id, sequence)
@@ -179,7 +179,7 @@ Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000
 
 The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; their columns are defined with the verbs that write them: `session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor.
 
-It is **configuration, not session history**: it is not events-canonical, is not replayed, and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
+It is **configuration, not session history**: it is not events-canonical and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
 ```sql
 -- Owner: Plan-001
@@ -237,13 +237,13 @@ CREATE TABLE interventions (
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
-  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); replay-or-conflict intervention dedupe (Spec-004 §Required Behavior)
+  client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   result                 TEXT,                       -- JSON: outcome details
-  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
+  rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the wire contract forbids result on rejected, so a retry that returns the saved result reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
-  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry replays the recorded outcome; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
+  UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
 );
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
@@ -403,6 +403,16 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 ## Runtime Node Local Tables (Plan-025)
 
 ```sql
+-- Owner: Plan-025
+-- This machine: its id, minted at the daemon's first start, and the friendly name read then
+-- (Spec-002). One row, kept the same at every later start.
+CREATE TABLE local_machine (
+  singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
+  node_id           TEXT NOT NULL,
+  name              TEXT NOT NULL,
+  minted_at         TEXT NOT NULL
+);
+
 -- Owner: Plan-025
 CREATE TABLE node_trust_state (
   node_id           TEXT NOT NULL,
@@ -623,7 +633,7 @@ CREATE TABLE approval_requests (
   resource_descriptor   TEXT NOT NULL DEFAULT '{}', -- target resource details (JSON; Spec-010 §Interfaces And Contracts, 'must include')
   ask_id                TEXT,                 -- originating provider permission ask's askId, set iff the request was
                                               -- minted by the CP-009-5 permission-ask normalizer; rebuilt from
-                                              -- approval.requested.askId at replay (D-009-6/D-009-7) so outcome routing to the native
+                                              -- approval.requested.askId on rebuild (D-009-6/D-009-7) so outcome routing to the native
                                               -- ask survives restart with several in-flight asks on one run
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
@@ -642,7 +652,7 @@ CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
--- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or replay
+-- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or a rebuild's
 -- re-mint collides here instead of persisting a duplicate pending row whose outcome routing
 -- would then fan out or pick arbitrarily (Spec-010 one ask↔one approval)
 
@@ -650,7 +660,7 @@ CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_i
 CREATE TABLE approval_resolutions (
   request_id               TEXT PRIMARY KEY REFERENCES approval_requests(id),
                                               -- PK = the durable wire id (approvalRequestId): enforces the 1:1 decision row
-                                              -- and keeps every column event-derivable for peer/replay rebuild (I-009-9).
+                                              -- and keeps every column event-derivable for a rebuild here or on a peer (I-009-9).
                                               -- The first answer from any device settles the request.
   device_id                TEXT NOT NULL,     -- the answering device, the one whose connection carried the answer; a card
                                               -- answered elsewhere reads it as `Answered on <device>` (Spec-027 §Required Behavior)
@@ -681,7 +691,7 @@ Full workflow-engine schema. Its tables hold the definitions and their version c
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
-**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-33)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-33)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, its account attention key and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-41)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)), whose buckets are log files in the daemon's data folder, never tables of this schema (Plan-014 CP-014-9).
+**Canvas geometry is stored, and it is not definition bytes.** A document's own `layout` section — a position per node, an optional viewport and the sticky notes — sits **outside** the hashed body and outside the BLAKE3 preimage, and is persisted in a `layout_json` column beside the body on `workflow_definitions` and on `workflow_versions` ([Spec-015 §Canvas layout is not definition bytes (SA-33)](../../specs/015-workflow-authoring-and-execution.md#canvas-layout-is-not-definition-bytes-sa-33)). It is part of the document rather than a client's private note, so it travels with the document — the file form carries it as an optional section, and a document that arrives with none is laid out deterministically, left to right, by the same layout library in the daemon and in the renderer, so a definition is never unopenable and opens the same way twice. Because no byte the engine reads changes with it, a drag mints no version and enters no rebuild; it is not a storage tier of its own. Park-and-resume is the `waiting` status on tables 3 and 6, with a waiting step's cause, its armed resume instant, the spent account an `account` wait groups under and its deadline on the step's row; its always-on engine event record lands on the Plan-017-owned bounded-retention diagnostic tier ([Spec-015 §Engine event record (SA-41)](../../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)), whose buckets are log files in the daemon's data folder, never tables of this schema (Plan-014 CP-014-9).
 
 ```sql
 -- ========================================================================
@@ -911,7 +921,7 @@ CREATE TABLE workflow_steps (
   wait_cause        TEXT                         -- what a waiting step waits on: a person ('approval', 'form', 'reply'), its chain's question ('chain'), or a spent provider account ('account')
                     CHECK(wait_cause IS NULL OR wait_cause IN ('approval', 'form', 'reply', 'chain', 'account')),
   resume_at         TEXT,                        -- the instant a step parked on a spent account resumes itself, where one is armed; NULL where none is, which reads as awaiting resume
-  park_attention_key TEXT,                       -- a step parked on a spent account: the account's key, so every run parked on one account presents as one attention entry
+  wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.runAttentionList groups by, so every run waiting on one account presents as one entry
   wait_deadline_at  TEXT,                        -- the instant a step waiting on a person gives up, set only where its Timeout is
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
@@ -935,8 +945,8 @@ CREATE TABLE workflow_steps (
   CHECK((cost_usd_micros IS NULL) = (cost_account_id IS NULL)),  -- a figure always names the account that paid it
   CHECK((status = 'waiting') = (wait_cause IS NOT NULL)),
   -- The live wait state clears in the same statement that moves the step out of 'waiting'.
-  CHECK(status = 'waiting' OR (resume_at IS NULL AND park_attention_key IS NULL AND wait_deadline_at IS NULL)),
-  CHECK(wait_cause = 'account' OR (resume_at IS NULL AND park_attention_key IS NULL)),
+  CHECK(status = 'waiting' OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
+  CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
   CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply'))
 );
 
@@ -945,8 +955,8 @@ CREATE INDEX idx_workflow_steps_resume ON workflow_steps(resume_at)
   WHERE resume_at IS NOT NULL;                   -- the resume sweep's scan
 CREATE INDEX idx_workflow_steps_wait_deadline ON workflow_steps(wait_deadline_at)
   WHERE wait_deadline_at IS NOT NULL;            -- re-arming the deadline timers at start
-CREATE INDEX idx_workflow_steps_park_attention ON workflow_steps(park_attention_key)
-  WHERE park_attention_key IS NOT NULL;          -- one attention entry per spent account
+CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
+  WHERE wait_account_id IS NOT NULL;             -- one attention entry per spent account
 
 -- ========================================================================
 -- 7. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
@@ -1038,14 +1048,14 @@ CREATE TABLE workflow_secrets (
 
 ## Orchestration Tables (Plan-013)
 
-DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events` on replay; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
+DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
 
 ```sql
 -- Owner: Plan-013 (events-canonical projection of the run.queued orchestration-carrier fields — D-013-3)
 CREATE TABLE run_links (
   parent_run_id     TEXT NOT NULL,
   child_run_id      TEXT NOT NULL,
-  session_id        TEXT NOT NULL,                      -- session provenance (I-013-3): replay + relay rebuild scope by session
+  session_id        TEXT NOT NULL,                      -- session provenance (I-013-3): local and relay rebuild scope by session
   reached_by        TEXT NOT NULL
                     CHECK(reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),   -- how the child was reached (D-013-12)
   created_at        TEXT NOT NULL,
@@ -1205,7 +1215,7 @@ CREATE TABLE session_paused_message_queue (
 );
 ```
 
-A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field on replay, never by re-merging session values that may have changed mid-run. The service stops a run at the first usage report past its limit, so one request can overshoot slightly. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt on replay from `usage_telemetry` + `run.*` events (D-013-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).
+A run's token limit (`tokenLimit`, input and output together for one run) is `Unlimited` by default; the session's `Tokens per run` value is resolved onto each run at admission as a per-run `OrchestrationRunConfig` value and persisted durably as the `run.queued` payload's `effectiveRunConfig` (Plan-013 D-013-5; api-payload `RunStateChangeEvent`), and enforcement rebuilds from that event field, never by re-merging session values that may have changed mid-run. The service stops a run at the first usage report past its limit, so one request can overshoot slightly. Budget _accounting_ (tokens/cost consumed) has no **accumulator** table: the daemon's `BudgetAccountant` is an in-memory projection rebuilt from `usage_telemetry` + `run.*` events (D-013-5). `provider_account_usage_turns` below is not a second accountant: it projects the same `usage_telemetry` events into one row per turn so the figures can be sliced by account, by day and by model, which a running total cannot be (Spec-025 §State And Data Implications).
 
 ---
 
@@ -1213,10 +1223,10 @@ A run's token limit (`tokenLimit`, input and output together for one run) is `Un
 
 ```sql
 -- Owner: Plan-012
-CREATE TABLE replay_cursors (
+CREATE TABLE projection_cursors (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL UNIQUE,
-  last_sequence   INTEGER NOT NULL,           -- last replayed event sequence
+  last_sequence   INTEGER NOT NULL,           -- last applied event sequence
   state           TEXT NOT NULL DEFAULT 'current'
                   CHECK(state IN ('current', 'rebuilding', 'stale')),
   updated_at      TEXT NOT NULL
@@ -1302,13 +1312,13 @@ CREATE TABLE mcp_mutation_receipts (
   operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.oauthLogin and mcp.oauthLogout; mcp.reconnect is unreceipted)
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-012 command_receipts discipline, Spec-024 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)
-  response_json           TEXT,                       -- the acknowledged response, replayed verbatim on any retry with the same key, whatever the second request carries — no provider call or store write (Spec-024 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-022 I-022-1) — so its replay is a URL-free acknowledgment (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
+  response_json           TEXT,                       -- the acknowledged response, returned verbatim as the saved result on any retry with the same key, whatever the second request carries — no provider call or store write (Spec-024 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.oauthLogin row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-022 I-022-1) — so its saved result is an acknowledgment with no URL (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
   created_at              TEXT NOT NULL,              -- RFC 3339 UTC; 'committed' rows older than 24 h are pruned opportunistically on later mutation writes ('pending' intents resolve at startup reconciliation, never silently pruned)
   CHECK((status = 'committed') = (response_json IS NOT NULL))
 );
 ```
 
-Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making acknowledgment and replay evidence atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then replays the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
+Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
 
 ```sql
 -- Owner: Plan-022
@@ -1425,12 +1435,12 @@ CREATE TABLE provider_account_usage_windows (
 
 Spend joins to an account through the run wherever a run exists: a provider run carries the server-stamped `admittedProviderAccountId` on its `run.queued` admission record. **Two** usage kinds carry account identity directly, and both for the same reason — a figure that belongs to an account rather than to a run. `usage.rate_limit_update` does because provider quota is account-scoped and has no run to join through, and `usage.token_count` does because a turn can be spent on an account with no session at all (the window start, Spec-025 §Credential-home health observation) and because the per-turn projection below is keyed on the account rather than on the run. User identity stays off every usage row either way.
 
-One row per turn, so the figures the person reads per account can be sliced by a day and by a model. It is a **projection** of the per-turn usage event ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) and not a second accountant: the same events feed it and feed the in-memory committed-spend fold, it is rebuilt on replay like every other projection, and every figure it answers is served through the one committed-spend accessor. What it adds over the fold is an **axis**, not a second arithmetic — a running total cannot be cut by a day or a model it never kept ([Spec-025 §State And Data Implications](../../specs/025-provider-accounts-and-credential-homes.md#state-and-data-implications)).
+One row per turn, so the figures the person reads per account can be sliced by a day and by a model. It is a **projection** of the per-turn usage event ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry)) and not a second accountant: the same events feed it and feed the in-memory committed-spend fold, it is rebuilt like every other projection, and every figure it answers is served through the one committed-spend accessor. What it adds over the fold is an **axis**, not a second arithmetic — a running total cannot be cut by a day or a model it never kept ([Spec-025 §State And Data Implications](../../specs/025-provider-accounts-and-credential-homes.md#state-and-data-implications)).
 
 ```sql
 -- Owner: Plan-023
 CREATE TABLE provider_account_usage_turns (
-  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a replay of the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: a session purge deletes that log's rows, and tying the figures to those rows would let the purge reach an account's spend history — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
+  source_event_id TEXT NOT NULL PRIMARY KEY,  -- the id of the `usage.token_count` event this row projects. It is the key because a turn IS that event: keying on it makes the projector idempotent, so a rebuild from the log writes each turn exactly once and a rebuild is byte-equal to the original. Deliberately NO foreign key to `session_events`: a session purge deletes that log's rows, and tying the figures to those rows would let the purge reach an account's spend history — the figures outlive the rows they were derived from, and what a rebuild can no longer see it does not invent.
   account_id      TEXT NOT NULL
                   REFERENCES provider_accounts(account_id) ON DELETE CASCADE,  -- a turn's figures have no meaning without the account that paid for them; deregistering an account takes its usage rows with it, exactly as it takes its window readings
   provider        TEXT NOT NULL
@@ -1464,7 +1474,7 @@ Rows are appended and never rewritten. A provider's own usage history, where it 
 
 ## Agent Definition Tables (Plan-024)
 
-Node-local registry of saved agent configurations, for [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical, is never replayed and is never rebuilt from the event log, and it reaches linked devices like every other screen.
+Node-local registry of saved agent configurations, for [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md). One row per definition. This is **configuration, not session state**: it is not events-canonical and is never rebuilt from the event log, and it reaches linked devices like every other screen.
 
 **Where a definition lives.** A definition comes from one of four origins: ours (`~/.ai-sidekicks/agents/<name>.md` for a global one, `<project>/.ai-sidekicks/agents/` for a project's own, committed with the repository), Claude Code's own agent files, Codex's own agent files, or a plugin's, which is read-only and carries its plugin's name. A row holds the union of both providers' fields: a provider's file holds only the fields that provider reads, and every other field — the icon and accent, and on a Codex file the hooks and memory scope, which a Codex role file does not read — lives in this row, attached to the file by its name and location. A file renamed or deleted outside the app leaves its row `orphaned`, keeping the extras and the last path the file was known at, until it is reattached to a file or discarded; nothing is rewritten or dropped silently. Whether the provider switches an item off, and whether its file failed to load, are read from the file by the daemon's watch on every read and are not stored.
 
@@ -1539,7 +1549,7 @@ CREATE UNIQUE INDEX idx_agent_definitions_name_folded
 
 The console's own record for each skill folder. A skill is its folder, and every field the screen shows besides two lives in that folder: the record holds where the skill is available and its icon, and nothing else of the skill's own. Beside those it keeps the id the folder's address uses (`skillId`, `#/skills/<id>`), kept through a rename made in the app so two folders sharing a name never share an address, and the folder's path, which on an orphaned record is the last path the folder was known at. A folder renamed or deleted outside the app leaves its record orphaned, drawn in the `Folder gone` group with its icon and availability until it is reattached to a folder or discarded; nothing is rewritten or dropped silently. It is the skill half of the record mechanism `agent_definitions` is the agent half of, read through the same file watch.
 
-It is **configuration, not session history**: not events-canonical, not replayed, not rebuilt from the event log.
+It is **configuration, not session history**: not events-canonical, not rebuilt from the event log.
 
 ```sql
 -- Owner: Plan-026

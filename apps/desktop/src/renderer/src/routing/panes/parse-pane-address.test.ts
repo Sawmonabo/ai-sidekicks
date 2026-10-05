@@ -40,14 +40,24 @@ describe("the boundary parse — what it refuses, and by which name", () => {
   it("rejects a value that is not an entity reference at all", () => {
     // What a snapshot written by another build can hand back: a bare identifier where a
     // reference belongs, and an empty id, which names no row.
-    for (const malformed of [
-      "workflow-run-1",
-      { kind: "workflow-run" },
-      { kind: "workflow-run", id: "" },
-    ]) {
-      expect(refusalFrom(parsePaneAddress("workflow-run", malformed)).code).toBe(
+    for (const malformed of ["worktree-1", { kind: "worktree" }, { kind: "worktree", id: "" }]) {
+      expect(refusalFrom(parsePaneAddress("inspector", malformed)).code).toBe(
         "pane-entity-malformed",
       );
+    }
+  });
+
+  it("rejects a workflow run's Review without both of its snapshot points", () => {
+    // A layout saved with a point missing or misspelled cannot say what Review compared.
+    const start = { epoch: 1, point: "start" };
+    for (const malformed of [
+      { kind: "workflow-run", id: "run-1" },
+      { kind: "workflow-run", id: "run-1", from: start },
+      { kind: "workflow-run", id: "run-1", from: start, to: { epoch: 1, point: "pause" } },
+      { kind: "workflow-run", id: "run-1", from: start, to: { epoch: -1, point: "end" } },
+      { kind: "workflow-run", id: "run-1", from: start, to: { epoch: 1, point: "middle" } },
+    ]) {
+      expect(refusalFrom(parsePaneAddress("diff", malformed)).code).toBe("pane-entity-malformed");
     }
   });
 
@@ -64,7 +74,7 @@ describe("the boundary parse — what it refuses, and by which name", () => {
   ])("rejects an id carrying %s", (_class, id) => {
     // The layout snapshot is written through the persistence value walk, which refuses each
     // of these; the route boundary must refuse the same strings.
-    const refusal = refusalFrom(parsePaneAddress("workflow-run", { kind: "workflow-run", id }));
+    const refusal = refusalFrom(parsePaneAddress("inspector", { kind: "worktree", id }));
 
     expect(refusal.code).toBe("pane-entity-malformed");
     expect(refusal.origin).toBe("pane-address");
@@ -74,13 +84,25 @@ describe("the boundary parse — what it refuses, and by which name", () => {
   });
 });
 
+/** A well-formed reference to one entity of a kind: a workflow run's names its two points. */
+function entityCandidate(entityKind: string): unknown {
+  return entityKind === "workflow-run"
+    ? {
+        kind: entityKind,
+        id: "entity-1",
+        from: { epoch: 1, point: "start" },
+        to: { epoch: 1, point: "pause", pauseNumber: 1 },
+      }
+    : { kind: entityKind, id: "entity-1" };
+}
+
 describe("every pane kind against every scoped entity kind", () => {
   it("admits a pairing exactly when the kind's own row names it", () => {
     // A parse that admitted every pairing fails on the first row narrower than everything.
     for (const paneKind of PANE_KINDS) {
       const scope = paneEntityScopeFor(paneKind);
       for (const entityKind of SCOPED_ENTITY_KINDS) {
-        const outcome = parsePaneAddress(paneKind, { kind: entityKind, id: "entity-1" });
+        const outcome = parsePaneAddress(paneKind, entityCandidate(entityKind));
         expect(
           isRefusal(outcome),
           `"${paneKind}" answered the wrong way for a "${entityKind}"`,

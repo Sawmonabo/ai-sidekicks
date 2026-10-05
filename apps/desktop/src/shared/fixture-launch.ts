@@ -6,6 +6,8 @@
 // exposes the launch to the page, where `services/platform/live-bridge.ts` reads it. Both
 // spellings, the switches and the page property, live here once.
 
+import { readSwitchValue } from "./renderer-switch.js";
+
 /** A checked fixture launch: the scenario a window plays and, optionally, the session it opens. */
 export interface FixtureLaunch {
   readonly scenarioId: string;
@@ -31,15 +33,10 @@ export function fixtureLaunchSwitches(launch: FixtureLaunch): string[] {
 
 /** The launch a window's switches carry, or `undefined` for a window started without one. */
 export function readFixtureLaunchSwitches(argv: readonly string[]): FixtureLaunch | undefined {
-  const scenarioId = switchValue(argv, SCENARIO_SWITCH);
+  const scenarioId = readSwitchValue(argv, SCENARIO_SWITCH);
   if (scenarioId === undefined) {
     return undefined;
   }
-  const sessionId = switchValue(argv, SESSION_SWITCH);
+  const sessionId = readSwitchValue(argv, SESSION_SWITCH);
   return sessionId === undefined ? { scenarioId } : { scenarioId, sessionId };
-}
-
-function switchValue(argv: readonly string[], prefix: string): string | undefined {
-  const argument = argv.find((candidate) => candidate.startsWith(prefix));
-  return argument === undefined ? undefined : decodeURIComponent(argument.slice(prefix.length));
 }

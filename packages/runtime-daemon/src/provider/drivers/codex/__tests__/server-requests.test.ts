@@ -203,26 +203,21 @@ describe("CodexAppServerConnection routed server requests", () => {
     },
   );
 
-  it(
-    "records nothing and still ATTRIBUTES a legacy " + "approval that publishes no turn id at all",
-    async () => {
-      // `ExecCommandApprovalParams` has no `turnId` member, so the ask claims no turn: the
-      // sole-active fallback is its attribution and nothing is recorded.
-      const { harness, askProvider } = await routedAskHarness({
-        answer: async (): Promise<CodexServerRequestDecision> =>
-          await Promise.resolve({ decision: "allow" }),
-      });
+  it("records nothing yet still ATTRIBUTES a legacy approval with no turn id at all", async () => {
+    // `ExecCommandApprovalParams` has no `turnId` member, so the ask claims no turn: the
+    // sole-active fallback is its attribution and nothing is recorded.
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
 
-      const answer = await askProvider("execCommandApproval", { callId: "call-9" });
+    const answer = await askProvider("execCommandApproval", { callId: "call-9" });
 
-      expect(answer["result"]).toStrictEqual({ decision: "approved" });
-      expect(
-        harness.diagnostics.filter(
-          (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
-        ),
-      ).toStrictEqual([]);
-    },
-  );
+    expect(answer["result"]).toStrictEqual({ decision: "approved" });
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
+    ).toStrictEqual([]);
+  });
 
   it("refuses each approval spelling in that method's own vocabulary, never `-32601`", async () => {
     // Each method has its own refusal shape (from the pinned response types); one shape shared

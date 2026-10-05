@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ReadingAnchor } from "./reading-anchor.js";
-import type { ScrollGeometry, GeometryChangeCause } from "./geometry-sample.js";
+import type { ScrollGeometry, GeometryChangeCause } from "@renderer/lib/scroll/geometry-sample.js";
 
 function geometry(
   scrollTop: number,

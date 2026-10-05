@@ -3,8 +3,8 @@
 // One factory, parameterized, so main-process suites do not each hand-roll a `vi.mock("electron")`
 // factory and drift apart. `recordOrder` turns on the ordered operation log (a suite asserting
 // sequence needs it; one asserting shape does not want the noise), and `packaged` sets the initial
-// `app.isPackaged`. Everything else (windows constructed, URLs loaded, externals opened, menu
-// templates installed) is always recorded.
+// `app.isPackaged`. Everything else (windows and views constructed, URLs loaded, externals opened,
+// menu templates installed, app listeners) is always recorded.
 //
 // Usage: the mock instance must exist before the `vi.mock` factory runs, not before it is
 // registered. `vi.mock` is hoisted, but its factory runs lazily when the module under test first
@@ -23,9 +23,13 @@
 import { vi } from "vitest";
 
 import {
-  MockBrowserWindowImpl,
-  type MockBrowserWindow,
-  type MockBrowserWindowOptions,
+  MockBaseWindowImpl,
+  MockWebContentsViewImpl,
+  type MockBaseWindow,
+  type MockBaseWindowOptions,
+  type MockRectangle,
+  type MockWebContentsView,
+  type MockWebContentsViewOptions,
 } from "./electron-mock-window.js";
 
 /**
@@ -37,6 +41,7 @@ export interface MenuTemplateItem {
   readonly label?: string;
   readonly role?: string;
   readonly type?: string;
+  readonly checked?: boolean;
   readonly accelerator?: string;
   readonly click?: () => void;
   readonly submenu?: MenuTemplateItem[];
@@ -49,6 +54,24 @@ export interface MenuTemplateItem {
  * loudly instead of writing into a developer's tree.
  */
 const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
+
+/** The work area of the one display the mocked `screen` reports until a test sets others. */
+const MOCK_PRIMARY_WORK_AREA: MockRectangle = { x: 0, y: 25, width: 1440, height: 875 };
+
+/** The document the mocked `ipcRenderer` asks from: one of the app's own. */
+const MOCK_RENDERER_DOCUMENT_URL = "sidekicks-renderer://app/index.html";
+
+/** What an `ipcMain.on` listener is handed: the asking frame, its page, and the sync answer. */
+interface MockIpcMainEvent {
+  readonly senderFrame: { readonly url: string };
+  readonly sender: unknown;
+  returnValue: unknown;
+}
+
+/** What an `app.on` listener is handed: the event whose default it may prevent. */
+interface MockAppEvent {
+  preventDefault(): void;
+}
 
 /** How to parameterize the mock. */
 export interface ElectronMockOptions {
@@ -67,7 +90,11 @@ export interface ElectronMock {
   /** What the `vi.mock("electron", …)` factory returns. */
   readonly moduleExports: Record<string, unknown>;
   /** Every window constructed since the last `reset()`, in order. */
-  readonly constructed: readonly MockBrowserWindow[];
+  readonly constructed: readonly MockBaseWindow[];
+  /** Every view constructed since the last `reset()`, in order. */
+  readonly constructedViews: readonly MockWebContentsView[];
+  /** The mocked `nativeTheme`, whose `shouldUseDarkColors` follows `themeSource`. */
+  readonly nativeTheme: { themeSource: string; readonly shouldUseDarkColors: boolean };
   /** The ordered operation log; empty unless `recordOrder` was set. */
   readonly operations: readonly string[];
   /** Every `app.exit(code)` code, in order. */
@@ -84,11 +111,27 @@ export interface ElectronMock {
    * silently replaced it would hide that startup defect.
    */
   readonly ipcHandlers: ReadonlyMap<string, (event: unknown, ...args: never[]) => unknown>;
+  /** Every `ipcMain.on` listener, by channel: the synchronous channels. */
+  readonly ipcListeners: ReadonlyMap<string, (event: MockIpcMainEvent, ...args: never[]) => void>;
 
+  /**
+   * Appends `operation` to the ordered log when `recordOrder` was set, so a suite's own module
+   * mocks land in the same sequence as Electron's operations.
+   */
+  record(operation: string): void;
   /** Clears every recording and restores the initial `packaged` value. */
   reset(): void;
   /** Sets `app.isPackaged` for the next module load. */
   setPackaged(packaged: boolean): void;
+  /**
+   * Fires every `app.on(eventName)` listener with an event, as Electron would emit it, and answers
+   * whether a listener prevented its default.
+   */
+  emitAppEvent(eventName: string): boolean;
+  /** Sets the displays' work areas the mocked `screen` answers from; the first is the primary. */
+  setDisplayWorkAreas(workAreas: readonly MockRectangle[]): void;
+  /** Sets whether the operating system is in its dark scheme, which `system` resolves to. */
+  setSystemDark(isSystemDark: boolean): void;
   /**
    * Makes every `loadURL` whose URL contains `substring` reject with `error`.
    *
@@ -118,19 +161,31 @@ export interface ElectronMock {
 /** The mock's own state and the `electron` module exports built over it. */
 class ElectronMockImpl implements ElectronMock {
   public readonly moduleExports: Record<string, unknown>;
-  public readonly constructed: MockBrowserWindow[] = [];
+  public readonly constructed: MockBaseWindow[] = [];
+  public readonly constructedViews: MockWebContentsView[] = [];
+  public readonly nativeTheme: { themeSource: string; readonly shouldUseDarkColors: boolean };
   public readonly operations: string[] = [];
   public readonly exitCodes: number[] = [];
   public readonly externalOpens: string[] = [];
   public readonly installedMenuTemplates: MenuTemplateItem[][] = [];
   public readonly ipcHandlers = new Map<string, (event: unknown, ...args: never[]) => unknown>();
+  public readonly ipcListeners = new Map<
+    string,
+    (event: MockIpcMainEvent, ...args: never[]) => void
+  >();
 
   readonly #recordOrder: boolean;
   readonly #initialPackaged: boolean;
   readonly #loadFailures: { readonly substring: string; readonly error: Error }[] = [];
   readonly #pathLookupFailures = new Map<string, Error>();
   #packaged: boolean;
-  #nextWindowId = 1;
+  #nextId = 1;
+  readonly #openWindows: MockBaseWindow[] = [];
+  readonly #appListeners = new Map<string, ((event: MockAppEvent) => void)[]>();
+  readonly #themeListeners: (() => void)[] = [];
+  #displayWorkAreas: readonly MockRectangle[] = [MOCK_PRIMARY_WORK_AREA];
+  #isSystemDark = false;
+  readonly #rendererListeners = new Map<string, ((event: unknown, ...args: unknown[]) => void)[]>();
   #releaseReady: () => void = () => {};
   #readyPromise: Promise<void>;
 
@@ -141,6 +196,13 @@ class ElectronMockImpl implements ElectronMock {
     this.#readyPromise = new Promise<void>((resolve) => {
       this.#releaseReady = resolve;
     });
+    const isSystemDark = (): boolean => this.#isSystemDark;
+    this.nativeTheme = {
+      themeSource: "system",
+      get shouldUseDarkColors(): boolean {
+        return this.themeSource === "system" ? isSystemDark() : this.themeSource === "dark";
+      },
+    };
     this.moduleExports = this.#buildModuleExports();
   }
 
@@ -151,13 +213,22 @@ class ElectronMockImpl implements ElectronMock {
     }
   }
 
-  public recordConstruction(browserWindow: MockBrowserWindow): void {
-    this.constructed.push(browserWindow);
+  public recordConstruction(baseWindow: MockBaseWindow): void {
+    this.constructed.push(baseWindow);
+    this.#openWindows.push(baseWindow);
     this.record("construct");
   }
 
-  public mintWindowId(): number {
-    return this.#nextWindowId++;
+  public recordView(view: MockWebContentsView): void {
+    this.constructedViews.push(view);
+  }
+
+  public forgetWindow(baseWindow: MockBaseWindow): void {
+    this.#openWindows.splice(this.#openWindows.indexOf(baseWindow), 1);
+  }
+
+  public mintId(): number {
+    return this.#nextId++;
   }
 
   public loadFailureFor(url: string): Error | undefined {
@@ -166,19 +237,52 @@ class ElectronMockImpl implements ElectronMock {
 
   public reset(): void {
     this.constructed.length = 0;
+    this.constructedViews.length = 0;
+    this.#openWindows.length = 0;
+    this.#appListeners.clear();
+    this.#themeListeners.length = 0;
+    this.#displayWorkAreas = [MOCK_PRIMARY_WORK_AREA];
+    this.#isSystemDark = false;
+    this.nativeTheme.themeSource = "system";
     this.operations.length = 0;
     this.exitCodes.length = 0;
     this.externalOpens.length = 0;
     this.installedMenuTemplates.length = 0;
     this.ipcHandlers.clear();
+    this.ipcListeners.clear();
+    this.#rendererListeners.clear();
     this.#loadFailures.length = 0;
     this.#pathLookupFailures.clear();
-    this.#nextWindowId = 1;
+    this.#nextId = 1;
     this.#packaged = this.#initialPackaged;
   }
 
   public setPackaged(packaged: boolean): void {
     this.#packaged = packaged;
+  }
+
+  public emitAppEvent(eventName: string): boolean {
+    let isDefaultPrevented = false;
+    const event: MockAppEvent = {
+      preventDefault: () => {
+        isDefaultPrevented = true;
+      },
+    };
+    for (const listener of this.#appListeners.get(eventName) ?? []) {
+      listener(event);
+    }
+    return isDefaultPrevented;
+  }
+
+  public setDisplayWorkAreas(workAreas: readonly MockRectangle[]): void {
+    this.#displayWorkAreas = workAreas;
+  }
+
+  public setSystemDark(isSystemDark: boolean): void {
+    this.#isSystemDark = isSystemDark;
+    for (const listener of this.#themeListeners) {
+      listener();
+    }
   }
 
   public failLoadsContaining(substring: string, error: Error): void {
@@ -208,13 +312,33 @@ class ElectronMockImpl implements ElectronMock {
       this.record("app.whenReady");
       return this.#readyPromise;
     };
+    // The one page the mocked `ipcRenderer` speaks for. What main sends it reaches the listeners
+    // the page registered, structured-cloned as Electron's IPC clones it.
+    const rendererPage = {
+      id: 1,
+      send: (channel: string, ...args: unknown[]): void => {
+        for (const listener of this.#rendererListeners.get(channel) ?? []) {
+          listener({}, ...structuredClone(args));
+        }
+      },
+      once: vi.fn(),
+      on: vi.fn(),
+    };
+    const rendererEvent = (): MockIpcMainEvent => ({
+      senderFrame: { url: MOCK_RENDERER_DOCUMENT_URL },
+      sender: rendererPage,
+      returnValue: undefined,
+    });
 
     return {
       app: {
         get isPackaged(): boolean {
           return readPackaged();
         },
-        requestSingleInstanceLock: vi.fn(() => true),
+        requestSingleInstanceLock: vi.fn(() => {
+          this.record("app.requestSingleInstanceLock");
+          return true;
+        }),
         whenReady: vi.fn(awaitReady),
         getPath: vi.fn((pathName: string) => {
           this.record(`app.getPath:${pathName}`);
@@ -227,7 +351,13 @@ class ElectronMockImpl implements ElectronMock {
         // The build facts main reads after ready and hands every window.
         getVersion: vi.fn(() => "0.0.0"),
         getLocale: vi.fn(() => "en-US"),
-        on: vi.fn(),
+        on: vi.fn((eventName: string, listener: (event: MockAppEvent) => void) => {
+          this.record(`app.on:${eventName}`);
+          this.#appListeners.set(eventName, [
+            ...(this.#appListeners.get(eventName) ?? []),
+            listener,
+          ]);
+        }),
         quit: vi.fn(() => {
           this.record("app.quit");
         }),
@@ -236,7 +366,27 @@ class ElectronMockImpl implements ElectronMock {
           this.record(`app.exit:${String(code)}`);
         }),
       },
-      BrowserWindow: createBoundBrowserWindowClass(this),
+      crashReporter: {
+        start: vi.fn(() => {
+          this.record("crashReporter.start");
+        }),
+      },
+      BaseWindow: createBoundBaseWindowClass(this, this.#openWindows),
+      WebContentsView: createBoundWebContentsViewClass(this),
+      screen: {
+        getPrimaryDisplay: vi.fn(() => ({ workArea: this.#displayWorkAreas[0] })),
+        // The display a rectangle overlaps most, or the primary when it overlaps none.
+        getDisplayMatching: vi.fn((bounds: MockRectangle) => ({
+          workArea: displayMatching(bounds, this.#displayWorkAreas),
+        })),
+      },
+      nativeTheme: Object.assign(this.nativeTheme, {
+        on: vi.fn((eventName: string, listener: () => void) => {
+          if (eventName === "updated") {
+            this.#themeListeners.push(listener);
+          }
+        }),
+      }),
       Menu: {
         // Handed straight through: assertions read the template the module built; what Electron
         // renders is Electron's.
@@ -270,6 +420,45 @@ class ElectronMockImpl implements ElectronMock {
           this.ipcHandlers.set(channel, handler);
           this.record(`ipcMain.handle:${channel}`);
         }),
+        on: vi.fn((channel: string, listener: (event: MockIpcMainEvent) => void) => {
+          this.ipcListeners.set(channel, listener);
+        }),
+      },
+      // The page's side of IPC, answered by the handlers registered above. Arguments and answers
+      // are structured-cloned, and a handler's error arrives as a new `Error` keeping only its
+      // message, as Electron delivers it.
+      ipcRenderer: {
+        invoke: vi.fn(async (channel: string, ...args: unknown[]): Promise<unknown> => {
+          const handler = this.ipcHandlers.get(channel) as
+            | ((event: MockIpcMainEvent, ...args: unknown[]) => unknown)
+            | undefined;
+          if (handler === undefined) {
+            throw new Error(`No handler registered for '${channel}'`);
+          }
+          try {
+            return structuredClone(await handler(rendererEvent(), ...structuredClone(args)));
+          } catch (handlerError) {
+            // eslint-disable-next-line preserve-caught-error -- Electron drops the cause in transit
+            throw new Error(`Error invoking remote method '${channel}': ${String(handlerError)}`);
+          }
+        }),
+        sendSync: vi.fn((channel: string, ...args: unknown[]): unknown => {
+          const listener = this.ipcListeners.get(channel) as
+            | ((event: MockIpcMainEvent, ...args: unknown[]) => void)
+            | undefined;
+          if (listener === undefined) {
+            throw new Error(`No listener registered for '${channel}'`);
+          }
+          const event = rendererEvent();
+          listener(event, ...structuredClone(args));
+          return structuredClone(event.returnValue);
+        }),
+        on: vi.fn((channel: string, listener: (event: unknown, ...args: unknown[]) => void) => {
+          this.#rendererListeners.set(channel, [
+            ...(this.#rendererListeners.get(channel) ?? []),
+            listener,
+          ]);
+        }),
       },
       net: { fetch: vi.fn() },
     };
@@ -282,14 +471,55 @@ class ElectronMockImpl implements ElectronMock {
  * A factory because the `electron` module hands production code a constructor, which cannot close
  * over `this` through an arrow the way the other members do.
  */
-function createBoundBrowserWindowClass(
+function createBoundBaseWindowClass(
   mock: ElectronMockImpl,
-): new (options: MockBrowserWindowOptions) => MockBrowserWindow {
-  return class BoundBrowserWindow extends MockBrowserWindowImpl {
-    public constructor(options: MockBrowserWindowOptions) {
+  openWindows: readonly MockBaseWindow[],
+): (new (options: MockBaseWindowOptions) => MockBaseWindow) & {
+  getAllWindows(): MockBaseWindow[];
+} {
+  return class BoundBaseWindow extends MockBaseWindowImpl {
+    public static getAllWindows(): MockBaseWindow[] {
+      return [...openWindows];
+    }
+
+    public constructor(options: MockBaseWindowOptions) {
       super(mock, options);
     }
   };
+}
+
+/** Binds the view class to one mock instance, for the reason the window class is bound. */
+function createBoundWebContentsViewClass(
+  mock: ElectronMockImpl,
+): new (options: MockWebContentsViewOptions) => MockWebContentsView {
+  return class BoundWebContentsView extends MockWebContentsViewImpl {
+    public constructor(options: MockWebContentsViewOptions) {
+      super(mock, options);
+    }
+  };
+}
+
+/** The work area `bounds` overlaps most, or the first (the primary) when it overlaps none. */
+function displayMatching(
+  bounds: MockRectangle,
+  workAreas: readonly MockRectangle[],
+): MockRectangle | undefined {
+  let best = workAreas[0];
+  let bestOverlap = 0;
+  for (const workArea of workAreas) {
+    const overlapWidth =
+      Math.min(bounds.x + bounds.width, workArea.x + workArea.width) -
+      Math.max(bounds.x, workArea.x);
+    const overlapHeight =
+      Math.min(bounds.y + bounds.height, workArea.y + workArea.height) -
+      Math.max(bounds.y, workArea.y);
+    const overlap = Math.max(overlapWidth, 0) * Math.max(overlapHeight, 0);
+    if (overlap > bestOverlap) {
+      best = workArea;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
 }
 
 /**

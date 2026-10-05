@@ -6,13 +6,18 @@
 import { useMemo, useRef } from "react";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
-import { DIFF_ROW_HEIGHT_PX } from "../diff-measures.js";
+import { useRowWindow } from "@renderer/hooks/useRowWindow.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import {
+  DIFF_ROW_HEIGHT_PX,
+  DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
+  DIFF_WINDOW_OVERSCAN_ROWS,
+} from "../diff-measures.js";
 import type { DiffModel, DiffViewMode } from "../diff-model.js";
 import { DiffRowView } from "./DiffRowView.js";
 import type { DiffGapExpansion } from "../diff-row-model.js";
 import { DiffRowIndex } from "../diff-row-index.js";
 import { IntralineSegmentCache } from "../intraline-segment-cache.js";
-import { useRowWindow } from "../hooks/useRowWindow.js";
 
 /** Props for `DiffRenderer`. */
 export interface DiffRendererProps {
@@ -34,6 +39,7 @@ export interface DiffRendererProps {
 /** The diff as one virtualized scroller of file headers and rows. */
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const clock = useBridgeClock();
 
   // Re-flattened only when the diff, expansion, shown file or view mode changes, not per scroll.
   // Split view pairs a deletion with its insertion, so the two modes differ in row count.
@@ -47,12 +53,15 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const intraline = useMemo(() => new IntralineSegmentCache(props.model), [props.model]);
 
   // Rows are measured, not fixed-height: a wrapped line makes a row taller than the estimate.
-  // The virtualizer's scroll compensation for a taller row above the fold is the only scroll
-  // write here.
-  const virtualizer = useRowWindow({
+  // The window's compensation for a taller row above the fold is its one scroll write past the
+  // opening, and both go through the scroll chokepoint.
+  const { virtualizer } = useRowWindow({
     rowCount: index.rowCount,
     getScrollElement: () => scrollerRef.current,
-    estimatedRowHeightPx: DIFF_ROW_HEIGHT_PX,
+    clock,
+    estimateRowHeightPx: () => DIFF_ROW_HEIGHT_PX,
+    overscanRows: DIFF_WINDOW_OVERSCAN_ROWS,
+    initialViewportHeightPx: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   });
 
   if (index.rowCount === 0) {

@@ -10,6 +10,7 @@
 // saving, and the drivers read the names they set on the processes they start from it.
 import { z } from "zod";
 
+import { DAEMON_DATA_FOLDER_NAME } from "./daemon-data.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,
@@ -22,9 +23,9 @@ import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** Where the file sits, relative to the person's home folder. */
 export const MACHINE_SETTINGS_FILE_PATH_SEGMENTS: readonly [
-  ".ai-sidekicks",
+  typeof DAEMON_DATA_FOLDER_NAME,
   "machine-settings.json",
-] = [".ai-sidekicks", "machine-settings.json"];
+] = [DAEMON_DATA_FOLDER_NAME, "machine-settings.json"];
 
 // Bounds
 
@@ -86,9 +87,6 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
 
 /** Why a row's name is refused at save. */
 export type EnvironmentNameRefusalReason = "not_a_name" | "credential_shaped" | "set_by_app";
-/** Every {@link EnvironmentNameRefusalReason}, in the order the rule checks them. */
-export const ENVIRONMENT_NAME_REFUSAL_REASONS: readonly EnvironmentNameRefusalReason[] =
-  Object.freeze(["not_a_name", "credential_shaped", "set_by_app"]);
 
 /**
  * The reason a row's name is refused, or `null` when the name may be saved.
@@ -109,6 +107,17 @@ export function environmentNameRefusal(name: string): EnvironmentNameRefusalReas
   return null;
 }
 
+/** What the page says under a refused row, for each reason. */
+export const ENVIRONMENT_NAME_REFUSAL_WORDS: Readonly<
+  Record<EnvironmentNameRefusalReason, string>
+> = Object.freeze({
+  not_a_name: "A name is letters, digits and underscores, and never starts with a digit.",
+  credential_shaped:
+    "Credentials are not set here. Sign in to a provider on Providers, or add a workflow " +
+    "step's token in its Credential field.",
+  set_by_app: "The app sets this.",
+});
+
 /** A row's name refused at save; nothing is written and the rows stay as they were. */
 export type DaemonEnvironmentNameRefusedCode = "daemon.environment_name_refused";
 /** The error code the service answers with when a row's name is refused. */
@@ -120,19 +129,6 @@ export interface DaemonEnvironmentNameRefusedDetails {
   name: string;
   reason: EnvironmentNameRefusalReason;
 }
-/**
- * Parses {@link DaemonEnvironmentNameRefusedDetails}.
- *
- * @consumedBy the handler that returns the `daemon.environment_name_refused` error
- */
-export const DaemonEnvironmentNameRefusedDetailsSchema: z.ZodType<DaemonEnvironmentNameRefusedDetails> =
-  z
-    .object({
-      name: z.string().max(ENVIRONMENT_ROW_MAX_LEN),
-      reason: z.enum(ENVIRONMENT_NAME_REFUSAL_REASONS),
-    })
-    .strict();
-
 // The settings
 
 /**
@@ -283,21 +279,84 @@ function countOccurrences(text: string, part: string): number {
   return text.split(part).length - 1;
 }
 
+/** Why a branch-name pattern is refused at save. */
+export type BranchPatternRefusalReason =
+  | "title_not_once"
+  | "session_not_once"
+  | "not_a_branch_name";
+
+/** What the page says under a refused pattern, for each reason. */
+export const BRANCH_PATTERN_REFUSAL_WORDS: Readonly<Record<BranchPatternRefusalReason, string>> =
+  Object.freeze({
+    title_not_once: "Put {title} in the name once.",
+    session_not_once: "A branch-name pattern holds {session} at most once.",
+    not_a_branch_name: "Git does not accept this as a branch name.",
+  });
+
 /**
- * The pattern a new worktree's branch is named by, for `Every project` and for
- * one project's own override: `{title}` exactly once and `{session}` at most
- * once. Whether the whole name is a valid, free branch is git's check, made when
- * the pattern is saved and when a worktree is created.
+ * A pattern refused at save, from `Every project`'s `Branch names` or one project's own pattern;
+ * nothing is written.
  */
-export const BranchNamePatternSchema: z.ZodType<string, string> = wireFreeFormString(
+export type DaemonBranchPatternRefusedCode = "daemon.branch_pattern_refused";
+/** The error code the service answers with when a branch-name pattern is refused. */
+export const DAEMON_BRANCH_PATTERN_REFUSED_CODE: DaemonBranchPatternRefusedCode =
+  "daemon.branch_pattern_refused";
+
+/** Why a pattern's placeholders are refused, before git sees the name it fills in. */
+export type BranchPatternPlaceholderRefusalReason = "title_not_once" | "session_not_once";
+
+/**
+ * `title_not_once` when the pattern does not hold `{title}` exactly once, `session_not_once` when
+ * it holds `{session}` more than once, or `null`. Whether the filled-in name is a branch name is
+ * git's check, which the service makes after this one.
+ */
+export function branchPatternPlaceholderRefusal(
+  pattern: string,
+): BranchPatternPlaceholderRefusalReason | null {
+  if (countOccurrences(pattern, BRANCH_NAME_TITLE_PLACEHOLDER) !== 1) {
+    return "title_not_once";
+  }
+  if (countOccurrences(pattern, BRANCH_NAME_SESSION_PLACEHOLDER) > 1) {
+    return "session_not_once";
+  }
+  return null;
+}
+
+/** The values a pattern's placeholders are filled with. */
+export interface BranchNamePatternValues {
+  /** The tail derived from the session's title. */
+  readonly title: string;
+  /** The session's short id, the last 8 hex characters of its id. */
+  readonly session: string;
+}
+
+/** The branch name a pattern names for `values`. */
+export function fillBranchNamePattern(pattern: string, values: BranchNamePatternValues): string {
+  return pattern
+    .replaceAll(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
+    .replaceAll(BRANCH_NAME_SESSION_PLACEHOLDER, values.session);
+}
+
+/**
+ * A branch-name pattern as a change carries it: bounded. Its placeholder rule and git's check are
+ * the service's, refused with {@link DAEMON_BRANCH_PATTERN_REFUSED_CODE} so the page can say which.
+ */
+export const BranchNamePatternChangeSchema: z.ZodType<string, string> = wireFreeFormString(
   BRANCH_NAME_PATTERN_MAX_LEN,
   "MachineSettings.branchNamePattern",
-)
-  .refine((pattern) => countOccurrences(pattern, BRANCH_NAME_TITLE_PLACEHOLDER) === 1, {
-    message: "Put {title} in the name once.",
-  })
-  .refine((pattern) => countOccurrences(pattern, BRANCH_NAME_SESSION_PLACEHOLDER) <= 1, {
-    message: "A branch-name pattern holds {session} at most once.",
+);
+
+/**
+ * A saved branch-name pattern, for `Every project` and for one project's own override: a change's
+ * pattern that also holds `{title}` exactly once and `{session}` at most once. A file holding any
+ * other is repaired.
+ */
+export const BranchNamePatternSchema: z.ZodType<string, string> =
+  BranchNamePatternChangeSchema.superRefine((pattern, context) => {
+    const reason = branchPatternPlaceholderRefusal(pattern);
+    if (reason !== null) {
+      context.addIssue({ code: "custom", message: BRANCH_PATTERN_REFUSAL_WORDS[reason] });
+    }
   });
 
 /** Every value the machine's settings file holds. */
@@ -456,10 +515,16 @@ export type MachineSettingsChange = {
   [Member in keyof MachineSettings]?: MachineSettings[Member] | undefined;
 };
 
-/** Parses a {@link MachineSettingsChange}: one member, never none and never two. */
+/**
+ * Parses a {@link MachineSettingsChange}: one member, never none and never two. A pattern's
+ * `{title}` rule is the service's coded refusal, not a parse failure.
+ */
 export const MachineSettingsChangeSchema: z.ZodType<MachineSettingsChange, MachineSettingsChange> =
   z
-    .object(MACHINE_SETTINGS_MEMBER_SCHEMAS)
+    .object({
+      ...MACHINE_SETTINGS_MEMBER_SCHEMAS,
+      branchNamePattern: BranchNamePatternChangeSchema,
+    })
     .partial()
     .strict()
     .refine((change) => Object.values(change).filter((value) => value !== undefined).length === 1, {

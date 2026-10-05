@@ -16,22 +16,19 @@ import {
 } from "../capability-refresh.js";
 
 describe("parseCliVersionReport", () => {
-  it(
-    "derives the canonical semver from a " + "prose-wrapped raw string, preserving raw verbatim",
-    () => {
-      const report = parseCliVersionReport("codex-cli 0.149.1 (build abc123)");
-      expect(report).toStrictEqual({
-        rawVersion: "codex-cli 0.149.1 (build abc123)",
-        parsedVersion: "0.149.1",
-      });
+  it("derives the canonical semver from a prose-wrapped raw string, keeping raw verbatim", () => {
+    const report = parseCliVersionReport("codex-cli 0.149.1 (build abc123)");
+    expect(report).toStrictEqual({
+      rawVersion: "codex-cli 0.149.1 (build abc123)",
+      parsedVersion: "0.149.1",
+    });
 
-      const claudeReport = parseCliVersionReport("2.1.245 (Claude Code)");
-      expect(claudeReport).toStrictEqual({
-        rawVersion: "2.1.245 (Claude Code)",
-        parsedVersion: "2.1.245",
-      });
-    },
-  );
+    const claudeReport = parseCliVersionReport("2.1.245 (Claude Code)");
+    expect(claudeReport).toStrictEqual({
+      rawVersion: "2.1.245 (Claude Code)",
+      parsedVersion: "2.1.245",
+    });
+  });
 
   it.each(["garbage", "2.1"])(
     "keeps %j as the printed version with no parse (no coercion of partial versions)",

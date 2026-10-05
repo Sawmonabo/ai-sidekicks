@@ -4,7 +4,7 @@
 // The claimed kinds and the body's members are derived from the contract, so a new run event or
 // member fails to compile until it is classified. `state` is written only where the payload
 // names `newState`, and a recognized transition must name exactly the state it announces. The
-// projector is pure, because the apply path replays prefixes; a run event naming no `runId`
+// projector is pure, because the apply path rebuilds from prefixes; a run event naming no `runId`
 // yields no mutation rather than a throw.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";

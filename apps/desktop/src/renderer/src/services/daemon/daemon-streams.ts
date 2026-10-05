@@ -4,9 +4,8 @@
 // here stays `unknown`. It sits in this folder, the lowest one that can hold a `PlatformBridge`,
 // because features that never import each other share it.
 
-import type { DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon-methods";
-
-import type { Unsubscribe } from "@shared/preload-api.js";
+import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
+import type { DaemonWireRequest, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "./session-event-streams.js";
@@ -20,21 +19,23 @@ export interface DaemonStreamOpen<StreamName extends RunStreamName> {
   /** The registered stream name: the run-state stream or the queue stream. */
   readonly method: StreamName;
   /** The registered request, forwarded to the daemon as the subscription's scope. */
-  readonly request: DaemonSubscribeParams<StreamName>;
+  readonly request: DaemonWireRequest<StreamName>;
 }
 
 /**
  * A session-scoped daemon subscription, forwarding the registered request as its scope. The open
  * is also reported to `transport/observed-subscription.ts`, so any stream opening can show the
- * transport is back.
+ * transport is back. `onEnded` hears a stream that stopped without being closed, so its owner can
+ * open it again from where it got to.
  */
 export function subscribeDaemon<StreamName extends RunStreamName>(
   bridge: PlatformBridge,
   stream: DaemonStreamOpen<StreamName>,
   handler: (payload: unknown) => void,
+  onEnded?: (end: DaemonSubscriptionEnd) => void,
 ): Unsubscribe {
   return openObservedSubscription(bridge.transportReconnect, () =>
-    bridge.daemon.subscribe(stream.method, stream.request, handler),
+    bridge.daemon.subscribe(stream.method, stream.request, handler, onEnded),
   );
 }
 

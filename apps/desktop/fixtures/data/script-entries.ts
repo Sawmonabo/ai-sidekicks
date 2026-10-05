@@ -94,12 +94,15 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
       );
     }
     previousAtMs = entry.atMs;
+    const eventId = `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`;
     return {
       atMs: entry.atMs,
       event: {
-        id: `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`,
+        id: eventId,
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
+        // The position the scenario's stream delivers the beat at; its frames relay it verbatim.
+        cursor: eventId,
         kind: entry.kind,
         occurredAt: composeScenarioInstant(options.startedAtMs, entry.atMs),
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
@@ -107,6 +110,33 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
       },
     };
   });
+}
+
+/**
+ * The cursor the beat at one log position is delivered with, for a reply that hands a position
+ * out. Throws when the script has no beat there, since the stream refuses a cursor its log lacks.
+ */
+export function findBeatCursor(beats: readonly ScenarioBeat[], sequence: number): string {
+  const beat = beats.find((candidate) => candidate.event.sequence === sequence);
+  if (beat === undefined) {
+    throw new RangeError(
+      `no beat sits at log position ${String(sequence)} (the script has ` +
+        `${String(beats.length)}), so a cursor for it would name no row the stream delivers.`,
+    );
+  }
+  return beat.event.cursor;
+}
+
+/**
+ * When the newest beat happened, for a reply that says when the session last changed. Throws on a
+ * script with no beat, which has no such instant.
+ */
+export function newestBeatInstant(beats: readonly ScenarioBeat[]): string {
+  const newest = beats.at(-1);
+  if (newest === undefined) {
+    throw new RangeError("the script has no beat, so nothing in it last changed the session.");
+  }
+  return newest.event.occurredAt;
 }
 
 /** The one transition a run's linkage and resolved agent ride. */

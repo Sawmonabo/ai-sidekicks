@@ -11,8 +11,10 @@
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
-import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
-import { type ScrollGeometry } from "./geometry-sample.js";
+import {
+  SCROLL_GEOMETRY_EPSILON_PX,
+  type ScrollGeometry,
+} from "@renderer/lib/scroll/geometry-sample.js";
 
 /**
  * The three reading states. Closed.
@@ -118,6 +120,16 @@ export class ReadingAnchor {
    */
   public capture(anchorPoint: ReadingAnchorPoint): void {
     this.#anchorPoint = anchorPoint;
+  }
+
+  /**
+   * Start reading at one row, as a link to a message does: the follow releases and the row's top
+   * edge becomes the anchor, at the top of the viewport, so the cap keeps it and every row after
+   * it and an append holds it there.
+   */
+  public readFrom(rowKey: string): void {
+    this.#anchorPoint = { rowKey, offsetWithinViewportPx: 0 };
+    this.#transition(this.#mode === "following" ? "reading" : this.#mode, this.#newRowCount);
   }
 
   /**
@@ -235,8 +247,8 @@ function isReaderScrollTowardHead(
   return (
     next.cause === "scroll" &&
     previous !== undefined &&
-    next.scrollTop < previous.scrollTop - TRANSCRIPT_GEOMETRY_EPSILON_PX &&
-    Math.abs(next.contentHeight - previous.contentHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX &&
-    Math.abs(next.viewportHeight - previous.viewportHeight) < TRANSCRIPT_GEOMETRY_EPSILON_PX
+    next.scrollTop < previous.scrollTop - SCROLL_GEOMETRY_EPSILON_PX &&
+    Math.abs(next.contentHeight - previous.contentHeight) < SCROLL_GEOMETRY_EPSILON_PX &&
+    Math.abs(next.viewportHeight - previous.viewportHeight) < SCROLL_GEOMETRY_EPSILON_PX
   );
 }

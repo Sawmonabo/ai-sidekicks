@@ -33,6 +33,7 @@ function expansionReply(
       id: `child-${String(index)}`,
       sessionId: SESSION_ID,
       sequence: index,
+      cursor: `cursor-at-${String(index)}`,
       category: "run_lifecycle",
       type: "run.started",
       summary: "the child ran",

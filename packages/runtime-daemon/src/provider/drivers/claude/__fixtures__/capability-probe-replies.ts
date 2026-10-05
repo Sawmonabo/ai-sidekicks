@@ -16,12 +16,20 @@ export function claudeUnsupportedSubtypeReply(subtype: string): unknown {
   };
 }
 
-/** A Claude control-response `success` arm. */
-export function claudeSuccessReply(): unknown {
+/** A Claude control-response `success` arm carrying `body`. */
+export function claudeSuccessReply(body: Record<string, unknown> = {}): unknown {
   return {
     type: "control_response",
-    response: { subtype: "success", request_id: "probe-1", response: {} },
+    response: { subtype: "success", request_id: "probe-1", response: body },
   };
+}
+
+/** The measured `initialize` reply before the fast-mode opt-in, trimmed to the probed members. */
+export function claudeInitializeReply(): unknown {
+  return claudeSuccessReply({
+    fast_mode_state: "off",
+    fast_mode_disabled_reason: "sdk_opt_in_required",
+  });
 }
 
 /**
@@ -40,9 +48,13 @@ export function claudeContextualRefusalReply(subtype: string): unknown {
   };
 }
 
-/** The reply a Claude build gives `probeName`: a refusal for the negative control, else success. */
+/**
+ * The reply a Claude build gives `probeName`: a refusal for the negative control, the measured
+ * reply for `initialize`, else success.
+ */
 export function claudeDefaultProbeReply(probeName: string): unknown {
-  return probeName === CLAUDE_DRIVER_DESCRIPTOR.capabilityProbeNegativeControl
-    ? claudeUnsupportedSubtypeReply(probeName)
-    : claudeSuccessReply();
+  if (probeName === CLAUDE_DRIVER_DESCRIPTOR.capabilityProbeNegativeControl) {
+    return claudeUnsupportedSubtypeReply(probeName);
+  }
+  return probeName === "initialize" ? claudeInitializeReply() : claudeSuccessReply();
 }

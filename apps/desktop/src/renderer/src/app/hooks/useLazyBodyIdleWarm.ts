@@ -4,7 +4,7 @@
 // It runs in `useEffect`, after the first frame commits, so the walk does not compete with the
 // frame the launch is judged on. The walks belong to the window and cancel on unmount. Each
 // effect setup builds its own pair: a walk is once-per-instance and permanently cancelable, so
-// a `StrictMode` replay of the setup would find walks already started and canceled and leave
+// a `StrictMode` re-run of the setup would find walks already started and canceled and leave
 // both boards cold for the life of the window.
 
 import { useEffect, useState } from "react";

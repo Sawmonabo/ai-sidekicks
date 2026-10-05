@@ -11,7 +11,7 @@ import {
   type AgentId,
   type AgentResolvedConfiguration,
 } from "./agent-definition.js";
-import { brandedUuidIdSchema } from "./internal/branded.js";
+import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { jsonUtf8ByteLength } from "./jsonrpc.js";
 import {
   ProviderAccountIdSchema,
@@ -20,6 +20,8 @@ import {
   type ProviderName,
 } from "./provider-account.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
+import { QuestionIdSchema, type QuestionId } from "./question.js";
+import { ProcessExitSchema, type ProcessExit } from "./run-control.js";
 import { UsdMicrosSchema } from "./session-cost.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./session.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
@@ -113,6 +115,27 @@ export const WorkflowRunModeSchema: z.ZodType<WorkflowRunMode, WorkflowRunMode> 
   z.enum(WORKFLOW_RUN_MODES);
 
 /**
+ * The kind of trigger node that started a run, which the runs table's trigger column and filter
+ * read. A retry keeps its source run's kind; a mode cannot carry this, because `trigger` covers a
+ * schedule, a file event, a session event and another workflow failing alike.
+ */
+export const WORKFLOW_TRIGGER_KINDS = [
+  "trigger.manual",
+  "trigger.schedule",
+  "trigger.file-watch",
+  "trigger.webhook",
+  "trigger.session-event",
+  "trigger.chat",
+  "trigger.sub-workflow",
+  "trigger.error",
+] as const;
+/** One of {@link WORKFLOW_TRIGGER_KINDS}. */
+export type WorkflowTriggerKind = (typeof WORKFLOW_TRIGGER_KINDS)[number];
+/** Wire schema for {@link WorkflowTriggerKind}. */
+export const WorkflowTriggerKindSchema: z.ZodType<WorkflowTriggerKind, WorkflowTriggerKind> =
+  z.enum(WORKFLOW_TRIGGER_KINDS);
+
+/**
  * Who or what started a run, as its row and its header name it. A person's start records the
  * device of the connection that made it, never a person; a chat start carries the message it
  * came from, so the run links back to that message.
@@ -153,14 +176,13 @@ export const WorkflowStartedBySchema: z.ZodType<WorkflowStartedBy> = z.discrimin
 export const WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP: number = 64 * 1024;
 
 /**
- * A step payload by reference: inline items up to the cap, an artifact above it, or
- * `expired` once the step data is past its time bound. `expired` is not an error: the
- * run still lists and carries its status, timings and summary.
+ * A step payload by reference: inline items up to the cap, an artifact above it, which names how
+ * many items it holds so a count is drawn without reading it. Step data is kept until the person
+ * deletes the run or its session; nothing expires it on its own.
  */
 export type WorkflowPayloadRef =
   | { kind: "inline"; items: WorkflowItem[] }
-  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number }
-  | { kind: "expired" };
+  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number; itemCount: number };
 /** Wire schema for {@link WorkflowPayloadRef}; an inline payload over the cap is refused. */
 export const WorkflowPayloadRefSchema: z.ZodType<WorkflowPayloadRef> = z.discriminatedUnion(
   "kind",
@@ -182,9 +204,9 @@ export const WorkflowPayloadRefSchema: z.ZodType<WorkflowPayloadRef> = z.discrim
         kind: z.literal("artifact"),
         artifactId: ArtifactIdSchema,
         sizeBytes: z.number().int().positive(),
+        itemCount: countSchema,
       })
       .strict(),
-    z.object({ kind: z.literal("expired") }).strict(),
   ],
 );
 
@@ -212,6 +234,69 @@ export interface WorkflowStepSource {
 }
 
 /**
+ * The question a step waiting for a chat reply holds. `questionId` is the record
+ * `question.resolve` answers and `waitId` the wait it settles, so the step panel and the session's
+ * question card are two doors onto one wait and the first answer through either settles both.
+ */
+export interface WorkflowStepQuestion {
+  questionId: QuestionId;
+  waitId: string;
+  prompt: string;
+}
+/** Wire schema for {@link WorkflowStepQuestion}. */
+export const WorkflowStepQuestionSchema: z.ZodType<WorkflowStepQuestion> = z
+  .object({
+    questionId: QuestionIdSchema,
+    waitId: uuidTextFormSchema,
+    prompt: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * How a person answered a step that waited on them. `declined` is the `Decline` on a command
+ * step's own approval card, which fails that step.
+ */
+export const WORKFLOW_STEP_RESOLUTIONS = ["approved", "rejected", "answered", "declined"] as const;
+/** One of {@link WORKFLOW_STEP_RESOLUTIONS}. */
+export type WorkflowStepResolutionKind = (typeof WORKFLOW_STEP_RESOLUTIONS)[number];
+
+/**
+ * The record of how a person answered a step and when, kept on the step so the receipt it earns,
+ * `Approved at 2:14 PM`, reads the same after a reload.
+ */
+export interface WorkflowStepResolution {
+  kind: WorkflowStepResolutionKind;
+  at: string;
+}
+/** Wire schema for {@link WorkflowStepResolution}. */
+export const WorkflowStepResolutionSchema: z.ZodType<WorkflowStepResolution> = z
+  .object({ kind: z.enum(WORKFLOW_STEP_RESOLUTIONS), at: isoDateTimeSchema })
+  .strict();
+
+/**
+ * The snapshot an approval pause took. Pinned, it names which execution of the run (each
+ * re-execution opens the next epoch) and which of its approval pauses, counted from 1, and Review
+ * opens on what the run changed from that epoch's start to this pause. Missing, it carries the
+ * daemon's words for why the snapshot could not be taken, and `Open in Review` stays in place
+ * saying so.
+ */
+export type WorkflowStepReviewPause =
+  | { state: "pinned"; epoch: number; pauseNumber: number }
+  | { state: "missing"; reason: string };
+/** Wire schema for {@link WorkflowStepReviewPause}. */
+export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
+  z.discriminatedUnion("state", [
+    z
+      .object({
+        state: z.literal("pinned"),
+        epoch: countSchema,
+        pauseNumber: z.number().int().positive(),
+      })
+      .strict(),
+    z.object({ state: z.literal("missing"), reason: z.string().min(1) }).strict(),
+  ]);
+
+/**
  * One execution of one node. `executionIndex` is per-run and increasing, so it orders
  * a branching run faithfully; `source` records, per input slot, the edge that actually
  * fed it and which execution of the source produced it (null for a slot nothing fed).
@@ -235,8 +320,18 @@ export interface WorkflowStep {
   logRef: WorkflowPayloadRef;
   cost?: WorkflowCost | undefined;
   error?: WorkflowStepError | undefined;
+  /** Present on a failed step whose process ended on its own: its exit and last lines. */
+  processExit?: ProcessExit | undefined;
   advisories?: string[] | undefined;
   resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+  /** Present exactly on a step waiting for a chat reply. */
+  question?: WorkflowStepQuestion | undefined;
+  /** Present once a person has answered this step. */
+  resolution?: WorkflowStepResolution | undefined;
+  /** Present on an approval step of a run that captured its checkout: its pause's snapshot. */
+  reviewPause?: WorkflowStepReviewPause | undefined;
+  /** Present on an `Execute workflow` step once it started its child run, which it links to. */
+  childWorkflowRunId?: WorkflowRunId | undefined;
 }
 /**
  * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other
@@ -269,10 +364,19 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     logRef: WorkflowPayloadRefSchema,
     cost: WorkflowCostSchema.optional(),
     error: WorkflowStepErrorSchema.optional(),
+    processExit: ProcessExitSchema.optional(),
     advisories: z.array(z.string().min(1)).optional(),
     resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
+    question: WorkflowStepQuestionSchema.optional(),
+    resolution: WorkflowStepResolutionSchema.optional(),
+    reviewPause: WorkflowStepReviewPauseSchema.optional(),
+    childWorkflowRunId: WorkflowRunIdSchema.optional(),
   })
   .strict()
+  .refine((step) => step.processExit === undefined || step.status === "failed", {
+    path: ["processExit"],
+    message: "Only a failed step carries how its process exited.",
+  })
   .refine((step) => (step.status === "waiting") === (step.waitCause !== undefined), {
     path: ["waitCause"],
     message: "A waiting step names its cause, and no other step carries one.",
@@ -282,7 +386,16 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
       step.status === "waiting" ||
       (step.resumeAt === undefined && step.waitDeadlineAt === undefined),
     { path: ["resumeAt"], message: "Only a waiting step carries a resume or a deadline instant." },
-  );
+  )
+  .refine(
+    (step) =>
+      (step.question !== undefined) === (step.status === "waiting" && step.waitCause === "reply"),
+    { path: ["question"], message: "A step waiting for a reply carries its question." },
+  )
+  .refine((step) => step.resolution === undefined || step.status !== "waiting", {
+    path: ["resolution"],
+    message: "A step a person has answered is no longer waiting.",
+  });
 
 // Cancel reasons
 
@@ -309,8 +422,6 @@ export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
 
 /**
  * A workflow definition or run that does not exist.
- *
- * @consumedBy the handler that returns the `workflow.not_found` error
  */
 export const WORKFLOW_NOT_FOUND_CODE = "workflow.not_found" as const;
 
@@ -318,8 +429,6 @@ export const WORKFLOW_NOT_FOUND_CODE = "workflow.not_found" as const;
 
 /**
  * A step cut by a time limit: its own `Timeout`, or the run's cap.
- *
- * @consumedBy the handler that returns the `workflow.step_timed_out` error
  */
 export const WORKFLOW_STEP_TIMED_OUT_CODE = "workflow.step_timed_out" as const;
 /** Which limit cut the step. */
@@ -344,10 +453,36 @@ export const WorkflowStepTimedOutDetailsSchema: z.ZodType<WorkflowStepTimedOutDe
   .strict();
 
 /**
+ * A quick step's or an expression's thread that ended without an answer.
+ */
+export const WORKFLOW_STEP_THREAD_FAILED_CODE = "workflow.step_thread_failed" as const;
+/**
+ * Why the thread ended: its host ran out of heap, it was not running 5 s after its start, or it
+ * exited without an answer.
+ */
+export const WORKFLOW_STEP_THREAD_FAILED_REASONS = [
+  "out_of_memory",
+  "start_timeout",
+  "exited",
+] as const;
+/** One of {@link WORKFLOW_STEP_THREAD_FAILED_REASONS}. */
+export type WorkflowStepThreadFailedReason = (typeof WORKFLOW_STEP_THREAD_FAILED_REASONS)[number];
+/** The thread failure's details: why the thread ended. */
+export interface WorkflowStepThreadFailedDetails {
+  reason: WorkflowStepThreadFailedReason;
+}
+/**
+ * Wire schema for {@link WorkflowStepThreadFailedDetails}.
+ *
+ * @consumedBy the handler that returns the `workflow.step_thread_failed` error
+ */
+export const WorkflowStepThreadFailedDetailsSchema: z.ZodType<WorkflowStepThreadFailedDetails> = z
+  .object({ reason: z.enum(WORKFLOW_STEP_THREAD_FAILED_REASONS) })
+  .strict();
+
+/**
  * A full-tier Code step or a sandboxed shell step whose provider sandbox did not start.
  * The step never runs unprotected instead.
- *
- * @consumedBy the handler that returns the `workflow.sandbox_unavailable` error
  */
 export const WORKFLOW_SANDBOX_UNAVAILABLE_CODE = "workflow.sandbox_unavailable" as const;
 /** The sandbox failure's details: whose sandbox, and its wrapper's own error. */

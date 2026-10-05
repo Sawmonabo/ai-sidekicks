@@ -144,7 +144,7 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
   );
 });
 
-describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
+describe("presence.subscribe — catch-up flush + live-tail crash guards", () => {
   // This package's vitest config does not restore mocks automatically, so a console spy left by
   // a failed test would leak into the next one.
   afterEach(() => {
@@ -154,7 +154,7 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
   /** The one log line a canceled subscription writes: the subscription id, then the error. */
   function expectCanceledWithLog(
     consoleErrorSpy: ReturnType<typeof vi.spyOn>,
-    path: "replay" | "live-tail",
+    path: "catch-up" | "live-tail",
     subscriptionId: string,
   ): void {
     expect(consoleErrorSpy).toHaveBeenCalledExactlyOnceWith(
@@ -165,8 +165,8 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
   }
 
   it(
-    "replay-flush: a malformed update in the replay buffer is caught; subscription canceled; " +
-      "daemon survives",
+    "catch-up flush: a malformed update in the catch-up buffer is caught; subscription " +
+      "canceled; daemon survives",
     async () => {
       // A bad update fired during setup is held, then fails validation when the `setImmediate`
       // flush sends it. Without a catch that throw would be uncaught and stop the daemon; with it,
@@ -183,12 +183,12 @@ describe("presence.subscribe — replay-flush + live-tail crash guards", () => {
       // The subscription is already canceled, so canceling it again finds nothing.
       expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
       expect(presence.send).not.toHaveBeenCalled();
-      expectCanceledWithLog(consoleErrorSpy, "replay", subscriptionId);
+      expectCanceledWithLog(consoleErrorSpy, "catch-up", subscriptionId);
     },
   );
 
   it(
-    "live-tail: a malformed update after replay drain is caught; subscription canceled; daemon " +
+    "live-tail: a malformed update after catch-up drain is caught; subscription canceled; daemon " +
       "survives",
     async () => {
       // A bad update pushed after the first flush takes the live path. Without a catch, the

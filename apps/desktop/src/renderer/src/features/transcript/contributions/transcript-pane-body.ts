@@ -13,7 +13,6 @@ import { TranscriptPane } from "../TranscriptPane.js";
 // Each sheet styles several components across the feature's folders, so the chunk root loads them.
 import "../rows/rows.css";
 import "../rows/bodies/bodies.css";
-import "../rows/markdown/markdown.css";
 import "../viewport/components/transcript-viewport.css";
 import "../window/components/transcript-window.css";
 import "../run-groups/components/run-groups.css";

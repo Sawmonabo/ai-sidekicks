@@ -1,25 +1,21 @@
-// Reads one served payload reply as the arm the pane draws. The contract's decoder reads the
-// bytes by the reply's own encoding and never sniffs.
+// What one artifact's payload fetch established, as the arm the pane draws. The bytes were read by
+// the encoding each reply declared, never sniffed.
 
-import {
-  decodeArtifactPayloadText,
-  type ArtifactPayloadEncoding,
-  type ArtifactPayloadText,
-  type ArtifactReadResponse,
+import type {
+  ArtifactPayloadEncoding,
+  ArtifactPayloadText,
 } from "@ai-sidekicks/contracts/artifacts/operations";
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
 
 /**
  * What one artifact's payload fetch has established.
  *
- * The deferred arm carries a content-addressed key and no bytes; the inline arm carries bytes
- * plus the encoding to read them by, and a payload that is not text is reported as such rather
- * than drawn as replacement characters. Before any fetch there is no reading at all.
+ * The text arm carries the whole payload plus the encoding it was read by, and a payload that is
+ * not text is reported as such rather than drawn as replacement characters. Before any fetch
+ * there is no reading at all.
  */
 export type ArtifactPayloadReading =
   | { readonly status: "fetching"; readonly artifactId: ArtifactId }
-  /** The content-addressed key the bytes are stored under, and no bytes. */
-  | { readonly status: "deferred"; readonly artifactId: ArtifactId; readonly payloadHandle: string }
   | {
       readonly status: "text";
       readonly artifactId: ArtifactId;
@@ -44,22 +40,16 @@ export type ArtifactPayloadOutcome =
   | { readonly status: "superseded" };
 
 /**
- * Reads one served payload reply as the arm the pane draws.
- *
- * The reply's `payloadEncoding` decides the arm; it is present exactly when `payload` is. A
- * failed decode is an answer, not an error: it lands on `opaque` with the reason named.
+ * Reads one whole payload, decoded by the encoding its replies declared, as the arm the pane
+ * draws. A failed decode is an answer, not an error: it lands on `opaque` with the reason named.
  */
 export function artifactPayloadReadingFrom(
   artifactId: ArtifactId,
-  read: ArtifactReadResponse,
+  encoding: ArtifactPayloadEncoding,
+  content: ArtifactPayloadText,
 ): ArtifactPayloadReading {
-  if (read.payloadEncoding === undefined) {
-    return { status: "deferred", artifactId, payloadHandle: read.payloadHandle };
+  if (content.status === "opaque") {
+    return { status: "opaque", artifactId, encoding, reason: content.reason };
   }
-  const encoding = read.payloadEncoding;
-  const decoded = decodeArtifactPayloadText(read.payload, encoding);
-  if (decoded.status === "opaque") {
-    return { status: "opaque", artifactId, encoding, reason: decoded.reason };
-  }
-  return { status: "text", artifactId, encoding, text: decoded.text };
+  return { status: "text", artifactId, encoding, text: content.text };
 }

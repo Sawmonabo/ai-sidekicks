@@ -58,7 +58,7 @@ describe("RuntimePage — the reported status", () => {
     const { ledger, showMainProcessState } = renderRuntimePage({
       mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
-        connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
+        connection: { kind: "transient_disconnect", attempt: 1, attemptLimit: 5 },
       },
     });
     await waitFor(() => {
@@ -67,8 +67,7 @@ describe("RuntimePage — the reported status", () => {
 
     showMainProcessState({
       ...UNREPORTED_MAIN_PROCESS_STATE,
-      connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
-      lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
+      connection: { kind: "transient_disconnect", attempt: 2, attemptLimit: 5 },
     });
     await settle();
 

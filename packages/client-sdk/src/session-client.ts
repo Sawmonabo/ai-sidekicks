@@ -49,7 +49,7 @@ export interface SessionEventEnvelope {
  * Ends a session subscription whose connection fell behind: the daemon dropped
  * changes for it rather than wait. `lastCursor` is the cursor of the last event
  * this subscription delivered (or the one it started after), so subscribing
- * again with it as `afterCursor` replays exactly the missing events and on.
+ * again with it as `afterCursor` catches up on exactly the missing events and on.
  */
 export class SessionStreamDroppedError extends Error {
   readonly lastCursor: EventCursor | undefined;
@@ -64,8 +64,8 @@ export class SessionStreamDroppedError extends Error {
 }
 
 /**
- * Subscribe options. Without `afterCursor` the daemon replays from the start of the session; with
- * it, from the event strictly after that cursor. `signal` cancels the subscription early and
+ * Subscribe options. Without `afterCursor` the daemon catches up from the start of the session;
+ * with it, from the event strictly after that cursor. `signal` cancels the subscription early and
  * releases the daemon's subscription entry.
  */
 export interface SessionSubscribeOptions {

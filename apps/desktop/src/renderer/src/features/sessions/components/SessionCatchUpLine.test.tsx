@@ -88,54 +88,51 @@ describe("SessionCatchUpLine", () => {
     expect(container.textContent).toBe("");
   });
 
-  it(
-    "says it couldn't catch up while the mounts read fails, past a " + "good session read",
-    async () => {
-      const clock = new ManualClock(0);
-      const entry = new OpenSessionEntry("session-mounts-failed", {
-        read: () => Promise.resolve({ cursor: 0, entities: [] }),
-        clock,
-        applyCoalesceMs: 0,
-        refreshDebounceMs: 20,
-      });
-      const mountsReader = failingRepoMountsReader(entry.store, clock);
-      const container = renderLine(entry.store, clock, () => {
-        entry.refreshScheduler.request("user-request");
-      });
-      async function landReads(): Promise<void> {
-        await act(async () => {
-          clock.advance(REFRESH_DEBOUNCE_MS);
-          for (let turn = 0; turn < 10; turn += 1) {
-            await Promise.resolve();
-          }
-        });
-      }
-
-      entry.refreshScheduler.request("subscribe");
-      mountsReader.start();
-      await landReads();
-      advance(clock, CATCH_UP_LINE_DWELL_MS);
-      const afterTheMountsReadFailed = container.textContent;
+  it("says it couldn't catch up if the mounts read fails after a good session read", async () => {
+    const clock = new ManualClock(0);
+    const entry = new OpenSessionEntry("session-mounts-failed", {
+      read: () => Promise.resolve({ cursor: 0, entities: [] }),
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+    });
+    const mountsReader = failingRepoMountsReader(entry.store, clock);
+    const container = renderLine(entry.store, clock, () => {
       entry.refreshScheduler.request("user-request");
-      await landReads();
-      advance(clock, CATCH_UP_LINE_DWELL_MS);
-      const afterAGoodSessionRead = container.textContent;
-      const tryAgain = container.querySelector("button");
-      if (tryAgain === null) {
-        throw new Error("the failed line drew no Try again");
-      }
-      fireEvent.click(tryAgain);
-      await landReads();
-      const mountsReads = mountsReader.performCount;
-      mountsReader.dispose();
-      entry.dispose();
+    });
+    async function landReads(): Promise<void> {
+      await act(async () => {
+        clock.advance(REFRESH_DEBOUNCE_MS);
+        for (let turn = 0; turn < 10; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+    }
 
-      expect(entry.refreshScheduler.performCount).toBe(3);
-      expect(afterTheMountsReadFailed).toBe("Couldn't catch up · Try again");
-      expect(afterAGoodSessionRead).toBe("Couldn't catch up · Try again");
-      expect(mountsReads).toBe(2);
-    },
-  );
+    entry.refreshScheduler.request("subscribe");
+    mountsReader.start();
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterTheMountsReadFailed = container.textContent;
+    entry.refreshScheduler.request("user-request");
+    await landReads();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterAGoodSessionRead = container.textContent;
+    const tryAgain = container.querySelector("button");
+    if (tryAgain === null) {
+      throw new Error("the failed line drew no Try again");
+    }
+    fireEvent.click(tryAgain);
+    await landReads();
+    const mountsReads = mountsReader.performCount;
+    mountsReader.dispose();
+    entry.dispose();
+
+    expect(entry.refreshScheduler.performCount).toBe(3);
+    expect(afterTheMountsReadFailed).toBe("Couldn't catch up · Try again");
+    expect(afterAGoodSessionRead).toBe("Couldn't catch up · Try again");
+    expect(mountsReads).toBe(2);
+  });
 
   it("asks for exactly one re-read of this session when Try again is pressed", () => {
     const clock = new ManualClock(0);

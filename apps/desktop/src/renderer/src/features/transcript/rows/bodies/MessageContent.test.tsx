@@ -1,9 +1,15 @@
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
-import { render } from "@testing-library/react";
+import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { MessageContent } from "./MessageContent.js";
+
+/** A markdown body drawn inside a window, which supplies its code colors. */
+function renderInWindow(body: React.JSX.Element): RenderResult {
+  return render(body, { wrapper: liveBridgeWrapper() });
+}
 
 const ESCAPE = "\u001b";
 
@@ -11,7 +17,7 @@ function renderBody(
   content: HydratedSessionEventContent | undefined,
   overrides: { readonly liveText?: string; readonly contentType?: string } = {},
 ): HTMLElement {
-  const { container } = render(
+  const { container } = renderInWindow(
     <MessageContent
       content={content}
       {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}

@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-009: Gitflow PR And Diff Attribution](../specs/009-gitflow-pr-and-diff-attribution.md) |
 | **Required ADRs** | [ADR-006](../decisions/006-worktree-first-execution-mode.md), [ADR-014](../decisions/014-v1-feature-scope-definition.md) |
-| **Dependencies** | [Plan-007](./007-worktree-lifecycle-and-execution-modes.md) (branch context, worktrees, the branch list and the tree-staleness signal), [Plan-012](./012-persistence-recovery-and-replay.md) (the file checkpoint store behind each file's turn), [Plan-004](./004-session-event-taxonomy-and-audit-log.md) (`git.settled` in the session event taxonomy) |
+| **Dependencies** | [Plan-007](./007-worktree-lifecycle-and-execution-modes.md) (branch context, worktrees, the branch list and the tree-staleness signal), [Plan-012](./012-persistence-and-recovery.md) (the file checkpoint store behind each file's turn), [Plan-004](./004-session-event-taxonomy-and-audit-log.md) (`git.settled` in the session event taxonomy) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 | **References** | [Spec-009 §Git Hosting Adapter](../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) (the `GitHostingAdapter` over `gh` and `glab`) |
 
@@ -63,7 +63,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 ## Cross-Plan Obligations
 
 - **CP-008-1 (consumes)** — From Plan-007: `BranchContextId` and the `branch_contexts` row (Plan-007 CP-007-5), read and never altered; `repo.branchList`, the one ordered branch list the base picker draws; and the tree-staleness signal (`repo.workingTreeSubscribe`), which re-reads the ship facts. Plan-008 reads them through Plan-007's services and never edits Plan-007's `git/` module. **Tasks:** T11.2, T11.3, T11.10.
-- **CP-008-2 (consumes)** — From Plan-012: the capture folders the file checkpoint store keeps — a session's, for each file's newest turn in the diff, and a workflow run's, for the diff read's `workflowRun` arm, which reads two of the run's snapshot points with the repository's objects as an alternate ([Plan-012 §Implementation Phase Sequence](./012-persistence-recovery-and-replay.md#implementation-phase-sequence)). **Tasks:** T11.3.
+- **CP-008-2 (consumes)** — From Plan-012: the capture folders the file checkpoint store keeps — a session's, for each file's newest turn in the diff, and a workflow run's, for the diff read's `workflowRun` arm, which reads two of the run's snapshot points with the repository's objects as an alternate ([Plan-012 §Implementation Phase Sequence](./012-persistence-and-recovery.md#implementation-phase-sequence)). **Tasks:** T11.3.
 - **CP-008-3 (extends)** — To Plan-004: `git.settled` with its causes, registered in the session event taxonomy; Plan-008 is its only producer. **Tasks:** T11.2, T11.4, T11.9.
 
 ## Implementation Steps
@@ -110,7 +110,7 @@ Plan-008 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 #### Tasks
 
-- **T11.4** — Not built. `gitflow.gitActionPreview`, `gitflow.gitActionExecute` and `gitflow.gitActionSubscribe`. One daemon function builds an act's commands for the preview and the run (I-008-3). The acts are commit, which sweeps the whole working folder with one add before the commit; push; pull, on the branch this session is on, under the person's own git identity; and open a request with its base, title, description, draft flag, reviewers and labels, carrying its own push only when the branch has never left this machine. There is no amend, no force push and no merge. `retryFromCommand` runs a failed act again from the command that failed; the progress stream replays and then follows each command's state, its output scrubbed of credentials. Each act settles `git.settled` — `committed`, `pushed`, `pulled` or `pull_request_opened` — and asks for a fresh ship-facts read the moment it finishes.
+- **T11.4** — Not built. `gitflow.gitActionPreview`, `gitflow.gitActionExecute` and `gitflow.gitActionSubscribe`. One daemon function builds an act's commands for the preview and the run (I-008-3). The acts are commit, which sweeps the whole working folder with one add before the commit; push; pull, on the branch this session is on, under the person's own git identity; and open a request with its base, title, description, draft flag, reviewers and labels, carrying its own push only when the branch has never left this machine. There is no amend, no force push and no merge. `retryFromCommand` runs a failed act again from the command that failed; the progress stream catches up and then follows each command's state, its output scrubbed of credentials. Each act settles `git.settled` — `committed`, `pushed`, `pulled` or `pull_request_opened` — and asks for a fresh ship-facts read the moment it finishes.
   - **Spec coverage:** [Spec-009 §Required Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#required-behavior) (commands shown before they run, committing takes the whole folder, pushing and opening a request, every act leaves a record), [Spec-009 §Fallback Behavior](../specs/009-gitflow-pr-and-diff-attribution.md#fallback-behavior) (a failed command keeps its try-again).
   - **Verifies invariant:** I-008-2, I-008-3.
   - **Consumes:** CP-008-3; the hosting adapter for opening a request (T11.7).

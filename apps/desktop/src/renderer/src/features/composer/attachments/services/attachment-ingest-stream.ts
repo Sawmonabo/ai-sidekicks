@@ -1,7 +1,7 @@
 // The three-call ingest protocol (open, chunk, complete) and what each answer does to the
-// staged entry. Own-built because chunking, decoded-byte accounting and replay-safe retry are
-// contract behavior. Retry replays: open is skipped when the stream is already open, and a
-// replayed completion returns its original response. A user can act mid-call, so every
+// staged entry. Own-built because chunking, decoded-byte accounting and safe retry are contract
+// behavior. A retry is safe: open is skipped when the stream is already open, and a repeated
+// completion returns the saved result. A user can act mid-call, so every
 // continuation re-reads the record after its await and a stale one writes nothing. No timer.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session";
@@ -125,7 +125,7 @@ export class AttachmentIngestStreamDriver {
     });
   }
 
-  /** Init leg; skipped when the stream is already open, which makes retry a replay. */
+  /** Init leg; skipped when the stream is already open, so a retry is safe. */
   async #openStream(localId: string): Promise<boolean> {
     const entry = this.#entries.current(localId);
     const stamp = this.#entries.stamp(localId);

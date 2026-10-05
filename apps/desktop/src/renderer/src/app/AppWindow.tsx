@@ -1,7 +1,7 @@
 // The window: the stores it keeps, the bindings that keep them live, and the `AppShell` around
 // the routed screen. It runs only with a resolved bridge, because `AppBootstrap` gates it.
 
-import { useLayoutEffect, useRef } from "react";
+import { useRef } from "react";
 
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -17,15 +17,15 @@ import { type ScreenContext } from "@renderer/registries/screens/screen-context.
 import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { AppShell } from "@renderer/layout/AppShell/AppShell.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
+import { useAppearance } from "./hooks/useAppearance.js";
+import { useDaemonStatusReport } from "./hooks/useDaemonStatusReport.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
-import { useSchemePreference } from "./hooks/useSchemePreference.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
 import { AppRouter } from "./AppRouter.js";
-import { applyColorScheme } from "./token-installation.js";
 
 /** What the bootstrap hands the window once the bridge has resolved. */
 export interface AppWindowProps {
@@ -63,14 +63,12 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
 
   const route = useWindowStore(frameStore, (state) => state.route);
   const lastOpenedSessionId = useWindowStore(frameStore, (state) => state.lastOpenedSessionId);
-  const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
-
-  // The scheme attribute follows a stored setting only a window with a bridge can read.
-  useLayoutEffect(() => {
-    applyColorScheme(document, schemePreference);
-  }, [schemePreference]);
+  // Main keeps the appearance; the window applies what main kept and asks main for a change.
+  const { chooseScheme, chooseNextScheme } = useAppearance(props.bridge, frameStore);
 
   useHashRouteBinding(frameStore, hash);
+
+  useDaemonStatusReport(props.bridge, frameStore);
 
   useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 
@@ -82,7 +80,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
     lastOpenedSessionId,
     windowStore: frameStore,
     keyboardMap: props.bridge.keyboardMap,
-    chooseScheme,
+    chooseNextScheme,
     screenRegistry,
   });
 

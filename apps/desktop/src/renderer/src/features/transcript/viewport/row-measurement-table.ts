@@ -7,8 +7,8 @@
 //   - Duplicate keys: its caches are keyed by item key, so two rows sharing one would displace
 //     each other; a distinct virtual key per row keeps every row and counts the defect.
 
+import { SCROLL_GEOMETRY_EPSILON_PX } from "@renderer/lib/scroll/geometry-sample.js";
 import {
-  TRANSCRIPT_GEOMETRY_EPSILON_PX,
   TRANSCRIPT_WINDOW_ROW_CAP,
   TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
 } from "./viewport-constants.js";
@@ -101,7 +101,7 @@ export class RowMeasurementTable {
     }
     if (
       previous !== undefined &&
-      Math.abs(previous - observedHeightPx) < TRANSCRIPT_GEOMETRY_EPSILON_PX
+      Math.abs(previous - observedHeightPx) < SCROLL_GEOMETRY_EPSILON_PX
     ) {
       return previous;
     }

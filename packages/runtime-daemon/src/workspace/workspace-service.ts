@@ -62,9 +62,9 @@ import {
 import { normalizeWorkspaceLastError } from "./workspace-last-error.js";
 
 /**
- * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies it; `null`
- * means no such session). A `rebuildSession` that throws (a corrupt event chain) propagates unchanged,
- * since a 404 would send the person to recreate a session that exists.
+ * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies
+ * it; `null` means no such session). A `rebuildSession` that throws (a corrupt event chain)
+ * propagates unchanged, since a 404 would send the person to recreate a session that exists.
  */
 export interface SessionExistenceReader {
   rebuildSession(sessionId: string): unknown;

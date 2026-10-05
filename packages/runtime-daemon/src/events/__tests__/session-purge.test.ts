@@ -161,47 +161,44 @@ function onlyOutcome(result: SessionPurgeResult): SessionPurgeOutcome {
 }
 
 describe("SessionPurge — the whole session", () => {
-  it(
-    "deletes every purgeable row and snapshot, " + "sparing maintenance rows and other sessions",
-    async () => {
-      const first = seedMessage("hi");
-      const maintenance = seed({
-        category: "event_maintenance",
-        type: "event.compacted",
-        payload: { ok: true },
-      });
-      const newest = seedMessage("yo");
-      const snapshot = seedSnapshot(SESSION, newest.sequence);
-      const otherSession = seedMessage("kept", SECOND_SESSION);
-      const otherSnapshot = seedSnapshot(SECOND_SESSION, otherSession.sequence);
+  it("deletes every purgeable row and snapshot, sparing maintenance rows and others", async () => {
+    const first = seedMessage("hi");
+    const maintenance = seed({
+      category: "event_maintenance",
+      type: "event.compacted",
+      payload: { ok: true },
+    });
+    const newest = seedMessage("yo");
+    const snapshot = seedSnapshot(SESSION, newest.sequence);
+    const otherSession = seedMessage("kept", SECOND_SESSION);
+    const otherSnapshot = seedSnapshot(SECOND_SESSION, otherSession.sequence);
 
-      const eventLog = new RecordingEventLog();
-      const result = await buildPurge(eventLog).purge([SESSION]);
-      const outcome = onlyOutcome(result);
+    const eventLog = new RecordingEventLog();
+    const result = await buildPurge(eventLog).purge([SESSION]);
+    const outcome = onlyOutcome(result);
 
-      expect(result.refusedReason).toBeUndefined();
-      expect(outcome.refusedReason).toBeUndefined();
-      expect(outcome.rowsDeleted).toBe(2);
-      expect(outcome.fromSequence).toBe(first.sequence);
-      expect(outcome.toSequence).toBe(newest.sequence);
+    expect(result.refusedReason).toBeUndefined();
+    expect(outcome.refusedReason).toBeUndefined();
+    expect(outcome.rowsDeleted).toBe(2);
+    expect(outcome.fromSequence).toBe(first.sequence);
+    expect(outcome.toSequence).toBe(newest.sequence);
 
-      expect(rowExists("session_events", first.id)).toBe(false);
-      expect(rowExists("session_events", newest.id)).toBe(false);
-      expect(rowExists("session_snapshots", snapshot)).toBe(false);
-      expect(rowExists("session_events", maintenance.id)).toBe(true);
-      expect(rowExists("session_events", otherSession.id)).toBe(true);
-      expect(rowExists("session_snapshots", otherSnapshot)).toBe(true);
+    expect(rowExists("session_events", first.id)).toBe(false);
+    expect(rowExists("session_events", newest.id)).toBe(false);
+    expect(rowExists("session_snapshots", snapshot)).toBe(false);
+    expect(rowExists("session_events", maintenance.id)).toBe(true);
+    expect(rowExists("session_events", otherSession.id)).toBe(true);
+    expect(rowExists("session_snapshots", otherSnapshot)).toBe(true);
 
-      // One receipt, bound to the sentinel, naming the deleted range.
-      expect(eventLog.appended).toHaveLength(1);
-      expect(eventLog.appended[0]?.sessionId).toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
-      expect(eventLog.appended[0]?.category).toBe("event_maintenance");
-      expect(eventLog.appended[0]?.type).toBe("event.compacted");
-      expect(eventLog.appended[0]?.payload.removedSessions).toEqual([
-        { sessionId: SESSION, fromSeq: first.sequence, toSeq: newest.sequence },
-      ]);
-    },
-  );
+    // One receipt, bound to the sentinel, naming the deleted range.
+    expect(eventLog.appended).toHaveLength(1);
+    expect(eventLog.appended[0]?.sessionId).toBe(DAEMON_SCOPE_SENTINEL_SESSION_ID);
+    expect(eventLog.appended[0]?.category).toBe("event_maintenance");
+    expect(eventLog.appended[0]?.type).toBe("event.compacted");
+    expect(eventLog.appended[0]?.payload.removedSessions).toEqual([
+      { sessionId: SESSION, fromSeq: first.sequence, toSeq: newest.sequence },
+    ]);
+  });
 });
 
 describe("SessionPurge — one receipt per deletion", () => {

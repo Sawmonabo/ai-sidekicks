@@ -1,0 +1,420 @@
+import { useState } from "react";
+
+import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type {
+  WorkflowDocument,
+  WorkflowNodeKindId,
+} from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
+import { readWorkflowPayloadItems } from "@renderer/services/artifacts/workflow-payload-items.js";
+import { callDaemon, type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
+import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { useWorkflowAct } from "../../hooks/useWorkflowAct.js";
+import { costWithPayer } from "../../run-cost.js";
+import { STEP_STATUS_WORDS } from "../../workflow-words.js";
+import { retryAvailability, type RunControlAvailability } from "../../run-controls.js";
+import { isPersonWaitCause, nodePasses, type NodePass } from "../../run-steps.js";
+import type { StepAddress } from "../hooks/useRunPage.js";
+import { stepKeyText } from "../step-key-text.js";
+import { PIN_CARRIES_FILE_REFUSAL, pinAvailability, pinnedItemsOf } from "../step-pin.js";
+import { RunControl } from "../../components/RunControl.js";
+import { StepBlocker } from "./StepBlocker.js";
+import { StepError } from "./StepError.js";
+import type { StepPayloadView } from "./StepPayload.js";
+import { StepPayloadTab } from "./StepPayloadTab.js";
+import { StepRecordTab } from "./StepRecordTab.js";
+import { ActionButton } from "../../components/ActionButton.js";
+
+/** The step panel's five tabs, in the order they stand. */
+const STEP_TABS = ["input", "output", "logs", "cost", "error"] as const;
+
+/** One of the step panel's tabs. */
+type StepTab = (typeof STEP_TABS)[number];
+
+const STEP_TAB_LABELS: Readonly<Record<StepTab, string>> = {
+  input: "Input",
+  output: "Output",
+  logs: "Logs",
+  cost: "Cost",
+  error: "Error",
+};
+
+/** What the step panel draws one node's steps from, and where its acts lead. */
+export interface StepPanelProps {
+  readonly run: WorkflowRunReadResponse;
+  /** The version the run pinned, once read: it names the node's outputs for `Pin this output`. */
+  readonly document: WorkflowDocument | undefined;
+  readonly nodeId: string;
+  readonly nodeName: (nodeId: string) => string;
+  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly bridge: PlatformBridge;
+  /** The instant a receipt's day is counted from. */
+  readonly nowMs: number;
+  /** The receipts this sitting's answers left, by step. */
+  readonly receipts: ReadonlyMap<string, string>;
+  /** Called with the receipt once the daemon has taken an answer to a step. */
+  readonly onAnswered: (step: StepAddress, receipt: string) => void;
+  readonly onOpenRun: (workflowRunId: string) => void;
+  readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
+  readonly onOpenSession: (sessionId: string) => void;
+  readonly onClose: () => void;
+}
+
+/**
+ * The step panel beside the graph: one of the picked node's steps — the latest until a person
+ * picks another pass or attempt — how to answer it where it waits on a person, the run it called
+ * where it called one, its input, output, logs, cost and error, each in a Table and a JSON view,
+ * and the acts on it: `Retry from this step`, the run's Keep mark, `Pin this output` and, on a
+ * failed step, `Fix in a fresh session`. It opens on Output, or on Error where the step failed.
+ * The acts keep their place on a node that has not run, refusing in words.
+ */
+export function StepPanel(props: StepPanelProps): React.JSX.Element {
+  const { run, nodeId } = props;
+  const passes = nodePasses(run.steps, nodeId);
+  const [pickedExecution, setPickedExecution] = useState<number | undefined>(undefined);
+  const picked =
+    passes.find((entry) => entry.step.executionIndex === pickedExecution) ?? passes.at(-1);
+  const step = picked?.step;
+  const name = props.nodeName(nodeId);
+  return (
+    <aside className="meridian-workflow-step" aria-label={`Step ${name}`}>
+      <header className="meridian-workflow-step__head">
+        <h3 className="meridian-workflow-step__name">{name}</h3>
+        {step === undefined ? null : <StepStateChip step={step} />}
+        {passes.length > 1 && picked !== undefined ? (
+          <select
+            className="meridian-workflow-step__execution"
+            aria-label="Execution"
+            value={picked.step.executionIndex}
+            onChange={(event) => {
+              setPickedExecution(Number(event.currentTarget.value));
+            }}
+          >
+            {passes.map((entry) => (
+              <option key={entry.step.executionIndex} value={entry.step.executionIndex}>
+                {executionWords(entry, passes)}
+              </option>
+            ))}
+          </select>
+        ) : step === undefined || step.attempt === 1 ? null : (
+          <span className="meridian-workflow-step__attempt">
+            {`Attempt ${formatCount(step.attempt)}`}
+          </span>
+        )}
+        <ActionButton onClick={props.onClose}>Close</ActionButton>
+      </header>
+      {step === undefined ? (
+        <>
+          <p className="meridian-workflow-step__note">This step has not run.</p>
+          <StepActs {...props} step={undefined} />
+        </>
+      ) : (
+        <StepBody {...props} step={step} key={stepKeyText(step)} />
+      )}
+    </aside>
+  );
+}
+
+function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): React.JSX.Element {
+  const { run, step, bridge } = props;
+  const [tab, setTab] = useState<StepTab>(step.status === "failed" ? "error" : "output");
+  const [view, setView] = useState<StepPayloadView>("table");
+  const sources = sourceWords(run, step, props.nodeName);
+  const childRunId = step.childWorkflowRunId;
+  const label = `${STEP_TAB_LABELS[tab]} of ${props.nodeName(step.nodeId)}`;
+
+  return (
+    <>
+      {sources.length === 0 ? null : (
+        <p className="meridian-workflow-step__note">{`Fed by ${sources.join(", ")}`}</p>
+      )}
+      {childRunId === undefined ? null : (
+        <button
+          type="button"
+          className="meridian-workflow-run__link"
+          onClick={() => {
+            props.onOpenRun(childRunId);
+          }}
+        >
+          Open the run it called
+        </button>
+      )}
+      <StepBlocker
+        run={run}
+        step={step}
+        nodeKind={nodeKindOf(props.document, step.nodeId)}
+        receipt={props.receipts.get(stepKeyText(step))}
+        nowMs={props.nowMs}
+        bridge={bridge}
+        onAnswered={(receipt) => {
+          props.onAnswered(step, receipt);
+        }}
+        onOpenRun={props.onOpenRun}
+        onOpenReview={props.onOpenReview}
+      />
+      <div className="meridian-workflow-step__tabs" role="tablist" aria-label="Step data">
+        {STEP_TABS.map((candidate) => (
+          <button
+            key={candidate}
+            type="button"
+            role="tab"
+            aria-selected={tab === candidate}
+            className="meridian-workflow-step__tab"
+            onClick={() => {
+              setTab(candidate);
+            }}
+          >
+            {STEP_TAB_LABELS[candidate]}
+          </button>
+        ))}
+      </div>
+      <div className="meridian-workflow-step__tab-body" role="tabpanel">
+        <ViewToggle view={view} onChange={setView} />
+        {tab === "output" && step.advisories !== undefined && step.advisories.length > 0 ? (
+          <ul className="meridian-workflow-step__advisories" aria-label="Advisories">
+            {step.advisories.map((advisory, index) => (
+              <li key={index}>{advisory}</li>
+            ))}
+          </ul>
+        ) : null}
+        {tab === "input" || tab === "output" || tab === "logs" ? (
+          <StepPayloadTab
+            key={tab}
+            bridge={bridge}
+            step={step}
+            which={tab === "logs" ? "log" : tab}
+            view={view}
+            label={label}
+          />
+        ) : null}
+        {tab === "cost" ? (
+          <StepRecordTab stored={step.cost} view={view} label={label}>
+            <p className="meridian-workflow-step__note">
+              {costWithPayer(step.cost, props.accountLabel)}
+            </p>
+          </StepRecordTab>
+        ) : null}
+        {tab === "error" ? (
+          <StepRecordTab stored={step.error} view={view} label={label}>
+            <StepError step={step} />
+          </StepRecordTab>
+        ) : null}
+      </div>
+      <StepActs {...props} step={step} />
+    </>
+  );
+}
+
+/**
+ * The acts on a node's step, standing whatever the run's state and whether the node ran:
+ * `Retry from this step`, the run's Keep mark, `Pin this output` and, on a failed step,
+ * `Fix in a fresh session`. Each one the state does not allow refuses in words, and a press the
+ * daemon refuses shows its words in place.
+ */
+function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
+  const { run, step, bridge } = props;
+  const retry = useWorkflowAct(
+    (failed: WorkflowStep) =>
+      callDaemon(bridge, "workflow.runRetry", {
+        workflowRunId: run.workflowRunId,
+        fromNodeId: failed.nodeId,
+      }),
+    (retried) => {
+      props.onOpenRun(retried.workflowRunId);
+    },
+  );
+  const fix = useWorkflowAct(
+    (failed: WorkflowStep) =>
+      callDaemon(bridge, "workflow.fixSessionCreate", {
+        workflowRunId: failed.workflowRunId,
+        nodeId: failed.nodeId,
+        executionIndex: failed.executionIndex,
+      }),
+    (created) => {
+      props.onOpenSession(created.sessionId);
+    },
+  );
+  const keep = useWorkflowAct((next: boolean) =>
+    callDaemon(bridge, "workflow.runKeepSet", { workflowRunId: run.workflowRunId, keep: next }),
+  );
+  const pin = useWorkflowAct((ran: WorkflowStep) => pinOutput(bridge, run, ran));
+  const fixSessionId = run.fixSessionId;
+  return (
+    <div className="meridian-workflow-step__acts">
+      <RunControl
+        label="Retry from this step"
+        availability={step === undefined ? NOT_RUN : retryAvailability(run, step)}
+        act={retry.state}
+        onPress={() => {
+          if (step !== undefined) {
+            retry.take(step);
+          }
+        }}
+      />
+      <span className="meridian-workflow-run__control">
+        <label className="meridian-workflow-run__keep">
+          <input
+            type="checkbox"
+            checked={run.keep}
+            disabled={keep.state.kind === "sending"}
+            onChange={(event) => {
+              keep.take(event.currentTarget.checked);
+            }}
+          />
+          Keep
+        </label>
+        {keep.state.kind === "refused" ? (
+          <InlineRefusal code={keep.state.refusal.code} detail={keep.state.refusal.detail} />
+        ) : null}
+      </span>
+      <RunControl
+        label={pin.state.kind === "done" ? "Pinned as test data" : "Pin this output"}
+        availability={step === undefined ? NOT_RUN : pinAvailability(props.document, step)}
+        act={pin.state}
+        onPress={() => {
+          if (step !== undefined) {
+            pin.take(step);
+          }
+        }}
+      />
+      {step?.status === "failed" ? (
+        <RunControl
+          label="Fix in a fresh session"
+          availability={{ kind: "allowed" }}
+          act={fix.state}
+          onPress={() => {
+            // One fix session per run: once it exists, the press opens it again.
+            if (fixSessionId === undefined) {
+              fix.take(step);
+            } else {
+              props.onOpenSession(fixSessionId);
+            }
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** What the step's acts refuse with on a node that has not run. */
+const NOT_RUN: RunControlAvailability = { kind: "refused", reason: "This step has not run." };
+
+function ViewToggle(props: {
+  readonly view: StepPayloadView;
+  readonly onChange: (view: StepPayloadView) => void;
+}): React.JSX.Element {
+  return (
+    <div className="meridian-workflow-step__views" role="group" aria-label="View">
+      {(["table", "json"] as const).map((candidate) => (
+        <button
+          key={candidate}
+          type="button"
+          aria-pressed={props.view === candidate}
+          className="meridian-workflow-step__view"
+          onClick={() => {
+            props.onChange(candidate);
+          }}
+        >
+          {candidate === "table" ? "Table" : "JSON"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The kind of the node `nodeId` names in the run's pinned version, once it has been read. */
+function nodeKindOf(
+  document: WorkflowDocument | undefined,
+  nodeId: string,
+): WorkflowNodeKindId | undefined {
+  if (document === undefined) {
+    return undefined;
+  }
+  return [document.trigger, ...document.nodes].find((node) => node.id === nodeId)?.kind;
+}
+
+function StepStateChip(props: { readonly step: WorkflowStep }): React.JSX.Element {
+  const { step } = props;
+  const isPersonWait = step.status === "waiting" && isPersonWaitCause(step.waitCause);
+  return (
+    <Chip
+      tone={
+        step.status === "failed"
+          ? "failure"
+          : isPersonWait
+            ? "attention"
+            : step.status === "running"
+              ? "accent"
+              : "neutral"
+      }
+      label={STEP_STATUS_WORDS[step.status]}
+    />
+  );
+}
+
+/** A pass or attempt as the execution picker names it: `Run 2 · attempt 3`. */
+function executionWords(entry: NodePass, passes: readonly NodePass[]): string {
+  const attempt = formatCount(entry.step.attempt);
+  if (!passes.some((candidate) => candidate.pass > 1)) {
+    return `Attempt ${attempt}`;
+  }
+  const run = `Run ${formatCount(entry.pass)}`;
+  return entry.step.attempt === 1 ? run : `${run} · attempt ${attempt}`;
+}
+
+/**
+ * Which step fed each input, naming a source's pass where its node ran more than one, so a step
+ * fed by the third pass of a loop says `run 3`.
+ */
+function sourceWords(
+  run: WorkflowRunReadResponse,
+  step: WorkflowStep,
+  nodeName: (nodeId: string) => string,
+): string[] {
+  return step.source.flatMap((source) => {
+    if (source === null) {
+      return [];
+    }
+    const passes = nodePasses(run.steps, source.nodeId);
+    const fed = passes.find((entry) => entry.step.executionIndex === source.executionIndex);
+    const hasPasses = passes.some((entry) => entry.pass > 1);
+    return [
+      hasPasses && fed !== undefined
+        ? `${nodeName(source.nodeId)} · run ${formatCount(fed.pass)}`
+        : nodeName(source.nodeId),
+    ];
+  });
+}
+
+/**
+ * Pin the step's output onto its node as builder test data: its items as stored, read from its
+ * artifact where it was kept as one, refused when any of them carries a file.
+ */
+async function pinOutput(
+  bridge: PlatformBridge,
+  run: WorkflowRunReadResponse,
+  step: WorkflowStep,
+): Promise<DaemonReply<unknown>> {
+  const { outputRef } = step;
+  const read =
+    outputRef.kind === "inline"
+      ? ({ status: "served", value: outputRef.items } as const)
+      : await readWorkflowPayloadItems(bridge, outputRef.artifactId, new AbortController().signal);
+  if (read.status === "refused") {
+    return read;
+  }
+  const items = pinnedItemsOf(read.value);
+  if (items === undefined) {
+    return { status: "refused", refusal: PIN_CARRIES_FILE_REFUSAL };
+  }
+  return callDaemon(bridge, "workflow.pinDataSet", {
+    definitionId: run.definitionId,
+    nodeId: step.nodeId,
+    items,
+  });
+}

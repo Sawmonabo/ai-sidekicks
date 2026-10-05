@@ -25,6 +25,8 @@ export interface ChangedFileEntry {
   readonly counts: DiffFileChangeCounts;
   /** What the patch's extended headers said, where they said anything. */
   readonly changeNotes: readonly string[];
+  /** On a workflow run's comparison, the step that changed the file. */
+  readonly stepName?: string;
 }
 
 /** One row of the changed-file list. Narrow on `kind`. */
@@ -65,6 +67,7 @@ export function diffFileListReading(diff: DiffModel, filterText: string): DiffFi
         path: file.path,
         counts: diffFileChangeCounts(file),
         changeNotes: diffFileChangeNotes(file),
+        ...(file.stepName === undefined ? {} : { stepName: file.stepName }),
       })),
     ],
     matchCount: matching.length,

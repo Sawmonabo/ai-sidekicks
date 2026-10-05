@@ -1,4 +1,4 @@
-// The accessibility tier over the repos feature's two views, each scoped to itself so a
+// The accessibility tier over the repos feature's views, each scoped to itself so a
 // violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s reason.
 // The palette tests cannot reach a mount card tinted by its health verdict or a diff row whose
 // intraline highlight is a tint inside text.
@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountMountList } from "./feature-mounts/repos.js";
+import { mountDiffPane, mountMountList, mountWorkflowRunReview } from "./feature-mounts/repos.js";
 import { type MountedView } from "./feature-mounts/mount-queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
@@ -24,6 +24,7 @@ const AUDITED_VIEWS: readonly {
 }[] = [
   { label: "the mount list with a degraded mount", mount: mountMountList },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
+  { label: "Review over a workflow run's changes", mount: mountWorkflowRunReview },
 ];
 
 beforeEach(() => {

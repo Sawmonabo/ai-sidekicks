@@ -104,11 +104,12 @@ export const WorkflowRunCancelRequestSchema: z.ZodType<
   .strict();
 
 /**
- * The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run,
- * and every branch still going is canceled with it. `state` has one value because a
- * successful cancel has one outcome. `alreadyCanceled` is true when the run was
- * already canceled and this call replayed the first: no second event is written, and
- * `canceledEventId` names the original.
+ * The `workflow.runCancel` result. Cancel is offered on a new, running or waiting run, and on a
+ * failed run parked on its failed step waiting to be resumed; every branch still going is
+ * canceled with it. `state` has one value because a successful cancel has
+ * one outcome. `alreadyCanceled` is true when the run was already canceled and this call returned
+ * the first cancel's saved result: no second event is written, and `canceledEventId` names the
+ * original.
  */
 export interface WorkflowRunCancelResponse {
   workflowRunId: WorkflowRunId;
@@ -295,7 +296,8 @@ export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
- * has not ended and is canceled; a run already `canceled` is not refused, the cancel replays.
+ * has not ended and is canceled; a run already `canceled` is not refused, the cancel returns the
+ * first's outcome.
  *
  * @consumedBy the handler that returns the `workflow.run_not_cancelable` error
  */
@@ -346,11 +348,8 @@ export const WORKFLOW_INVALID_TRANSITION_CODE = "workflow.invalid_transition" as
  * @consumedBy the handler that returns the `workflow.retry_unavailable` error
  */
 export const WORKFLOW_RETRY_UNAVAILABLE_CODE = "workflow.retry_unavailable" as const;
-/**
- * Why a retry cannot be made: the source run's step data is past its time bound, or
- * the source run is still going.
- */
-export const WORKFLOW_RETRY_UNAVAILABLE_REASONS = ["step_data_expired", "source_running"] as const;
+/** Why a retry cannot be made: the source run is still going. */
+export const WORKFLOW_RETRY_UNAVAILABLE_REASONS = ["source_running"] as const;
 /** One of {@link WORKFLOW_RETRY_UNAVAILABLE_REASONS}. */
 export type WorkflowRetryUnavailableReason = (typeof WORKFLOW_RETRY_UNAVAILABLE_REASONS)[number];
 /** The retry refusal's details. */
@@ -483,8 +482,6 @@ export interface WorkflowRunControlMethodDescriptors {
 
 /**
  * The `workflow.*` methods that act on a run.
- *
- * @consumedBy the daemon's workflow run control handlers
  */
 export const WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS: WorkflowRunControlMethodDescriptors =
   defineMethodDescriptors({

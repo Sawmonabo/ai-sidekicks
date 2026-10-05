@@ -2,8 +2,7 @@
 // page's claim on the tracker: `AccountsFixtureBody.test.ts` asserts the control is disabled
 // with its reason, but a control is a courtesy, so these assert what happens to a press it did
 // not stop (a stale frame, a keyboard activation racing the commit that disabled it). They
-// drive the real `ProviderSignInFlowTracker` over the real `startProviderSignIn` and
-// `cancelProviderSignIn` with stub
+// drive the real `ProviderSignInFlowTracker` over the real `startProviderSignIn` with stub
 // calls; the single-flight guard is `lib/reads/generation-latch.ts`, so a case fails if its
 // refusal contract changes.
 
@@ -17,7 +16,8 @@ import {
   PROVIDER_SIGN_IN_ATTEMPT,
   type AccountPlaneCalls,
 } from "./account-plane-bridge.test-support.js";
-import { cancelProviderSignIn, startProviderSignIn } from "./provider-sign-in-flow.js";
+import type { ProviderLoginCompletion } from "@renderer/services/provider-accounts/provider-account-deliveries.js";
+import { startProviderSignIn } from "./provider-sign-in-flow.js";
 import {
   ProviderSignInFlowTracker,
   findRunningProviderSignInAccountId,
@@ -28,8 +28,7 @@ const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 
 /**
  * A tracker over stub calls, bound the way the fixture body binds it. The real
- * `startProviderSignIn` and `cancelProviderSignIn` are used so a case drives the outcome narrowing
- * they perform too.
+ * `startProviderSignIn` is used so a case drives the outcome narrowing it performs too.
  */
 function trackerOver(
   calls: AccountPlaneCalls,
@@ -37,9 +36,26 @@ function trackerOver(
 ): ProviderSignInFlowTracker {
   return new ProviderSignInFlowTracker({
     startProviderSignIn: async (accountId) => await startProviderSignIn(calls.login, accountId),
-    cancelProviderSignIn: async (attempt) => await cancelProviderSignIn(calls.cancelLogin, attempt),
+    cancelProviderSignIn: async (attempt) => {
+      await calls.cancelLogin({ attemptId: attempt.attemptId });
+    },
     onFlowSettled,
   });
+}
+
+/** The registry's report that one attempt is over, with how it ended. */
+function completionOf(
+  attemptId: string,
+  outcome: ProviderLoginCompletion["outcome"],
+  failureReason?: string,
+): ProviderLoginCompletion {
+  return {
+    kind: "login_completed",
+    attemptId,
+    accountId: RUNNING_ACCOUNT_ID,
+    outcome,
+    ...(failureReason === undefined ? {} : { failureReason }),
+  };
 }
 
 /** A tracker whose start is served and whose cancel is honored. */
@@ -108,7 +124,7 @@ describe("ProviderSignInFlowTracker", () => {
     tracker.cancel();
     await crossMacrotaskBoundary();
 
-    expect(tracker.snapshot().flow.kind).toBe("ended");
+    expect(tracker.snapshot().flow.kind).toBe("idle");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
     expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBeUndefined();
 
@@ -127,9 +143,9 @@ describe("ProviderSignInFlowTracker", () => {
 
     tracker.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    tracker.noteLoginCompleted(PROVIDER_SIGN_IN_ATTEMPT.attemptId);
+    tracker.noteLoginCompleted(completionOf(PROVIDER_SIGN_IN_ATTEMPT.attemptId, "succeeded"));
 
-    expect(tracker.snapshot().flow.kind).toBe("ended");
+    expect(tracker.snapshot().flow.kind).toBe("idle");
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
     tracker.start(WAITING_ACCOUNT_ID);
     expect(tracker.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
@@ -142,24 +158,28 @@ describe("ProviderSignInFlowTracker", () => {
 
     tracker.start(RUNNING_ACCOUNT_ID);
     await crossMacrotaskBoundary();
-    tracker.noteLoginCompleted("some-other-attempt");
+    tracker.noteLoginCompleted(completionOf("some-other-attempt", "failed", "Code expired"));
 
     expect(tracker.snapshot().flow.kind).toBe("live");
     expect(onFlowSettled).not.toHaveBeenCalled();
   });
 
-  it("ends a flow whose completion arrived before the start reply recorded it", async () => {
+  it("ends a failed flow whose completion arrived before the start reply recorded it", async () => {
     // The tail opens before `providerAccount.login` is called, so a flow that finishes fast
     // reports its completion while the start reply is still traveling; the tracker would
-    // otherwise record an attempt that is already over and hold the key until cancel.
+    // otherwise record an attempt that is already over and hold the key until cancel. A failed
+    // attempt stays on screen as not finished, with the provider's own reason.
     const { tracker, onFlowSettled } = trackerOverServedCalls();
 
     tracker.start(RUNNING_ACCOUNT_ID);
-    tracker.noteLoginCompleted(PROVIDER_SIGN_IN_ATTEMPT.attemptId);
+    tracker.noteLoginCompleted(
+      completionOf(PROVIDER_SIGN_IN_ATTEMPT.attemptId, "failed", "Code expired"),
+    );
     await crossMacrotaskBoundary();
 
-    expect(tracker.snapshot().flow.kind).toBe("ended");
+    expect(tracker.snapshot().flow).toEqual({ kind: "unfinished", failureReason: "Code expired" });
     expect(onFlowSettled).toHaveBeenCalledTimes(1);
+    expect(findRunningProviderSignInAccountId(tracker.snapshot())).toBeUndefined();
   });
 
   it("installs nothing once disposed", async () => {

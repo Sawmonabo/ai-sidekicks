@@ -6,9 +6,9 @@
 //   fold move.
 // - The log supplies order, identity and pairing (sequence, event type, run, tool names, tool
 //   call ids) from the clear payload of each event.
-// - Every body (user text, assistant text, reasoning blocks, tool arguments, tool results) comes
-//   from `TranscriptContentSource`, which this module declares and does not implement. Payloads
-//   carry metadata only, so reading `payload.message` here would silently erase every user turn.
+// - The person's words are the `user.message` payload's own `message`. Every machine-authored
+//   body (assistant text, reasoning blocks, tool arguments, tool results) comes from
+//   `TranscriptContentSource`, which this module declares and does not implement.
 
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
@@ -57,7 +57,7 @@ export interface TranscriptToolResultBody {
 }
 
 /**
- * Supplies every body the clear log payloads do not carry.
+ * Supplies every machine-authored body, which the log keeps beside the payload.
  *
  * A method answering `undefined` means the row's content is unavailable; the fold then renders an
  * empty body marked `contentUnavailable` rather than inventing text or dropping the row, because
@@ -67,7 +67,6 @@ export interface TranscriptToolResultBody {
  */
 export interface TranscriptContentSource {
   readAssistantText(reference: TranscriptContentReference): string | undefined;
-  readUserText(reference: TranscriptContentReference): string | undefined;
   readReasoningBlocks(
     reference: TranscriptContentReference,
   ): readonly TranscriptReasoningBlock[] | undefined;
@@ -475,6 +474,11 @@ export class CanonicalTranscriptFold {
         continue;
       }
 
+      if (event.type === "user.message") {
+        appendSegments("user", event.sequence, this.#userSegmentsFor(event));
+        continue;
+      }
+
       const reference: TranscriptContentReference = {
         sessionId: request.sessionId,
         runId: request.runId,
@@ -482,11 +486,6 @@ export class CanonicalTranscriptFold {
         eventType: event.type,
         toolCallId: readStringMember(event.payload, "toolCallId"),
       };
-
-      if (event.type === "user.message") {
-        appendSegments("user", event.sequence, this.#userSegmentsFor(reference));
-        continue;
-      }
 
       appendSegments(
         "assistant",
@@ -536,16 +535,16 @@ export class CanonicalTranscriptFold {
   }
 
   /**
-   * The user's words, read through the content port because the clear `user.message` payload does
-   * not carry them. An unreadable body becomes an empty `contentUnavailable` segment, so the turn
-   * keeps its position and the loss is declared; dropping it would erase typed words silently.
+   * The user's words, the `user.message` payload's `message`. A row read back without one becomes
+   * an empty `contentUnavailable` segment, so the turn keeps its position and the loss is
+   * declared; dropping it would erase typed words silently.
    */
-  #userSegmentsFor(reference: TranscriptContentReference): readonly CanonicalTranscriptSegment[] {
-    const text: string | undefined = this.#contentSource.readUserText(reference);
+  #userSegmentsFor(event: StoredEvent): readonly CanonicalTranscriptSegment[] {
+    const text: string | undefined = readStringMember(event.payload, "message");
     if (text === undefined) {
-      return [{ kind: "text", position: reference.sequence, text: "", contentUnavailable: true }];
+      return [{ kind: "text", position: event.sequence, text: "", contentUnavailable: true }];
     }
-    return text.length === 0 ? [] : [{ kind: "text", position: reference.sequence, text }];
+    return text.length === 0 ? [] : [{ kind: "text", position: event.sequence, text }];
   }
 
   #assistantSegmentsFor(

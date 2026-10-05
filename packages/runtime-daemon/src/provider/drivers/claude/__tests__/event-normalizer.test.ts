@@ -259,40 +259,37 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
     }
   });
 
-  it(
-    "takes the null path when the ladder members " + "are absent, malformed, or announce no ladder",
-    () => {
-      // No signal means "not known to be limited": the run continues and a later failure takes the
-      // ordinary failure path, rather than parking against a boundary the frame did not state.
+  it("takes the null path when ladder members are absent, malformed, or announce no ladder", () => {
+    // No signal means "not known to be limited": the run continues and a later failure takes the
+    // ordinary failure path, rather than parking against a boundary the frame did not state.
 
-      // A frame with neither member, written out because the helper always supplies both.
+    // A frame with neither member, written out because the helper always supplies both.
+    expect(
+      classifyClaudeUsageLimitSignal(
+        { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).toBeNull();
+
+    const unusableLadders: readonly Record<string, unknown>[] = [
+      { attempt: undefined, max_retries: 10 },
+      { attempt: 10, max_retries: undefined },
+      // `"10" >= "10"` is true, so a comparison without the numeric guard would emit here.
+      { attempt: "10", max_retries: "10" },
+      { attempt: "10", max_retries: 10 },
+      { attempt: 10, max_retries: null },
+      { attempt: Number.NaN, max_retries: 10 },
+      { attempt: 10, max_retries: [10] },
+      // `max_retries: 0` announces no ladder; a bare finite check would let `0 >= 0` emit.
+      { attempt: 0, max_retries: 0 },
+      { attempt: -1, max_retries: -1 },
+    ];
+    for (const ladder of unusableLadders) {
       expect(
-        classifyClaudeUsageLimitSignal(
-          { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
-          RETRY_OBSERVED_AT_EPOCH_MS,
-        ),
+        classifyClaudeUsageLimitSignal(apiRetryFrame(ladder), RETRY_OBSERVED_AT_EPOCH_MS),
       ).toBeNull();
-
-      const unusableLadders: readonly Record<string, unknown>[] = [
-        { attempt: undefined, max_retries: 10 },
-        { attempt: 10, max_retries: undefined },
-        // `"10" >= "10"` is true, so a comparison without the numeric guard would emit here.
-        { attempt: "10", max_retries: "10" },
-        { attempt: "10", max_retries: 10 },
-        { attempt: 10, max_retries: null },
-        { attempt: Number.NaN, max_retries: 10 },
-        { attempt: 10, max_retries: [10] },
-        // `max_retries: 0` announces no ladder; a bare finite check would let `0 >= 0` emit.
-        { attempt: 0, max_retries: 0 },
-        { attempt: -1, max_retries: -1 },
-      ];
-      for (const ladder of unusableLadders) {
-        expect(
-          classifyClaudeUsageLimitSignal(apiRetryFrame(ladder), RETRY_OBSERVED_AT_EPOCH_MS),
-        ).toBeNull();
-      }
-    },
-  );
+    }
+  });
 
   it("returns the CAUSE ALONE when the frame carries no usable delay", () => {
     for (const retryDelayMs of [undefined, null, 0, -1, Number.NaN, "60000", {}]) {

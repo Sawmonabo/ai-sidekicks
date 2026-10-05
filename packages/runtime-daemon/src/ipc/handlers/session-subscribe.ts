@@ -1,5 +1,5 @@
-// `session.subscribe`: a session's event stream, replay then tail, sent to the screen in
-// batched frames. The request names the session and, in `afterCursor`, where to replay from;
+// `session.subscribe`: a session's event stream, catch up, then follow, sent to the screen in
+// batched frames. The request names the session and, in `afterCursor`, where to catch up from;
 // the response carries only the `subscriptionId`. Each change then travels as the `value` of a
 // `$/subscription/notify` frame keyed by that id; the client ends the stream with
 // `$/subscription/cancel`.
@@ -13,7 +13,7 @@
 //     screen repairs from the daemon's record by cursor. If nothing new happens after a drop,
 //     one frame with no changes, the drop mark and the newest cursor goes out as soon as the
 //     queue has room, so a session that went quiet still tells the screen it is behind.
-//   * Ordered after the ack. The upstream may replay synchronously inside this handler, so
+//   * Ordered after the ack. The upstream may catch up synchronously inside this handler, so
 //     every frame goes through the subscribe-init barrier, which holds it until the response
 //     has been written.
 //
@@ -67,11 +67,11 @@ export interface SessionSubscribeDeps {
   /** The outbound queues of the daemon's connections. */
   readonly outboundQueue: OutboundQueue;
   /**
-   * Follows a session's events: replays those after `afterCursor` (all of them when absent),
-   * then tails new ones, calling `onChange` with each event and its cursor. Returns the detach
-   * the handler runs when the subscription ends. `onChange` may run synchronously during this
-   * call, and the detach may run from inside `onChange`, so the source must tolerate being
-   * detached mid-emit. A session that does not exist, or a cursor it cannot read, throws.
+   * Follows a session's events: catches up with those after `afterCursor` (all of them when
+   * absent), then follows new ones, calling `onChange` with each event and its cursor. Returns
+   * the detach the handler runs when the subscription ends. `onChange` may run synchronously
+   * during this call, and the detach may run from inside `onChange`, so the source must tolerate
+   * being detached mid-emit. A session that does not exist, or a cursor it cannot read, throws.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,

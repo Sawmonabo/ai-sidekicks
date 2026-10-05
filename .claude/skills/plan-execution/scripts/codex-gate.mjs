@@ -42,8 +42,9 @@
  * polling at the one moment polling cannot work.
  *
  * This file is the I/O shell only: it fetches, then prints. Every predicate that
- * decides anything lives in lib/codex-verdict.mjs, where it is unit-tested —
- * see that module's header for why a live probe cannot test them.
+ * decides anything lives in lib/codex-signals.mjs, lib/merge-readiness.mjs and
+ * lib/codex-verdict.mjs, where it is unit-tested — see codex-verdict.mjs's
+ * header for why a live probe cannot test them.
  *
  * Prints a human block, then a machine-readable final line:
  *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...>
@@ -64,19 +65,16 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  checkState,
-  computeVerdict,
-  deriveCiStatus,
   deriveCommentSignals,
   derivePreBaselineAcks,
   derivePushAnchor,
   deriveReactionAck,
   deriveReviewAck,
   deriveStaleRunEvidence,
-  mergeStateAllowsMerge,
   selectUnresolvedBotThreads,
-  DEFAULT_SETTLE_WINDOW_MS,
-} from "./lib/codex-verdict.mjs";
+} from "./lib/codex-signals.mjs";
+import { computeVerdict, DEFAULT_SETTLE_WINDOW_MS } from "./lib/codex-verdict.mjs";
+import { checkState, deriveCiStatus, mergeStateAllowsMerge } from "./lib/merge-readiness.mjs";
 import { observeBaseline } from "./lib/observation-baseline.mjs";
 import {
   describeTruncation,
@@ -461,7 +459,7 @@ const rollupDrain = drainConnection((cursor) => {
 const { nodes: rollupNodes, truncated: checkWindowTruncated } = rollupDrain;
 
 // Deduped to the newest run per check name — a superseded CANCELLED row sitting
-// beside its real SUCCESS would otherwise read as red. See lib/codex-verdict.mjs.
+// beside its real SUCCESS would otherwise read as red. See lib/merge-readiness.mjs.
 const {
   status: ciStatus,
   failed: failedChecks,

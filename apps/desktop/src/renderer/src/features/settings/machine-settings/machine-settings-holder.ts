@@ -13,4 +13,7 @@ import { MachineSettingsStore } from "./machine-settings-store.js";
  * mints a new one, and a superseded bridge never gets its disposed store back.
  */
 export const machineSettingsHolder: KeyBoundHolder<PlatformBridge, MachineSettingsStore> =
-  new KeyBoundHolder((bridge: PlatformBridge) => new MachineSettingsStore(bridge.machineSettings));
+  new KeyBoundHolder(
+    (bridge: PlatformBridge) =>
+      new MachineSettingsStore(bridge.machineSettings, bridge.transportReconnect),
+  );

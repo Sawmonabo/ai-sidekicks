@@ -6,8 +6,8 @@
 // `services/transport/transport-reconnect.ts`, and `store/` sits below `services/` and cannot
 // import it. `lib/` is the layer both reach.
 //
-// It is one edge (the wire was away and is back), not a connection state: a view that could read
-// state would render "connected", a fact the renderer only observes indirectly.
+// It is one edge (the wire was away and is back), not a connection state: the state is main's
+// `daemon.status` topic, held in the window store, and a reading only re-reads on the edge.
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 

@@ -7,7 +7,7 @@ import { act } from "@testing-library/react";
 import { type Mock, vi } from "vitest";
 
 import type { ArtifactId, RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { ArtifactManifest, ArtifactState } from "@ai-sidekicks/contracts/artifacts/manifest";
+import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 import type {
   ArtifactPayloadEncoding,
   ArtifactReadResponse,
@@ -67,20 +67,6 @@ export const SERVED_VERSION: Pick<
 
 /** One served list of exactly the row above. */
 export const LISTED_ONE_ROW: readonly ArtifactManifest[] = [SERVED_SUMMARY];
-
-/**
- * One served read, which is a manifest plus a way to reach the bytes.
- *
- * The reply nests the envelope beside a payload handle rather than being it. This is the
- * deferred arm, which is what a metadata read lands on.
- */
-export function deferredRead(state: ArtifactState): ArtifactReadResponse {
-  return {
-    manifest: { ...SERVED_SUMMARY, state },
-    ...SERVED_VERSION,
-    payloadHandle: `sha256:2b4c/${state}`,
-  };
-}
 
 /** A served payload read on the inline arm, with the bytes and the encoding to read them by. */
 export function inlineRead(

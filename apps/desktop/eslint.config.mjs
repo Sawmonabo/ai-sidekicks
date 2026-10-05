@@ -194,9 +194,17 @@ const CONTRACTS_SCHEMA_IMPORT = {
     "reading of one. Types and non-schema values from this package are untouched.",
 };
 
+/** The daemon method table, which hands out each method's schemas: the same claim again. */
+const DAEMON_METHOD_BINDINGS_IMPORT = {
+  group: ["@shared/daemon-method-bindings.js"],
+  message:
+    "The daemon method table binds each method to its schemas, which are parsers. " +
+    "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`.",
+};
+
 /**
  * The groups a renderer module outside `services/` may not import: the renderer's, plus
- * the two that keep wire parsing out of a surface. Flat config replaces a rule's options
+ * the three that keep wire parsing out of a surface. Flat config replaces a rule's options
  * at the last matching block, so each narrower block below spreads these instead of
  * copying them.
  */
@@ -204,6 +212,7 @@ const RENDERER_WIRE_RESTRICTED_PATTERNS = [
   ...RENDERER_RESTRICTED_PATTERNS,
   ZOD_IMPORT,
   CONTRACTS_SCHEMA_IMPORT,
+  DAEMON_METHOD_BINDINGS_IMPORT,
 ];
 
 /**
@@ -433,7 +442,7 @@ const desktopConfig = defineConfig(
   //
   // Every daemon reply the renderer reads is parsed in one module,
   // `services/daemon/daemon-reply.ts`, against the schemas
-  // `services/daemon/daemon-reply-registry.ts` binds to each method. A surface that could reach the
+  // `src/shared/daemon-method-bindings.ts` binds to each method. A surface that could reach the
   // validator directly could parse a second time, differently, or skip the parse and keep the
   // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
   //
@@ -451,10 +460,11 @@ const desktopConfig = defineConfig(
   // importing `zod`, importing this package, or through a renderer barrel that re-exported one, and
   // both import spellings refuse here.
   //
-  // `services/**` is exempt as a layer, not the chokepoint file alone: the registry composes
-  // contracts-exported schemas, the run-stream projector decodes a subscription payload, and the
-  // scenario contract checks assert against the wire's own shapes, three modules in one layer below
-  // every surface.
+  // `services/**` is exempt as a layer, not the chokepoint file alone: `callDaemon` reads the
+  // daemon method table, the run-stream projector decodes a subscription payload, and the scenario
+  // contract checks assert against the wire's own shapes, three modules in one layer below every
+  // surface. The table itself sits in `src/shared/`, because main's relay parses against it too,
+  // so it is banned here by its module name.
   //
   // It restates the renderer ban because flat config replaces a rule's options at the last matching
   // object, and spreads the hoisted arrays so the two cannot drift.
@@ -482,21 +492,6 @@ const desktopConfig = defineConfig(
         {
           paths: RENDERER_RESTRICTED_PATHS,
           patterns: [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT],
-        },
-      ],
-    },
-  },
-  // `zod` where a module owns the data it validates, never a contracts schema. The schema
-  // form validates a person's answers against a workflow's input schema, which is not a
-  // wire read.
-  {
-    files: ["src/renderer/src/features/workflows/schema-form/json-schema-validator.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [...RENDERER_RESTRICTED_PATTERNS, CONTRACTS_SCHEMA_IMPORT],
         },
       ],
     },
@@ -762,6 +757,13 @@ const desktopConfig = defineConfig(
   {
     // The spawn module itself.
     files: ["tests/helpers/electron-child.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
+  {
+    // Main's one start of the background service. Its child is meant to outlive the app, so it
+    // starts detached and released; no test or app lifetime owns it, and the supervisor reaches
+    // it only through its socket. A test that starts it kills it by process id in teardown.
+    files: ["src/main/services/daemon/service-start.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   // --- Member order: file and class shapes, mechanical gates 10 and 11 in `apps/desktop/AGENTS.md`

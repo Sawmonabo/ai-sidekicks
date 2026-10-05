@@ -46,6 +46,7 @@ import {
   registerTranscriptCommands,
 } from "@renderer/features/transcript/index.js";
 import {
+  registerWorkflowCommands,
   registerWorkflowPanes,
   registerWorkflowScreens,
 } from "@renderer/features/workflows/index.js";
@@ -74,6 +75,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   registerComposerCommands(commands);
   registerComposerKeybindings(commands);
   registerTranscriptCommands(commands);
+  registerWorkflowCommands(commands);
   registerPaneLayoutCommands(commands);
 
   projectors.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);

@@ -10,9 +10,10 @@
 
 import "./accounts-fixture-body.css";
 
-import type { ProviderAccount } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccount, ProviderReadiness } from "@ai-sidekicks/contracts/provider-account";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/AccountDetail.js";
@@ -21,12 +22,16 @@ import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./components/QuotaTable.js";
 import { ReadinessRow } from "./components/ReadinessRow.js";
 import {
-  cancelProviderSignIn,
   startProviderSignIn,
   type ProviderAccountLoginCall,
   type ProviderAccountLoginCancelCall,
+  type ProviderAccountProbeCall,
+  type ProviderAccountSetCurrentCall,
   type ProviderAccountRegisterCall,
 } from "./provider-sign-in-flow.js";
+import { AccountCheckNow } from "./components/AccountCheckNow.js";
+import { AccountDefaultControl } from "./components/AccountDefaultControl.js";
+import { useAccountDefaultMove } from "./hooks/useAccountDefaultMove.js";
 import { ProviderSignInCard } from "./components/ProviderSignInCard.js";
 import {
   ProviderSignInFlowTracker,
@@ -40,6 +45,8 @@ export interface AccountOperations {
   readonly login: ProviderAccountLoginCall;
   readonly cancelLogin: ProviderAccountLoginCancelCall;
   readonly register: ProviderAccountRegisterCall;
+  readonly probe: ProviderAccountProbeCall;
+  readonly setCurrent: ProviderAccountSetCurrentCall;
 }
 
 /**
@@ -75,8 +82,9 @@ export function AccountsFixtureBody(props: {
       new ProviderSignInFlowTracker({
         startProviderSignIn: async (accountId) =>
           await startProviderSignIn(operations.login, accountId),
-        cancelProviderSignIn: async (attempt) =>
-          await cancelProviderSignIn(operations.cancelLogin, attempt),
+        cancelProviderSignIn: async (attempt) => {
+          await operations.cancelLogin({ attemptId: attempt.attemptId });
+        },
         // A flow ending says nothing about the account, so the registry is read again.
         onFlowSettled: requestRegistryRead,
       }),
@@ -93,14 +101,18 @@ export function AccountsFixtureBody(props: {
     () => providerSignInFlowTracker.snapshot(),
     () => providerSignInFlowTracker.snapshot(),
   );
-  // The registry's completion report ends a flow the service finished on its own; keyed on the
-  // attempt id so a re-render over the same completion re-runs nothing.
-  const completedAttemptId = registry.newestLoginCompletion?.attemptId;
+  // The registry's completion report ends a flow the service finished on its own. A repeat of a
+  // report already noted finds no flow holding that attempt and changes nothing.
+  const completion = registry.newestLoginCompletion;
   useEffect(() => {
-    if (completedAttemptId !== undefined) {
-      providerSignInFlowTracker.noteLoginCompleted(completedAttemptId);
+    if (completion !== undefined) {
+      providerSignInFlowTracker.noteLoginCompleted(completion);
     }
-  }, [completedAttemptId, providerSignInFlowTracker]);
+  }, [completion, providerSignInFlowTracker]);
+  const { move: defaultMove, setAsDefault } = useAccountDefaultMove(
+    operations.setCurrent,
+    requestRegistryRead,
+  );
 
   if (registry.phase === "reading") {
     return (
@@ -146,6 +158,10 @@ export function AccountsFixtureBody(props: {
               onStartSignIn={(accountId) => {
                 providerSignInFlowTracker.start(accountId);
               }}
+              remedyAccount={findRemedyAccount(registry.accounts, readiness)}
+              register={operations.register}
+              requestRegistryRead={requestRegistryRead}
+              probe={operations.probe}
             />
           ))}
         </ul>
@@ -176,6 +192,10 @@ export function AccountsFixtureBody(props: {
                 nowMilliseconds={clock.now()}
                 onSelect={(chosen: ProviderAccount) => {
                   setSelectedAccountId(chosen.accountId);
+                  // Pressing the row does exactly what `Set as default` does.
+                  if (!chosen.isDefault) {
+                    setAsDefault(chosen.accountId);
+                  }
                 }}
               />
             ))}
@@ -188,6 +208,17 @@ export function AccountsFixtureBody(props: {
           <section className="meridian-settings-page__block">
             <h3 className="meridian-settings-page__block-title">{selected.displayLabel}</h3>
             <AccountDetail account={selected} />
+            <AccountDefaultControl
+              account={selected}
+              move={defaultMove}
+              onSetAsDefault={setAsDefault}
+            />
+            <AccountCheckNow
+              key={selected.accountId}
+              accountId={selected.accountId}
+              probe={operations.probe}
+              onChecked={requestRegistryRead}
+            />
             {readinessForProvider(registry.readiness, selected.provider) === undefined ? (
               <p className="meridian-settings-page__aside">
                 The registry answered with no readiness entry for this account’s provider.
@@ -196,7 +227,9 @@ export function AccountsFixtureBody(props: {
           </section>
 
           <section className="meridian-settings-page__block">
-            <h3 className="meridian-settings-page__block-title">Quota — {selected.billingMode}</h3>
+            <h3 className="meridian-settings-page__block-title">
+              Quota — {BILLING_MODE_WORDS[selected.billingMode]}
+            </h3>
             <QuotaTable rows={accountQuotaRowsFrom(registry, selected)} />
           </section>
         </>
@@ -204,8 +237,20 @@ export function AccountsFixtureBody(props: {
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Register an account</h3>
-        <TokenRegistrationForm register={operations.register} />
+        <TokenRegistrationForm register={operations.register} accounts={registry.accounts} />
       </section>
     </>
   );
+}
+
+/** The account a readiness entry's remedy names, where it names one the registry carries. */
+function findRemedyAccount(
+  accounts: readonly ProviderAccount[],
+  readiness: ProviderReadiness,
+): ProviderAccount | undefined {
+  const { remedy } = readiness;
+  if (remedy === undefined || !("accountId" in remedy)) {
+    return undefined;
+  }
+  return accounts.find((account) => account.accountId === remedy.accountId);
 }

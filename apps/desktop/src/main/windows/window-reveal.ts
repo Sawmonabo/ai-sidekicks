@@ -14,7 +14,7 @@
 // document stays visible and draws. A release bundle carries none of this: all three sit behind
 // the compile-time build flag.
 
-import type { App, BrowserWindow, WebContents } from "electron";
+import type { App, BaseWindow, WebContents } from "electron";
 
 // Substituted by the `define` block in `electron.vite.config.ts` and by the Vitest project
 // (`vitest.config.ts`): `true` in the smoke and fixtures builds the automated tiers launch,
@@ -70,12 +70,20 @@ function resolveActivationPolicyChange(
     : "accessory";
 }
 
+/** The kept state a window is revealed into, beyond its rectangle. */
+export interface RevealState {
+  readonly isMaximized: boolean;
+  readonly isFullScreen: boolean;
+}
+
 /**
- * Puts a ready window on screen the way this launch asked for. Called from the `ready-to-show`
- * handler in `./window.ts`, the one reveal site.
+ * Puts a ready window on screen the way this launch asked for, maximized or fullscreen when its
+ * kept place was. Called by `./window.ts`, the one reveal site, once the window's document has
+ * loaded. Maximizing shows a window, so the kept state is applied only where the window is shown.
  */
 export function revealWindow(
-  browserWindow: Pick<BrowserWindow, "show" | "showInactive">,
+  baseWindow: Pick<BaseWindow, "show" | "showInactive" | "maximize" | "setFullScreen">,
+  state: RevealState,
   platform: NodeJS.Platform = process.platform,
 ): void {
   // The flag is tested inline as a literal in each wrapper: Vite substitutes it textually, so
@@ -88,11 +96,41 @@ export function revealWindow(
       return;
     }
     if (mode === "inactive") {
-      browserWindow.showInactive();
+      baseWindow.showInactive();
       return;
     }
   }
-  browserWindow.show();
+  baseWindow.show();
+  if (state.isFullScreen) {
+    baseWindow.setFullScreen(true);
+  } else if (state.isMaximized) {
+    baseWindow.maximize();
+  }
+}
+
+/**
+ * Brings an open window to the front and gives it focus, restoring it from the Dock or taskbar:
+ * a second launch, or a request for a view that window already shows.
+ */
+export function bringWindowForward(
+  baseWindow: Pick<BaseWindow, "isMinimized" | "restore" | "show" | "showInactive" | "focus">,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (__TEST_TIER_BUILD__) {
+    const mode = resolveWindowRevealMode(true, process.env, platform);
+    if (mode === "hidden") {
+      return;
+    }
+    if (mode === "inactive") {
+      baseWindow.showInactive();
+      return;
+    }
+  }
+  if (baseWindow.isMinimized()) {
+    baseWindow.restore();
+  }
+  baseWindow.show();
+  baseWindow.focus();
 }
 
 /**
@@ -101,11 +139,11 @@ export function revealWindow(
  * nothing, so an ordinary window keeps Chromium's default throttling.
  */
 export function applyRevealPreferences(
-  browserWindow: { readonly webContents: Pick<WebContents, "setBackgroundThrottling"> },
+  webContents: Pick<WebContents, "setBackgroundThrottling">,
   platform: NodeJS.Platform = process.platform,
 ): void {
   if (__TEST_TIER_BUILD__ && resolveWindowRevealMode(true, process.env, platform) !== "active") {
-    browserWindow.webContents.setBackgroundThrottling(false);
+    webContents.setBackgroundThrottling(false);
   }
 }
 

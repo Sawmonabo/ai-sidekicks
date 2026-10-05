@@ -146,7 +146,8 @@
 }
 
 .meridian-accounts__register input,
-.meridian-accounts__register select {
+.meridian-accounts__register select,
+.meridian-accounts__resupply input {
   min-width: 0;
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge-strong);
@@ -159,7 +160,7 @@
 /* The prose and the button each span both columns, since neither is a field. The outcome line
    spans with them through a class `settings-page.css` declares. */
 .meridian-accounts__register > p,
-.meridian-accounts__register > button {
+.meridian-accounts__register-actions {
   grid-column: 1 / -1;
 }
 
@@ -167,6 +168,26 @@
   --meridian-settings-page-state-grid-column: 1 / -1;
 }
 
-.meridian-accounts__register > button {
+.meridian-accounts__register-actions {
+  display: flex;
+  gap: var(--meridian-space-2);
   justify-self: start;
+}
+
+/* The fresh-token field under a token account's remedy: one field, its line and `Register`. */
+.meridian-accounts__resupply {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-accounts__resupply label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-accounts__resupply-actions {
+  display: flex;
+  gap: var(--meridian-space-2);
 }

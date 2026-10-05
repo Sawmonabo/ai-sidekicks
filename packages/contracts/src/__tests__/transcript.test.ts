@@ -40,6 +40,7 @@ const rowCommon = {
   id: "evt-0001",
   sessionId: SESSION_ID,
   sequence: 42,
+  cursor: CURSOR,
   category: "run_lifecycle",
   type: "run.started",
   summary: "Run started",

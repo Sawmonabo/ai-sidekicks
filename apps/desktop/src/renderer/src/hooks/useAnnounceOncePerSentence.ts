@@ -13,21 +13,11 @@
 // Always polite: an incomplete reading changes only what one view claims about itself, not
 // what the person can do, which is the assertive lane (`live-announcer.ts`).
 //
-// `useSettlementAnnouncement.ts` composes one sentence over this latch, and
-// `useReadSettlementAnnouncement.ts` counts "once" by a dedupe key, because two sessions with
-// the same row count say the same words. The two memories are separate refs because a call
-// site is in one mode for its whole life.
+// `useSettlementAnnouncement.ts` composes one sentence over this latch.
 
 import { useEffect, useRef } from "react";
 
 import { useAnnounce } from "./useAnnounce.js";
-/**
- * What "once" is counted by, where the sentence itself is the wrong answer.
- *
- * Compared by identity, which suits both members: a read's state object is replaced once per
- * settlement, and a session id is a different string once per scope change.
- */
-export type AnnouncementDedupeKey = object | string;
 
 /**
  * Say each of a pass's sentences once, in the polite region. The one latch.
@@ -35,37 +25,15 @@ export type AnnouncementDedupeKey = object | string;
  * `sentences` is what this pass has to say, or `undefined` where it makes no claim. An array
  * replaces what was said, so a sentence absent from it is forgotten and speaks again if it
  * returns; `undefined` leaves the memory standing, since a view whose read has not settled
- * has nothing to retract. `dedupeKey` counts "once" instead of the sentences, for a caller
- * whose distinct settlements can say identical words: a pass carrying a key it has not
- * announced under speaks every sentence, and a pass repeating a key says nothing. A pass with
- * no sentences never reaches that comparison.
+ * has nothing to retract.
  */
-export function useAnnounceOncePerSentence(
-  sentences: readonly string[] | undefined,
-  dedupeKey?: AnnouncementDedupeKey,
-): void {
+export function useAnnounceOncePerSentence(sentences: readonly string[] | undefined): void {
   const announce = useAnnounce();
   // A ref, not state: it must not cause a render, and it guards the effect's next run.
   const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
-  // The keyed arity's memory, beside the other: a call site is in one mode for its whole life,
-  // so one of the two is always untouched, and a single ref holding either shape would make
-  // its shape a question about the last pass.
-  const announcedKeyRef = useRef<AnnouncementDedupeKey>(undefined);
 
   useEffect(() => {
     if (sentences === undefined) {
-      return;
-    }
-    if (dedupeKey !== undefined) {
-      if (announcedKeyRef.current === dedupeKey) {
-        return;
-      }
-      announcedKeyRef.current = dedupeKey;
-      // Said in full rather than filtered against earlier passes: a settlement saying the
-      // words a previous one said is a real announcement.
-      for (const sentence of new Set(sentences)) {
-        announce(sentence, "polite");
-      }
       return;
     }
     // Collected as a set, not deduplicated as the loop runs: two readings in one view can say
@@ -79,5 +47,5 @@ export function useAnnounceOncePerSentence(
       announce(sentence, "polite");
     }
     announcedSentencesRef.current = spoken;
-  }, [sentences, dedupeKey, announce]);
+  }, [sentences, announce]);
 }

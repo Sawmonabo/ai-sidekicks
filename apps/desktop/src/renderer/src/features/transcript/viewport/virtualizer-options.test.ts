@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { createCountingScrollContainer } from "../scroll/scroll-container.test-support.js";
+import { createCountingScrollContainer } from "@renderer/lib/scroll/scroll-container.test-support.js";
 import { ViewportController } from "./viewport-controller.js";
 import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { attachedController } from "./viewport-controller.test-support.js";
@@ -40,7 +40,7 @@ describe("the virtualizer options — what the library is allowed to reach", () 
       heights.push(rect.height),
     );
     expect(scrollContainer.scrollListenerCount()).toBe(1);
-    // Replayed on subscribe, so a pane mounted mid-stream knows where it is.
+    // Resent on subscribe, so a pane mounted mid-stream knows where it is.
     expect(offsets).toStrictEqual([40]);
     expect(heights).toStrictEqual([300]);
   });

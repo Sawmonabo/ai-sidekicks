@@ -80,9 +80,6 @@ export class ClaudeSpawnLegComposer {
       onMcpServerStatus: params.onMcpServerStatus,
       // The shared composer, so this path and the auth probe cannot hold different opt-outs.
       mandatedEnvironment: composeClaudeMandatedEnvironment(),
-      // Unvalidated: the static capability gate above this driver already refuses an unpublished
-      // level.
-      outputSpeed: params.outputSpeed,
     };
   }
 

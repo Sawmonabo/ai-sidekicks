@@ -204,9 +204,10 @@ function renderReuse(reading: PrepareReading): React.JSX.Element | null {
       const verdict = reading.prerequisite.value;
       return (
         <div
-          className={
-            "meridian-prepare-root__verdict " + `meridian-prepare-root__verdict--${verdict.kind}`
-          }
+          className={[
+            "meridian-prepare-root__verdict",
+            `meridian-prepare-root__verdict--${verdict.kind}`,
+          ].join(" ")}
         >
           <p>{REUSE_VERDICT_COPY[verdict.kind]}</p>
           {verdict.kind === "none" ? null : (

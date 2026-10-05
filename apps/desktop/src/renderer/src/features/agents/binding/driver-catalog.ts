@@ -1,7 +1,8 @@
 // The driver catalog reads (`driver.listModels`, `driver.listCapabilities`) and the selectors
 // every axis control asks of them. The two are read together, all or nothing, because a
 // partial catalog would read as "this provider has no models". Effort levels are per model,
-// and an absent list (`undefined`) is a different answer from an empty one.
+// and an absent list (`undefined`) is a different answer from an empty one. Speed levels are
+// per model where the provider publishes them so, else the driver's one list.
 
 import type {
   ListCapabilitiesResult,
@@ -74,4 +75,43 @@ export function catalogCarriesEffortLevel(
     return false;
   }
   return effortLevelsFor(catalog, driverName, modelId)?.includes(effort) === true;
+}
+
+/**
+ * One model's output-speed vocabulary: the model's own list where its provider publishes one,
+ * else the driver's list on the capability report. `undefined` where the driver declares no
+ * speed axis or the model is not listed, so a form shows no speed control.
+ *
+ * @consumedBy the composer's output-speed control
+ */
+export function outputSpeedLevelsFor(
+  catalog: DriverCatalogReading,
+  driverName: string | undefined,
+  modelId: string | undefined,
+): readonly string[] | undefined {
+  const report = catalog.capabilities.drivers.find((entry) => entry.driverName === driverName);
+  if (report?.capabilities.flags.output_speed !== true) {
+    return undefined;
+  }
+  const model = modelsFor(catalog, driverName).find((entry) => entry.id === modelId);
+  if (model === undefined) {
+    return undefined;
+  }
+  return model.outputSpeedLevels ?? report.outputSpeedLevels;
+}
+
+/**
+ * Whether this model's speed vocabulary carries this speed, so a speed change may be sent.
+ * Fails closed: an unread catalog, an absent vocabulary and an empty one all answer no.
+ */
+export function catalogCarriesOutputSpeed(
+  catalog: DriverCatalogReading | undefined,
+  driverName: string | undefined,
+  modelId: string | undefined,
+  outputSpeed: string,
+): boolean {
+  if (catalog === undefined) {
+    return false;
+  }
+  return outputSpeedLevelsFor(catalog, driverName, modelId)?.includes(outputSpeed) === true;
 }

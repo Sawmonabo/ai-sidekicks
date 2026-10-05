@@ -1,6 +1,6 @@
-// `rebuildSession()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
-// an event log whose bootstrap is missing or not at sequence 0, since projecting from it would
-// present partial state as complete.
+// `rebuildSession()` projects the owner from the bootstrap `session.created` event's `actor`, and
+// refuses an event log whose bootstrap is missing or not at sequence 0, since projecting from it
+// would present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 

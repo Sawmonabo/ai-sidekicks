@@ -1,4 +1,4 @@
-// `driver.subscribeEvents`: one run's driver events, replay then tail, over the streaming
+// `driver.subscribeEvents`: one run's driver events, catch up, then follow, over the streaming
 // primitive. The request/response driver verbs live in `driver-handlers.ts`; this one is
 // separate because it allocates per-connection state and its teardown must survive wire cancel,
 // transport disconnect and internal cancellation alike.

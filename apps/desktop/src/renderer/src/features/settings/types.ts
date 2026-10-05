@@ -56,7 +56,7 @@ export interface SettingsPageContext {
    * render the same value.
    */
   readonly mainProcessState: MainProcessState;
-  /** This window's act for choosing a color scheme, the one the palette row cycles. */
+  /** This window's act for choosing a color scheme, which asks main to keep it. */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 

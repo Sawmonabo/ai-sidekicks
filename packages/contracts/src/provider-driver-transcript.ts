@@ -214,7 +214,8 @@ export interface ProviderCommandListResult {
 
 /**
  * The provider's own report of its accelerated-output state, held for the binding's life from the
- * first turn that carries it; absent until then and never stored.
+ * first declaration the provider makes, at spawn or thread establishment; absent until then and
+ * never stored.
  */
 export interface ProviderOutputSpeedState {
   /** The provider's level, verbatim; a level the driver does not list is kept, not coerced. */

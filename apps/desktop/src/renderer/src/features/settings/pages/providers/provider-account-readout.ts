@@ -43,10 +43,10 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    */
   readonly accounts: readonly ProviderAccount[];
   /**
-   * What run admission would answer for each provider, as the last read computed it.
+   * Each provider's readiness entry and its one remedy, as the last read computed it.
    *
    * Read-time, not folded from the tail: the projection is the daemon's, derived by the same
-   * resolution the spawn path performs, and the subscription carries no readiness frame. A
+   * resolution a run's start performs, and the subscription carries no readiness frame. A
    * re-read keeps it current, which is why a settled sign-in asks for one.
    */
   readonly readiness: readonly ProviderReadiness[];

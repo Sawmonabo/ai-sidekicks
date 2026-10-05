@@ -10,7 +10,6 @@ export const PANE_KINDS = [
   "transcript",
   "inspector",
   "diff",
-  "workflow-run",
   "workflow-builder",
   "browser",
   "terminal",

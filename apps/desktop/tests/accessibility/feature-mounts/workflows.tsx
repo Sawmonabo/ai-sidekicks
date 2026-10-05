@@ -1,31 +1,34 @@
-// The workflows feature's screen and panes, mounted once for the accessibility tier.
+// The workflows feature's screen and pane, mounted once for the accessibility tier.
 //
 // The bodies come out of the feature's own registries (`PaneRegistry`, `ScreenRegistry`) after it
 // registers into them, so a tier renders what the pane layout and the rail would mount, with the
-// feature's stylesheets loaded as in the app. Each view draws what it has with no run or
-// definition read. The run's phase graph is mounted alone, from a hand-built run, because no
-// view composes it yet.
-//
-// The destination is mounted with a session in scope by navigating into a session and then to
-// workflows: the window store's retention of the last opened session is its own rule, and
-// writing the field directly could mount a frame the store cannot produce.
+// feature's stylesheets loaded as in the app. The screen is mounted over the shipped playback,
+// whose replies answer on the engine's frozen clock, so a mount moves that clock until every read
+// the view puts in flight has answered: the runs list, and a run's page with its graph and the
+// step panel it opens on the step waiting on a person.
 //
 // A pane is a region named by its crumb trail through `aria-labelledby`, so it is found by its
-// current crumb. The destination is not a region and is found by its root class.
+// current crumb. The screen is not a region and is found by its root class.
 
 import type { FunctionComponent } from "react";
 
+import { act } from "@testing-library/react";
+
 import { renderSettled } from "../../helpers/app-harness.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "../../helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "../../helpers/app-frame-fixtures.js";
+import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import {
-  PARKED_RUN,
   PROBE_SESSION_ID,
   definition,
 } from "@renderer/features/workflows/workflows-probe.test-support.js";
-import { RunGraphSection } from "@renderer/features/workflows/run-page/components/RunGraphSection.js";
+import { type AppRoute } from "@renderer/routing/routes.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "@renderer/store/persistence-caps.js";
@@ -103,19 +106,14 @@ async function screenBodyComponent(): Promise<FunctionComponent<{ context: Scree
 }
 
 /**
- * The screen context the rail mounts a destination with. The frame store is put in the state a
- * person arrives in by navigating into a session and then to workflows; the session-store
+ * The screen context the rail mounts the workflows screen with at `route`. The session-store
  * registry is real and empty because this window has opened nothing.
  */
-function screenContext(bridge: PlatformBridge): ScreenContext {
-  const frameStore = new WindowStore({
-    initialRoute: { kind: "session", sessionId: PROBE_SESSION_ID },
-  });
-  frameStore.navigate({ kind: "workflows" });
+function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
   return {
-    route: { kind: "workflows" },
+    route,
     bridge,
-    frameStore,
+    frameStore: new WindowStore({ initialRoute: route }),
     sessionStore: undefined,
     // The registry hands its fold to every store it opens, so it takes the window's composition.
     sessionStoreRegistry: new SessionStoreRegistry({
@@ -130,60 +128,65 @@ function screenContext(bridge: PlatformBridge): ScreenContext {
   };
 }
 
+/** How far the frozen clock moves per round, and how many rounds a chain of reads is given. */
+const SETTLE_STEP_MS = 250;
+const SETTLE_ROUNDS = 8;
+
 /**
- * The workflows destination, mounted through the rail's own screen registry with a session in
- * scope.
+ * Move the playback's clock until every read in flight has answered: a run's page reads the run,
+ * then its version chain, then the version, then the form its waiting step holds, each held on
+ * the clock until it moves.
+ */
+async function answerHeldReads(fixture: FixtureBridge): Promise<void> {
+  for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
+    await act(async () => {
+      fixture.scenarioEngine.advance(SETTLE_STEP_MS);
+      await crossMacrotaskBoundary();
+    });
+  }
+}
+
+/**
+ * The workflows screen at `route` over the shipped playback, through the rail's own screen
+ * registry, once every read it puts in flight has answered.
  *
  * It renders under the bridge provider as the running app does: a screen body reaches the
  * bridge through the provider, so a bare mount would throw. The announcer wraps it because
  * `useAnnounce` throws outside its provider.
  */
-export async function mountWorkflowsDestination(): Promise<MountedView> {
-  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflows-destination") });
+async function mountWorkflowsScreenAt(route: AppRoute): Promise<MountedView> {
+  const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const { bridge } = fixture;
-  const WorkflowsDestinationBody = await screenBodyComponent();
+  const WorkflowsScreenBody = await screenBodyComponent();
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
-        <WorkflowsDestinationBody context={screenContext(bridge)} />
+        <WorkflowsScreenBody context={screenContext(bridge, route)} />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
+  await answerHeldReads(fixture);
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
-    throw new Error("the workflows destination rendered no root");
+    throw new Error("the workflows screen rendered no root");
   }
   return { element, bridge };
 }
 
-/** The run pane addressed at a run, drawing the frame it has without a run read. */
-export async function mountWorkflowRunPane(): Promise<MountedView> {
-  const fixture = createFixtureBridge({ scenario: unscriptedScenario("workflow-run-pane") });
-  const { bridge } = fixture;
-  const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
-  const { container } = await renderSettled(
-    <FixtureBridgeProvider fixture={fixture}>
-      <WorkflowRunPaneBody
-        context={paneContext(
-          { kind: "workflow-run", entity: { kind: "workflow-run", id: PARKED_RUN.workflowRunId } },
-          { paneId: "pane-workflow-run", bridge, sessionStore: probeSessionStore() },
-        )}
-      />
-    </FixtureBridgeProvider>,
-  );
-  return { element: requirePaneNamed(container, "Workflow run"), bridge };
+/** The Runs tab: the attention list, the filters and the runs table, all read. */
+export async function mountWorkflowRunsTab(): Promise<MountedView> {
+  return mountWorkflowsScreenAt({ kind: "workflows", tab: "runs" });
 }
 
 /**
- * The run's phase graph, drawn from a hand-built run parked on a usage window and on a person's
- * sign-off.
+ * One run's page: its header, its graph and, where the run waits on a person, the step panel
+ * open on the waiting step.
  *
  * The graph renderer is a lazily loaded chunk, so a reader waits on `run-graph-settled.ts`
  * before it reads the picture.
  */
-export async function mountWorkflowRunPhaseGraph(): Promise<HTMLElement> {
-  const { container } = await renderSettled(<RunGraphSection phases={PARKED_RUN.phaseStates} />);
-  return container;
+export async function mountWorkflowRunPage(workflowRunId: string): Promise<MountedView> {
+  return mountWorkflowsScreenAt({ kind: "workflows", tab: "runs", runId: workflowRunId });
 }
 
 /**

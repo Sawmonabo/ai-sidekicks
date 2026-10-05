@@ -16,6 +16,7 @@ import { Emitter } from "@renderer/lib/emitter.js";
 import { clampedRowIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { isEphemeralPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";
+import { paneEntitiesAreEqual } from "@renderer/routing/panes/pane-entity-record.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import {
   PANE_LAYOUT_TOTAL_PERMILLE,
@@ -81,7 +82,9 @@ export class PaneLayoutStore {
   }
 
   /**
-   * Opens a pane, or focuses the one already showing that entity. Returns the pane id either way.
+   * Opens a pane, or focuses the one already showing that entity, re-pointing it where the
+   * address carries members its identity leaves out (the snapshot points Review compares for a
+   * run). Returns the pane id either way.
    *
    * An open with no source pane comes from a list (the palette, a rail destination) and lands at
    * the end at an equal share. An open linked to a source is a split: the pane arrives right of
@@ -95,6 +98,15 @@ export class PaneLayoutStore {
       addressesMatch(pane, { kind: address.kind, entity }),
     );
     if (existing !== undefined) {
+      if (!paneEntitiesAreEqual(existing.entity, entity)) {
+        this.#commit({
+          panes: this.#state.panes.map((pane) =>
+            pane.paneId === existing.paneId ? { ...pane, entity } : pane,
+          ),
+          focusedPaneId: existing.paneId,
+        });
+        return existing.paneId;
+      }
       this.focus(existing.paneId);
       return existing.paneId;
     }

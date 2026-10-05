@@ -45,7 +45,7 @@ import type { RelayMethodDescriptors } from "./relay.js";
 import type { RepoMethodDescriptors } from "./repo-methods.js";
 import type { ReviewNoteMethodDescriptors } from "./review-note.js";
 import type { RunControlMethodDescriptors } from "./run-control.js";
-import type { SessionControlMethodDescriptors } from "./session-controls.js";
+import type { SessionControlMethodDescriptors } from "./session-controls/methods.js";
 import type { SessionDirectoryMethodDescriptors } from "./session-directory.js";
 import type { SessionDraftMethodDescriptors } from "./session-draft.js";
 import type { SessionGoalMethodDescriptors } from "./session-goal.js";

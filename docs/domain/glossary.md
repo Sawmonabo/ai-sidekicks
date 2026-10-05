@@ -20,7 +20,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Agent` | A configured execution persona inside a session, used to perform runs. Code and docs say agent for the concept; "sidekick" is the brand and the word a person reads on screen. |
 | `AgentDefinition` | A saved, reusable agent configuration the Sidekicks destination lists; a run started under one keeps the configuration it was resolved for. |
 | `Run` | A single execution episode performed by one agent inside one session. |
-| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-recovery-and-replay.md). |
+| `RuntimeBinding` | An association between a `Run` and a specific provider driver instance. Fields: `driver_name`, `contract_version`, `resume_handle`, `runtime_metadata`. Persists recovery handles so a run can be resumed after interruption. Created by Plan-003 (provider driver contract), extended by Plan-012 for recovery. Stored in the `runtime_bindings` SQLite table. See [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md) and [Spec-013](../specs/013-persistence-and-recovery.md). |
 | `QueueItem` | A persisted unit of deferred work awaiting admission into the run engine. |
 | `Intervention` | An auditable control action that changes, redirects, pauses, resumes, or interrupts active or queued work. |
 | `RepoMount` | A git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, owned by its one chat. |
@@ -63,7 +63,7 @@ This glossary is not a substitute for the detailed domain docs. Each term is def
 - `Worktree` is a specialized repository execution root inside a `Workspace`; it is not a synonym for `Workspace`.
 - `ExecutionMode` determines how a `Run` uses a repo-bound `Workspace`.
 - `Run` is an execution episode and `Agent` is the live actor inside a session that performs it; `AgentDefinition` is the saved, reusable configuration an `Agent` is resolved from.
-- `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and replay.
+- `RuntimeBinding` ties a `Run` to a specific provider driver instance and carries the recovery handles needed for persistence and rebuilds.
 - `Workflow` is a reusable execution template. `WorkflowDefinition` records the template; `WorkflowVersion` is an immutable snapshot; `WorkflowRun` is an execution instance inside a `Session`.
 - `WorkflowDocument` is the body a `WorkflowVersion` snapshots, and each of its nodes is one step a run executes; a `WorkflowStep` records one attempt of one node; a `Gate` is a `human.approval` step or a chain's question, and the run waits on it until the person answers.
 - `local-only` may describe session continuity or execution scope, but it does not define a second kind of `Session`.
@@ -90,7 +90,7 @@ The glossary changes with the domain docs: each entry carries the same meaning a
 - [Repo Attachment And Workspace Binding](../specs/007-repo-attachment-and-workspace-binding.md)
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
 - [Approvals Permissions And Trust Boundaries](../specs/010-approvals-permissions-and-trust-boundaries.md)
-- [Persistence Recovery And Replay](../specs/013-persistence-recovery-and-replay.md)
+- [Persistence And Recovery](../specs/013-persistence-and-recovery.md)
 - [Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md)
 
 ## Related ADRs

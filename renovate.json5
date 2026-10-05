@@ -4,11 +4,10 @@
 // `minimumReleaseAge` in pnpm-workspace.yaml, which every install enforces.
 //
 // helpers:pinGitHubActionDigests pairs with the SHA-pinned third-party actions in
-// .github/workflows/*.yml, and Renovate keeps the SHAs current. A few current pins (e.g.
-// pnpm/action-setup, googleapis/release-please-action) resolve to annotated-tag-object SHAs from
-// `git ls-remote refs/tags/<tag>`, not commit SHAs. GitHub Actions accepts both (it resolves
-// through the tag object), so the immutable-pin property is identical, and the preset normalizes
-// them to commit SHAs on the next bump.
+// .github/workflows/*.yml, and Renovate keeps the SHAs current. A current pin (pnpm/action-setup)
+// resolves to an annotated-tag-object SHA from `git ls-remote refs/tags/<tag>`, not a commit SHA.
+// GitHub Actions accepts both (it resolves through the tag object), so the immutable-pin property
+// is identical, and the preset normalizes it to a commit SHA on the next bump.
 //
 // Dependabot is not used: it has no first-class minimum release age.
 
@@ -51,7 +50,6 @@
     // Release-tooling actions: never automerge majors.
     {
       matchPackageNames: [
-        "googleapis/release-please-action",
         "actions/checkout",
         "actions/setup-node",
         "pnpm/action-setup",

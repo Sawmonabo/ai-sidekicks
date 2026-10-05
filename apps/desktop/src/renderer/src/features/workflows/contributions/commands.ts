@@ -1,0 +1,69 @@
+// The workflows screen's two keyed acts for the command registry, `Next waiting` and `Answer
+// this run`. They are contributed at composition so they and their chords exist from the first
+// frame, and each presses whatever on screen offers it at that moment; a press nothing offers
+// states its refusal on the frame's banner.
+
+import { type CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
+import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
+import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
+import {
+  answerThisRunTarget,
+  nextWaitingTarget,
+  type WorkflowCommandTarget,
+} from "../workflow-command-target.js";
+import { WHEN_ON_WORKFLOWS, WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
+import { WORKFLOWS_OWNER } from "./panes.js";
+
+/** The palette group the workflows commands sit under. */
+const WORKFLOWS_COMMAND_GROUP = "Workflows";
+
+/** Build the workflows commands over the two acts they press. */
+export function createWorkflowCommands(acts: {
+  readonly nextWaiting: WorkflowCommandTarget;
+  readonly answerThisRun: WorkflowCommandTarget;
+}): readonly CommandDefinition[] {
+  return [
+    {
+      id: "workflows.nextWaiting",
+      title: "Next waiting",
+      group: WORKFLOWS_COMMAND_GROUP,
+      when: WHEN_ON_WORKFLOWS,
+      keywords: ["run", "approval", "blocked"],
+      run: () => {
+        pressAct(acts.nextWaiting);
+      },
+    },
+    {
+      id: "workflows.answerThisRun",
+      title: "Answer this run",
+      group: WORKFLOWS_COMMAND_GROUP,
+      when: WHEN_ON_WORKFLOWS,
+      keywords: ["approve", "submit", "keep going"],
+      run: () => {
+        pressAct(acts.answerThisRun);
+      },
+    },
+  ];
+}
+
+/**
+ * Contribute the workflows commands and chords to a window, under the feature's owner. Takes
+ * the registry so a test contributes into one it owns.
+ */
+export function registerWorkflowCommands(registry: CommandContributionRegistry): void {
+  registry.contribute({
+    owner: WORKFLOWS_OWNER,
+    commands: createWorkflowCommands({
+      nextWaiting: nextWaitingTarget,
+      answerThisRun: answerThisRunTarget,
+    }),
+    keyBindings: WORKFLOW_KEY_BINDINGS,
+  });
+}
+
+function pressAct(act: WorkflowCommandTarget): void {
+  const refusal = act.press();
+  if (refusal !== undefined) {
+    raiseCommandRefusal(refusal);
+  }
+}

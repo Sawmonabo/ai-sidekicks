@@ -9,8 +9,7 @@
 //   - `defaults` is a function, not an array, because features contribute chords from effects
 //     after construction; a movable base supplies `subscribeToDefaults` and the store re-composes.
 //   - An override applies to this window before the write settles, and a refused write is
-//     disclosed ("worked for this window, will not come back"), as in
-//     `app/hooks/useSchemePreference.ts`.
+//     disclosed ("worked for this window, will not come back").
 //   - A stored override passes the same check as a fresh one. A chord that no longer installs is
 //     declined and named, since handing it to `setBindings` would raise in the frame's effect; an
 //     override for a missing act is skipped and left out of the next write.

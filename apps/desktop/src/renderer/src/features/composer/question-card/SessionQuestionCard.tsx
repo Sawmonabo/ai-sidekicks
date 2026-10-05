@@ -3,7 +3,7 @@
 // Its own component so that only a row that is a question arms the answer dispatcher. A
 // row that is not a question renders something else and arms none of it.
 
-import type { QuestionAskedPersonalData } from "@ai-sidekicks/contracts/question";
+import type { QuestionAskedPayload } from "@ai-sidekicks/contracts/question";
 import { type QuestionReading } from "@renderer/store/session-events/question-reading.js";
 import { useQuestionAnswer, type ResolveQuestionCall } from "./hooks/useQuestionAnswer.js";
 import { QuestionCard } from "./QuestionCard.js";
@@ -12,8 +12,8 @@ import { QuestionCard } from "./QuestionCard.js";
 export interface SessionQuestionCardProps {
   /** The question this row is blocked on. */
   readonly question: QuestionReading;
-  /** Every question of the record, from the row's personal-data half. */
-  readonly questions: QuestionAskedPersonalData["questions"];
+  /** Every question of the record, from the row's payload. */
+  readonly questions: QuestionAskedPayload["questions"];
   readonly resolveQuestion: ResolveQuestionCall;
 }
 

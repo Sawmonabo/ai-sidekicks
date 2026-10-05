@@ -11,7 +11,11 @@
 // lead, not a title, which its `.strict()` schema rejects.
 
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
-import { composeScenarioInstant, composeScriptBeats } from "../data/script-entries.js";
+import {
+  composeScenarioInstant,
+  composeScriptBeats,
+  findBeatCursor,
+} from "../data/script-entries.js";
 import type { Scenario } from "../scenario.js";
 
 /** The id of the first-run scenario. */
@@ -23,6 +27,32 @@ const AGENT_LEAD = "019b78c9-0a80-7a6e-8110-d1a4c1150201";
 const STARTED_AT_MS: number = Date.UTC(2026, 0, 1, 9, 0);
 const STARTED_AT_ISO: string = composeScenarioInstant(STARTED_AT_MS, 0);
 
+const FIRST_RUN_BEATS = composeScriptBeats({
+  sessionId: SESSION_ID,
+  // The daemon's opaque row id, a UUID v7 like every other id here.
+  eventIdStem: "019b78c9-0a80-7ea1-8110-e5e0d115",
+  startedAtMs: STARTED_AT_MS,
+  entries: [
+    {
+      atMs: 0,
+      kind: "session.created",
+      actorId: USER_YOU,
+      payload: composeSessionCreatedPayload({
+        sessionId: SESSION_ID,
+        shape: "chat",
+        openedBy: USER_YOU,
+        lead: {
+          agentId: AGENT_LEAD,
+          name: "Lead",
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+        },
+        createdAt: STARTED_AT_ISO,
+      }),
+    },
+  ],
+});
+
 /** A freshly installed app: one user, one session being provisioned, no history. */
 export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
@@ -32,31 +62,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
     "history — the state the empty-state design is pinned against.",
   sessionId: SESSION_ID,
   startedAtIso: STARTED_AT_ISO,
-  beats: composeScriptBeats({
-    sessionId: SESSION_ID,
-    // The daemon's opaque row id, a UUID v7 like every other id here.
-    eventIdStem: "019b78c9-0a80-7ea1-8110-e5e0d115",
-    startedAtMs: STARTED_AT_MS,
-    entries: [
-      {
-        atMs: 0,
-        kind: "session.created",
-        actorId: USER_YOU,
-        payload: composeSessionCreatedPayload({
-          sessionId: SESSION_ID,
-          shape: "chat",
-          openedBy: USER_YOU,
-          lead: {
-            agentId: AGENT_LEAD,
-            name: "Lead",
-            driverName: "claude",
-            modelId: "claude-sonnet-5",
-          },
-          createdAt: STARTED_AT_ISO,
-        }),
-      },
-    ],
-  }),
+  beats: FIRST_RUN_BEATS,
   replies: [
     {
       // `provisioning` is what a session being created reads as before it is admitted.
@@ -69,7 +75,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
           updatedAt: STARTED_AT_ISO,
           draft: "",
         },
-        transcriptCursors: { latest: "first-run-cursor-1" },
+        transcriptCursors: { latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length) },
       },
     },
   ],

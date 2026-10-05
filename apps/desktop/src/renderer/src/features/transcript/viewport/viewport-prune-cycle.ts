@@ -11,7 +11,7 @@
 import { IdleMemoryTrim } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
-import { type ScrollController } from "../scroll/scroll-chokepoint.js";
+import { type ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { type ViewportConditions } from "./viewport-snapshot.js";
 import {

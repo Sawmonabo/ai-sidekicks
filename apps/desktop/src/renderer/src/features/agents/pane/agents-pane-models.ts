@@ -2,7 +2,7 @@
 // each read and what makes it ask again. A console shows one session, so the models hold one agent
 // list (built with them) and at most one child-run links read (built on the first lease, disposed
 // with the last). Acquiring a child-run links read does not start it: render may be abandoned or
-// replayed, so the pane starts it from a mount effect, where a cleanup exists. `start()` is
+// re-run, so the pane starts it from a mount effect, where a cleanup exists. `start()` is
 // idempotent. The clock comes from the bridge, so the fixture's frozen clock drives every debounce.
 
 import type { Clock } from "@renderer/lib/clock.js";

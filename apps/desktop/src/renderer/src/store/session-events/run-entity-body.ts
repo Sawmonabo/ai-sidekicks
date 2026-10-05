@@ -46,6 +46,8 @@ const RUN_BODY_MEMBER_READERS = {
   failureCause: "object",
   recoveryCondition: "string",
   providerFailureDetail: "string",
+  /** How a provider process that ended on its own exited, carried whole on a failed run's beat. */
+  processExit: "object",
   completionKind: "string",
   intendedClose: "boolean",
   /** Stamped on `run.running`, where the resolved root and posture are final. */

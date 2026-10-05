@@ -4,15 +4,17 @@
 // CSP), `./renderer-assets.ts` (containment and resolution) and
 // `../windows/load-failure-document.ts` (the generated failure document).
 //
-// Two entry points, so the startup order is assertable (`startup-order.test.ts`):
+// Two entry points, so the startup order is assertable (`startup-composition.test.ts`):
 // `registerRendererScheme()` at module top level in `main/index.ts`, ahead of every
-// `whenReady()` consumer, and `installRendererProtocol(rendererRoot)` inside `whenReady()`
-// before any window exists.
+// `whenReady()` consumer, and `installRendererProtocol(rendererRoot, rootStamp)` inside
+// `whenReady()` before any window exists.
 //
 // The bundle is served over this scheme, never `file://`, because the hardening baseline
 // disables the `GrantFileProtocolExtraPrivileges` fuse. Bodies stream through `net.fetch`
 // over a `file:` URL, the pattern Electron's `protocol.handle` documentation gives, so no
-// response is buffered in main-process memory.
+// response is buffered in main-process memory. The one exception is the console document,
+// `index.html`, read whole so the appearance record, and the safe-start mark on a load after
+// repeated renderer crashes, can be stamped on its root element (`./root-stamp.ts`).
 
 import { net, protocol } from "electron";
 import { pathToFileURL } from "node:url";
@@ -22,7 +24,12 @@ import {
   renderLoadFailureDocument,
 } from "../windows/load-failure-document.js";
 import { resolveRendererAsset } from "./renderer-assets.js";
-import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_SCHEME } from "./renderer-scheme.js";
+import {
+  RENDERER_CONTENT_SECURITY_POLICY,
+  RENDERER_INDEX_URL,
+  RENDERER_SCHEME,
+} from "./renderer-scheme.js";
+import { stampRootElement, type RootStamp } from "./root-stamp.js";
 
 // Module-scoped on purpose: it mirrors a process-global Electron constraint (one
 // `registerSchemesAsPrivileged` call per process, before `app.ready`). Set before the Electron
@@ -68,13 +75,15 @@ function emptyResponse(status: number): Response {
 
 /**
  * Installs the `sidekicks-renderer://` handler over the built renderer tree. Call inside
- * `app.whenReady()` before any `BrowserWindow` exists. A second call throws from Electron's
- * duplicate-handler check; this module adds no guard that would mask it.
+ * `app.whenReady()` before any window exists. `rootStamp` is read each time the console document
+ * is served, so it reports the record and the start kind in force then. A second call throws from
+ * Electron's duplicate-handler check; this module adds no guard that would mask it.
  */
-export function installRendererProtocol(rendererRoot: string): void {
+export function installRendererProtocol(rendererRoot: string, rootStamp: RootStamp): void {
   protocol.handle(
     RENDERER_SCHEME,
-    (request: Request): Promise<Response> => handleRendererRequest(rendererRoot, request.url),
+    (request: Request): Promise<Response> =>
+      handleRendererRequest(rendererRoot, request.url, rootStamp),
   );
 }
 
@@ -83,7 +92,11 @@ export function installRendererProtocol(rendererRoot: string): void {
  * locked headers) is asserted directly, since `resolveRendererAsset`'s verdict carries no body
  * or header.
  */
-export async function handleRendererRequest(rendererRoot: string, url: string): Promise<Response> {
+export async function handleRendererRequest(
+  rendererRoot: string,
+  url: string,
+  rootStamp: RootStamp,
+): Promise<Response> {
   // First and without touching the file system: this document exists to be servable when the
   // tree is not.
   const loadFailureReason = matchLoadFailureRequest(url);
@@ -114,8 +127,21 @@ export async function handleRendererRequest(rendererRoot: string, url: string): 
     return emptyResponse(404);
   }
 
+  if (isConsoleDocument(url)) {
+    return new Response(stampRootElement(await fileResponse.text(), rootStamp), {
+      status: 200,
+      headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
+    });
+  }
+
   return new Response(fileResponse.body, {
     status: 200,
     headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
   });
+}
+
+/** Whether `url` asks for the console document itself, whatever fragment or query it carries. */
+function isConsoleDocument(url: string): boolean {
+  const requested = new URL(url);
+  return `${requested.protocol}//${requested.host}${requested.pathname}` === RENDERER_INDEX_URL;
 }

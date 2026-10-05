@@ -57,7 +57,7 @@ export interface PtyHost {
   /**
    * Invoked for each stdout or stderr chunk of a session; `chunk` is the decoded
    * `DataFrame.bytes`. It fires only after `spawn()` resolves for `sessionId`: an out-of-process
-   * backend buffers chunks that arrive before the matching `SpawnResponse` and replays them on a
+   * backend buffers chunks that arrive before the matching `SpawnResponse` and releases them on a
    * later turn, or the consumer would see data for a session id it has not recorded yet.
    */
   onData(sessionId: string, chunk: Uint8Array): void;
@@ -68,7 +68,7 @@ export interface PtyHost {
    *
    * It fires exactly once for every session whose `spawn()` succeeded, even for a child that exits
    * before the spawn response arrives: an out-of-process backend buffers such early exits by
-   * `sessionId` and replays them on a later turn, after the consumer's `await spawn()` continues.
+   * `sessionId` and releases them on a later turn, after the consumer's `await spawn()` continues.
    * A `kill()` on a session whose child has already exited sends nothing and does not fire it
    * again. It never fires after `close()` resolves for the same `sessionId`.
    */
@@ -76,8 +76,9 @@ export interface PtyHost {
 }
 
 /**
- * Result of a `PtyHost.shutdown()` drain, so the desktop main process can see whether the quit
- * drained gracefully or escalated to `taskkill`.
+ * Result of a `PtyHost.shutdown()` drain at the service's stop, which the daemon writes to its
+ * service log: whether each terminal ended on its graceful signal or was killed, and whether the
+ * terminal host exited on its own or was killed.
  *
  * `sessionsDrained + sessionsForcedKilled` equals the sessions active when shutdown began; sessions
  * that had already exited count in neither. `taskkillEscalated` records that the daemon issued the

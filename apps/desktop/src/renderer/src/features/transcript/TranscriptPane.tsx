@@ -2,7 +2,7 @@
 // renderer its rows are drawn with. The close control is not defaulted: a control nobody can
 // perform is left out, so a close prop is forwarded only where the caller owns the pane.
 
-import { routeSessionId } from "@renderer/routing/route-readers.js";
+import { routeSessionId, sessionMessageAnchorCursor } from "@renderer/routing/route-readers.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import {
@@ -40,6 +40,7 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       <TranscriptPaneBody
         renderTranscriptRow={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
+        messageAnchorCursor={sessionMessageAnchorCursor(route)}
       />
     </PaneFrame>
   );

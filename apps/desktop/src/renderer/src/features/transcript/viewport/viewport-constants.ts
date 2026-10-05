@@ -1,5 +1,6 @@
 // The transcript viewport's named figures: the window's row ceiling and the measures the viewport
-// and the scroll chokepoint spend. The reveal engine's figures are in `../reveal/reveal-caps.ts`.
+// spends. The scroll chokepoint's are in `lib/scroll/`, the reveal engine's in
+// `../reveal/reveal-caps.ts`.
 
 /**
  * Top-level rows the transcript window retains before the oldest are pruned.
@@ -25,28 +26,6 @@ export const TRANSCRIPT_OVERSCAN_ROWS = 6;
  * from looking wrong, since every mounted row replaces it with a measurement.
  */
 export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
-
-/**
- * Tolerance, in pixels, within which the viewport counts as sitting at the tail.
- *
- * An exact test flickers between following and reading on every frame of a stream, because of
- * sub-pixel scroll positions and fractional row heights. One line's leading is the smallest band
- * rounding cannot cross.
- */
-export const TRANSCRIPT_TAIL_TOLERANCE_PX = 24;
-
-/**
- * The epsilon every geometry comparison uses, in pixels: below anything a display can show and
- * above the error a device-pixel-ratio division introduces.
- */
-export const TRANSCRIPT_GEOMETRY_EPSILON_PX = 0.5;
-
-/**
- * Agreeing witnesses before the controller believes this display quantizes programmatic
- * `scrollTop` writes to whole pixels. Two, because a single readback can be explained by a
- * concurrent user scroll landing between the write and the read.
- */
-export const SCROLL_QUANTIZATION_SAMPLE_COUNT = 2;
 
 /**
  * How long the transcript must have been still for the next activity to trim first, in

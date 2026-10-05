@@ -7,8 +7,14 @@ import {
 } from "@renderer/lib/identifier-grammar.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { type EntityRef } from "@renderer/lib/entity-kinds.js";
-import { isEntityOptionalPaneKind, paneEntityScopeFor, type PaneAddress } from "./pane-address.js";
+import {
+  isEntityOptionalPaneKind,
+  paneEntityScopeFor,
+  type PaneAddress,
+  type WorkflowRunComparisonRef,
+} from "./pane-address.js";
 import { PANE_KINDS, isPaneKind } from "./pane-kinds.js";
+import { readSnapshotPoint } from "./pane-entity-record.js";
 
 /** The subsystem a pane-address refusal names as its author. */
 const PANE_ADDRESS_ORIGIN = "pane-address";
@@ -61,7 +67,8 @@ export function parsePaneAddress(
       // Names the length and not the value, so a refusal never carries refused content.
       `a "${candidateKind}" pane was opened over a value that is not an entity reference ` +
         `— an entity reference is a kind and an identifier-shaped id (no whitespace, no ` +
-        `path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
+        `path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters), and a ` +
+        `workflow run's carries the two snapshot points it compares`,
     );
   }
 
@@ -94,13 +101,25 @@ export function parsePaneAddress(
  * The id is held to the app's one identifier grammar, the same predicate the durable layout
  * snapshot is written through, so route resolution never admits an id the layout path refuses.
  * `packages/contracts` has no schema for it: `EntityRef.id` is kind-agnostic and wire-verbatim.
+ * A workflow run is Review's comparison and must carry both snapshot points; anything else a
+ * candidate carries is dropped.
  */
-function readEntityRefCandidate(candidate: unknown): EntityRef | undefined {
+function readEntityRefCandidate(
+  candidate: unknown,
+): EntityRef | WorkflowRunComparisonRef | undefined {
   if (typeof candidate !== "object" || candidate === null) {
     return undefined;
   }
-  const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
-  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
-    ? ({ kind, id } as EntityRef)
-    : undefined;
+  const { kind, id, from, to } = candidate as Readonly<Record<string, unknown>>;
+  if (typeof kind !== "string" || typeof id !== "string" || !isSingleNameIdentifierShaped(id)) {
+    return undefined;
+  }
+  if (kind !== "workflow-run") {
+    return { kind, id } as EntityRef;
+  }
+  const fromPoint = readSnapshotPoint(from);
+  const toPoint = readSnapshotPoint(to);
+  return fromPoint === undefined || toPoint === undefined
+    ? undefined
+    : { kind, id, from: fromPoint, to: toPoint };
 }

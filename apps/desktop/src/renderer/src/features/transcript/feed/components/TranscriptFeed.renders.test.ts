@@ -13,6 +13,7 @@ import { withLaidOutViewport } from "../../viewport/viewport-controller.test-sup
 import {
   SESSION_ID,
   transcriptFixtureEventId,
+  transcriptFixtureStreamCursor,
   openSessionStoreWithGeneralLog,
 } from "../../transcript-logs.test-support.js";
 
@@ -28,6 +29,7 @@ function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
         id: transcriptFixtureEventId(sequence),
         sessionId: SESSION_ID,
         sequence,
+        cursor: transcriptFixtureStreamCursor(sequence),
         kind: "user.message",
         occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 1, sequence)).toISOString(),
         payload: {},

@@ -9,7 +9,7 @@ import {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
 import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
 
 /** The one session every fixture row belongs to. */
 const FIXTURE_SESSION_ID = "11111111-2222-4333-8444-555555555555" as SessionId;
@@ -98,6 +98,7 @@ function commonFields(input: FixtureRowInput): {
   readonly id: string;
   readonly sessionId: SessionId;
   readonly sequence: number;
+  readonly cursor: EventCursor;
   readonly category: EventCategory;
   readonly type: string;
   readonly actor: string | undefined;
@@ -108,6 +109,7 @@ function commonFields(input: FixtureRowInput): {
     id: input.id,
     sessionId: FIXTURE_SESSION_ID,
     sequence: input.sequence,
+    cursor: `cursor-at-${String(input.sequence)}` as EventCursor,
     category: input.category ?? "run_lifecycle",
     type: input.type,
     actor: input.actor,

@@ -5,8 +5,8 @@
 //   sent; a failure throws `StreamingValidationError`.
 // - The wire schemas, the branded `SubscriptionId` and the producer interface live in
 //   `@ai-sidekicks/contracts` because this package does not depend on `zod`.
-// - The gateway's own send path only accepts response envelopes, so notifications go to a `send`
-//   callback the caller connects to the per-transport write path.
+// - Notifications go to a `send` callback, which the daemon connects to the gateway's `notify`, so
+//   this module holds no socket.
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
 import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
@@ -52,7 +52,7 @@ interface SubscriptionEntry {
   readonly valueSchema: ZodType<unknown>;
   /** Moves only `active` -> `complete` or `canceled`; later teardown calls are no-ops. */
   state: SubscriptionState;
-  /** Emptied after firing, so a handler registered after cancel is not replayed. */
+  /** Emptied after firing, so a handler registered after cancel is not called. */
   readonly onCancelHandlers: Array<() => void>;
 }
 
@@ -75,8 +75,8 @@ function fireCancelHandlers(handlers: Array<() => void>): void {
 
 /**
  * Cancels `producer` after a failure no caller will receive (a source callback or a deferred
- * replay) and logs it with any cancel-handler failure. Nothing escapes: an uncaught throw there
- * would stop the daemon.
+ * catch-up flush) and logs it with any cancel-handler failure. Nothing escapes: an uncaught
+ * throw there would stop the daemon.
  */
 export function cancelAfterDetachedFailure(
   producer: Pick<LocalSubscriptionProducer<unknown>, "cancel">,

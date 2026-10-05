@@ -1,5 +1,5 @@
-// Renderer-asset resolution: one pure function and its containment matrix, split out of
-// `./renderer-protocol.ts` so every arm is unit-testable with no Electron import.
+// Renderer-asset resolution: one pure function and its containment matrix, importing nothing
+// from Electron so every arm is unit-testable.
 //
 // The failure matrix (each arm is in `renderer-assets.test.ts`):
 //

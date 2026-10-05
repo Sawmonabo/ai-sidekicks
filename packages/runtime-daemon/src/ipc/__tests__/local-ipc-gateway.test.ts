@@ -5,18 +5,20 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
-import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import type { Handler } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcErrorResponse, JsonRpcMessage } from "@ai-sidekicks/contracts/jsonrpc";
+import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc";
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-
-import { bootstrap } from "../../bootstrap/index.js";
-import { FramingError, parseFrame } from "../content-length-framing.js";
 import {
   encodeFrame,
+  FramingError,
+  parseFrame,
+} from "@ai-sidekicks/contracts/content-length-framing";
+
+import { bootstrap } from "../../bootstrap/index.js";
+import {
   JSON_RPC_ID_MAX_BYTES,
   LocalIpcGateway,
   MAX_MESSAGE_BYTES,
@@ -26,6 +28,7 @@ import {
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
+import { connect, decodeFrames } from "./local-socket-client.test-support.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
 
@@ -33,20 +36,6 @@ const PROTOCOL_VERSION = "2026-05-01";
 function ephemeralSocketPath(label: string): string {
   const suffix = Math.random().toString(36).slice(2, 10);
   return path.join(os.tmpdir(), `aisk-test-${label}-${suffix}.sock`);
-}
-
-/** Decodes every complete frame at the head of `bytes`. */
-function decodeFrames(bytes: Buffer): unknown[] {
-  const envelopes: unknown[] = [];
-  let rest = bytes;
-  for (;;) {
-    const result = parseFrame(rest, MAX_MESSAGE_BYTES);
-    if (result.frame === null) {
-      return envelopes;
-    }
-    envelopes.push(JSON.parse(result.frame.toString("utf8")));
-    rest = rest.subarray(result.consumed);
-  }
 }
 
 /** The `FramingError` code `parseFrame` throws for `bytes`, or null when it accepts them. */
@@ -62,86 +51,6 @@ function framingErrorCode(bytes: string): string | null {
   return null;
 }
 
-interface Client {
-  readonly socket: net.Socket;
-  /** Sends `value` as one frame, including envelopes the gateway must refuse. */
-  readonly send: (value: unknown) => void;
-  /** Resolves with every reply so far once `count` have arrived; rejects if the socket closes. */
-  readonly replies: (count: number) => Promise<unknown[]>;
-  readonly close: () => Promise<void>;
-}
-
-async function connect(socketPath: string): Promise<Client> {
-  const socket = net.createConnection(socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => {
-      resolve();
-    });
-    socket.once("error", reject);
-  });
-  const received: Buffer[] = [];
-  let isClosed = false;
-  let waiter: {
-    readonly count: number;
-    readonly resolve: (envelopes: unknown[]) => void;
-    readonly reject: (reason: unknown) => void;
-  } | null = null;
-  const settle = (): void => {
-    const current = waiter;
-    if (current === null) {
-      return;
-    }
-    let envelopes: unknown[];
-    try {
-      envelopes = decodeFrames(Buffer.concat(received));
-    } catch (framingError) {
-      waiter = null;
-      current.reject(framingError);
-      return;
-    }
-    if (envelopes.length >= current.count) {
-      waiter = null;
-      current.resolve(envelopes);
-    } else if (isClosed) {
-      waiter = null;
-      current.reject(
-        new Error(`socket closed after ${envelopes.length} of ${current.count} replies`),
-      );
-    }
-  };
-  socket.on("data", (chunk: Buffer) => {
-    received.push(chunk);
-    settle();
-  });
-  socket.on("close", () => {
-    isClosed = true;
-    settle();
-  });
-  return {
-    socket,
-    // `encodeFrame` only serializes, so the cast lets a test send envelopes the gateway refuses.
-    send: (value) => {
-      socket.write(encodeFrame(value as JsonRpcMessage));
-    },
-    replies: (count) =>
-      new Promise((resolve, reject) => {
-        waiter = { count, resolve, reject };
-        settle();
-      }),
-    close: () => {
-      if (socket.destroyed) {
-        return Promise.resolve();
-      }
-      return new Promise<void>((resolve) => {
-        socket.once("close", () => {
-          resolve();
-        });
-        socket.end();
-      });
-    },
-  };
-}
-
 describe("Content-Length framing", () => {
   it("slices frames by byte count and waits for one that has not fully arrived", () => {
     // "héllo" is 6 bytes in UTF-8 but 5 characters; counting characters would cut the next frame.
@@ -153,7 +62,7 @@ describe("Content-Length framing", () => {
 
     const head = parseFrame(stream, MAX_MESSAGE_BYTES);
     expect(head.consumed).toBe(firstFrame.byteLength);
-    expect(JSON.parse(head.frame!.toString("utf8"))).toStrictEqual(first);
+    expect(JSON.parse(new TextDecoder().decode(head.frame!))).toStrictEqual(first);
 
     const waiting = { frame: null, consumed: 0 };
     expect(parseFrame(secondFrame.subarray(0, 10), MAX_MESSAGE_BYTES)).toEqual(waiting);
@@ -364,37 +273,34 @@ describe("LocalIpcGateway", () => {
     }
   });
 
-  it(
-    "answers a frame over the size cap, closes " + "only that connection, and keeps listening",
-    async () => {
-      const client = await connect(socketPath);
-      const closed = new Promise<void>((resolve) => {
-        client.socket.once("close", () => {
-          resolve();
-        });
+  it("answers an oversized frame, closes only that connection, and keeps listening", async () => {
+    const client = await connect(socketPath);
+    const closed = new Promise<void>((resolve) => {
+      client.socket.once("close", () => {
+        resolve();
       });
-      // The declared length alone trips the cap, so the body is never sent.
-      client.socket.write(`Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n`);
-      expect(await client.replies(1)).toEqual([
-        expect.objectContaining({
-          id: null,
-          error: expect.objectContaining({
-            code: JsonRpcErrorCode.InvalidRequest,
-            data: expect.objectContaining({ type: "transport.message_too_large" }),
-          }),
+    });
+    // The declared length alone trips the cap, so the body is never sent.
+    client.socket.write(`Content-Length: ${MAX_MESSAGE_BYTES + 1}\r\n\r\n`);
+    expect(await client.replies(1)).toEqual([
+      expect.objectContaining({
+        id: null,
+        error: expect.objectContaining({
+          code: JsonRpcErrorCode.InvalidRequest,
+          data: expect.objectContaining({ type: "transport.message_too_large" }),
         }),
-      ]);
-      await closed;
+      }),
+    ]);
+    await closed;
 
-      const next = await connect(socketPath);
-      try {
-        next.send(validRequest);
-        expect(await next.replies(1)).toEqual([validReply]);
-      } finally {
-        await next.close();
-      }
-    },
-  );
+    const next = await connect(socketPath);
+    try {
+      next.send(validRequest);
+      expect(await next.replies(1)).toEqual([validReply]);
+    } finally {
+      await next.close();
+    }
+  });
 
   it("replies to a handler failure without its paths or stack frames", async () => {
     const client = await connect(socketPath);
@@ -422,6 +328,50 @@ describe("LocalIpcGateway", () => {
     expect(sanitizeErrorMessage(poison)).toBe("<unprintable thrown value>");
     const huge = sanitizeErrorMessage(new Error("x".repeat(SANITIZED_MESSAGE_MAX_LEN * 2)));
     expect(huge.length).toBeLessThanOrEqual(SANITIZED_MESSAGE_MAX_LEN);
+  });
+});
+
+describe("LocalIpcGateway stop", () => {
+  it("sends a reply already written before it closes the connection", async () => {
+    // The daemon's stop answers and then stops the gateway on the next turn; a reply large enough
+    // to outlast one socket write must still reach the client whole.
+    const socketPath = ephemeralSocketPath("stop");
+    bootstrap({ localIpcPath: socketPath });
+    const registry = new MethodRegistryImpl();
+    const largeText = "r".repeat(3 * 1024 * 1024);
+    const gateway = new LocalIpcGateway({ registry });
+    const stopping: Array<Promise<void>> = [];
+    const replyThenStop: Handler<unknown, { text: string }> = async () => {
+      setImmediate(() => {
+        stopping.push(gateway.stop());
+      });
+      return { text: largeText };
+    };
+    registry.register(
+      "x.stop",
+      passthroughSchema<unknown>(),
+      passthroughSchema<{ text: string }>(),
+      replyThenStop,
+    );
+    await gateway.start();
+    const client = await connect(socketPath);
+    try {
+      client.send({
+        jsonrpc: JSONRPC_VERSION,
+        id: 1,
+        method: "x.stop",
+        protocolVersion: PROTOCOL_VERSION,
+        params: {},
+      });
+      expect(await client.replies(1)).toEqual([
+        { jsonrpc: JSONRPC_VERSION, id: 1, result: { text: largeText } },
+      ]);
+      await Promise.all(stopping);
+    } finally {
+      await client.close();
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
   });
 });
 

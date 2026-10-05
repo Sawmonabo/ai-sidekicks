@@ -1,3 +1,9 @@
+export {
+  connectToDaemon,
+  type DaemonConnection,
+  type DaemonConnectionObserver,
+  type DaemonConnectionOptions,
+} from "./daemon-connection.js";
 export { createDaemonProviderClient, type DriverClient } from "./provider-client.js";
 export {
   createDaemonSessionClient,
@@ -14,4 +20,9 @@ export {
   JsonRpcTransportClosedError,
   type JsonRpcClientOptions,
 } from "./transport/json-rpc-client.js";
+export {
+  connectLocalSocket,
+  JsonRpcTransportPeerClosedError,
+  JsonRpcTransportUnavailableError,
+} from "./transport/local-socket-transport.js";
 export type { ClientTransport, Handler, LocalSubscriptionConsumer } from "./transport/types.js";

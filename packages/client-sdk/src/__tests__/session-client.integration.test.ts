@@ -1,6 +1,6 @@
 // The session client over the daemon transport: a real `JsonRpcClient` over the scripted daemon,
-// with no socket or external state. Covers ascending replay with `afterCursor` resume, restore from
-// the daemon's state rather than a client cache, and the abort-signal races.
+// with no socket or external state. Covers ascending catch-up with `afterCursor` resume, restore
+// from the daemon's state rather than a client cache, and the abort-signal races.
 
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
@@ -44,7 +44,7 @@ function buildDaemonHarness(table: ScriptedMethodTable): DaemonHarness {
   return { transport, client };
 }
 
-// Scripted session stream: the fake daemon's `session.subscribe` replay
+// Scripted session stream: the fake daemon's `session.subscribe` catch-up
 
 interface RecordedSubscribeCall {
   afterCursor: EventCursor | undefined;
@@ -54,8 +54,9 @@ interface RecordedSubscribeCall {
 /**
  * Script `session.subscribe` and `$/subscription/cancel` on the fake daemon.
  * Each subscribe acks a fresh subscription id, records the `afterCursor` it
- * was sent, then replays the events `readHistory()` returns strictly after
- * that cursor, as the daemon's handler replays its store before going live,
+ * was sent, then catches up with the events `readHistory()` returns strictly
+ * after that cursor, as the daemon's handler catches up from its store before
+ * going live,
  * one event per frame with the event's id as its cursor.
  * History is read on every subscribe, so a test can change it between calls.
  */
@@ -143,7 +144,7 @@ describe("daemon subscribe with a pre-aborted signal does not call client.subscr
   );
 });
 
-// Replay order and resume
+// Catch-up order and resume
 
 describe("SessionSubscribe yields events in sequence ASC across reconnect", () => {
   it("daemon transport: a reconnect with afterCursor resumes ASC after that cursor", async () => {
@@ -187,7 +188,7 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
 
     // While the stream is lost, the daemon's projection revises the second
     // event and gains a third. A client that cached the cold stream would
-    // replay the old second event; one that reads the wire sees the revision.
+    // resend the old second event; one that reads the wire sees the revision.
     const revisedSecondEvent = buildSessionCreatedEvent({
       id: EVENT_ID_2,
       sessionId: SESSION_ID,

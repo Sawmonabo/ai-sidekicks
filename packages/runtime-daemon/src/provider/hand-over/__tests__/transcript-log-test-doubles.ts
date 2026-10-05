@@ -56,12 +56,11 @@ class RecordedEventLog implements TranscriptEventReader {
 }
 
 /**
- * The content the durable payloads do not carry, keyed by the logged row's sequence. The content
- * port has no shipped implementation, so the tests supply this one.
+ * The machine-authored content kept beside the payloads, keyed by the logged row's sequence. The
+ * content port has no shipped implementation, so the tests supply this one.
  */
 class RecordedContentSource implements TranscriptContentSource {
   readonly assistantTextBySequence: Map<number, string> = new Map<number, string>();
-  readonly userTextBySequence: Map<number, string> = new Map<number, string>();
   readonly reasoningBlocksBySequence: Map<number, readonly TranscriptReasoningBlock[]> = new Map<
     number,
     readonly TranscriptReasoningBlock[]
@@ -74,10 +73,6 @@ class RecordedContentSource implements TranscriptContentSource {
 
   readAssistantText(reference: TranscriptContentReference): string | undefined {
     return this.assistantTextBySequence.get(reference.sequence);
-  }
-
-  readUserText(reference: TranscriptContentReference): string | undefined {
-    return this.userTextBySequence.get(reference.sequence);
   }
 
   /** Answers absent for an unseeded row, meaning unreadable; an empty list would hide that arm. */

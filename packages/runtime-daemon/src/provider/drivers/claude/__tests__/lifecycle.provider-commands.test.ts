@@ -216,31 +216,28 @@ describe("ClaudeSessionLifecycle.compactContext", () => {
     },
   );
 
-  it(
-    "sends a tripwire-exempt frame, blocks no " + "later run, and settles only on the boundary",
-    async () => {
-      const { harness, channel, scheduler } = await arrangeCompactableSession();
-      armRunDispatch(harness);
+  it("sends a tripwire-exempt frame, blocks no run, settles only on the boundary", async () => {
+    const { harness, channel, scheduler } = await arrangeCompactableSession();
+    armRunDispatch(harness);
 
-      let settled: unknown = undefined;
-      const pending = compactTestSession(harness).then((result) => {
-        settled = result;
-      });
-      await drainMicrotasks();
+    let settled: unknown = undefined;
+    const pending = compactTestSession(harness).then((result) => {
+      settled = result;
+    });
+    await drainMicrotasks();
 
-      expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
-      expect(channel.sentTextFrames[0]?.tripwireExempt).toBe(true);
-      expect(scheduler.armedDelays()).toStrictEqual([COMPACTION_WAIT_MS]);
-      // The provider accepted the frame and said nothing, so nothing has happened yet.
-      expect(settled).toBeUndefined();
-      // Registered with the tripwire, the command frame would block every later run.
-      await expect(harness.lifecycle.startRun(buildStartRunParams())).resolves.toBeUndefined();
+    expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
+    expect(channel.sentTextFrames[0]?.tripwireExempt).toBe(true);
+    expect(scheduler.armedDelays()).toStrictEqual([COMPACTION_WAIT_MS]);
+    // The provider accepted the frame and said nothing, so nothing has happened yet.
+    expect(settled).toBeUndefined();
+    // Registered with the tripwire, the command frame would block every later run.
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).resolves.toBeUndefined();
 
-      emitCompactionBoundary(channel, 41);
-      await pending;
-      expect(settled).toStrictEqual({ status: "applied", boundaryPosition: 41 });
-    },
-  );
+    emitCompactionBoundary(channel, 41);
+    await pending;
+    expect(settled).toStrictEqual({ status: "applied", boundaryPosition: 41 });
+  });
 
   it("settles `wait_expired` on the bound and still routes a late boundary", async () => {
     // Bounding the operation never drops the boundary's own record.
@@ -288,26 +285,23 @@ describe("ClaudeSessionLifecycle.compactContext", () => {
     },
   );
 
-  it(
-    "withdraws only its own wait, so a concurrent " + "caller still settles on the evidence",
-    async () => {
-      const { harness, channel, scheduler } = await arrangeCompactableSession();
-      const surviving = compactTestSession(harness);
-      await drainMicrotasks();
-      channel.sendUserTextFailure = new Error("stdin closed");
-      channel.sendUserTextDelivery = "unsent";
+  it("withdraws only its own wait; a concurrent caller still settles", async () => {
+    const { harness, channel, scheduler } = await arrangeCompactableSession();
+    const surviving = compactTestSession(harness);
+    await drainMicrotasks();
+    channel.sendUserTextFailure = new Error("stdin closed");
+    channel.sendUserTextDelivery = "unsent";
 
-      await expect(compactTestSession(harness)).resolves.toStrictEqual({
-        status: "failed",
-        reason: "provider_error",
-      });
+    await expect(compactTestSession(harness)).resolves.toStrictEqual({
+      status: "failed",
+      reason: "provider_error",
+    });
 
-      expect(scheduler.armedCount()).toBe(2);
-      expect(scheduler.canceledCount()).toBe(1);
-      emitCompactionBoundary(channel, 12);
-      await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: 12 });
-    },
-  );
+    expect(scheduler.armedCount()).toBe(2);
+    expect(scheduler.canceledCount()).toBe(1);
+    emitCompactionBoundary(channel, 12);
+    await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: 12 });
+  });
 
   it("withdraws its wait and lets the throw through when composing the frame throws", async () => {
     const scheduler = makeManualCompactionScheduler();
@@ -334,85 +328,76 @@ describe("ClaudeSessionLifecycle.compactContext", () => {
 });
 
 describe("ClaudeSessionLifecycle.listProviderCommands", () => {
-  it(
-    "carries every declared name once per set, " + "marking only terminal-only names as such",
-    async () => {
-      // A name in two sets is two published capabilities; deduping would delete one, and an
-      // unmarked terminal name would be offered for dispatch over a transport that cannot run it.
-      const harness = buildHarness();
-      publishHandshake(await createLiveSession(harness), {
-        slashCommands: ["compact", "shared-name"],
-        skills: ["pdf-processing", "shared-name"],
-        terminalSlashCommands: ["doctor", "shared-name"],
-      });
+  it("carries each declared name once per set, marking terminal-only names", async () => {
+    // A name in two sets is two published capabilities; deduping would delete one, and an
+    // unmarked terminal name would be offered for dispatch over a transport that cannot run it.
+    const harness = buildHarness();
+    publishHandshake(await createLiveSession(harness), {
+      slashCommands: ["compact", "shared-name"],
+      skills: ["pdf-processing", "shared-name"],
+      terminalSlashCommands: ["doctor", "shared-name"],
+    });
 
-      const group = await listTestSessionCommands(harness);
+    const group = await listTestSessionCommands(harness);
 
-      expect(group?.complete).toBe(true);
-      expect(group?.entries.map((entry) => [entry.name, entry.kind, entry.scope])).toStrictEqual([
-        ["compact", "command", undefined],
-        ["shared-name", "command", undefined],
-        ["pdf-processing", "skill", undefined],
-        ["shared-name", "skill", undefined],
-        ["doctor", "command", "terminal"],
-        ["shared-name", "command", "terminal"],
-      ]);
-    },
-  );
+    expect(group?.complete).toBe(true);
+    expect(group?.entries.map((entry) => [entry.name, entry.kind, entry.scope])).toStrictEqual([
+      ["compact", "command", undefined],
+      ["shared-name", "command", undefined],
+      ["pdf-processing", "skill", undefined],
+      ["shared-name", "skill", undefined],
+      ["doctor", "command", "terminal"],
+      ["shared-name", "command", "terminal"],
+    ]);
+  });
 
-  it(
-    "drops each name the contract refuses, keeps " + "its siblings, and never echoes the value",
-    async () => {
-      // Skill names come from front matter the person can write, so they are untrusted output.
-      const harness = buildHarness();
-      publishHandshake(await createLiveSession(harness), {
-        slashCommands: ["clear", `leak\u0000canary`],
-        skills: ["pdf-processing", "   "],
-        terminalSlashCommands: ["doctor", "x".repeat(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN + 1), ""],
-      });
+  it("drops each refused name, keeps its siblings, never echoes the value", async () => {
+    // Skill names come from front matter the person can write, so they are untrusted output.
+    const harness = buildHarness();
+    publishHandshake(await createLiveSession(harness), {
+      slashCommands: ["clear", `leak\u0000canary`],
+      skills: ["pdf-processing", "   "],
+      terminalSlashCommands: ["doctor", "x".repeat(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN + 1), ""],
+    });
 
-      const group = await listTestSessionCommands(harness);
+    const group = await listTestSessionCommands(harness);
 
-      expect(group?.entries.map((entry) => entry.name)).toStrictEqual([
-        "clear",
-        "pdf-processing",
-        "doctor",
-      ]);
-      const rejected = harness.diagnostics.recentRecordsOfKind("provider_command_entry_rejected");
-      expect(rejected).toHaveLength(4);
-      expect(JSON.stringify(rejected)).not.toContain("canary");
-    },
-  );
+    expect(group?.entries.map((entry) => entry.name)).toStrictEqual([
+      "clear",
+      "pdf-processing",
+      "doctor",
+    ]);
+    const rejected = harness.diagnostics.recentRecordsOfKind("provider_command_entry_rejected");
+    expect(rejected).toHaveLength(4);
+    expect(JSON.stringify(rejected)).not.toContain("canary");
+  });
 
-  it(
-    "caps the reply but not what the driver holds, " + "so a name past the cap stays dispatchable",
-    async () => {
-      const scheduler = makeManualCompactionScheduler();
-      const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
-      const channel = await createLiveSession(harness);
-      const filler = Array.from(
-        { length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 5 },
-        (_unused, index) => `filler-${index}`,
-      );
-      publishHandshake(channel, {
-        slashCommands: [...filler, "compact"],
-        skills: [],
-        terminalSlashCommands: [],
-      });
+  it("caps the reply, not the driver's set: a name past the cap stays dispatchable", async () => {
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    const channel = await createLiveSession(harness);
+    const filler = Array.from(
+      { length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 5 },
+      (_unused, index) => `filler-${index}`,
+    );
+    publishHandshake(channel, {
+      slashCommands: [...filler, "compact"],
+      skills: [],
+      terminalSlashCommands: [],
+    });
 
-      const group = await listTestSessionCommands(harness);
+    const group = await listTestSessionCommands(harness);
 
-      expect(group?.complete).toBe(false);
-      expect(group?.entries.map((entry) => entry.name)).toStrictEqual(
-        filler.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
-      );
-      const pending = compactTestSession(harness);
-      await drainMicrotasks();
-      expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
-      emitCompactionBoundary(channel, 3);
-      await expect(pending).resolves.toStrictEqual({ status: "applied", boundaryPosition: 3 });
-    },
-  );
+    expect(group?.complete).toBe(false);
+    expect(group?.entries.map((entry) => entry.name)).toStrictEqual(
+      filler.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
+    );
+    const pending = compactTestSession(harness);
+    await drainMicrotasks();
+    expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
+    emitCompactionBoundary(channel, 3);
+    await expect(pending).resolves.toStrictEqual({ status: "applied", boundaryPosition: 3 });
+  });
 
   // A resumed process announces the same provider session id as its predecessor, so only an
   // unconditional discard keeps the old enumeration from answering for the new process.
@@ -554,30 +539,46 @@ describe("ClaudeSessionLifecycle.listProviderCommands", () => {
     },
   );
 
-  it(
-    "names the run holding a live turn on this " + "session only, and only while it holds it",
-    async () => {
-      const peerSessionId = "session-peer-runs" as SessionId;
-      const harness = buildHarness({ mintProviderSessionId: mintSequentialProviderSessionIds() });
-      const channel = await createLiveSession(harness);
-      await createLiveSession(harness, { sessionId: peerSessionId });
-      publishHandshake(channel);
-      expect(await listTestSessionCommands(harness)).toMatchObject({ runId: null });
+  it("names the run holding a live turn here, only while it holds it", async () => {
+    const peerSessionId = "session-peer-runs" as SessionId;
+    const harness = buildHarness({ mintProviderSessionId: mintSequentialProviderSessionIds() });
+    const channel = await createLiveSession(harness);
+    await createLiveSession(harness, { sessionId: peerSessionId });
+    publishHandshake(channel);
+    expect(await listTestSessionCommands(harness)).toMatchObject({ runId: null });
 
-      armRunDispatch(harness);
-      armRunDispatch(harness, TEST_SECOND_RUN_ID, "the peer session's own turn", peerSessionId);
-      await harness.lifecycle.startRun(buildStartRunParams());
-      await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
-      expect((await listTestSessionCommands(harness))?.runId).toBe(TEST_RUN_ID);
+    armRunDispatch(harness);
+    armRunDispatch(harness, TEST_SECOND_RUN_ID, "the peer session's own turn", peerSessionId);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+    expect((await listTestSessionCommands(harness))?.runId).toBe(TEST_RUN_ID);
 
-      // The peer's run is still live, and must not be attributed here.
-      channel.emitStreamFrame("result/success");
-      expect((await listTestSessionCommands(harness))?.runId).toBeNull();
-    },
-  );
+    // The peer's run is still live, and must not be attributed here.
+    channel.emitStreamFrame("result/success");
+    expect((await listTestSessionCommands(harness))?.runId).toBeNull();
+  });
 });
 
 describe("ClaudeSessionLifecycle.observedOutputSpeedFor", () => {
+  it("reports the `initialize` state from spawn until a handshake reports another", async () => {
+    const harness = buildHarness();
+    harness.transport.initializeFastMode = {
+      fastModeState: "off",
+      fastModeDisabledReason: "sdk_opt_in_required",
+    };
+    const channel = await createLiveSession(harness);
+
+    // No frame and no turn yet: the observation comes from the spawn itself.
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toStrictEqual({
+      declared: "off",
+      reason: "sdk_opt_in_required",
+    });
+    publishHandshake(channel, { fastModeState: "on", fastModeDisabledReason: null });
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toStrictEqual({
+      declared: "on",
+    });
+  });
+
   // The handshake's fast-mode state reaches a client screen, so a reading the contract's bounds
   // refuse is absent rather than shown, and the refused value never rides the record.
   it.each([

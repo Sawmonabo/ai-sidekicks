@@ -1,20 +1,25 @@
 // Mounts the markdown pipeline for one body: the block segmenter, two-pass footnote resolution
-// and footnote registration. Block boundaries and settling are decided in `markdown/`.
+// and footnote registration. Block boundaries and settling are decided in the shared renderer,
+// `components/Markdown/`.
 // The published text arrives as a prop rather than a reveal-engine subscription, so a settled
 // message, which has no reveal stream, renders through the same path.
 
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
-import { collectFootnoteDefinitions } from "../markdown/footnotes/footnote-collection.js";
+import { collectFootnoteDefinitions } from "@renderer/components/Markdown/footnotes/footnote-collection.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
-import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
+import {
+  MarkdownNodes,
+  type MarkdownRenderContext,
+} from "@renderer/components/Markdown/MarkdownNodes.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
 import {
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-} from "../markdown/parse/markdown-parse.js";
+} from "@renderer/components/Markdown/parse/markdown-parse.js";
+import { useCodeSpanReader } from "@renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { SettledBlock } from "./SettledBlock.js";
 
 /**
@@ -93,13 +98,14 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     [segmentation.volatileTail, definitionPreamble, declaredVolatileNodes],
   );
 
+  const codeSpanReader = useCodeSpanReader();
   const settledContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: true, definedFootnoteIdentifiers }),
-    [definedFootnoteIdentifiers],
+    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader }),
+    [definedFootnoteIdentifiers, codeSpanReader],
   );
   const volatileContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: props.isComplete, definedFootnoteIdentifiers }),
-    [props.isComplete, definedFootnoteIdentifiers],
+    () => ({ isSettled: props.isComplete, definedFootnoteIdentifiers, codeSpanReader }),
+    [props.isComplete, definedFootnoteIdentifiers, codeSpanReader],
   );
 
   // An effect, not a render, so no render mutates a registry that two cards share.

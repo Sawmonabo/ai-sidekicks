@@ -64,10 +64,10 @@ The local daemon uses a layered trust model based on socket reachability **plus*
 
 | Client Type | Auth Required | Rationale |
 | --- | --- | --- |
-| Main process of the desktop app (same machine) | Socket access + 256-bit session token | The main process is the daemon client for the desktop app; holds the daemon session token and no control-plane credential, since the service holds the machine's DPoP key and tokens and makes every control-plane call, per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance); forwards renderer-originated requests with auth headers attached and response payloads sanitized. |
+| Main process of the desktop app (same machine) | Socket access + 256-bit session token | The main process is the daemon client for the desktop app; holds the daemon session token and no control-plane credential, since the service holds the machine's DPoP key and tokens and makes every control-plane call, per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance); forwards renderer-originated requests over its own connection, which presented the token, with response payloads sanitized. |
 | CLI (same machine) | Socket access + 256-bit session token | Same-user process; socket permissions (mode 0700 on macOS and Linux, a user-only access list on the Windows pipe) prevent cross-user access; token is defense-in-depth against misconfigured socket permissions. |
 | External process (same machine) | 256-bit session token (required) | Untrusted processes on the same machine must present a token. |
-| Desktop renderer (same machine) | Not a daemon client | All renderer-originated requests flow through the preload bridge to the main process, which forwards them to the daemon with attached auth headers. The renderer never holds the daemon session token, PASETO access tokens, or the DPoP key per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance). |
+| Desktop renderer (same machine) | Not a daemon client | All renderer-originated requests flow through the preload bridge to the main process, which forwards them to the daemon over its own token-presenting connection. The renderer never holds the daemon session token, PASETO access tokens, or the DPoP key per [Spec-021 §Trust Stance](../specs/021-desktop-app-and-renderer.md#trust-stance). |
 | Another of the person's devices | Not a daemon-socket client | It reaches the daemon only over its end-to-end channel through the relay (§Relay Authentication And Encryption). The service binds no TCP port for its clients. |
 
 **Session token specification:**
@@ -75,8 +75,8 @@ The local daemon uses a layered trust model based on socket reachability **plus*
 - **Generation:** CSPRNG (Node.js `crypto.randomBytes(32)`) producing a 256-bit token
 - **Storage:** Written with owner-only access, one location per platform: on macOS and Linux `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` with mode `0600`; on Windows `%LOCALAPPDATA%\ai-sidekicks\run\daemon.token` with an access list that grants the person alone. On a Windows computer whose service runs in a WSL 2 distribution, the daemon keeps its Linux copy in its run folder and hands the value to its Windows half, which writes the Windows file; a daemon running natively on Windows writes the same file itself, so Windows has one location for both sides.
 - **Rotation:** Regenerated on every daemon restart. Previous tokens are immediately invalidated.
-- **Verification:** Constant-time comparison (`crypto.timingSafeEqual`) to prevent timing attacks
-- **Transport:** Passed in the `Authorization: Bearer <token>` header for HTTP, or as the first message in the IPC handshake for Unix domain sockets
+- **Verification:** Constant-time comparison (`crypto.timingSafeEqual`, after a length check) to prevent timing attacks
+- **Transport:** The first message on every connection: `daemon.hello` carries it as `sessionToken`. A hello without it or with a wrong one is refused with `auth.token_invalid`, and nothing more is served on that connection
 
 **Token presentation requirements:**
 

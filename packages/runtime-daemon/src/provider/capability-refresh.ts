@@ -39,7 +39,7 @@ export const CAPABILITY_REFRESH_READ_TIMEOUT_MS: number = 2 * 60 * 1000;
 /**
  * One driver's re-read, as an injected closure so the refresher needs no provider process. It
  * re-reads the declaration and declares it through the writer, which owns change detection; the
- * result is ignored. Every read takes a new detection reading: replaying an earlier one would hide
+ * result is ignored. Every read takes a new detection reading: reusing an earlier one would hide
  * a capability that has since disappeared.
  */
 export interface CapabilityRefreshDriverEntry {

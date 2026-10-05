@@ -18,6 +18,7 @@ export function approvalEvent(options: {
     id: `event-${String(options.sequence)}`,
     sessionId: SESSION_ID,
     sequence: options.sequence,
+    cursor: `cursor-at-${String(options.sequence)}`,
     kind: options.kind,
     occurredAt: "2026-01-01T13:30:00.000Z",
     ...(options.actorId === undefined ? {} : { actorId: options.actorId }),

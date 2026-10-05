@@ -1,0 +1,74 @@
+// The bridge's `window` members main answers: the appearance the renderer chose, the current
+// appearance record and fullscreen state a subscription starts from, and the window's minimum
+// size, held within the work area of the display the window is on. The pushes that follow a
+// subscription's first delivery come from main's registry of windows (`../windows/open-windows.ts`),
+// which owns every window's document.
+
+import { screen, type IpcMainInvokeEvent } from "electron";
+import * as z from "zod/mini";
+
+import type { AppearanceRecord } from "@shared/appearance.js";
+import { BRIDGE_CHANNELS } from "@shared/bridge-channels.js";
+import type { WindowSize } from "@shared/window/window-size.js";
+
+import type { KeptAppearance } from "../appearance/kept-appearance.js";
+import { appearanceChoiceSchema, appearanceGroundsSchema } from "../appearance/record-file.js";
+import type { OpenWindows } from "../windows/open-windows.js";
+
+/** What the `window` members act on. */
+export interface WindowHandlerContext {
+  readonly appearance: Pick<KeptAppearance, "choose" | "record">;
+  readonly openWindows: Pick<OpenWindows, "windowShowing">;
+}
+
+/** One channel's answer, given the asking event and the one request it carried. */
+type WindowAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
+
+/** The channels the `window` members are answered on. */
+type WindowChannel =
+  | typeof BRIDGE_CHANNELS.setAppearance
+  | typeof BRIDGE_CHANNELS.readAppearance
+  | typeof BRIDGE_CHANNELS.readFullscreen
+  | typeof BRIDGE_CHANNELS.setMinimumSize;
+
+const appearanceRequestSchema = z.strictObject({
+  choice: appearanceChoiceSchema,
+  grounds: appearanceGroundsSchema,
+});
+
+const windowSizeSchema: z.ZodMiniType<WindowSize> = z.strictObject({
+  width: z.number().check(z.positive()),
+  height: z.number().check(z.positive()),
+});
+
+/** The `window` members' answers, by channel. Each throws on a request its schema refuses. */
+export function windowAnswers(
+  context: WindowHandlerContext,
+): Readonly<Record<WindowChannel, WindowAnswer>> {
+  const senderWindow = (event: IpcMainInvokeEvent) => {
+    const baseWindow = context.openWindows.windowShowing(event.sender);
+    if (baseWindow === undefined) {
+      throw new Error("The asking document is not shown in an open window.");
+    }
+    return baseWindow;
+  };
+  return {
+    [BRIDGE_CHANNELS.setAppearance]: (_event, request) => {
+      const { choice, grounds } = appearanceRequestSchema.parse(request);
+      return context.appearance.choose(choice, grounds);
+    },
+    [BRIDGE_CHANNELS.readAppearance]: (): AppearanceRecord => context.appearance.record,
+    [BRIDGE_CHANNELS.readFullscreen]: (event): boolean => senderWindow(event).isFullScreen(),
+    [BRIDGE_CHANNELS.setMinimumSize]: (event, request) => {
+      const size = windowSizeSchema.parse(request);
+      const baseWindow = senderWindow(event);
+      // A floor past the display's work area would leave the window larger than its display.
+      const { workArea } = screen.getDisplayMatching(baseWindow.getBounds());
+      // The platform takes whole pixels; rounding up keeps the floor from cutting a part off.
+      baseWindow.setMinimumSize(
+        Math.min(Math.ceil(size.width), workArea.width),
+        Math.min(Math.ceil(size.height), workArea.height),
+      );
+    },
+  };
+}

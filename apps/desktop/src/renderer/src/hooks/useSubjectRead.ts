@@ -54,7 +54,7 @@ export function useSubjectRead<TValue, TState>(
   useEffect(() => {
     const round = readScope.openRound();
     // A round that is already over: React's double mount abandons the scope this render
-    // captured before the effect replays.
+    // captured before the effect re-runs.
     if (isReadAbandoned(round.signal)) {
       return;
     }

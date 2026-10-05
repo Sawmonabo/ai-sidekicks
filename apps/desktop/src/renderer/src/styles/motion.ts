@@ -12,12 +12,15 @@
 
 /**
  * Motion durations, in milliseconds: 120-180 ms for chrome, 240 ms for a settings page settling
- * in. Here rather than in `palette.ts`, which answers "what color is this?".
+ * in, and 1200 ms for one half of the breath a running thing's mark takes, slow enough to read as
+ * alive rather than as an alarm. Here rather than in `palette.ts`, which answers "what color is
+ * this?".
  */
 export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
   "motion-quick": 120,
   "motion-settle": 180,
   "motion-thread": 240,
+  "motion-breath": 1200,
 };
 
 /**

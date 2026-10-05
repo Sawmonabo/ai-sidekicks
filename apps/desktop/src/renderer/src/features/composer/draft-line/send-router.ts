@@ -49,7 +49,7 @@ export interface ComposerSendRouterOptions {
   readonly recognizeConsoleCommand?: ConsoleCommandPredicate;
   /**
    * Mints the per-request idempotency key, which must be a UUID. The default is the
-   * platform generator: a weak key would defeat the daemon's replay guard.
+   * platform generator: a weak key would defeat the daemon's duplicate-request guard.
    */
   readonly mintIdempotencyKey?: () => string;
   /**

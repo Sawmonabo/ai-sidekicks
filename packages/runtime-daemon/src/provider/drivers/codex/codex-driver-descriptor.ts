@@ -157,16 +157,15 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The " +
-      "failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different " +
-      "conjunct from the sibling Claude entry. This driver DOES have a zero-turn channel " +
-      "bearing on the axis: the model catalog read, which carries a per-model service-tier " +
-      "list. It still cannot decide the flag, because a service tier is three free-form " +
-      "strings and reading one of them as an output-SPEED tier is a semantic judgment rather " +
-      "than a decidable read. The `false` rests on the two conjuncts the axis itself " +
-      "requires — no statically declarable level vocabulary and no declared-state read — " +
-      "and deliberately NOT on a census of the method root, which bounds availability from " +
-      "below and not above.",
+      "Declared TRUE from this table, and the failing conjunct is DECISIVENESS, not zero-turn — " +
+      "deliberately a different conjunct from the sibling Claude entry. This driver DOES have a " +
+      "zero-turn channel bearing on the axis: the model catalog read, which carries a per-model " +
+      "service-tier list and is where this driver's levels come from. It still cannot decide " +
+      "the flag, because a service tier is three free-form strings and reading one of them as " +
+      "an output-SPEED tier is a semantic judgment rather than a decidable read. The declaration " +
+      "rests on the two things the axis requires and this driver has: the per-model level " +
+      "vocabulary on that catalog read, and the thread's declared tier on its establishment " +
+      "reply and on the settings-changed notification.",
   },
 });
 
@@ -267,8 +266,7 @@ export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
   readReportedVersion: readCodexReportedVersion,
   // codex-cli documents no environment opt-out; the driver pins an exact build path instead.
   autoUpdateOptOutEnvironment: Object.freeze({}),
-  // Empty on purpose: the per-turn `serviceTier` override has no enumerated level set, so a caller
-  // carrying an `outputSpeed` is refused rather than forwarding an unvalidated value.
-  outputSpeedLevels: Object.freeze([]),
+  // No static `outputSpeedLevels`: the provider publishes its service tiers on each model of the
+  // catalog read, so the levels are `ProviderModel.outputSpeedLevels` and never a driver constant.
   builtInTools: CODEX_BUILT_IN_TOOLS,
 });

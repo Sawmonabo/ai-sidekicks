@@ -280,9 +280,7 @@ const EVENT_DISPOSITION_RECORD = {
     disposition: "correlate",
     reason:
       "a wire echo of a message the app sent: it confirms delivery and folds into that " +
-      "message's user.message row via correlation_id, adding no persisted type; until " +
-      "user.message has a payload variant, the echo routes to the normalizers' diagnostic " +
-      "branch",
+      "message's user.message row via correlation_id, adding no persisted type",
   },
   // Heavy, persisted: the payload goes to SQLite and light metadata to the client.
   diff: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },

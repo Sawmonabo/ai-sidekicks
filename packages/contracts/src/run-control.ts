@@ -77,10 +77,10 @@ import {
 } from "./run-provider-choice.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import {
-  PermissionLevelSchema,
   RunSafetyBufferingUpdatedPayloadSchema,
   type RunSafetyBufferingUpdatedPayload,
-} from "./session-controls.js";
+} from "./session-controls/events.js";
+import { PermissionLevelSchema } from "./session-controls/methods.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
@@ -139,7 +139,7 @@ const filesystemPathSchema: z.ZodString = z
 
 // `expectedRunVersion` is the mandatory optimistic-concurrency comparand: an absent one is
 // refused, never applied. `clientIdempotencyKey` is stored with the intervention under
-// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry replays the recorded
+// `UNIQUE(target_run_id, client_idempotency_key)`, so an identical retry returns the recorded
 // outcome.
 
 /**
@@ -302,10 +302,12 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z
 /**
  * A turn the provider's safety check refused with no other model to take it, on
  * `run.failed`: the refusing model, and the provider's own sentence, explanation
- * and check category when it sends them.
+ * and check category when it sends them. `origin` is `provider` where the driver normalized the
+ * provider's own cause and `daemon` where the app's own refusal ended the run.
  */
 export interface RunRefusedCause {
   cause: "refused";
+  origin: "provider" | "daemon";
   model: string;
   sentence?: string | undefined;
   explanation?: string | undefined;
@@ -314,6 +316,7 @@ export interface RunRefusedCause {
 const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   .object({
     cause: z.literal("refused"),
+    origin: z.enum(["provider", "daemon"]),
     model: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunRefusedCause.model"),
     sentence: wireFreeFormString(
       DRIVER_FAILURE_DETAIL_MAX_LEN,
@@ -327,6 +330,25 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
       DRIVER_WIRE_HANDLE_MAX_LEN,
       "RunRefusedCause.safetyCategory",
     ).optional(),
+  })
+  .strict();
+
+/**
+ * How a process that ended on its own exited: its exit code or the signal that ended it, and the
+ * last lines it printed. `run.failed` carries a provider process's under the turn, and a failed
+ * workflow step the process it ran. A process the daemon closed itself, or a sleep, records none.
+ */
+export interface ProcessExit {
+  exitCode?: number | undefined;
+  signal?: string | undefined;
+  outputTail: string;
+}
+/** Wire schema for {@link ProcessExit}. */
+export const ProcessExitSchema: z.ZodType<ProcessExit> = z
+  .object({
+    exitCode: z.number().int().optional(),
+    signal: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ProcessExit.signal").optional(),
+    outputTail: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "ProcessExit.outputTail"),
   })
   .strict();
 
@@ -347,6 +369,7 @@ export interface RunStateChangeEvent {
   // `<registered code> origin=<arm>` form from the outbound-frame neutralization tripwire. Read
   // the cause as the substring before the first space; the whole value is not always prose.
   providerFailureDetail?: string | undefined;
+  processExit?: ProcessExit | undefined;
   completionKind?: "turn" | "task" | undefined;
   // Present only on a terminal the daemon itself closed; such a terminal is never a crash.
   intendedClose?: true | undefined;
@@ -372,6 +395,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
       DRIVER_FAILURE_DETAIL_MAX_LEN,
       "RunStateChangeEvent.providerFailureDetail",
     ).optional(),
+    processExit: ProcessExitSchema.optional(),
     completionKind: z.enum(["turn", "task"]).optional(),
     intendedClose: z.literal(true).optional(),
     executionPosture: executionPostureSchema.optional(),
@@ -384,13 +408,17 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
   .refine((event) => event.failureCause === undefined || event.newState === "failed", {
     path: ["failureCause"],
     message: "A failure cause rides only a transition into `failed`.",
+  })
+  .refine((event) => event.processExit === undefined || event.newState === "failed", {
+    path: ["processExit"],
+    message: "A process exit rides only a transition into `failed`.",
   });
 
 /**
  * A run rewound to an earlier turn boundary, carried on `run.subscribeState`. It is not a state
  * transition, so it has no `previousState` or `newState`; inventing one would corrupt the stream
- * consumers replay. It carries no tag: `.strict()` keeps it apart from the state change. It is
- * also the stored `run.rolled_back` payload, hence `sessionId`.
+ * consumers rebuild from. It carries no tag: `.strict()` keeps it apart from the state change. It
+ * is also the stored `run.rolled_back` payload, hence `sessionId`.
  */
 export interface RunRolledBackEvent {
   sessionId: SessionId;
@@ -415,7 +443,7 @@ export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
 /**
  * One delivery on `run.subscribeState`: a state change, a rollback, or Codex's safety hold on the
  * run's turn. The hold is a live detail carried only by this stream, never written to the
- * session's history, so a re-opened session does not replay it. None carries a tag; `.strict()`
+ * session's history, so a re-opened session does not show it again. None carries a tag; `.strict()`
  * on all three keeps them apart.
  */
 export type RunStateStreamEvent =
@@ -514,7 +542,7 @@ export const RunRecoveryResolvedPayloadSchema: z.ZodType<RunRecoveryResolvedPayl
 
 /**
  * Opens a session's run state stream: every run in the session, the lead and each child, which
- * the caller fans out by `runId`. Session-scoped, with no replay cursor.
+ * the caller fans out by `runId`. Session-scoped, with no catch-up cursor.
  */
 export interface RunStateSubscribeRequest {
   sessionId: SessionId;

@@ -294,42 +294,39 @@ describe("Codex ask normalization at the session seam", () => {
     expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
   });
 
-  it(
-    "drops an over-large choice set with a " + "diagnostic while the ask STILL normalizes",
-    async () => {
-      const recorded: CodexSessionServerRequest[] = [];
-      const { harness, ask } = await askHarness(recorded);
+  it("drops an oversized choice set with a diagnostic while the ask STILL normalizes", async () => {
+    const recorded: CodexSessionServerRequest[] = [];
+    const { harness, ask } = await askHarness(recorded);
 
-      await ask("mcpServer/elicitation/request", {
-        threadId: THREAD_ID,
-        turnId: null,
-        serverName: "files",
-        mode: "form",
-        message: "choose",
-        requestedSchema: {
-          type: "object",
-          properties: {
-            pick: {
-              type: "string",
-              enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
-            },
+    await ask("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: {
+            type: "string",
+            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
           },
         },
-      });
+      },
+    });
 
-      // The ask still reaches the daemon: refusing to normalize it because its options did not
-      // parse would hang a turn over a decoration; the free-text arm is unconditional.
-      expect(recorded).toHaveLength(1);
-      expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
-      const drops = harness.driverDiagnostics.recentRecordsOfKind(
-        "interactive_request_option_set_dropped",
-      );
-      expect(drops).toHaveLength(1);
-      expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
-      expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
-      expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
-    },
-  );
+    // The ask still reaches the daemon: refusing to normalize it because its options did not
+    // parse would hang a turn over a decoration; the free-text arm is unconditional.
+    expect(recorded).toHaveLength(1);
+    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
+    const drops = harness.driverDiagnostics.recentRecordsOfKind(
+      "interactive_request_option_set_dropped",
+    );
+    expect(drops).toHaveLength(1);
+    expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
+    expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
+    expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
+  });
 
   it("omits the key entirely when the ask publishes no choice set", async () => {
     const recorded: CodexSessionServerRequest[] = [];

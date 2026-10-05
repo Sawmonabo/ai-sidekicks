@@ -171,26 +171,23 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
 });
 
 describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
-  it(
-    "refuses a second dispatch while the opening " + "frame is pending, and admits it once settled",
-    async () => {
-      // The tripwire attributes one frame per run key, so a duplicate dispatch would quarantine
-      // the session.
-      const harness = buildHarness();
-      const channel = await startLiveRun(harness);
+  it("refuses a second dispatch until the opening frame settles, then admits it", async () => {
+    // The tripwire attributes one frame per run key, so a duplicate dispatch would quarantine
+    // the session.
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness);
 
-      await expect(startTestRun(harness)).rejects.toMatchObject({
-        code: "driver.unavailable",
-        fields: { reason: "run_already_dispatched" },
-      });
-      expect(channel.sentWireTexts).toStrictEqual(["review the diff"]);
-      channel.emitStreamFrame("result/success");
-      expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    await expect(startTestRun(harness)).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "run_already_dispatched" },
+    });
+    expect(channel.sentWireTexts).toStrictEqual(["review the diff"]);
+    channel.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
 
-      await startTestRun(harness);
-      expect(channel.sentWireTexts).toStrictEqual(["review the diff", "review the diff"]);
-    },
-  );
+    await startTestRun(harness);
+    expect(channel.sentWireTexts).toStrictEqual(["review the diff", "review the diff"]);
+  });
 
   it("throws rather than reporting success when the CLI refuses the interrupt", async () => {
     const harness = buildHarness();
@@ -246,20 +243,17 @@ describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
 });
 
 describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
-  it(
-    "neutralizes command-shaped text on the wire " + "only, leaving the daemon's record untouched",
-    async () => {
-      const harness = buildHarness();
-      const channel = await startLiveRun(harness, "/status please");
+  it("neutralizes command-shaped text on the wire only, not in the daemon's record", async () => {
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness, "/status please");
 
-      expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
-      expect(channel.sentAuthoredTexts).toStrictEqual(["/status please"]);
-      // The dispatch record feeds the persisted event row and any rollback target.
-      expect(harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID)?.openingText).toBe(
-        "/status please",
-      );
-    },
-  );
+    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+    expect(channel.sentAuthoredTexts).toStrictEqual(["/status please"]);
+    // The dispatch record feeds the persisted event row and any rollback target.
+    expect(harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID)?.openingText).toBe(
+      "/status please",
+    );
+  });
 
   it("ignores an exempt origin smuggled onto the dispatch record", async () => {
     // `driver_command` delivers bytes verbatim and excuses the turn from the tripwire, so a
@@ -279,33 +273,30 @@ describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
     expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
   });
 
-  it(
-    "fails a swallowed turn, quarantines and tears " + "down its session, and lets a fresh one run",
-    async () => {
-      const harness = buildHarness();
-      const channel = await startLiveRun(harness, "/status please");
+  it("fails a swallowed turn, tears down and quarantines its session; a new one runs", async () => {
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness, "/status please");
 
-      channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-      channel.emitStreamFrame("result/success");
-      await drainMicrotasks();
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    await drainMicrotasks();
 
-      expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-      // Refused rather than `undefined`, which would read as "no channel" and invite a retry into
-      // the same swallow.
-      expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-        TextNeutralizationRefusedError,
-      );
-      expect(channel.disposals).toStrictEqual(["session_closed"]);
-      await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
-        TextNeutralizationRefusedError,
-      );
-      expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
+    // Refused rather than `undefined`, which would read as "no channel" and invite a retry into
+    // the same swallow.
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+    expect(channel.disposals).toStrictEqual(["session_closed"]);
+    await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
+      TextNeutralizationRefusedError,
+    );
+    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
 
-      // The quarantine names a binding, not the session id, so recovery is a fresh session.
-      await createLiveSession(harness);
-      await expect(startSecondRun(harness, "carry on")).resolves.toBeUndefined();
-    },
-  );
+    // The quarantine names a binding, not the session id, so recovery is a fresh session.
+    await createLiveSession(harness);
+    await expect(startSecondRun(harness, "carry on")).resolves.toBeUndefined();
+  });
 
   it("still fails a swallowed turn that was interrupted before its terminal arrived", async () => {
     const harness = buildHarness();
@@ -322,29 +313,26 @@ describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
     );
   });
 
-  it(
-    "refuses a second run on a busy session before " + "writing, leaving it no route to interrupt",
-    async () => {
-      // The interrupt is channel-scoped, so a route left for the refused run would stop the older
-      // turn still running on the session.
-      const harness = buildHarness();
-      const channel = await startLiveRun(harness, "first turn");
+  it("refuses a busy session's second run before writing; it gets no interrupt route", async () => {
+    // The interrupt is channel-scoped, so a route left for the refused run would stop the older
+    // turn still running on the session.
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness, "first turn");
 
-      await expect(startSecondRun(harness, "one more")).rejects.toMatchObject({
-        code: "driver.unavailable",
-        fields: { reason: "session_turn_in_flight" },
-      });
+    await expect(startSecondRun(harness, "one more")).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_turn_in_flight" },
+    });
 
-      expect(channel.sentWireTexts).toHaveLength(1);
-      await expect(
-        harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "user_stop" }),
-      ).rejects.toThrow(ClaudeSessionUnavailableError);
-      expect(channel.controlRequests).toStrictEqual([]);
-      channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
-      channel.emitStreamFrame("result/success");
-      expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    },
-  );
+    expect(channel.sentWireTexts).toHaveLength(1);
+    await expect(
+      harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "user_stop" }),
+    ).rejects.toThrow(ClaudeSessionUnavailableError);
+    expect(channel.controlRequests).toStrictEqual([]);
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
 
   // An ambiguous write is retained for the turn's own terminal to rule, never retried (the bytes
   // may have reached the provider) and never assumed sent cleanly. A transport that rejects
@@ -418,53 +406,47 @@ describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
     }
   });
 
-  it(
-    "rules an ambiguous write at once when the " + "channel can no longer deliver a terminal",
-    async () => {
-      const harness = buildHarness();
-      const channel = await createLiveSession(harness);
-      channel.sendUserTextFailure = new Error("the provider stream is closed");
-      channel.sendUserTextDelivery = "indeterminate";
-      channel.isClosed = true;
-      armRunDispatch(harness, TEST_RUN_ID, "/status please");
+  it("rules an ambiguous write now when the channel can no longer deliver a terminal", async () => {
+    const harness = buildHarness();
+    const channel = await createLiveSession(harness);
+    channel.sendUserTextFailure = new Error("the provider stream is closed");
+    channel.sendUserTextDelivery = "indeterminate";
+    channel.isClosed = true;
+    armRunDispatch(harness, TEST_RUN_ID, "/status please");
 
-      await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
-      await drainMicrotasks();
+    await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
+    await drainMicrotasks();
 
-      expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-      expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-        TextNeutralizationRefusedError,
-      );
-      expect(channel.disposals).toStrictEqual(["session_closed"]);
-      await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
-        TextNeutralizationRefusedError,
-      );
-    },
-  );
+    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+    expect(channel.disposals).toStrictEqual(["session_closed"]);
+    await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
 
-  it(
-    "drops a provably unsent frame and its " + "route, so neither reaches a later run's turn",
-    async () => {
-      const harness = buildHarness();
-      const channel = await createLiveSession(harness);
-      channel.sendUserTextFailure = new Error("the provider stream is closed");
-      channel.sendUserTextDelivery = "unsent";
-      armRunDispatch(harness, TEST_RUN_ID, "/status please");
-      await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
+  it("drops a provably unsent frame and its route, so neither reaches a later run", async () => {
+    const harness = buildHarness();
+    const channel = await createLiveSession(harness);
+    channel.sendUserTextFailure = new Error("the provider stream is closed");
+    channel.sendUserTextDelivery = "unsent";
+    armRunDispatch(harness, TEST_RUN_ID, "/status please");
+    await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
 
-      await expect(
-        harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "user_stop" }),
-      ).rejects.toThrow(ClaudeSessionUnavailableError);
-      expect(channel.controlRequests).toStrictEqual([]);
+    await expect(
+      harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "user_stop" }),
+    ).rejects.toThrow(ClaudeSessionUnavailableError);
+    expect(channel.controlRequests).toStrictEqual([]);
 
-      // A stale registration would consume this run's evidence and fail it.
-      channel.sendUserTextFailure = undefined;
-      await startSecondRun(harness, "second turn");
-      channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
-      channel.emitStreamFrame("result/success");
-      expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    },
-  );
+    // A stale registration would consume this run's evidence and fail it.
+    channel.sendUserTextFailure = undefined;
+    await startSecondRun(harness, "second turn");
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
 
   it("keeps the predecessor's pending frame ruled when a rewind's adoption fails", async () => {
     // The restored predecessor is still mid-turn; dropping its correlation would let its
@@ -483,26 +465,23 @@ describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
     expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
   });
 
-  it(
-    "still quarantines the run, and records " + "the throw, when the failure consumer throws",
-    async () => {
-      const harness = buildHarness({
-        onTextNeutralizationFailure: () => {
-          throw new Error("the emission pipeline is unavailable");
-        },
-      });
-      const channel = await startLiveRun(harness, "/status please");
+  it("quarantines the run and records the throw even if the failure consumer throws", async () => {
+    const harness = buildHarness({
+      onTextNeutralizationFailure: () => {
+        throw new Error("the emission pipeline is unavailable");
+      },
+    });
+    const channel = await startLiveRun(harness, "/status please");
 
-      channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-      expect(() => channel.emitStreamFrame("result/success")).not.toThrow();
-      expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-        TextNeutralizationRefusedError,
-      );
-      expect(
-        harness.diagnostics.recentRecordsOfKind("text_neutralization_trip_report_failed"),
-      ).toMatchObject([{ details: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID } }]);
-    },
-  );
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    expect(() => channel.emitStreamFrame("result/success")).not.toThrow();
+    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+    expect(
+      harness.diagnostics.recentRecordsOfKind("text_neutralization_trip_report_failed"),
+    ).toMatchObject([{ details: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID } }]);
+  });
 });
 
 // A pending opening frame is ruled on every transition that takes its binding: a rewind owes the

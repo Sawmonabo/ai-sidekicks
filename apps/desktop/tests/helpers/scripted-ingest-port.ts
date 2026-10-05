@@ -50,7 +50,7 @@ export class ScriptedIngestPort {
    * A real running total, because the registered `AttachmentIngestChunkResponse` carries it and the
    * client advances its own running total from it; a constant would let a client that ignored the
    * reply pass. The length comes from the platform's base64 decoder rather than arithmetic over the
-   * encoded string. Keyed by sequence number so the total is idempotent under the replay the
+   * encoded string. Keyed by sequence number so the total is idempotent under the resend the
    * contract makes safe: a chunk resent after a lost response is not appended twice.
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();

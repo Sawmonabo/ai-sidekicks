@@ -10,7 +10,7 @@ import { type Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { ReadingAnchor } from "../scroll/reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
-import { ScrollController } from "../scroll/scroll-chokepoint.js";
+import { ScrollController } from "@renderer/lib/scroll/scroll-chokepoint.js";
 import { ViewportAnchorCapture } from "./viewport-anchor-capture.js";
 import { ViewportDeferredHold } from "./viewport-deferred-hold.js";
 import { HeadInsertion } from "./viewport-head-insertion.js";
@@ -57,6 +57,8 @@ export class ViewportController {
   #virtualKeys: readonly string[] = [];
   #rows: readonly ViewportRow[] = [];
   #rowKeys: readonly string[] = [];
+  /** The row a link asked to land on, until the committed render that holds it scrolls there. */
+  #pendingLandingRowKey: string | undefined;
   #disposed = false;
 
   public constructor(options: ViewportControllerOptions) {
@@ -202,6 +204,40 @@ export class ViewportController {
       return;
     }
     this.#deferredHold.commit();
+  }
+
+  /**
+   * Lands the reader on one row, as a link to a message does: reading starts at it, so the cap
+   * keeps it and every row after it however far back it sits, and `commitPendingLanding` brings
+   * it to the top of the viewport. Call it before the reconcile that brings the row, or that pass
+   * may already have pruned it.
+   */
+  public landOnRow(rowKey: string): void {
+    this.anchor.readFrom(rowKey);
+    this.#pendingLandingRowKey = rowKey;
+  }
+
+  /**
+   * Scrolls to the row `landOnRow` named once the window holds it, through the library's own
+   * index scroll, which re-aims as the estimated rows above it measure. Called from the same
+   * layout effect as the position hold, when the virtualizer counts the rows the window holds.
+   * Answers whether it landed, once per landing.
+   */
+  public commitPendingLanding(): boolean {
+    const rowKey = this.#pendingLandingRowKey;
+    const virtualizer = this.#virtualizer;
+    if (this.#disposed || rowKey === undefined || virtualizer === undefined) {
+      return false;
+    }
+    const index = this.#rowKeys.indexOf(rowKey);
+    if (index < 0) {
+      return false;
+    }
+    this.#pendingLandingRowKey = undefined;
+    this.virtualizerOptions.scrollFor("message-anchor", () => {
+      virtualizer.scrollToIndex(index, { align: "start" });
+    });
+    return true;
   }
 
   /**

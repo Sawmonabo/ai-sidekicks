@@ -26,7 +26,9 @@ import type {
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
+  ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session";
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
@@ -98,8 +100,6 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
    * once at construction, so every connection this driver opens gets the same selection.
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
-  /** The live `model/list` read backing `listModels()`. */
-  readonly modelCatalogExchange: CodexModelCatalogExchange;
 }
 
 /** The Codex provider driver: lifecycle operations plus intervention dispatch. */
@@ -118,6 +118,7 @@ export class CodexDriver implements Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
+  | "observedOutputSpeedFor"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
@@ -204,6 +205,11 @@ export class CodexDriver implements Pick<
   /** The provider's commands and skills for the session, held until the provider signals change. */
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     return this.#lifecycle.listProviderCommands(params);
+  }
+
+  /** The tier the session's thread declared; see {@link CodexLifecycleManager.observedOutputSpeedFor}. */
+  observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
+    return this.#lifecycle.observedOutputSpeedFor(sessionId);
   }
 
   /** The transport this driver reaches its provider processes over. */

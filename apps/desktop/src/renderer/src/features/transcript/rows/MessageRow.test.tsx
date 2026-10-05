@@ -2,14 +2,18 @@
 
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   inlineCardRegistry,
   type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
-import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
+import {
+  createFixtureBridge,
+  type FixtureBridge,
+} from "@renderer/services/platform/platform-bridge.fixture.js";
+import type { ClipboardContent } from "@shared/preload-api.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./row-kind.js";
@@ -25,6 +29,7 @@ function renderMessageCard(
     readonly content?: HydratedSessionEventContent;
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardProps[];
+    readonly fixture?: FixtureBridge;
   } = {},
 ): HTMLElement {
   const row = sampleRunRow({
@@ -37,7 +42,9 @@ function renderMessageCard(
     throw new Error(`${row.type} is not a message kind`);
   }
   const { container } = render(
-    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+    <FixtureBridgeProvider
+      fixture={overrides.fixture ?? createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}
+    >
       <MessageRow
         row={row}
         rowKind={rowKind}
@@ -78,6 +85,41 @@ describe("which body a message renders", () => {
     const container = renderMessageCard({ liveText: "arriv" });
     expect(container.textContent).toContain("arriv");
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+  });
+});
+
+describe("a message's Copy", () => {
+  /** Presses the row's Copy and answers what main was asked to write. */
+  async function pressCopy(overrides: Parameters<typeof renderMessageCard>[0]) {
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const copied: ClipboardContent[] = [];
+    vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
+      copied.push(content);
+    });
+    renderMessageCard({ ...overrides, fixture });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      await Promise.resolve();
+    });
+    return copied;
+  }
+
+  it("writes a reply's markdown with a formatted flavor beside it", async () => {
+    const reply = "Rename **the reader** and keep `its callers`.";
+    const copied = await pressCopy({ content: { status: "available", body: reply } });
+
+    expect(copied).toStrictEqual([
+      {
+        text: reply,
+        html: "<p>Rename <strong>the reader</strong> and keep <code>its callers</code>.</p>",
+      },
+    ]);
+  });
+
+  it("writes the person's own message as plain text and nothing else", async () => {
+    const copied = await pressCopy({ type: "user.message", summary: "Rename **the reader**" });
+
+    expect(copied).toStrictEqual([{ text: "Rename **the reader**" }]);
   });
 });
 

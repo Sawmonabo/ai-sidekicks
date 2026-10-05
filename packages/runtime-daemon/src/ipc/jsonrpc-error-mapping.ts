@@ -17,9 +17,9 @@ import type {
   JsonRpcId,
 } from "@ai-sidekicks/contracts/jsonrpc";
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
-import { FramingError } from "./content-length-framing.js";
 import { DaemonDomainError } from "./domain-error.js";
 import { redactPathsFromString, sanitizeErrorMessage } from "./local-ipc-gateway.js";
 import { NegotiationError } from "./protocol-negotiation.js";

@@ -317,8 +317,8 @@ function labelsIn(list) {
 // The window stops at the next phase reference or sentence end, so a later
 // sentence's "merged" is never credited to an earlier mention.
 const SHIPMENT_CLAIM = new RegExp(
-  "^(?:(?!\\bPhases?\\b|\\bPlan-\\d{3}\\b|\\.\\s|;).){0,60}?" +
-    "\\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\\b",
+  String.raw`^(?:(?!\bPhases?\b|\bPlan-\d{3}\b|\.\s|;).){0,60}?` +
+    String.raw`\b(?:merged|landed|shipp(?:ed|ing)|complete[sd]?|green|satisfied|in git log)\b`,
   "is",
 );
 

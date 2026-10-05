@@ -152,7 +152,7 @@ export class AnimationFrameScheduler {
     return pending;
   }
 
-  /** Watch quarantined tasks. No replay: a diagnostic is an event, not a state. */
+  /** Watch quarantined tasks. No resend: a diagnostic is an event, not a state. */
   public subscribeToDiagnostics(sink: (diagnostic: AnimationFrameDiagnostic) => void): Unsubscribe {
     return this.#diagnosticEmitter.subscribe(sink);
   }

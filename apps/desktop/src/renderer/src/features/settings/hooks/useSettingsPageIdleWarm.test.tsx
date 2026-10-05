@@ -1,7 +1,7 @@
 // The settings mount arms one walk over its own board and releases it with itself. This is the
 // binding's lifetime; the walking itself is `components/LazyBody/lazy-body-warm.ts`'s. A
 // binding can fail by walking again on every render, by re-arming against a board whose screen
-// has unmounted, or by going cold silently under the `StrictMode` replay.
+// has unmounted, or by going cold silently under the `StrictMode` re-run.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -95,10 +95,10 @@ describe("the settings page board's idle warm", () => {
     expect(loadedSections).toStrictEqual([]);
   });
 
-  it("warms the board under a replayed effect", () => {
-    // `StrictMode` runs setup, cleanup, then setup again. A walk held across the replay would be
+  it("warms the board under a re-run effect", () => {
+    // `StrictMode` runs setup, cleanup, then setup again. A walk held across the re-run would be
     // started, canceled and then found already canceled, leaving the board cold with nothing
-    // failing; building it inside each setup makes a replay a fresh walk.
+    // failing; building it inside each setup makes a re-run a fresh walk.
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -108,7 +108,7 @@ describe("the settings page board's idle warm", () => {
       </StrictMode>,
     );
 
-    // The replay's cleanup canceled the first walk, so exactly one is armed.
+    // The re-run's cleanup canceled the first walk, so exactly one is armed.
     expect(scheduler.pendingCount).toBe(1);
 
     scheduler.runToQuiescence();

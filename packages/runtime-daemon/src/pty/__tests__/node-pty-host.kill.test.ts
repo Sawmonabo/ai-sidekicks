@@ -486,29 +486,26 @@ describe("NodePtyHost — kill translation", () => {
     },
   );
 
-  it(
-    "kill() on an already-exited session fires " + "no second onExit and does NOT call any FFI",
-    async () => {
-      // A taskkill on an exited child's pid could reach an unrelated process that reused it.
-      const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+  it("kill() on an exited session fires no second onExit and does NOT call any FFI", async () => {
+    // A taskkill on an exited child's pid could reach an unrelated process that reused it.
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-      // The child exits on its own; the `onExit` subscription from `spawn()` reports it.
-      ctx.triggerExit(0);
+    // The child exits on its own; the `onExit` subscription from `spawn()` reports it.
+    ctx.triggerExit(0);
 
-      expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
-      expect(ctx.exitRecorder).toHaveBeenCalledWith(session_id, 0);
+    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
+    expect(ctx.exitRecorder).toHaveBeenCalledWith(session_id, 0);
 
-      await ctx.host.kill(session_id, "SIGTERM");
+    await ctx.host.kill(session_id, "SIGTERM");
 
-      // Exactly one fire: the child's own exit.
-      expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
+    // Exactly one fire: the child's own exit.
+    expect(ctx.exitRecorder).toHaveBeenCalledTimes(1);
 
-      // No FFI call, no taskkill, no node-pty kill.
-      expect(ctx.mockGCCE).not.toHaveBeenCalled();
-      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
-      expect(ctx.child.kill).not.toHaveBeenCalled();
-    },
-  );
+    // No FFI call, no taskkill, no node-pty kill.
+    expect(ctx.mockGCCE).not.toHaveBeenCalled();
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+    expect(ctx.child.kill).not.toHaveBeenCalled();
+  });
 
   it("on platform=linux, SIGINT delegates to child.kill('SIGINT')", async () => {
     const { child } = makeFakeChild();
@@ -527,31 +524,28 @@ describe("NodePtyHost — kill translation", () => {
 });
 
 describe("NodePtyHost — spawn, resize and write", () => {
-  it(
-    "invokes node-pty.spawn with the requested " + "command/args and translated env record",
-    async () => {
-      const spec: SpawnRequest = {
-        ...SAMPLE_SPAWN,
-        env: [
-          ["PATH", "/usr/bin"],
-          ["FOO", "bar"],
-        ],
-      };
-      await ctx.host.spawn(spec);
+  it("calls node-pty.spawn with the requested command/args and translated env record", async () => {
+    const spec: SpawnRequest = {
+      ...SAMPLE_SPAWN,
+      env: [
+        ["PATH", "/usr/bin"],
+        ["FOO", "bar"],
+      ],
+    };
+    await ctx.host.spawn(spec);
 
-      expect(ctx.ptySpawnStub).toHaveBeenCalledTimes(1);
-      const [command, args, options] = ctx.ptySpawnStub.mock.calls[0]!;
-      expect(command).toBe("cmd.exe");
-      expect(args).toEqual(["/c", "ping -t 127.0.0.1"]);
-      // node-pty takes an env record, not tuples.
-      expect(options.env).toEqual({
-        PATH: "/usr/bin",
-        FOO: "bar",
-      });
-      // `useConptyDll` must stay `false`.
-      expect(options.useConptyDll).toBe(false);
-    },
-  );
+    expect(ctx.ptySpawnStub).toHaveBeenCalledTimes(1);
+    const [command, args, options] = ctx.ptySpawnStub.mock.calls[0]!;
+    expect(command).toBe("cmd.exe");
+    expect(args).toEqual(["/c", "ping -t 127.0.0.1"]);
+    // node-pty takes an env record, not tuples.
+    expect(options.env).toEqual({
+      PATH: "/usr/bin",
+      FOO: "bar",
+    });
+    // `useConptyDll` must stay `false`.
+    expect(options.useConptyDll).toBe(false);
+  });
 
   it("resize/write delegate to the underlying child and reject unknown session-ids", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);

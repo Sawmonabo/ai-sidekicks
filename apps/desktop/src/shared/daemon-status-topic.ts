@@ -5,12 +5,14 @@
 // daemon's method map because it must speak while no service answers: at boot, while a start
 // is retried, and on Windows when the service wrote down why it cannot start.
 
-/**
- * The topic's name on `daemon.subscribe`.
- *
- * @consumedBy the window's subscription to the service's status, when main publishes it
- */
+/** The topic's name on `daemon.subscribe`. */
 export const DAEMON_STATUS_TOPIC = "daemon.status";
+
+/** The topic's name as a type, so `daemon.subscribe` types its payload by it. */
+export type DaemonStatusTopic = typeof DAEMON_STATUS_TOPIC;
+
+/** What the topic is opened with: nothing, as there is one service per machine. */
+export type DaemonStatusRequest = Readonly<Record<string, never>>;
 
 /**
  * What the handshake settled, as `DaemonHelloAck` carries it. The members are the ack's own;
@@ -34,33 +36,40 @@ export interface MainProcessNegotiation {
 }
 
 /**
- * Where this window stands with the background service, in the supervisor's steps: `probing` is
- * the startup probe, `starting` the spawn and its readiness wait, `version-incompatible` a
- * refused handshake, `connected` the live link, `reconnecting` the backoff ladder, `offline`
- * that ladder's end, and `stopped` a deliberate shutdown. `unreported` is what a window holds
- * before main's first delivery; main never publishes it.
+ * Where this window stands with the background service. Before a link exists: `connecting` while
+ * main looks for a running service and handshakes, `starting` while a service main started comes
+ * up. With a link: `connected`, or `version-incompatible` when the handshake was refused and the
+ * link serves reads alone. After a link is lost: `transient_disconnect` while main brings it back
+ * with backoff, `unknown` for a loss whose cause main does not recognize, drawn as `degraded` and
+ * never as `connected`, and `degraded` once the backoff gives up. `stopped` is the service ended
+ * on the person's `Stop`. `unreported` is what a window holds before main's first delivery; main
+ * never publishes it.
  */
 export type DaemonConnection =
   | { readonly kind: "unreported" }
-  | { readonly kind: "probing" }
+  | { readonly kind: "connecting" }
   | { readonly kind: "starting" }
   | { readonly kind: "connected" }
-  | { readonly kind: "reconnecting"; readonly attempt: number; readonly attemptLimit: number }
   /** The handshake was refused. The facts are on `MainProcessState.negotiation`. */
   | { readonly kind: "version-incompatible" }
   | {
-      readonly kind: "offline";
+      readonly kind: "transient_disconnect";
+      /** The start being made now, counted from 1 since the loss. */
+      readonly attempt: number;
       readonly attemptLimit: number;
-      /** The supervisor's last recorded exit or spawn failure, verbatim. */
+    }
+  | {
+      readonly kind: "unknown";
+      /** The loss's own error, verbatim, where it carried one. */
+      readonly lastError: string | undefined;
+    }
+  | {
+      readonly kind: "degraded";
+      readonly attemptLimit: number;
+      /** The supervisor's last recorded loss or start failure, verbatim. */
       readonly lastError: string | undefined;
     }
   | { readonly kind: "stopped" };
-
-/** Which transport reached the daemon. `loopback` is the visibly second-class one. */
-export type DaemonTransport = "os-local" | "loopback";
-
-/** Whether long-lived auth material can be persisted at all on this host. */
-export type MainProcessKeystoreState = "available" | "unavailable";
 
 /**
  * On Windows, whether the service keeps running while the person is signed out: `on`,
@@ -83,16 +92,12 @@ export type ServiceCannotStart =
 /**
  * One delivery of the topic, the first being the current state. Every member other than the
  * connection is `undefined` until main has read it, and `undefined` means unreported, never a
- * default: rendering `os-local` before anything said so would claim a transport never read.
+ * default: rendering `startedByApp: false` before anything said so would claim a fact never read.
  */
 export interface MainProcessState {
   readonly connection: DaemonConnection;
   /** What the handshake settled, on every arm it settled on. */
   readonly negotiation: MainProcessNegotiation | undefined;
-  /** The last heartbeat the supervisor observed, verbatim from the wire. */
-  readonly lastHeartbeatAt: string | undefined;
-  readonly transport: DaemonTransport | undefined;
-  readonly keystore: MainProcessKeystoreState | undefined;
   /** Whether this app started the service itself or found one already running. */
   readonly startedByApp: boolean | undefined;
   /** Windows only; absent elsewhere. */

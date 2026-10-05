@@ -1,7 +1,7 @@
 // The window lifecycle-reachability probe. The caller's compile-time `__SMOKE_BUILD__`
 // gate means a release build references nothing here and Rollup drops the module.
 //
-// It runs GC-pressure cycles sampling `v8.queryObjects(BrowserWindow)`, closes every window,
+// It runs GC-pressure cycles sampling `v8.queryObjects(BaseWindow)`, closes every window,
 // collects, takes one post-close sample, and prints one `[SIDEKICKS_GC_PROBE]` line that
 // `tests/lifecycle.gc.test.ts` parses. The contract: the count is stable across the cycles,
 // `window-all-closed` does not fire mid-loop, and the count drops by at least one per window
@@ -12,7 +12,7 @@
 // `v8::Global` rooted until native destruction), so this probe guards against Electron
 // changing those semantics.
 
-import { BrowserWindow, type App } from "electron";
+import { BaseWindow, type App } from "electron";
 import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
@@ -53,9 +53,9 @@ export class GcProbe {
   #windowAllClosedFired = false;
 
   /**
-   * Registers the probe-scoped `window-all-closed` listener. `index.ts` registers its own
-   * handler first; both run in the same `emit()`, and `app.quit` only schedules the quit
-   * sequence, so it cannot pre-empt this listener.
+   * Registers the probe-scoped `window-all-closed` listener. The window registry registers its
+   * own handler first (`../windows/open-windows.ts`); both run in the same `emit()`, and
+   * `app.quit` only schedules the quit sequence, so it cannot pre-empt this listener.
    */
   public observe(electronApp: App): void {
     electronApp.on("window-all-closed", () => {
@@ -76,7 +76,7 @@ export class GcProbe {
       throwaway[0] = iteration & 0xff;
       collectTwice(collectGarbage);
       await wait(PROBE_SETTLE_MS);
-      counts.push(queryObjects(BrowserWindow, { format: "count" }));
+      counts.push(queryObjects(BaseWindow, { format: "count" }));
     }
 
     const min = counts.length > 0 ? Math.min(...counts) : 0;
@@ -84,10 +84,10 @@ export class GcProbe {
     const openCount = counts.at(-1) ?? 0;
     // Read before the close phase: closing the last window is what fires `window-all-closed`.
     const allClosedFiredDuringLoop = this.#windowAllClosedFired;
-    const windowsOpened = BrowserWindow.getAllWindows().length;
+    const windowsOpened = BaseWindow.getAllWindows().length;
 
-    // The app-level `window-all-closed` handler schedules `app.quit()`; this keeps the process
-    // alive for the post-close sample, and the `app.exit(0)` below bypasses `before-quit`.
+    // Off macOS the registry's `window-all-closed` handler schedules `app.quit()`; this keeps the
+    // process alive for the post-close sample, and the `app.exit(0)` below bypasses `before-quit`.
     electronApp.on("before-quit", (event) => {
       event.preventDefault();
     });
@@ -97,7 +97,7 @@ export class GcProbe {
     await nextMacrotask();
     collectTwice(collectGarbage);
     await wait(PROBE_SETTLE_MS);
-    const closedCount = queryObjects(BrowserWindow, { format: "count" });
+    const closedCount = queryObjects(BaseWindow, { format: "count" });
 
     const reading: GcProbeReading = {
       ok: true,
@@ -132,13 +132,13 @@ function collectTwice(collectGarbage: (() => void) | undefined): void {
  * bound across the post-close sample and root the wrapper the sample expects released.
  */
 function closeEveryWindow(): Promise<void> {
-  const closing = BrowserWindow.getAllWindows().map((browserWindow) => {
+  const closing = BaseWindow.getAllWindows().map((baseWindow) => {
     const closed = new Promise<void>((resolve) => {
-      browserWindow.once("closed", () => {
+      baseWindow.once("closed", () => {
         resolve();
       });
     });
-    browserWindow.close();
+    baseWindow.close();
     return closed;
   });
   return Promise.all(closing).then(() => undefined);

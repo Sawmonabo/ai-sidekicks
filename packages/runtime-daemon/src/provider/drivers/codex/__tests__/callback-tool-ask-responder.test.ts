@@ -45,45 +45,39 @@ function makeToolCallAsk(
 }
 
 describe("createCallbackToolAskResponder — the callback-tool arm", () => {
-  it(
-    "turns one routed ask into an adjudicated " + "invocation and answers with content items",
-    async () => {
-      const harness = buildCallbackToolHostHarness();
-      bindSpawn(harness);
+  it("turns a routed ask into an adjudicated invocation, answered with content items", async () => {
+    const harness = buildCallbackToolHostHarness();
+    bindSpawn(harness);
 
-      const decision = await buildAskResponder(harness).answer(makeToolCallAsk());
+    const decision = await buildAskResponder(harness).answer(makeToolCallAsk());
 
-      expect(decision).toStrictEqual({
-        decision: "allow",
-        payload: { contentItems: [{ type: "inputText", text: '{"hits":0}' }] },
-      });
-      // `tool` is the registry name and `callId` is copied verbatim for tool pairing.
-      expect(harness.executedInvocations[0]?.toolName).toBe(SEARCH_TOOL.name);
-      expect(harness.executedInvocations[0]?.toolCallId).toBe("call-1");
-    },
-  );
+    expect(decision).toStrictEqual({
+      decision: "allow",
+      payload: { contentItems: [{ type: "inputText", text: '{"hits":0}' }] },
+    });
+    // `tool` is the registry name and `callId` is copied verbatim for tool pairing.
+    expect(harness.executedInvocations[0]?.toolName).toBe(SEARCH_TOOL.name);
+    expect(harness.executedInvocations[0]?.toolCallId).toBe("call-1");
+  });
 
-  it(
-    "refuses and RECORDS a non-object `arguments` " + "payload the provider may legally send",
-    async () => {
-      const harness = buildCallbackToolHostHarness();
-      bindSpawn(harness);
+  it("refuses and RECORDS a legal non-object `arguments` payload from the provider", async () => {
+    const harness = buildCallbackToolHostHarness();
+    bindSpawn(harness);
 
-      // The provider's schema allows any JSON value for `arguments`, so this shape can arrive.
-      const decision = await buildAskResponder(harness).answer(
-        makeToolCallAsk({
-          params: { tool: SEARCH_TOOL.name, callId: "call-2", arguments: "needle" },
-        }),
-      );
+    // The provider's schema allows any JSON value for `arguments`, so this shape can arrive.
+    const decision = await buildAskResponder(harness).answer(
+      makeToolCallAsk({
+        params: { tool: SEARCH_TOOL.name, callId: "call-2", arguments: "needle" },
+      }),
+    );
 
-      expect(decision.decision).toBe("refuse");
-      const refusals = harness.emittedDiagnostics.filter(
-        (record) => record.kind === "callback_tool_invocation_refused",
-      );
-      expect(refusals[0]?.details["toolCallId"]).toBe("call-2");
-      expect(harness.evaluatedRequests).toHaveLength(0);
-    },
-  );
+    expect(decision.decision).toBe("refuse");
+    const refusals = harness.emittedDiagnostics.filter(
+      (record) => record.kind === "callback_tool_invocation_refused",
+    );
+    expect(refusals[0]?.details["toolCallId"]).toBe("call-2");
+    expect(harness.evaluatedRequests).toHaveLength(0);
+  });
 
   it("relays the host's own refusal reason rather than inventing one", async () => {
     const harness = buildCallbackToolHostHarness({

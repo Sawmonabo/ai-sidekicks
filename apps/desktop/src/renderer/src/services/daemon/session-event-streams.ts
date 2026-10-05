@@ -7,10 +7,10 @@
 //
 // The kind lists for narrowed streams are composed from `session-event-stream-kinds.ts`. Rows:
 // `session.subscribe` (the whole session log), `run.subscribeState` and `run.subscribeQueue`
-// (narrowed projections), `presence.subscribe` (the connected devices), and `mcp.subscribe` and
-// `providerAccount.subscribe` (the machine's notices). The last three are not session-event
-// streams, but still `daemon.subscribe` names. The table and each row are frozen because a
-// mutation would re-route every subscription in the renderer.
+// (narrowed projections), `presence.subscribe` (the connected devices), and `mcp.subscribe`,
+// `providerAccount.subscribe` and `workflow.subscribe` (the machine's notices). The last four are
+// not session-event streams, but still `daemon.subscribe` names. The table and each row are frozen
+// because a mutation would re-route every subscription in the renderer.
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import {
@@ -35,6 +35,9 @@ export const MCP_NOTICE_STREAM = "mcp.subscribe";
 
 /** The subscription name for the machine's provider-account registry changes. */
 export const PROVIDER_ACCOUNT_NOTICE_STREAM = "providerAccount.subscribe";
+
+/** The subscription name for the machine's workflow runs, steps, schedules and start hold. */
+export const WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
 
 /**
  * A stream that carries a session's whole event log. It lists no kinds because the entire census
@@ -81,7 +84,8 @@ export type SessionEventStream =
 /** A stream that delivers the machine's notices, named from the constants below. */
 export type MachineNoticeStreamName =
   | typeof MCP_NOTICE_STREAM
-  | typeof PROVIDER_ACCOUNT_NOTICE_STREAM;
+  | typeof PROVIDER_ACCOUNT_NOTICE_STREAM
+  | typeof WORKFLOW_NOTICE_STREAM;
 
 /** One registered stream name, taken from the constants above so the strings are not repeated. */
 export type SessionEventStreamName =
@@ -115,6 +119,9 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
       scope: "machine-notices",
     } satisfies SessionEventStream),
     [PROVIDER_ACCOUNT_NOTICE_STREAM]: Object.freeze({
+      scope: "machine-notices",
+    } satisfies SessionEventStream),
+    [WORKFLOW_NOTICE_STREAM]: Object.freeze({
       scope: "machine-notices",
     } satisfies SessionEventStream),
   });

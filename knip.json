@@ -118,14 +118,10 @@
 
       // Libraries installed ahead of the code that imports them, each with what will import it.
       "ignoreDependencies": [
-        // The workflow canvas laying its nodes out left to right.
-        "@dagrejs/dagre",
         // The app updating itself to a new release.
         "electron-updater",
         // A diagram block in a reply drawn as a picture.
         "mermaid",
-        // The operating system's notification permission, read for the Notifications settings.
-        "notify-status",
         // The overlay scrollbar on every scroller but the conversation.
         "overlayscrollbars",
         "overlayscrollbars-react",
@@ -137,9 +133,6 @@
 
       // Whole files kept for a consumer that is not built yet, each with what will consume it.
       "ignoreFiles": [
-        // Wakes a view at a wall-clock deadline, for the device-link code that gives way to
-        // `Link a device` when its five minutes run out.
-        "src/renderer/src/hooks/useDeadlineWake.ts",
         // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
         // pane's diff read lands.
         "fixtures/data/repos-diff-patches.ts",
@@ -196,6 +189,9 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
+        // A saved workflow's row in the Workflows tab's table of definitions.
+        "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
+        "src/renderer/src/features/workflows/definitions/definition-rows.ts",
         // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
         // for the run controls and the queue rows.
         "src/renderer/src/services/daemon/daemon-streams.ts",
@@ -256,6 +252,10 @@
       ]
     },
     "packages/runtime-daemon": {
+      // `scutil` is the macOS utility the machine-name test runs to read the computer name the
+      // daemon must report, and `mkfifo` makes the named pipe the stop tests hold a write on; both
+      // ship with the operating system, never as a package dependency.
+      "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
         // Loaded by `import()` of a specifier held in a variable (`pty/node-pty-host.ts`), which
         // knip cannot follow; it is a hard runtime dependency.

@@ -16,8 +16,11 @@
 //                            `preventDefault`.
 //   `setWindowOpenHandler`   a popup, `window.open` or `target="_blank"`.
 //
-// Popups are denied unconditionally, same origin included: Chromium would create the window
-// with options this process never reviewed, and nothing the renderer draws needs one.
+// Every popup is denied, same origin included, except the renderer's own `window.open` of a blank
+// document under a frame name main builds a window for (`./frame-name.ts`). That one is answered
+// with main's own `createWindow`, so the window carries main's options and never the ones Chromium
+// would have built from the page's request. Only a blank document: the renderer draws into it, and
+// a second copy of the console document would be a second renderer with stores of its own.
 //
 // External `http(s)` targets go to the OS browser through a main-owned `shell.openExternal`
 // call behind a scheme allowlist. Everything else (`file:`, `javascript:`, `data:`, `blob:`, a
@@ -28,9 +31,13 @@
 // `classifyNavigation` is pure and touches no Electron API, so every arm is unit-testable.
 
 import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
-import { app, shell, type BrowserWindow } from "electron";
+import { app, shell, type WebContents } from "electron";
 
+import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer-scheme.js";
+
+/** Where a refused navigation or an outside address that did not open is recorded. */
+type NavigationLog = Pick<MainDiagnosticLog, "write">;
 
 /**
  * One in-window origin: a scheme and an authority. A pair rather than an origin string because
@@ -107,12 +114,24 @@ export async function openExternalUrl(targetUrl: string): Promise<void> {
 
 /**
  * Opens a link the window itself asked for, from a seam with no caller to hand a failure to:
- * the refusal or the OS failure is logged, and that log is the record.
+ * the refusal or the OS failure goes to main's log, and that log is the record.
  */
-function openExternalFromWindow(targetUrl: string): void {
+function openExternalFromWindow(targetUrl: string, log: NavigationLog): void {
   openExternalUrl(targetUrl).catch((error: unknown) => {
-    console.error("[ai-sidekicks/desktop] an outside address was not opened:", error);
+    writeNavigationEntry(
+      log,
+      "error",
+      `an outside address was not opened: ${error instanceof Error ? error.message : String(error)}`,
+    );
   });
+}
+
+function writeNavigationEntry(
+  log: NavigationLog,
+  level: "error" | "warning",
+  message: string,
+): void {
+  log.write({ at: new Date().toISOString(), level, source: "main/windows/navigation", message });
 }
 
 /**
@@ -147,7 +166,12 @@ export function inWindowOrigins(): readonly InWindowOrigin[] {
  * `will-redirect` so a redirect cannot reach what a link could not. `seam` says whether the
  * page asked or a server steered.
  */
-function decideNavigation(event: Electron.Event, targetUrl: string, seam: string): void {
+function decideNavigation(
+  event: Electron.Event,
+  targetUrl: string,
+  seam: string,
+  log: NavigationLog,
+): void {
   const verdict = classifyNavigation(targetUrl, inWindowOrigins());
   if (verdict.kind === "in-window") {
     return;
@@ -157,33 +181,69 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
   event.preventDefault();
 
   if (verdict.kind === "external") {
-    openExternalFromWindow(targetUrl);
+    openExternalFromWindow(targetUrl, log);
     return;
   }
-  console.warn(`[ai-sidekicks/desktop] refused a ${seam}: ${verdict.reason}`);
+  writeNavigationEntry(log, "warning", `refused a ${seam}: ${verdict.reason}`);
 }
 
 /**
- * Installs the navigation policy on one window. Called from the locked window factory, so the
- * locked `webPreferences` block and this policy are installed together or not at all.
+ * Builds the window for a renderer `window.open` main answers, and returns the `webContents` it
+ * adopted, as `setWindowOpenHandler`'s `createWindow` must; `undefined` for a frame name main
+ * builds nothing for.
  */
-export function installNavigationPolicy(browserWindow: BrowserWindow): void {
-  browserWindow.webContents.on("will-navigate", (event: Electron.Event, targetUrl: string) => {
-    decideNavigation(event, targetUrl, "navigation");
+export type ChildWindowOpener = (
+  frameName: string,
+) => ((handedWebContents: WebContents) => WebContents) | undefined;
+
+/** The document a child window starts on: blank, written into by the renderer that opened it. */
+const BLANK_DOCUMENT_URL = "about:blank";
+
+/**
+ * Installs the navigation policy on one window's document. Called from the locked window
+ * factory, so the locked `webPreferences` block and this policy are installed together or not at
+ * all.
+ */
+export function installNavigationPolicy(
+  webContents: WebContents,
+  openChildWindow: ChildWindowOpener,
+  log: NavigationLog,
+): void {
+  webContents.on("will-navigate", (event: Electron.Event, targetUrl: string) => {
+    decideNavigation(event, targetUrl, "navigation", log);
   });
 
-  browserWindow.webContents.on("will-redirect", (event: Electron.Event, targetUrl: string) => {
-    decideNavigation(event, targetUrl, "redirect");
+  webContents.on("will-redirect", (event: Electron.Event, targetUrl: string) => {
+    decideNavigation(event, targetUrl, "redirect", log);
   });
 
-  browserWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    // Every popup is denied: a Chromium-created window would carry unreviewed options.
+  webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const createWindow = url === BLANK_DOCUMENT_URL ? openChildWindow(frameName) : undefined;
+    if (createWindow !== undefined) {
+      // Electron hands the child's `webContents` in the options; main's own window adopts it.
+      return {
+        action: "allow",
+        createWindow: (options) => createWindow(handedWebContentsOf(options)),
+      };
+    }
     const verdict = classifyNavigation(url, inWindowOrigins());
     if (verdict.kind === "external") {
-      openExternalFromWindow(url);
+      openExternalFromWindow(url, log);
     } else if (verdict.kind === "refused") {
-      console.warn(`[ai-sidekicks/desktop] refused a popup: ${verdict.reason}`);
+      writeNavigationEntry(log, "warning", `refused a popup: ${verdict.reason}`);
     }
     return { action: "deny" };
   });
+}
+
+/**
+ * The child `webContents` Electron hands `createWindow`. Electron's type omits the member it
+ * passes, so it is read here and its absence throws rather than building an empty window.
+ */
+function handedWebContentsOf(options: object): WebContents {
+  const handed = (options as { readonly webContents?: WebContents }).webContents;
+  if (handed === undefined) {
+    throw new Error("Electron handed createWindow no webContents to adopt.");
+  }
+  return handed;
 }

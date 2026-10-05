@@ -72,6 +72,9 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): ProviderDriv
     listProviderCommands(): Promise<never> {
       return Promise.reject(new Error("listProviderCommands is not exercised by this suite"));
     },
+    observedOutputSpeedFor(): never {
+      throw new Error("observedOutputSpeedFor is not exercised by this suite");
+    },
     applyIntervention(): Promise<never> {
       return Promise.reject(new Error("applyIntervention is not exercised by this suite"));
     },

@@ -13,6 +13,7 @@
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
+  ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
@@ -70,6 +71,7 @@ import { CodexTextNeutralization } from "./text-neutralization.js";
 import { CodexNotificationRouting } from "./notification-routing.js";
 import { CodexProviderCommandCache } from "./provider-command-cache.js";
 import { CodexSpawnPosture } from "./spawn-posture.js";
+import { CodexOutputSpeed, composeCodexServiceTier } from "./output-speed.js";
 import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
 import { CodexSteerDispatch } from "./steer-dispatch.js";
 import { CodexCompactionDispatch } from "./compaction-dispatch.js";
@@ -123,6 +125,7 @@ export class CodexLifecycleManager {
   readonly #sessionTransitions = new Map<SessionId, CodexSessionTransition>();
   readonly #providerCommands: CodexProviderCommandCache;
   readonly #spawnPosture: CodexSpawnPosture;
+  readonly #outputSpeed: CodexOutputSpeed;
   readonly #textNeutralization: CodexTextNeutralization;
   readonly #notificationRouting: CodexNotificationRouting;
   readonly #routedAsks: CodexRoutedAskAttributor;
@@ -152,6 +155,7 @@ export class CodexLifecycleManager {
     });
     this.#providerCommands = new CodexProviderCommandCache(options);
     this.#spawnPosture = new CodexSpawnPosture(options);
+    this.#outputSpeed = new CodexOutputSpeed(options);
     this.#textNeutralization = new CodexTextNeutralization({
       options,
       outboundTextFrameWriter,
@@ -185,6 +189,7 @@ export class CodexLifecycleManager {
       runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
       pendingCompactions: this.#pendingCompactions,
       spawnPosture: this.#spawnPosture,
+      outputSpeed: this.#outputSpeed,
       notificationRouting: this.#notificationRouting,
       providerCommands: this.#providerCommands,
       textNeutralization: this.#textNeutralization,
@@ -231,6 +236,14 @@ export class CodexLifecycleManager {
     const record = this.#requireSession(runConfig.sessionId);
     // Before the opening frame exists, so a refused run leaves nothing to drop.
     this.#spawnPosture.assertRunSandboxModeMatchesSession(record, params);
+    // The run's level wins and the thread's request is the fallback, as with the posture. The
+    // pair the thread holds was resolved when it was taken, so an unchanged turn never yields.
+    const turnModel = runConfig.model ?? record.model;
+    const turnOutputSpeedRequest = params.outputSpeed ?? record.outputSpeedRequest;
+    const turnOutputSpeed =
+      turnOutputSpeedRequest === record.outputSpeedRequest && turnModel === record.model
+        ? record.outputSpeed
+        : await this.#resolveTurnOutputSpeed(record, turnModel, turnOutputSpeedRequest);
     const openingFrame = this.#textNeutralization.composeRunOpeningFrame(params, runConfig);
     let turnId: string;
     // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
@@ -239,7 +252,7 @@ export class CodexLifecycleManager {
     record.inFlightTurnStarts += 1;
     try {
       turnId = readTurnId(
-        await this.#requestTurnStart(record, runConfig, params, openingFrame),
+        await this.#requestTurnStart(record, runConfig, params, openingFrame, turnOutputSpeed),
         "turn/start",
       );
     } catch (cause) {
@@ -273,6 +286,11 @@ export class CodexLifecycleManager {
         { sessionId: record.sessionId, method: "turn/start" },
       );
     }
+    // The provider applies a turn's model and tier from that turn on, so the thread now holds them.
+    record.model = turnModel;
+    record.outputSpeedRequest = turnOutputSpeedRequest;
+    record.outputSpeed = turnOutputSpeed;
+    this.#outputSpeed.armRunSettlement(record, turnId, params.runId, turnOutputSpeed);
     // A second accepted start on this run adds a route; the turn axis is never overwritten.
     record.runIdByActiveTurnId.set(turnId, params.runId);
     this.#runRoutes.bindRun(params.runId, record.sessionId);
@@ -282,12 +300,36 @@ export class CodexLifecycleManager {
     this.#textNeutralization.correlateBufferedTurnEvidence(record, params.runId, turnId);
   }
 
+  /**
+   * The level a turn whose model or request changed carries, resolved before the opening frame
+   * exists; never refused (see `CodexOutputSpeed.resolveLevel`). Throws `CodexTransportError`
+   * when the session was re-established meanwhile.
+   */
+  async #resolveTurnOutputSpeed(
+    record: CodexSessionRecord,
+    turnModel: string,
+    request: string | undefined,
+  ): Promise<string | undefined> {
+    const resolved = await this.#outputSpeed.resolveLevel(turnModel, request);
+    // Re-read after the catalog read: a resume or close in that window replaced or retired this
+    // record, and a turn on it would reach a connection being released.
+    if (this.#requireSession(record.sessionId) !== record) {
+      throw new CodexTransportError(
+        `Codex session "${record.sessionId}" was re-established while its turn's output speed ` +
+          `was being checked.`,
+        { sessionId: record.sessionId, method: "turn/start" },
+      );
+    }
+    return resolved;
+  }
+
   /** The `turn/start` request itself, split out so `startRun` reads as its policy. */
   async #requestTurnStart(
     record: CodexSessionRecord,
     runConfig: CodexRunConfig,
     params: StartRunParams,
     openingFrame: OutboundTextFrame,
+    turnOutputSpeed: string | undefined,
   ): Promise<unknown> {
     const turnStartParams: Record<string, unknown> = {
       threadId: record.threadId,
@@ -306,6 +348,7 @@ export class CodexLifecycleManager {
         ? {}
         : { clientUserMessageId: runConfig.clientUserMessageId }),
       ...(params.outputSchema === undefined ? {} : { outputSchema: params.outputSchema }),
+      ...composeCodexServiceTier(turnOutputSpeed),
     };
     assertRealizedTurnPostureMembers(turnStartParams);
     return await record.connection.request("turn/start", turnStartParams, this.#turnStartTimeoutMs);
@@ -493,6 +536,15 @@ export class CodexLifecycleManager {
     this.#frameRouters.delete(params.sessionId);
     this.#usageAccountants.delete(params.sessionId);
     this.#providerCommands.discardProviderCommandEnumeration(params.sessionId);
+  }
+
+  /**
+   * The tier the session's thread declared, from its establishment reply and then each
+   * `thread/settings/updated` for that thread, or `undefined` with no live session or no reading.
+   * A null tier reads as `default`; a tier no catalog lists is carried as declared.
+   */
+  observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
+    return this.#sessions.get(sessionId)?.declaredOutputSpeed;
   }
 
   /**
@@ -698,8 +750,9 @@ export class CodexLifecycleManager {
 
   /**
    * Observes every inbound server notification ahead of routing: invalidates the held command
-   * list on `skills/changed`, accrues turn evidence, and on a terminal `turn/completed` rules the
-   * tripwire and retires the turn's route.
+   * list on `skills/changed`, accrues turn evidence, on a terminal `turn/completed` rules the
+   * tripwire and retires the turn's route, and re-reads the declared tier and settles each run's
+   * output speed on the notices that carry it.
    */
   #observeServerNotification(sessionId: SessionId, method: string, params: unknown): void {
     // The provider's skill-file invalidation signal (empty payload): discarding the held list
@@ -709,6 +762,7 @@ export class CodexLifecycleManager {
       this.#providerCommands.discardProviderCommandEnumeration(sessionId);
     }
     this.#textNeutralization.observeTurnNotification(sessionId, method, params);
+    this.#outputSpeed.observeServerNotification(this.#sessions.get(sessionId), method, params);
   }
 
   /**

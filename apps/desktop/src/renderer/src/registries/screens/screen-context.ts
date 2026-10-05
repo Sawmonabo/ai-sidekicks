@@ -31,8 +31,8 @@ export interface ScreenContext {
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
   /**
-   * This window's one act for choosing a color scheme: it applies and saves the choice, and guards
-   * it against the startup read that restores it. A second copy would have its own guard.
+   * This window's one act for choosing a color scheme: it asks main, which keeps the appearance,
+   * and says so on the window's banner when main refuses.
    */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }

@@ -14,7 +14,7 @@
 
 ## Goal
 
-Implement the minimum session creation, snapshot, and replay foundation used by all later features.
+Implement the minimum session creation, snapshot, and rebuild foundation used by all later features.
 
 ## Scope
 
@@ -29,13 +29,13 @@ This plan covers session ids, lead-agent creation, session-owner binding, local 
 
 The following invariants are **load-bearing** and MUST be preserved across all Plan-001 PRs and downstream extensions.
 
-### I-001-1 — Sequence is the canonical replay key
+### I-001-1 — Sequence is the canonical order key
 
-Local Runtime Daemon SQLite replay MUST order `session_events` by `sequence ASC`, never by `monotonic_ns`. The `monotonic_ns` column is within-daemon debug data only (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-004-012)); it can be non-monotonic across rows after clock adjustments and MUST NOT influence replay or projection.
+Local Runtime Daemon SQLite rebuild MUST order `session_events` by `sequence ASC`, never by `monotonic_ns`. The `monotonic_ns` column is within-daemon debug data only (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-004-012)); it can be non-monotonic across rows after clock adjustments and MUST NOT influence rebuild or projection.
 
-**Why load-bearing.** Replay determinism is the foundation for [ADR-016](../decisions/016-shared-event-sourcing-scope.md) event-sourcing semantics. Plan-004 (event taxonomy) and Plan-012 (replay/recovery) build on this invariant.
+**Why load-bearing.** Rebuild determinism is the foundation for [ADR-016](../decisions/016-shared-event-sourcing-scope.md) event-sourcing semantics. Plan-004 (event taxonomy) and Plan-012 (persistence and recovery) build on this invariant.
 
-**Verification.** Test D3 in §Test And Verification Plan asserts `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows`.
+**Verification.** Test D3 in §Test And Verification Plan asserts `Rebuild uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows`.
 
 ### I-001-2 — Columns another plan owns carry no Plan-001 logic
 
@@ -53,7 +53,7 @@ Plan-001 owns the daemon-side session lifecycle and the `PtyHost.spawn` entry-po
 
 [Plan-021 §Invariants I-021-4](./021-rust-pty-sidecar.md#i-021-4--the-apps-quit-never-stops-a-shell-the-sidecar-drains-only-when-the-service-stops) declares that the desktop app's quit never stops a shell: the sidecar is a child of the daemon, and the daemon is the person's own background service, never a child of the app, so quitting the app leaves the service, every run and every shell running. The sidecar drains only when the service itself stops — Runtime's `Stop` or `Restart`, or the operating system's service manager stopping it — and that drain must finish before the daemon exits, or child processes orphan to the global console (the `microsoft/node-pty#904` SIGABRT-on-exit class — primary source cited at [Plan-021 §Windows Implementation Gotchas Gotcha 4](./021-rust-pty-sidecar.md#4-the-apps-quit-and-the-sidecars-shutdown)).
 
-**Resolution.** Plan-001 wires the drain into the daemon's own stop sequence, ahead of the daemon's exit; nothing in the app's quit reaches it. The stop delegates to a single polymorphic `PtyHost.shutdown({ perSessionTimeoutMs, hostTimeoutMs })` call — both backends (`RustSidecarPtyHost` out-of-process; `NodePtyHost` in-process) implement the drain protocol per `packages/runtime-daemon/src/pty/pty-host.ts`, so the stop sequence never sees a backend-specific surface ([ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-sidecar.md#decision): "Consumers never see the backend choice"). The contract pins the drain semantics: per-session `SIGTERM` → wait for `ExitCodeNotification` up to `perSessionTimeoutMs` → escalate to `SIGKILL` on timeout; then close the sidecar's stdin → wait for sidecar exit up to `hostTimeoutMs` → escalate to `taskkill /T /F /PID <sidecar-pid>` on hard timeout. In-process `NodePtyHost` vacuously satisfies the host fields (`sidecarExitedCleanly: true, taskkillEscalated: false`). Escalation matches §Cross-Plan Obligations CP-001-2 below for the same hard-stop pattern.
+**Resolution.** Plan-001 wires the drain into the daemon's own stop sequence, ahead of the daemon's exit; nothing in the app's quit reaches it. The stop delegates to a single polymorphic `PtyHost.shutdown({ perSessionTimeoutMs, hostTimeoutMs })` call — both backends (`RustSidecarPtyHost` out-of-process; `NodePtyHost` in-process) implement the drain protocol per `packages/runtime-daemon/src/pty/pty-host.ts`, so the stop sequence never sees a backend-specific surface ([ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-sidecar.md#decision): "Consumers never see the backend choice"). The contract pins the drain semantics: per-session `SIGTERM` → wait for `ExitCodeNotification` up to `perSessionTimeoutMs` → escalate to `SIGKILL` on timeout; then close the sidecar's stdin → wait for sidecar exit up to `hostTimeoutMs` → escalate to `taskkill /T /F /PID <sidecar-pid>` on hard timeout. In-process `NodePtyHost` vacuously satisfies the host fields (`sidecarExitedCleanly: true, taskkillEscalated: false`). Escalation matches §Cross-Plan Obligations CP-001-2 below for the same hard-stop pattern. The two timeouts are `DAEMON_STOP_TERMINAL_DRAIN_MS` and `DAEMON_STOP_TERMINAL_HOST_DRAIN_MS` in `packages/contracts/src/daemon-lifecycle.ts`, and their sum is the drain bound, `DAEMON_STOP_DRAIN_BOUND_MS`: a client that ends the service (main's supervisor, the CLI, the Windows half) waits that long after the stop for the process to exit before it sends any signal, so no signal cuts the drain short.
 
 **Why surfaced in Plan-001.** This obligation lives at the daemon's session-lifecycle layer (Plan-001 owns the session-lifecycle daemon code), not at the sidecar protocol layer (Plan-021 supplies only the `PtyHost.close(sessionId)` and `KillRequest` primitives). Without the bidirectional citation, a Plan-001 reviewer would have no signal that the drain at the service's stop is a Plan-001 obligation.
 
@@ -110,7 +110,7 @@ Plan-001 creates the first tables of the daemon's one SQLite schema and the cont
 - Add local `session_events` and `session_snapshots` tables to Local Runtime Daemon SQLite.
 - Add the local `session_console_state` table to Local Runtime Daemon SQLite — the session-scoped console store the composer draft, its staged attachments, the per-session step bound and a Claude Code session's own advisor live in ([Local SQLite Schema §Session Console State (Plan-001)](../architecture/schemas/local-sqlite-schema.md#session-console-state-plan-001)).
 - The daemon's session record gains the members Phase 6 writes: `shape` (`chat` or `project`), set at create; the name; whether the session is pinned and its place among the pinned; `muted_at`, rebuilt from the mute events; the pending working-folder move; and `scratchForDefinitionId` for Try it's scratch session. The record also carries the session's `group`, an indexed column naming one of its project's groups. Beside the record the daemon keeps `session_groups` (each project's groups, a name unique in its project ignoring case), `session_links` (one row per pair of sessions and kind, with its count and its first and last time, indexed from both ends), `session_tags` (indexed by tag) and each session's precomputed related list ([Local SQLite Schema §Session Directory (Plan-001)](../architecture/schemas/local-sqlite-schema.md#session-directory-plan-001)). The daemon also keeps SQLite's built-in full-text index (FTS5) over session titles, message text, tool calls, group names and tags for `session.search`, and the wake-ups and session-only jobs a Claude Code session holds, kept from their tool results so the idle sleep can read them. No member carries a provider account supplied by a client.
-- Create `session_events.monotonic_ns INTEGER NOT NULL` per [Spec-013 §Clock Handling](../specs/013-persistence-recovery-and-replay.md#clock-handling) (semantics owned by Plan-004).
+- Create `session_events.monotonic_ns INTEGER NOT NULL` per [Spec-013 §Clock Handling](../specs/013-persistence-and-recovery.md#clock-handling) (semantics owned by Plan-004).
 - See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for canonical column definitions of `session_events` and `session_snapshots`.
 
 ## Cross-Plan Schema Ownership
@@ -119,7 +119,7 @@ Plan-001 creates the elements above in the one schema of their database. The pla
 
 | Element | Semantics Owner | Invariant / Protocol |
 | --- | --- | --- |
-| `session_events.monotonic_ns` | [Plan-004](./004-session-event-taxonomy-and-audit-log.md) | `process.hrtime.bigint()` at emit, for ordering within one daemon only, never the replay key ([Spec-013 §Clock Handling](../specs/013-persistence-recovery-and-replay.md#clock-handling)) |
+| `session_events.monotonic_ns` | [Plan-004](./004-session-event-taxonomy-and-audit-log.md) | `process.hrtime.bigint()` at emit, for ordering within one daemon only, never the order key ([Spec-013 §Clock Handling](../specs/013-persistence-and-recovery.md#clock-handling)) |
 | `users` (minimal anchor: `id`, `created_at`) | [Plan-015](./015-hosted-account-and-identity.md) | Plan-001 creates the anchor row shape; no user rows are inserted until Plan-015's registration flow lands; Plan-015 adds `display_name`, `identity_ref` and `metadata` to the control plane's one schema per [Shared Postgres Schema §Users and Identity](../architecture/schemas/shared-postgres-schema.md#users-and-identity-plan-015) |
 
 ## API And Transport Changes
@@ -160,8 +160,8 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 | ID | Test | Asserts | Spec-001 AC |
 | --- | --- | --- | --- |
 | D1 | `Single SessionCreated event yields snapshot with session owner and lead agent` | bootstrap projection | AC1 |
-| D2 | `Replay reads events by sequence ASC and reproduces snapshot deterministically` | replay correctness; `sequence` is the canonical ordering key per [ADR-016](../decisions/016-shared-event-sourcing-scope.md) | AC6 |
-| D3 | `Replay uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the replay key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-004-012)) | AC6 |
+| D2 | `Rebuild reads events by sequence ASC and reproduces snapshot deterministically` | rebuild correctness; `sequence` is the canonical ordering key per [ADR-016](../decisions/016-shared-event-sourcing-scope.md) | AC6 |
+| D3 | `Rebuild uses sequence not monotonic_ns even when monotonic_ns is non-monotonic across rows` | clock-skew defense; `monotonic_ns` is within-daemon debug data, never the order key (per [local-sqlite-schema §session_events](../architecture/schemas/local-sqlite-schema.md#session-events-plan-001-extended-by-plans-004-012)) | AC6 |
 | D4 | `Snapshot survives daemon restart and yields identical projection on rehydrate` | durability across restart | AC2, AC6 |
 | D5 | `The daemon's one schema accepts each contract member and refuses a non-member` | for each CHECK-constrained column of `session_events` and `session_snapshots`, an insert of each contract member succeeds and an insert of a non-member fails | (no AC) |
 
@@ -178,7 +178,7 @@ The TDD test list below is enumerated and ordered by implementation dependency. 
 ### Verification
 
 - `pnpm turbo test` at workspace root green across all packages
-- Manual smoke: create a session in the desktop client, reload it, and verify the transcript replays from the authoritative snapshot
+- Manual smoke: create a session in the desktop client, reload it, and verify the transcript is rebuilt from the authoritative snapshot
 - Every enumerated test above passes (the C-, D-, I- and W-tier tooling tests — see Phase 1 §Tests; CP-001-1 / CP-001-2 coverage via I5 / I6 lands at Phase 5 in the daemon package), and each Phase 6 task's acceptance holds.
 - Test ID prefixes map to Phases as follows: W → Phase 1, C → Phase 2, D → Phase 3, I → Phase 5. Each Phase's Goal line names the ID range it owns. Phases 4 and 6 own no ID range: Phase 4 creates the control plane's `users` anchor, and each Phase 6 task carries its own acceptance and tests.
 - Spec-001 AC7 (concurrent agents and runs without transcript corruption) receives full coverage at the integration boundary in [Plan-025](./025-remote-control.md), where several devices drive one session through its machine over the relay. Plan-001 covers AC7 partially via I3's reconnect-ordering invariant: concurrent writes on the session's one daemon serialize on SQLite's `UNIQUE(session_id, sequence)` constraint.
@@ -198,7 +198,7 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 - Create root scaffolding (per § Repo Layout And Bootstrap above)
 - Create empty `packages/contracts/`, `packages/client-sdk/`, `packages/runtime-daemon/`, `packages/control-plane/` skeletons with `package.json` + `tsconfig.json` + `src/index.ts` (no exports). At Phase 1, `apps/desktop/` is scaffolded as a placeholder workspace package only (single `src/index.ts` with the forward-declaration comment "split into `apps/desktop/src/{main,preload,renderer}/` per the electron-vite zero-config convention"); the substrate split (`apps/desktop/src/{main,preload,renderer}/`) is owned by [Plan-020's partial](./020-desktop-app-and-renderer.md#partial-pr-sequence) and lands as a separate PR before Plan-001 Phase 5.
-- Install `better-sqlite3` at exactly `13.0.3` ([Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin)) as a workspace dep on `packages/runtime-daemon/` per [ADR-021](../decisions/021-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
+- Install `better-sqlite3` at exactly `13.0.3` ([Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin)) as a workspace dep on `packages/runtime-daemon/` per [ADR-021](../decisions/021-v1-toolchain-selection.md). Even without imports, this exercises the postinstall native-binding rebuild path for the daemon target under `node-linker=isolated` at bootstrap time, surfacing native-rebuild integration risk before behavior PRs land.
 - Install `pg` 8.20+ as a workspace dep on `packages/control-plane/` per [ADR-021](../decisions/021-v1-toolchain-selection.md)
 - Wire engineering CI surface per [ADR-022](../decisions/022-v1-ci-cd-and-release-automation.md): `.github/workflows/{ci,release}.yml`, lefthook 2.1.16 + `lefthook.yml`, `lint-staged.config.mjs`, commitlint 21.2.3 config, Renovate config, Gitleaks workflow, `CODEOWNERS`, release-please-action@v5 release-automation skeleton (no actual release runs yet — first release is post-Plan-001 ship). The literal-file content for `lefthook.yml`, `CODEOWNERS`, `renovate.json5`, `eslint.config.mjs`, `prettier.config.js`, `commitlint.config.mjs`, and the three workflow files is the Phase 1 PR's authoring scope; [ADR-022 §Decision](../decisions/022-v1-ci-cd-and-release-automation.md#decision) pins versions and policy choices, the implementer of this Phase materializes the literal artifact contents.
 - Verify: `pnpm install`, `pnpm turbo build`, `pnpm turbo typecheck`, and `pnpm turbo lint` all green; CI runs green on this PR; pre-commit hooks active locally
@@ -263,9 +263,9 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 - The daemon's one schema holds `session_events` and `session_snapshots` (per § Data And Storage Changes; Plan-001 populates only the `session_events` core columns, and the columns other plans own stay unpopulated until those plans land).
 - **Pragmas.** Daemon bootstrap MUST set `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000` per [Local SQLite Schema §Pragmas](../architecture/schemas/local-sqlite-schema.md#pragmas) before the first projector apply().
-- `packages/runtime-daemon/src/session/session-projector.ts` — single-event-to-snapshot projection. Projector signatures: `apply(snapshot: Snapshot, event: SessionEvent): Snapshot`; `replay(events: ReadonlyArray<EventRow>): Snapshot` ordered by `sequence ASC` per I-001-1. `Snapshot` shape per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) (the Plan-001 block, `SessionRecord`).
-- `packages/runtime-daemon/src/session/session-service.ts` — append + replay paths. `create` resolves the main agent's binding before it appends — the driver, the model, the effort and the provider account, from the named definition or the axes the request spelled out — mints that agent's id, appends `session.created` carrying those resolved values as `mainAgent`, and echoes the same values in its reply; the projector reads that payload as the creating record of the agent's row, so a projector that ignored it could not rebuild one. Service signatures: `SessionService.create(req: SessionCreateRequest): Promise<SessionCreateResponse>`; `read(req: SessionReadRequest): Promise<SessionReadResponse>`; `subscribe(req: SessionSubscribeRequest): SessionSubscribeStream` (`LocalSubscriptionProducer<T>` per Plan-005 partial substrate's IPC shape).
-- Storage driver: `better-sqlite3` `13.0.3`, pinned exactly per [Spec-013 §Driver Pin](../specs/013-persistence-recovery-and-replay.md#driver-pin) and [ADR-021](../decisions/021-v1-toolchain-selection.md) (already installed in Phase 1). Replay key: `sequence` per [ADR-016](../decisions/016-shared-event-sourcing-scope.md).
+- `packages/runtime-daemon/src/session/session-projector.ts` — single-event-to-snapshot projection. Projector signatures: `apply(snapshot: Snapshot, event: SessionEvent): Snapshot`; `rebuildSession(events: ReadonlyArray<EventRow>): Snapshot` ordered by `sequence ASC` per I-001-1. `Snapshot` shape per [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) (the Plan-001 block, `SessionRecord`).
+- `packages/runtime-daemon/src/session/session-service.ts` — append + rebuild paths. `create` resolves the main agent's binding before it appends — the driver, the model, the effort and the provider account, from the named definition or the axes the request spelled out — mints that agent's id, appends `session.created` carrying those resolved values as `mainAgent`, and echoes the same values in its reply; the projector reads that payload as the creating record of the agent's row, so a projector that ignored it could not rebuild one. Service signatures: `SessionService.create(req: SessionCreateRequest): Promise<SessionCreateResponse>`; `read(req: SessionReadRequest): Promise<SessionReadResponse>`; `subscribe(req: SessionSubscribeRequest): SessionSubscribeStream` (`LocalSubscriptionProducer<T>` per Plan-005 partial substrate's IPC shape).
+- Storage driver: `better-sqlite3` `13.0.3`, pinned exactly per [Spec-013 §Driver Pin](../specs/013-persistence-and-recovery.md#driver-pin) and [ADR-021](../decisions/021-v1-toolchain-selection.md) (already installed in Phase 1). Order key: `sequence` per [ADR-016](../decisions/016-shared-event-sourcing-scope.md).
 
 #### Tasks
 
@@ -273,9 +273,9 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Files:** the daemon's one schema, daemon bootstrap shim that applies pragmas **Spec coverage:** Spec-001 AC2 (durability) **Verifies invariant:** none (D5, the schema's test, proves its CHECK constraints)
 
-##### T3.2 — Projector reducer + replay
+##### T3.2 — Projector reducer + rebuild
 
-**Files:** `packages/runtime-daemon/src/session/session-projector.ts`, `packages/runtime-daemon/src/session/__tests__/session-projector.test.ts` **Spec coverage:** Spec-001 AC1, AC6; Spec-005 §Event Type Enumeration (`session.created` is the creating record of the main agent's row, so replaying it is how that row exists) **Verifies invariant:** I-001-1 (sequence ASC replay)
+**Files:** `packages/runtime-daemon/src/session/session-projector.ts`, `packages/runtime-daemon/src/session/__tests__/session-projector.test.ts` **Spec coverage:** Spec-001 AC1, AC6; Spec-005 §Event Type Enumeration (`session.created` is the creating record of the main agent's row, so rebuilding from it is how that row exists) **Verifies invariant:** I-001-1 (sequence ASC rebuild)
 
 ##### T3.3 — Service surface (create/read/subscribe)
 
@@ -411,7 +411,7 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 ##### T6.17 — A session whose provider is missing
 
-**Files:** `packages/contracts/src/session-controls.ts` (the `provider_missing` notice kind beside the others), `packages/runtime-daemon/src/session/session-service.ts` **Acceptance:** before the daemon starts a session's provider — its first message, a resume, a restart — it checks that the provider's command is installed where the service runs, by the same check that reads `Not installed on this machine.` on Settings › Providers; where it is not, no provider process starts and the session gains one `session.notice` of kind `provider_missing` naming the provider, which the screen draws as one flow row that opens Settings › Providers on that provider's section. On a Windows computer where the place the service runs in has neither provider, the notice says so (`placeHasNeitherProvider`), and the row reads `Choose where Claude Code and Codex are installed` and opens the place row. Once the provider is installed, the next start runs it with nothing left over. Tests: a session on a provider that is not installed starts no process and appends exactly one `provider_missing` notice naming that provider; with neither provider in the place the notice carries `placeHasNeitherProvider: true`; after the command is installed the next send starts the provider. **Spec coverage:** Spec-001 §Fallback Behavior **Verifies invariant:** none
+**Files:** `packages/contracts/src/session-controls/events.ts` (the `provider_missing` notice kind beside the others), `packages/runtime-daemon/src/session/session-service.ts` **Acceptance:** before the daemon starts a session's provider — its first message, a resume, a restart — it checks that the provider's command is installed where the service runs, by the same check that reads `Not installed on this machine.` on Settings › Providers; where it is not, no provider process starts and the session gains one `session.notice` of kind `provider_missing` naming the provider, which the screen draws as one flow row that opens Settings › Providers on that provider's section. On a Windows computer where the place the service runs in has neither provider, the notice says so (`placeHasNeitherProvider`), and the row reads `Choose where Claude Code and Codex are installed` and opens the place row. Once the provider is installed, the next start runs it with nothing left over. Tests: a session on a provider that is not installed starts no process and appends exactly one `provider_missing` notice naming that provider; with neither provider in the place the notice carries `placeHasNeitherProvider: true`; after the command is installed the next send starts the provider. **Spec coverage:** Spec-001 §Fallback Behavior **Verifies invariant:** none
 
 After Phase 6 lands green and the manual smoke passes, Plan-001 is complete.
 
@@ -419,7 +419,7 @@ After Phase 6 lands green and the manual smoke passes, Plan-001 is complete.
 
 1. Ship contracts and the storage schemas
 2. Enable create and read behind internal feature flag
-3. Enable live subscribe once replay is stable
+3. Enable live subscribe once rebuild is stable
 
 ## Rollback Or Fallback
 
@@ -427,4 +427,4 @@ After Phase 6 lands green and the manual smoke passes, Plan-001 is complete.
 
 ## Risks And Blockers
 
-- Event ordering mistakes between the daemon's event log and the snapshot a device replays
+- Event ordering mistakes between the daemon's event log and the snapshot a device rebuilds

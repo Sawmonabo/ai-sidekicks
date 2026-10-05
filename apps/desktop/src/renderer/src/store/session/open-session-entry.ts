@@ -219,7 +219,7 @@ export class OpenSessionEntry {
     this.#rememberNextResumePosition(resolveTranscriptResume(baseState.transcriptCursors));
     // `initialize` is what clears the sticky degraded flag, so a completed re-pull lands here.
     // The submitted position travels with the base state because only this object knows it: the
-    // stream replays from it, so it is where this window begins, and the reply names no oldest
+    // stream catches up from it, so it is where this window begins, and the reply names no oldest
     // row. Omitted rather than passed as `undefined` where none was submitted.
     this.store.initialize(
       submitted === undefined ? baseState : { ...baseState, readFromCursor: submitted },

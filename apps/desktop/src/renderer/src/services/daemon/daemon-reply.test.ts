@@ -12,7 +12,7 @@ import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagno
 import { isRefusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
-import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
+import { DAEMON_METHOD_BINDINGS } from "@shared/daemon-method-bindings.js";
 import { refusalOf } from "./daemon-reply.test-support.js";
 import { bridgeAnswering, createFixture } from "@test/helpers/fixture-bridge.js";
 
@@ -262,33 +262,30 @@ describe("callDaemon — a read whose owner has gone", () => {
     expect(refusalOf(await calling).code).toBe(READ_ABANDONED);
   });
 
-  it(
-    "parses nothing when the abandonment lands " + "between the settlement and the resume",
-    async () => {
-      const line = new AbortController();
-      const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
-      // A reply the schema admits, on purpose: the answer cannot distinguish a `callDaemon` that
-      // parsed it from one that did not, which is what the spy is for.
-      const underTest = bridgeAnswering(() =>
-        replyFulfillingAheadOfTheAbandonment(emptyPresenceReply(), line),
+  it("parses nothing when abandonment lands between the settlement and the resume", async () => {
+    const line = new AbortController();
+    const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
+    // A reply the schema admits, on purpose: the answer cannot distinguish a `callDaemon` that
+    // parsed it from one that did not, which is what the spy is for.
+    const underTest = bridgeAnswering(() =>
+      replyFulfillingAheadOfTheAbandonment(emptyPresenceReply(), line),
+    );
+
+    try {
+      const reply = await callDaemon(
+        underTest.bridge,
+        "presence.read",
+        {},
+        { signal: line.signal },
       );
 
-      try {
-        const reply = await callDaemon(
-          underTest.bridge,
-          "presence.read",
-          {},
-          { signal: line.signal },
-        );
-
-        expect(refusalOf(reply).code).toBe(READ_ABANDONED);
-        expect(replyParse).not.toHaveBeenCalled();
-        // The call was made and the line abandoned after the reply had settled the race.
-        expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
-        expect(line.signal.aborted).toBe(true);
-      } finally {
-        replyParse.mockRestore();
-      }
-    },
-  );
+      expect(refusalOf(reply).code).toBe(READ_ABANDONED);
+      expect(replyParse).not.toHaveBeenCalled();
+      // The call was made and the line abandoned after the reply had settled the race.
+      expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
+      expect(line.signal.aborted).toBe(true);
+    } finally {
+      replyParse.mockRestore();
+    }
+  });
 });

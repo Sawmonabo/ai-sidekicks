@@ -1,4 +1,4 @@
-// The Electron spawn-and-probe harness for the BrowserWindow GC probe.
+// The Electron spawn-and-probe harness for the window GC probe.
 //
 // Everything here gets a probe reading out of a real Electron process: isolating a profile,
 // arranging the activation gates, spawning through the one owner, scanning the tagged line, and
@@ -7,7 +7,7 @@
 // two probes read different things and carry different diagnostics.
 //
 // The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
-// allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BrowserWindow)` count. It
+// allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BaseWindow)` count. It
 // records whether `window-all-closed` fired, prints one `[SIDEKICKS_GC_PROBE]` JSON line and
 // calls `app.exit(0)`. Bare `gc()` is used because `gc(true)` is a minor scavenge in V8.
 //
@@ -33,20 +33,26 @@ import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture-bundle.js";
 import { needsXvfb } from "./helpers/display-readiness.js";
 import { createLaunchProfile } from "./helpers/launch-profile.js";
+import {
+  ISOLATED_SERVICE_READY_TIMEOUT_MS,
+  ISOLATED_SERVICE_START_CEILING_MS,
+  startIsolatedService,
+} from "./helpers/isolated-service.js";
 import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
 import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe-harness.js";
 import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
 
 /**
- * The enclosing vitest budget, derived from the phases it must contain: the spawn's blocking host
- * queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then the shared reserve. The queries
- * lead because no spawn deadline contains them. The suite's own deadline must fire first (see
+ * The enclosing vitest budget, derived from the phases it must contain: the isolated service's
+ * start, the spawn's blocking host queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then
+ * the shared reserve. The queries lead because no spawn deadline contains them. The suite's own deadline must fire first (see
  * `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down with its timers and leaves
  * the Electron reparented to init. The settle-time kill and profile removal keep the process and
  * its directory bounded even if this arithmetic is wrong.
  */
 export const GC_TEST_TIMEOUT_MS: number =
+  ISOLATED_SERVICE_START_CEILING_MS +
   SPAWNED_TREE_HOST_QUERY_CEILING_MS +
   SPAWN_TIMEOUT_MS +
   TERMINATION_GRACE_MS +
@@ -72,8 +78,26 @@ interface GcProbeSpawnResult {
  * private profile comes off disk after the child is gone, at the end of the test; a removal that
  * fails fails the test.
  */
-export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
+export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const startedAt = Date.now();
+
+  // The launch plays no scenario, so main's supervisor looks for the service; it finds this one
+  // and starts none of its own on the person's account.
+  let serviceEnvironment: Readonly<Record<string, string>>;
+  try {
+    serviceEnvironment = (await startIsolatedService(ISOLATED_SERVICE_READY_TIMEOUT_MS))
+      .environment;
+  } catch (serviceFailure: unknown) {
+    return {
+      probe: null,
+      malformedProbeLines: [],
+      stdout: "",
+      stderr: serviceFailure instanceof Error ? serviceFailure.message : String(serviceFailure),
+      exitCode: null,
+      signal: null,
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
 
   // A private profile keeps this Electron off the default profile's `SingletonLock`: a second
   // instance sees `gotTheLock === false` and exits 0 before the probe runs.
@@ -103,6 +127,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         cwd: PACKAGE_ROOT,
         env: {
           ...envWithoutSmoke,
+          ...serviceEnvironment,
           SIDEKICKS_GC_PROBE: "1",
           // No focus steal on the person's machine; see `src/main/windows/window-reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",

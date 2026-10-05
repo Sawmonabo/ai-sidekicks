@@ -405,9 +405,8 @@ export type CostUpdateResolution =
 /**
  * Resolve one `usage.cost_update`'s provenance ladder: (a) a finite, non-negative provider-reported
  * cost is `provider_reported`; (b) else a cost derived from the provider's full breakdown and the
- * price list's entry for the model is `derived_exact`;
- * (c) else the request is held until the price list prices it. This never halts and never
- * branches on `costSource`.
+ * price list's entry for the model is `derived_exact`; (c) else the request is held until the
+ * price list prices it. This never halts and never branches on `costSource`.
  */
 export function resolveCostUpdateProvenance(options: {
   readonly provider: ProviderName;
@@ -426,8 +425,8 @@ export function resolveCostUpdateProvenance(options: {
         costUsdMicros: reportedUsdMicros,
       };
     }
-    // The wire's cost was refused. Falling through silently would substitute a daemon estimate
-    // for a provider figure with no record that they disagreed.
+    // A non-finite or negative provider cost is refused. Falling through silently would put a
+    // daemon estimate where the provider's figure was, with no record that it was refused.
     options.diagnostics.emit({
       provider: options.provider,
       kind: "usage_cross_check_mismatch",

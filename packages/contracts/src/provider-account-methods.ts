@@ -276,11 +276,7 @@ export type ProviderAccountNotAuthenticatedCode = typeof PROVIDER_ACCOUNT_NOT_AU
 
 /** The refused account's own remedy, so the refusal points at the one way back for it. */
 export type ProviderAccountNotAuthenticatedDetails = { remedy: ProviderLoginExpiredRemedy };
-/**
- * Parses {@link ProviderAccountNotAuthenticatedDetails}.
- *
- * @consumedBy the handler that returns the `provideraccount.not_authenticated` error
- */
+/** Parses {@link ProviderAccountNotAuthenticatedDetails}. */
 export const ProviderAccountNotAuthenticatedDetailsSchema: z.ZodType<
   ProviderAccountNotAuthenticatedDetails,
   ProviderAccountNotAuthenticatedDetails

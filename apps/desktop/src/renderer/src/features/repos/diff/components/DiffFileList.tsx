@@ -1,10 +1,16 @@
-import { useCallback, useId, useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
+import { useRowWindow } from "@renderer/hooks/useRowWindow.js";
 import { useWindowedRovingIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
-import { DIFF_FILE_ROW_HEIGHT_PX } from "../diff-measures.js";
+import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";
+import {
+  DIFF_FILE_ROW_HEIGHT_PX,
+  DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
+  DIFF_WINDOW_OVERSCAN_ROWS,
+} from "../diff-measures.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../../diff-caps.js";
 import {
   HIDDEN_SELECTION_COPY,
@@ -12,7 +18,6 @@ import {
   selectedEntryRow,
 } from "../diff-file-entries.js";
 import type { DiffModel } from "../diff-model.js";
-import { useRowWindow } from "../hooks/useRowWindow.js";
 import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
 /** What the changed-file list is drawn from. */
@@ -34,6 +39,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     () => "",
   );
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const clock = useBridgeClock();
 
   const { entries, matchCount } = useMemo(
     () => diffFileListReading(props.diff, filterText),
@@ -47,20 +53,17 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   // hides the selection always draws.
   const openingIndex = currentIndex ?? 0;
 
-  const entryWindow = useRowWindow({
+  const { virtualizer: entryWindow, revealRow } = useRowWindow({
     rowCount: entries.length,
     getScrollElement: () => scrollerRef.current,
-    estimatedRowHeightPx: DIFF_FILE_ROW_HEIGHT_PX,
+    clock,
+    estimateRowHeightPx: () => DIFF_FILE_ROW_HEIGHT_PX,
+    overscanRows: DIFF_WINDOW_OVERSCAN_ROWS,
+    initialViewportHeightPx: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
     // Where the list opens: first paint precedes any scroll, so a reopened deep selection would
     // start unmounted at the top. The roving index reveals every later move of the anchor.
     initialOffsetPx: openingIndex * DIFF_FILE_ROW_HEIGHT_PX,
   });
-  const revealIndex = useCallback(
-    (rowIndex: number) => {
-      entryWindow.scrollToIndex(rowIndex);
-    },
-    [entryWindow],
-  );
   const virtualRows = entryWindow.getVirtualItems();
   // One tab stop with arrow keys inside it. The drawn sequence is the move's identity: the
   // filter can shrink the set under a move, and a stale index addresses another file or none.
@@ -68,7 +71,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     rowCount: entries.length,
     anchorIndex: openingIndex,
     containerRef: scrollerRef,
-    revealIndex,
+    revealIndex: revealRow,
     rowSetIdentity: entries,
     windowRevision: virtualRows,
   });

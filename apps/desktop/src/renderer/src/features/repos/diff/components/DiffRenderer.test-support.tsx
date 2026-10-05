@@ -5,6 +5,7 @@
 import { render } from "@testing-library/react";
 
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
+import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import type { DiffGapExpansion } from "../diff-row-model.js";
@@ -43,5 +44,7 @@ export function diffRendererProps(
 export function renderDiff(
   overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
 ): HTMLElement {
-  return render(<DiffRenderer {...diffRendererProps(overrides)} />).container;
+  return render(<DiffRenderer {...diffRendererProps(overrides)} />, {
+    wrapper: liveBridgeWrapper(),
+  }).container;
 }

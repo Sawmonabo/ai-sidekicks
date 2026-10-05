@@ -1,19 +1,27 @@
-// The `system/init` declaration each live Claude session made, and what is read from it: the
-// provider's command and skill surface and its output-speed state.
+// What each live Claude session declared, and what is read from it: the provider's command and
+// skill surface from `system/init`, and its output-speed state from the `initialize` reply,
+// replaced by each later `system/init` that reports one and reported once per run when the run's
+// own handshake arrives.
 
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider-driver";
+import {
+  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  type RunId,
+} from "@ai-sidekicks/contracts/provider-driver";
 import {
   ProviderCommandEntrySchema,
-  ProviderOutputSpeedStateSchema,
   type ProviderCommandBinding,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
   type ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider-driver-transcript";
 import type { SessionId } from "@ai-sidekicks/contracts/session";
+import {
+  readDeclaredOutputSpeed,
+  type RunOutputSpeedSettledListener,
+} from "../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
-import type { ClaudeHandshakeDeclaration } from "./session-transport.js";
+import type { ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration } from "./session-transport.js";
 import type {
   ClaudeHeldHandshake,
   ClaudeSessionLifecycleDependencies,
@@ -28,25 +36,60 @@ export type ClaudeProviderCommandEnumeration = Omit<
 >;
 
 /**
- * Holds each live session's handshake declaration, never persisted: stamped with the provider
- * session id (see {@link ClaudeHeldHandshake}) and discarded with the session.
+ * One session's latest fast-mode reading, stamped like {@link ClaudeHeldHandshake}; `undefined`
+ * where the provider reported no state or one the contract's bounds refuse.
+ */
+interface ClaudeHeldFastMode {
+  readonly providerSessionId: string;
+  readonly state: ProviderOutputSpeedState | undefined;
+}
+
+/** The run whose output speed settles on its session's next handshake, stamped like the above. */
+interface ClaudeUnsettledRun {
+  readonly providerSessionId: string;
+  readonly runId: RunId;
+}
+
+/**
+ * Holds each live session's handshake declaration, latest fast-mode declaration and the run whose
+ * output speed has yet to settle, never persisted: stamped with the provider session id (see
+ * {@link ClaudeHeldHandshake}) and discarded with the session.
  */
 export class ClaudeHandshakeRegister {
   readonly #handshakeBySession: Map<SessionId, ClaudeHeldHandshake> = new Map();
+  readonly #fastModeBySession: Map<SessionId, ClaudeHeldFastMode> = new Map();
+  readonly #unsettledRunBySession: Map<SessionId, ClaudeUnsettledRun> = new Map();
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #readBoundProviderAccountId: ((sessionId: SessionId) => string | null) | undefined;
+  readonly #onRunOutputSpeedSettled: RunOutputSpeedSettledListener | undefined;
 
   constructor(
     dependencies: Pick<
       ClaudeSessionLifecycleDependencies,
-      "diagnostics" | "readBoundProviderAccountId"
+      "diagnostics" | "readBoundProviderAccountId" | "onRunOutputSpeedSettled"
     >,
   ) {
     this.#diagnostics = dependencies.diagnostics;
     this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
+    this.#onRunOutputSpeedSettled = dependencies.onRunOutputSpeedSettled;
   }
 
-  /** Records one `system/init` declaration; the last wins, since the surface can change mid-run. */
+  /**
+   * Records the fast-mode state a freshly attached process's `initialize` reply reported, so the
+   * binding carries an observation from spawn, before any turn.
+   */
+  observeInitializeFastMode(
+    sessionId: SessionId,
+    providerSessionId: string,
+    declaration: ClaudeFastModeDeclaration,
+  ): void {
+    this.#holdFastMode(sessionId, providerSessionId, declaration);
+  }
+
+  /**
+   * Records one `system/init` declaration; the last wins, since the surface can change mid-run. A
+   * declaration reporting a fast-mode state replaces the held one; one reporting none keeps it.
+   */
   observeHandshakeDeclaration(
     sessionId: SessionId,
     providerSessionId: string,
@@ -57,11 +100,44 @@ export class ClaudeHandshakeRegister {
       declaration,
       invocableCommandNames: new Set(declaration.slashCommands),
     });
+    if (declaration.fastModeState !== null) {
+      this.#holdFastMode(sessionId, providerSessionId, declaration);
+    }
+    // The handshake of the turn the run started: whatever level it applied has taken effect.
+    this.settleRunOutputSpeed(sessionId, providerSessionId);
   }
 
-  /** Discards the session's declaration: a live read of a process that is gone or replaced. */
+  /** Marks `runId` as the run whose output speed settles on this process's next handshake. */
+  armRunOutputSpeed(sessionId: SessionId, providerSessionId: string, runId: RunId): void {
+    this.#unsettledRunBySession.set(sessionId, { providerSessionId, runId });
+  }
+
+  /** Drops the armed run without a report: its turn was never written. */
+  disarmRunOutputSpeed(sessionId: SessionId): void {
+    this.#unsettledRunBySession.delete(sessionId);
+  }
+
+  /**
+   * Reports the armed run's output speed as the state the process holds, once, and disarms it.
+   * Nothing is reported for another process's run or where no state was ever read.
+   */
+  settleRunOutputSpeed(sessionId: SessionId, providerSessionId: string): void {
+    const unsettled = this.#unsettledRunBySession.get(sessionId);
+    if (unsettled?.providerSessionId !== providerSessionId) {
+      return;
+    }
+    this.#unsettledRunBySession.delete(sessionId);
+    const state = this.observedOutputSpeedFor(sessionId, providerSessionId);
+    if (state !== undefined) {
+      this.#onRunOutputSpeedSettled?.(sessionId, unsettled.runId, state);
+    }
+  }
+
+  /** Discards the session's declarations and armed run: live reads of a replaced process. */
   forgetHandshake(sessionId: SessionId): void {
     this.#handshakeBySession.delete(sessionId);
+    this.#fastModeBySession.delete(sessionId);
+    this.#unsettledRunBySession.delete(sessionId);
   }
 
   // Answers only for the process the declaration was read from. The stamp is a last guard behind
@@ -136,46 +212,37 @@ export class ClaudeHandshakeRegister {
   }
 
   /**
-   * The output-speed state the provider declared for one live session, or `undefined` before it
-   * has. A declaration the contract's bounds reject reads as absent, with a diagnostic; `cooldown`
-   * is carried as declared.
+   * The output-speed state the provider last declared for one live session, from its `initialize`
+   * reply or a later `system/init`, or `undefined` where neither reported one. A declaration the
+   * contract's bounds reject reads as absent; `cooldown` is carried as declared.
    */
   observedOutputSpeedFor(
     sessionId: SessionId,
     providerSessionId: string,
   ): ProviderOutputSpeedState | undefined {
-    const held = this.heldHandshakeFor(sessionId, providerSessionId);
-    if (held === undefined) {
-      return undefined;
-    }
-    const declared = held.declaration.fastModeState;
-    if (declared === null) {
-      return undefined;
-    }
-    const reason = held.declaration.fastModeDisabledReason;
-    const parsed = ProviderOutputSpeedStateSchema.safeParse({
-      declared,
-      ...(reason === null ? {} : { reason }),
-    });
-    if (parsed.success) {
-      return parsed.data;
-    }
-    this.#diagnostics.emit({
-      provider: "claude",
-      kind: "output_speed_state_rejected",
-      rawWireType: null,
-      dispositionReason:
-        "the provider declared an output-speed state the contract's own bounds refuse; this " +
-        "binding reads as having no observation until it declares another",
-      details: {
-        sessionId,
-        // The failing field and lengths, never the untrusted values.
-        rejectedField: parsed.error.issues[0]?.path.join(".") ?? "",
-        declaredLength: declared.length,
-        reasonLength: reason === null ? null : reason.length,
-      },
-    });
-    return undefined;
+    const held = this.#fastModeBySession.get(sessionId);
+    return held?.providerSessionId === providerSessionId ? held.state : undefined;
+  }
+
+  // Read once, as observed, so a declaration the bounds refuse emits its diagnostic once.
+  #holdFastMode(
+    sessionId: SessionId,
+    providerSessionId: string,
+    declaration: ClaudeFastModeDeclaration,
+  ): void {
+    const state =
+      declaration.fastModeState === null
+        ? undefined
+        : readDeclaredOutputSpeed(
+            {
+              provider: CLAUDE_DRIVER_NAME,
+              sessionId,
+              declared: declaration.fastModeState,
+              reason: declaration.fastModeDisabledReason,
+            },
+            this.#diagnostics,
+          );
+    this.#fastModeBySession.set(sessionId, { providerSessionId, state });
   }
 
   // Composed at read time so the held state stays what the provider said. Each entry is bounded by

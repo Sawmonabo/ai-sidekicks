@@ -1,13 +1,18 @@
 // The rejected-load recovery ladder, including the two rungs that decide whether the process
 // survives: giving up when even the failure document cannot be served (destroy, and for the
-// main window exit non-zero), and the rung that must not give up, a window the user closed while
+// first window exit non-zero), and the rung that must not give up, a window the user closed while
 // its load was failing. That is an ordinary quit, and `app.exit` would skip `before-quit` and
 // `will-quit`.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "@test/helpers/electron-mock.js";
-import { asMockWindow, INDEX_URL } from "@test/helpers/window-test-harness.js";
+import {
+  asMockWindow,
+  INDEX_URL,
+  loggedMessages,
+  testWindowFrame,
+} from "@test/helpers/window-test-harness.js";
 
 const electronMock = createElectronMock();
 
@@ -46,34 +51,44 @@ describe("a rejected document load", () => {
 
   it("serves the generated failure document carrying the reason", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { createMainWindow } = await loadWindowModule();
+    const { openRendererWindow } = await loadWindowModule();
+    const frame = testWindowFrame();
 
-    const browserWindow = createMainWindow();
+    const rendererWindow = openRendererWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
-      expect(asMockWindow(browserWindow).loadedUrls).toHaveLength(2);
+      expect(asMockWindow(rendererWindow).document.loadedUrls).toHaveLength(2);
     });
-    const [, failureUrl] = asMockWindow(browserWindow).loadedUrls;
+    const [, failureUrl] = asMockWindow(rendererWindow).document.loadedUrls;
     expect(failureUrl).toContain("/-/load-failure");
     expect(failureUrl).toContain(encodeURIComponent("ERR_FILE_NOT_FOUND (-6)"));
-    expect(browserWindow.isDestroyed()).toBe(false);
+    expect(rendererWindow.baseWindow.isDestroyed()).toBe(false);
     expect(electronMock.exitCodes).toEqual([]);
-    expect(consoleError).toHaveBeenCalled();
+    expect(loggedMessages(frame.log)).toEqual([
+      expect.stringContaining("failed to load sidekicks-renderer://app/index.html"),
+    ]);
   });
 
-  it("destroys the main window and exits non-zero when no document can be served", async () => {
+  it("destroys the first window and exits non-zero when no document can be served", async () => {
     electronMock.failLoadsContaining("sidekicks-renderer://app", new Error("handler missing"));
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
+    const frame = testWindowFrame();
+    let exitsWhenTheLogDrained: number | undefined;
+    frame.log.drain.mockImplementation(() => {
+      exitsWhenTheLogDrained = electronMock.exitCodes.length;
+      return Promise.resolve();
+    });
 
-    const browserWindow = windowModule.createMainWindow();
+    const rendererWindow = windowModule.openRendererWindow({ ...frame, additionalArguments: [] });
 
     await vi.waitFor(() => {
       expect(electronMock.exitCodes).toEqual([loadFailureModule.RENDERER_UNSERVABLE_EXIT_CODE]);
     });
-    expect(browserWindow.isDestroyed()).toBe(true);
-    expect(consoleError.mock.calls.flat().join(" ")).toContain("no renderer document");
+    expect(rendererWindow.baseWindow.isDestroyed()).toBe(true);
+    // The reason reaches the log, and the log is drained before the exit, which a queued append
+    // would not survive.
+    expect(loggedMessages(frame.log).join(" ")).toContain("no renderer document");
+    expect(exitsWhenTheLogDrained).toBe(0);
   });
 
   // The ordinary case, which must not reach `app.exit`: the window is destroyed right after the
@@ -81,27 +96,23 @@ describe("a rejected document load", () => {
   describe("a window closed while its load was failing", () => {
     it("serves no document, and does not exit the process", async () => {
       electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_ABORTED (-3)"));
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const { createMainWindow } = await loadWindowModule();
+      const { openRendererWindow } = await loadWindowModule();
+      const frame = testWindowFrame();
 
-      const browserWindow = createMainWindow();
+      const rendererWindow = openRendererWindow({ ...frame, additionalArguments: [] });
       // Synchronous: `loadURL`'s rejection arrives on a later microtask.
-      browserWindow.destroy();
+      rendererWindow.baseWindow.destroy();
 
       await vi.waitFor(() => {
-        expect(consoleWarn).toHaveBeenCalled();
+        expect(loggedMessages(frame.log).join(" ")).toContain("closed while its load was failing");
       });
 
       // `app.exit` skips `before-quit` and `will-quit`, so an exit here would bypass the drain.
       expect(electronMock.exitCodes).toEqual([]);
       // No second load: there is no window left to show one in.
-      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
-      expect(consoleWarn.mock.calls.flat().join(" ")).toContain(
-        "closed while its load was failing",
-      );
+      expect(asMockWindow(rendererWindow).document.loadedUrls).toEqual([INDEX_URL]);
       // The give-up diagnostic must not appear: the window went away, it was not unservable.
-      expect(consoleError.mock.calls.flat().join(" ")).not.toContain("no renderer document");
+      expect(loggedMessages(frame.log).join(" ")).not.toContain("no renderer document");
     });
   });
 });

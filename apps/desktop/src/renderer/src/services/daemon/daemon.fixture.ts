@@ -1,19 +1,33 @@
 // The fixture daemon: the daemon calls and subscriptions a scripted scenario answers. A method the
 // scenario scripts no reply for rejects with a named error rather than resolving `undefined`, so a
-// screen is never trained to render an empty state where the live daemon would fail.
+// screen is never trained to render an empty state where the live daemon would fail. A scenario's
+// daemon always answers, so the status topic reads connected from its first delivery.
 
 import type {
-  DaemonEvent,
-  DaemonEventPayload,
   DaemonMethod,
   DaemonParams,
   DaemonResult,
-  DaemonSubscribeParams,
 } from "@ai-sidekicks/contracts/daemon-methods";
-import type { DaemonWire, Unsubscribe } from "@shared/preload-api.js";
+import { DAEMON_STATUS_TOPIC, type MainProcessState } from "@shared/daemon-status-topic.js";
+import type {
+  DaemonWire,
+  DaemonWirePayload,
+  DaemonWireRequest,
+  DaemonWireTopic,
+  Unsubscribe,
+} from "@shared/preload-api.js";
 import type { ScenarioEngine } from "./engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "./scripted-reply.fixture.js";
 import { subscribeToScenario } from "./scenario-subscriptions.fixture.js";
+
+/** The status topic's one delivery: a service this app found running, linked and answering. */
+const FIXTURE_SERVICE_STATE: MainProcessState = {
+  connection: { kind: "connected" },
+  negotiation: undefined,
+  startedByApp: false,
+  whileSignedOut: undefined,
+  cannotStart: undefined,
+};
 
 /** The daemon namespace answered from one scenario's engine. */
 export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire {
@@ -29,16 +43,30 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
         method,
         await resolveScriptedReply(scenarioEngine, method, params),
       ) as DaemonResult<MethodName>,
-    // A scenario plays one session from its start, so the request is taken and not read.
-    subscribe: <EventName extends DaemonEvent>(
-      event: EventName,
-      _params: DaemonSubscribeParams<EventName>,
-      handler: (payload: DaemonEventPayload<EventName>) => void,
-    ): Unsubscribe =>
-      // The delivery is untyped scenario data cast to `DaemonEventPayload<E>`; the app
-      // parses every delivery at its own boundary, as it does the live bridge's.
-      subscribeToScenario(scenarioEngine, event, (delivered) => {
-        handler(delivered as DaemonEventPayload<EventName>);
-      }),
+    subscribe: <Topic extends DaemonWireTopic>(
+      event: Topic,
+      params: DaemonWireRequest<Topic>,
+      handler: (payload: DaemonWirePayload<Topic>) => void,
+      onEnded?: Parameters<DaemonWire["subscribe"]>[3],
+    ): Unsubscribe => {
+      if (event === DAEMON_STATUS_TOPIC) {
+        handler(FIXTURE_SERVICE_STATE as DaemonWirePayload<Topic>);
+        return () => undefined;
+      }
+      // The delivery is untyped scenario data cast to the topic's payload; the app parses every
+      // delivery at its own boundary, as it does the live bridge's.
+      return subscribeToScenario(
+        scenarioEngine,
+        event,
+        params,
+        (delivered) => {
+          handler(delivered as DaemonWirePayload<Topic>);
+        },
+        onEnded,
+      );
+    },
+    requestStart: async () => {
+      // A scenario's daemon always answers, so there is no service to start.
+    },
   };
 }

@@ -14,7 +14,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
 import { DriverCapabilityCache } from "../capability-cache.js";
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";
 import type { GetCapabilitiesResult } from "../provider-driver.js";
-import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
+import { composeStaticOutputSpeedLevels } from "../provider-driver-descriptors.js";
 
 function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): DriverCapabilities {
   const flags = Object.fromEntries(
@@ -35,9 +35,7 @@ function hydrationHit(
     capabilities,
     tools: [{ name: "bash", idempotency_class: "manual_reconcile_only" }],
     cliVersion: { rawVersion: "2.1.251 (Claude Code)", parsedVersion: "2.1.251" },
-    ...(capabilities.flags.output_speed
-      ? { outputSpeedLevels: [...PROVIDER_DRIVER_DESCRIPTORS[driverName].outputSpeedLevels] }
-      : {}),
+    ...composeStaticOutputSpeedLevels(driverName, capabilities.flags),
   };
   return { hit: true, result };
 }
@@ -57,26 +55,27 @@ describe("DriverCapabilityCache", () => {
       "outputSpeedLevels",
     ]);
     expect(DriverCapabilityReportSchema.safeParse(report).success).toBe(true);
-    // The second read is served from the entry and must carry the driver's own vocabulary too.
-    const declaredLevels = [...PROVIDER_DRIVER_DESCRIPTORS.claude.outputSpeedLevels];
-    expect(report.outputSpeedLevels).toStrictEqual(declaredLevels);
-    expect(cache.read("claude").outputSpeedLevels).toStrictEqual(declaredLevels);
   });
 
-  it("omits the vocabulary entirely for a driver that declares output_speed false", () => {
-    // Absence means the axis is unsettable; an empty array would claim a settable axis with
-    // nothing on it.
-    const cache = new DriverCapabilityCache({
-      hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: false }), "codex"),
+  it("omits the vocabulary where the flag is false or the levels are read per model", () => {
+    // Absence means no driver-wide set: with the flag false the axis is unsettable, and an empty
+    // array would claim a settable axis with nothing on it.
+    const withdrawn = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: false }), "claude"),
     });
+    expect(Object.hasOwn(withdrawn.read("claude"), "outputSpeedLevels")).toBe(false);
 
-    const report = cache.read("codex");
-    expect(Object.hasOwn(report, "outputSpeedLevels")).toBe(false);
+    // Codex publishes its levels on each model of the catalog read, which the cache neither
+    // stores nor flattens into one list some model in the catalog would contradict.
+    const perModel = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: true }), "codex"),
+    });
+    expect(Object.hasOwn(perModel.read("codex"), "outputSpeedLevels")).toBe(false);
   });
 
   it("omits the vocabulary when the flag is ABSENT from the durable row", () => {
-    // The cache fails closed on `!== true`: flags come from a durable row, so a missing key is
-    // reachable, and it must read as unsupported.
+    // Flags come from a durable row, so a missing key is reachable, and the cache reads it as
+    // unsupported, never as a settable axis.
     const capabilities = flagsWith({});
     const flagsWithoutOutputSpeed: Record<string, boolean> = { ...capabilities.flags };
     delete flagsWithoutOutputSpeed["output_speed"];

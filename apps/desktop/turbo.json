@@ -162,7 +162,9 @@
       "cache": false
     },
     "test:smoke": {
-      "dependsOn": ["build:smoke"],
+      // Its launches play no scenario, so each starts a background service of its own from the
+      // service's build (`tests/helpers/isolated-service.ts`).
+      "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.
       // `scripts/materialize-electron.ts` is named because this task runs it; `scripts/**` would
@@ -259,8 +261,9 @@
       // The one tier that needs a fixture build rather than a release one: it drives the renderer
       // against the fixture implementations, which the release define folds out. The edge makes
       // that bundle present by construction, so the tier's skip-with-a-message path stays a
-      // developer convenience rather than something CI can silently fall into.
-      "dependsOn": ["build:fixtures"],
+      // developer convenience rather than something CI can silently fall into. A launch playing no
+      // scenario starts a background service of its own from the service's build.
+      "dependsOn": ["build:fixtures", "@ai-sidekicks/runtime-daemon#build"],
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",

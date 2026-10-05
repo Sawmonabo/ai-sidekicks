@@ -8,7 +8,7 @@
 //
 // Each shell has its own holder, so only transitions naming the asked-about shell are read.
 // The fold is pure: given the same events, shell and device it gives the same state, so a
-// replayed prefix is deterministic and a reconnect heals by re-running it.
+// rebuild from a prefix is deterministic and a reconnect heals by re-running it.
 
 import { PTY_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/pty";
 import type { CommandId } from "@ai-sidekicks/contracts/command";

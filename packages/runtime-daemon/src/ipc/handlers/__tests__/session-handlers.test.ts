@@ -231,7 +231,7 @@ interface SubscribedStream {
 /** Registers the handler, subscribes on transport 7 and crosses the ack barrier. */
 async function subscribeWith(
   outboundQueue: OutboundQueue,
-  replay: readonly SessionStreamChange<SessionEvent>[] = [],
+  catchUp: readonly SessionStreamChange<SessionEvent>[] = [],
 ): Promise<SubscribedStream> {
   const registry = new MethodRegistryImpl();
   const send = vi.fn<SendFrame>();
@@ -243,7 +243,7 @@ async function subscribeWith(
     outboundQueue,
     subscribeToSession: (_sessionId, _afterCursor, onChange) => {
       onChangeHolder.current = onChange;
-      for (const change of replay) onChange(change);
+      for (const change of catchUp) onChange(change);
       return () => undefined;
     },
   });
@@ -333,7 +333,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     ]);
   });
 
-  it("writes the ack before any frame of a synchronous replay, the replay in order", async () => {
+  it("writes the ack before any frame of a synchronous catch-up, in order", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const registry = new MethodRegistryImpl();
     const written: string[] = [];
@@ -344,14 +344,14 @@ describe("session.subscribe batches a session's changes into frames", () => {
       written.push(`frame:${frameValue.changes.map((change) => change.cursor).join(",")}`);
     });
     const primitive = new StreamingPrimitive({ registry, send });
-    const replay = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 2 }, (_, index) =>
+    const catchUp = Array.from({ length: STREAM_FRAME_MAX_CHANGES + 2 }, (_, index) =>
       changeAt(index),
     );
     registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
       outboundQueue: ALWAYS_ROOM,
       subscribeToSession: (_sessionId, _afterCursor, onChange) => {
-        for (const change of replay) onChange(change);
+        for (const change of catchUp) onChange(change);
         return () => undefined;
       },
     });
@@ -366,7 +366,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
     const cursors = (from: number, to: number): string =>
-      replay
+      catchUp
         .slice(from, to)
         .map((change) => change.cursor)
         .join(",");
@@ -452,46 +452,43 @@ describe("session.subscribe survives a malformed frame", () => {
   });
 
   it(
-    "replay: a malformed event in a replayed frame cancels the subscription and sends nothing " +
-      "after it",
+    "catch-up: a malformed event in a catch-up frame cancels the subscription and sends " +
+      "nothing after it",
     async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
       const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
-      const replay = [
+      const catchUp = [
         malformed,
         ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
       ];
 
-      const stream = await subscribeWith(ALWAYS_ROOM, replay);
+      const stream = await subscribeWith(ALWAYS_ROOM, catchUp);
       vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
       expect(stream.send).not.toHaveBeenCalled();
       expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
       const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
-      expect(prefix).toContain("[session.subscribe] replay event validation/emission failed");
+      expect(prefix).toContain("[session.subscribe] catch-up event validation/emission failed");
       expect(prefix).toContain(stream.subscriptionId);
       expect((err as Error).name).toBe("StreamingValidationError");
     },
   );
 
-  it(
-    "live tail: a malformed event cancels the " + "subscription without throwing into the upstream",
-    async () => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const stream = await subscribeWith(ALWAYS_ROOM);
+  it("live tail: a malformed event cancels the subscription, never throwing upstream", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stream = await subscribeWith(ALWAYS_ROOM);
 
-      stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
-      expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
+    stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
+    expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
 
-      expect(stream.send).not.toHaveBeenCalled();
-      expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-      const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
-      expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
-    },
-  );
+    expect(stream.send).not.toHaveBeenCalled();
+    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
+    const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
+    expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
+  });
 });
 
 describe("session.subscribe detaches the upstream when the subscription ends", () => {
@@ -543,41 +540,38 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
 });
 
 describe("session.read", () => {
-  it(
-    "dispatches a known sessionId to the readSession " + "deps and answers it with the held draft",
-    async () => {
-      const registry = new MethodRegistryImpl();
-      const logRead = buildSessionLogRead();
-      const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
-        async () => logRead,
-      );
-      const deps: SessionReadDeps = {
-        readSession: mockReadSession,
-        draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
-      };
-      registerSessionRead(registry, deps);
+  it("dispatches a known sessionId to readSession and answers with the held draft", async () => {
+    const registry = new MethodRegistryImpl();
+    const logRead = buildSessionLogRead();
+    const mockReadSession = vi.fn<(req: SessionReadRequest) => Promise<SessionLogRead>>(
+      async () => logRead,
+    );
+    const deps: SessionReadDeps = {
+      readSession: mockReadSession,
+      draftStore: { read: (sessionId) => (sessionId === TEST_SESSION_ID ? HELD_DRAFT : "") },
+    };
+    registerSessionRead(registry, deps);
 
-      const directCtx: HandlerContext = {};
-      const result = await registry.dispatch(
-        "session.read",
-        { sessionId: TEST_SESSION_ID },
-        directCtx,
-      );
+    const directCtx: HandlerContext = {};
+    const result = await registry.dispatch(
+      "session.read",
+      { sessionId: TEST_SESSION_ID },
+      directCtx,
+    );
 
-      expect(mockReadSession).toHaveBeenCalledTimes(1);
-      expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
+    expect(mockReadSession).toHaveBeenCalledTimes(1);
+    expect(mockReadSession).toHaveBeenCalledWith({ sessionId: TEST_SESSION_ID });
 
-      // The log's read, with the draft the store holds for that session.
-      expect(result).toStrictEqual({
-        ...logRead,
-        session: { ...logRead.session, draft: HELD_DRAFT },
-      });
+    // The log's read, with the draft the store holds for that session.
+    expect(result).toStrictEqual({
+      ...logRead,
+      session: { ...logRead.session, draft: HELD_DRAFT },
+    });
 
-      // The answer also passes the wire schema.
-      const parsed = SessionReadResponseSchema.safeParse(result);
-      expect(parsed.success).toBe(true);
-    },
-  );
+    // The answer also passes the wire schema.
+    const parsed = SessionReadResponseSchema.safeParse(result);
+    expect(parsed.success).toBe(true);
+  });
 
   it(
     "maps an unknown sessionId throw to -32602 + data.type session.not_found via " +

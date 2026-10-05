@@ -116,7 +116,7 @@ export class RevealEngine {
     return this.#disposed;
   }
 
-  /** Watch drained frames. No replay: a frame is an event, not a state. */
+  /** Watch drained frames. No resend: a frame is an event, not a state. */
   public subscribe(sink: (frame: RevealFrame) => void): Unsubscribe {
     return this.#frameEmitter.subscribe(sink);
   }

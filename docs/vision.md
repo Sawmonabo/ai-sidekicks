@@ -80,7 +80,7 @@ A session begins on the machine that executes it. Linking a second device change
 - the actual work product — file changes, diffs, plans, and artifacts as they are produced, rendered in the transcript and reviewable inline
 - agent activity as it unfolds — runs starting, commands executing, outputs streaming, subagent fan-outs — identically on every device
 - device presence — which of the user's linked devices are online, and whether the executing machine is reachable
-- history replay for a device that joins late, backfilled from the executing machine's event log (per-daemon logs are the V1 event-sourcing scope)
+- history catch-up for a device that joins late, backfilled from the executing machine's event log (per-daemon logs are the V1 event-sourcing scope)
 
 ### What Every Device Can Do
 
@@ -201,7 +201,7 @@ An event-sourced engine where everything important is an event:
 - device attached
 - device detached
 
-This gives replay, auditability, and determinism.
+This gives rebuildable state, auditability, and determinism.
 
 V1 scopes event-sourcing to per-daemon local event logs — each daemon owns its own authoritative log, and events reach the user's other devices via the relay per [ADR-010](./decisions/010-tokens-passkeys-and-the-remote-channel.md). See [ADR-016: Shared Event-Sourcing Scope](./decisions/016-shared-event-sourcing-scope.md).
 
@@ -272,7 +272,7 @@ If these are modeled cleanly, most major features become straightforward instead
 ### Files Vs Database
 
 - JSON files are fine for prototypes.
-- This product needs queryable history, projections, replay, and permissions.
+- This product needs queryable history, projections, rebuilds, and permissions.
 - The right local persistence choice is SQLite.
 
 ### Agent Chat Vs Workflow Engine

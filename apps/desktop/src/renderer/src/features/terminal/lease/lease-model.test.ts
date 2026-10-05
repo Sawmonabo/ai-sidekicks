@@ -85,6 +85,7 @@ describe("the lease fold — what the wire said, and only that", () => {
           id: "event-2",
           sessionId: TERMINAL_LEASE_SCENARIO.sessionId,
           sequence: 2,
+          cursor: "cursor-at-2",
           kind: "session.created",
           occurredAt: "x",
         },

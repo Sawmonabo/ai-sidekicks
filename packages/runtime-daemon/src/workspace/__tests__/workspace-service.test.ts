@@ -589,33 +589,26 @@ describe("run holds", () => {
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
   });
 
-  it(
-    "keeps a run's hold while its root is gone, " + "and stales the row once the run releases it",
-    async () => {
-      await harness.service.markBusy(workspaceId, RUN_ID);
-      rmSync(harness.gitMountRoot, { recursive: true, force: true });
+  it("keeps a run's hold while its root is gone; the row goes stale once released", async () => {
+    await harness.service.markBusy(workspaceId, RUN_ID);
+    rmSync(harness.gitMountRoot, { recursive: true, force: true });
 
-      const whileHeld = await harness.service.list({ sessionId: SESSION_ID });
+    const whileHeld = await harness.service.list({ sessionId: SESSION_ID });
 
-      // The read reports the vanished root, and the run keeps the workspace it holds: no other run
-      // can take it, and the hold still names the run that has it.
-      expect(whileHeld.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-      expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe(
-        "busy" satisfies WorkspaceState,
-      );
-      expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
-      expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
+    // The read reports the vanished root, and the run keeps the workspace it holds: no other run
+    // can take it, and the hold still names the run that has it.
+    expect(whileHeld.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
+    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
 
-      expect(harness.service.releaseBusy(workspaceId)).toBe(true);
-      await harness.service.list({ sessionId: SESSION_ID });
+    expect(harness.service.releaseBusy(workspaceId)).toBe(true);
+    await harness.service.list({ sessionId: SESSION_ID });
 
-      // The first read after the release stales it, so no new run starts on the missing root.
-      expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe(
-        "stale" satisfies WorkspaceState,
-      );
-      expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
-    },
-  );
+    // The first read after the release stales it, so no new run starts on the missing root.
+    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
+  });
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {
     // Window: `markStale` reads the row, sees a live state, and only then opens the append. A

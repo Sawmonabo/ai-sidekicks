@@ -230,7 +230,7 @@ Described here; the shapes belong to [Plan-026](../plans/026-skills.md).
 
 ## State And Data Implications
 
-- **The folders on disk are the truth.** The registry is a projection of a filesystem watch; it is not events-canonical, is not replayed, and is not rebuilt from the session event log.
+- **The folders on disk are the truth.** The registry is a projection of a filesystem watch; it is not events-canonical and is not rebuilt from the session event log.
 - The console's own per-folder record is the one piece of state the folder cannot hold, and it holds nothing else. A provider dropping an unknown front-matter key silently is exactly why that record exists rather than a widened front matter.
 - **The widen warning is derived and never stored.** It is a function of the availability setting and the folder's contents at the moment of the scan, so narrowing removes it without a write.
 - Nothing reaches disk until a folder is saved; an abandoned edit leaves no partial folder and no orphan file.

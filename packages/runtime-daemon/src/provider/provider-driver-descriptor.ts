@@ -49,12 +49,14 @@ export interface ProviderDriverDescriptor {
    */
   readonly autoUpdateOptOutEnvironment: Readonly<Record<string, string>>;
   /**
-   * The output-speed levels a caller may request. Empty is a declaration, the complete one a
-   * `false` `output_speed` flag implies. A constant of the driver, so no cache stores it and both
-   * the live declaration and the cold-start hydrate read this one list. A provider can report
-   * more states than it accepts; `ProviderOutputSpeedState.declared` carries those verbatim.
+   * The output-speed levels a caller may request, for a provider that publishes no per-model set.
+   * Absent where the provider publishes the set on each model of its catalog read
+   * (`ProviderModel.outputSpeedLevels`), so the two never both apply. A constant of the driver, so
+   * no cache stores it and both the live declaration and the cold-start hydrate read this one list.
+   * A provider can report more states than it accepts; `ProviderOutputSpeedState.declared` carries
+   * those verbatim.
    */
-  readonly outputSpeedLevels: readonly string[];
+  readonly outputSpeedLevels?: readonly string[] | undefined;
   /**
    * The provider's own tools, in the names a person picks for an agent's allowlist. A constant of
    * the driver, composed onto every capability report and never stored.

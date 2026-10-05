@@ -19,6 +19,10 @@ import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.j
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { isEphemeralPaneKind, isPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+import {
+  encodePaneEntity,
+  readPaneEntityCandidate,
+} from "@renderer/routing/panes/pane-entity-record.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import { isPaneLayoutDensity } from "./pane-layout-density.js";
 import {
@@ -98,16 +102,12 @@ export function encodePaneLayoutSnapshot(state: PaneLayoutState): PaneLayoutSnap
     if (pane.isEphemeral) {
       continue;
     }
-    const entry: Record<string, number | boolean | string> = {
+    snapshot[pane.paneId] = {
       position,
       kind: pane.kind,
       sizePermille: pane.sizePermille,
+      ...(pane.entity === undefined ? {} : encodePaneEntity(pane.entity)),
     };
-    if (pane.entity !== undefined) {
-      entry["entityKind"] = pane.entity.kind;
-      entry["entityId"] = pane.entity.id;
-    }
-    snapshot[pane.paneId] = entry;
     position += 1;
   }
   return snapshot;
@@ -252,7 +252,7 @@ function decodePane(
   // Admission uses the one pane-address grammar. A weaker check would admit a `transcript` over
   // an artifact or an id like `bad/id`, which the pane body then refuses: an unusable pane
   // that counts against the cap and is written back on every save.
-  const address = parsePaneAddress(kind, readEntityCandidate(entry));
+  const address = parsePaneAddress(kind, readPaneEntityCandidate(entry));
   if (isRefusal(address)) {
     // Two messages cover every parse code; what a person can do about a dropped pane is the
     // same either way.
@@ -292,14 +292,4 @@ function readPosition(entry: UnknownRecord): number {
   return typeof position === "number" && Number.isFinite(position)
     ? position
     : Number.MAX_SAFE_INTEGER;
-}
-
-/**
- * Gathers the record's flat `entityKind` and `entityId` into the candidate the address grammar
- * reads. Absent both is a session-scoped pane; either alone is left for the grammar to refuse.
- */
-function readEntityCandidate(entry: UnknownRecord): unknown {
-  const kind = entry["entityKind"];
-  const id = entry["entityId"];
-  return kind === undefined && id === undefined ? undefined : { kind, id };
 }

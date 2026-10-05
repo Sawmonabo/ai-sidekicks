@@ -2,12 +2,12 @@
 // (leading edges, diff-gutter marks) and never "how urgent".
 //
 // An agent takes the next unused step in the order the session log admitted it, so the same log
-// gives the same wheel on every replay. Past twelve agents the allocator takes the step with the
+// gives the same wheel on every rebuild. Past twelve agents the allocator takes the step with the
 // fewest occupants, walking clockwise from the first, and the assignment says it shares its step.
 // Departures free nothing: reusing a step would rewrite the meaning of every row its first agent
 // already wrote.
 
-import type { OklchColor } from "./color.js";
+import type { OklchColor } from "@shared/color.js";
 import { HUE_WHEEL_STEPS } from "./palette.js";
 import { readHueWheelColor, formatHueWheelTokenName } from "./tokens.js";
 

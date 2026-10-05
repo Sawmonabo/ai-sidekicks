@@ -19,6 +19,7 @@ function event(
   return {
     id: `${EVENT_ID_STEM}${String(overrides.sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
+    cursor: `cursor-at-${String(overrides.sequence)}`,
     kind: "run.running",
     occurredAt: `2026-01-01T11:0${String(overrides.sequence % 10)}:00.000Z`,
     ...overrides,

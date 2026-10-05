@@ -291,69 +291,66 @@ function generateTranscript(seed: number): GeneratedTranscript {
 // Rendering
 
 describe("brief rendering", () => {
-  it(
-    "never emits a call without its result nor " + "a result without its call, under any budget",
-    () => {
-      const briefProjection = new BriefProjection();
-      let totalCrossTurnPairs = 0;
-      let rendersThatEvicted = 0;
-      let renderCount = 0;
-      let transcriptsWithFewerToolExchangesThanProtected = 0;
+  it("never emits a call without its result, or a result without its call, at any budget", () => {
+    const briefProjection = new BriefProjection();
+    let totalCrossTurnPairs = 0;
+    let rendersThatEvicted = 0;
+    let renderCount = 0;
+    let transcriptsWithFewerToolExchangesThanProtected = 0;
 
-      for (let seed = 1; seed <= 60; seed += 1) {
-        const generated: GeneratedTranscript = generateTranscript(seed);
-        totalCrossTurnPairs += generated.crossTurnPairCount;
-        const generatedToolExchangeCount: number = partitionIntoExchanges(
-          generated.projection.turns,
-        ).filter((exchange) => exchange.carriesToolActivity).length;
-        if (generatedToolExchangeCount < DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT) {
-          transcriptsWithFewerToolExchangesThanProtected += 1;
-        }
-
-        const unbounded: BriefRendering = briefProjection.render(requestFor(generated.projection));
-        expect(unbounded.evictedExchangeCount).toBe(0);
-
-        // Spans both regimes: tight windows force eviction and the wide one does not.
-        for (const contextWindowTokens of [120, 240, 480, 960, 1920, 100_000]) {
-          const rendering: BriefRendering = briefProjection.render(
-            requestFor(generated.projection, defaultBriefBudgetPolicy(contextWindowTokens)),
-          );
-          renderCount += 1;
-          if (rendering.evictedExchangeCount > 0) {
-            rendersThatEvicted += 1;
-          }
-
-          expect(toolCallIdsIn(rendering.includedTurns)).toEqual(
-            toolResultIdsIn(rendering.includedTurns),
-          );
-
-          // An order-preserving subsequence of the unbounded render, not a contiguous suffix:
-          // protection is per exchange, so an older tool exchange may outlive an evicted newer one.
-          expect(
-            isOrderPreservingSubsequence(rendering.includedTurns, unbounded.includedTurns),
-          ).toBe(true);
-
-          // Every protected exchange survives any budget.
-          const includedPositions: ReadonlySet<number> = new Set<number>(
-            rendering.includedTurns.map((includedTurn) => includedTurn.position),
-          );
-          for (const protectedTurn of protectedTurnsOf(
-            unbounded.includedTurns,
-            DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
-          )) {
-            expect(includedPositions.has(protectedTurn.position)).toBe(true);
-          }
-        }
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const generated: GeneratedTranscript = generateTranscript(seed);
+      totalCrossTurnPairs += generated.crossTurnPairCount;
+      const generatedToolExchangeCount: number = partitionIntoExchanges(
+        generated.projection.turns,
+      ).filter((exchange) => exchange.carriesToolActivity).length;
+      if (generatedToolExchangeCount < DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT) {
+        transcriptsWithFewerToolExchangesThanProtected += 1;
       }
 
-      // The corpus straddles turn boundaries, eviction both fired and did not, and some transcripts
-      // carry fewer tool exchanges than the protected tail wants.
-      expect(totalCrossTurnPairs).toBeGreaterThan(0);
-      expect(rendersThatEvicted).toBeGreaterThan(0);
-      expect(rendersThatEvicted).toBeLessThan(renderCount);
-      expect(transcriptsWithFewerToolExchangesThanProtected).toBeGreaterThan(0);
-    },
-  );
+      const unbounded: BriefRendering = briefProjection.render(requestFor(generated.projection));
+      expect(unbounded.evictedExchangeCount).toBe(0);
+
+      // Spans both regimes: tight windows force eviction and the wide one does not.
+      for (const contextWindowTokens of [120, 240, 480, 960, 1920, 100_000]) {
+        const rendering: BriefRendering = briefProjection.render(
+          requestFor(generated.projection, defaultBriefBudgetPolicy(contextWindowTokens)),
+        );
+        renderCount += 1;
+        if (rendering.evictedExchangeCount > 0) {
+          rendersThatEvicted += 1;
+        }
+
+        expect(toolCallIdsIn(rendering.includedTurns)).toEqual(
+          toolResultIdsIn(rendering.includedTurns),
+        );
+
+        // An order-preserving subsequence of the unbounded render, not a contiguous suffix:
+        // protection is per exchange, so an older tool exchange may outlive an evicted newer one.
+        expect(isOrderPreservingSubsequence(rendering.includedTurns, unbounded.includedTurns)).toBe(
+          true,
+        );
+
+        // Every protected exchange survives any budget.
+        const includedPositions: ReadonlySet<number> = new Set<number>(
+          rendering.includedTurns.map((includedTurn) => includedTurn.position),
+        );
+        for (const protectedTurn of protectedTurnsOf(
+          unbounded.includedTurns,
+          DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
+        )) {
+          expect(includedPositions.has(protectedTurn.position)).toBe(true);
+        }
+      }
+    }
+
+    // The corpus straddles turn boundaries, eviction both fired and did not, and some transcripts
+    // carry fewer tool exchanges than the protected tail wants.
+    expect(totalCrossTurnPairs).toBeGreaterThan(0);
+    expect(rendersThatEvicted).toBeGreaterThan(0);
+    expect(rendersThatEvicted).toBeLessThan(renderCount);
+    expect(transcriptsWithFewerToolExchangesThanProtected).toBeGreaterThan(0);
+  });
 
   it(
     "evicts a tool-free conversation down to its newest exchange and never overruns a ceiling " +

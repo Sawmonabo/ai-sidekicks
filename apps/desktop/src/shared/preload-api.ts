@@ -13,9 +13,9 @@
 //
 // `PreloadApi` carries the members main answers and the members the renderer already calls.
 // A member main does not answer yet throws `NotImplementedError`; `createStubBridge` is that
-// whole object, and the preload replaces the members main answers. The request and reply types
-// of the bridge calls not built yet are declared here as well, and each call joins `PreloadApi`
-// with its main handler.
+// whole object, and the preload replaces the members main answers (every member but the
+// updater's). The request and reply types of the bridge calls not built yet are declared here as
+// well, and each call joins `PreloadApi` with its main handler.
 
 import type {
   DaemonEvent,
@@ -36,6 +36,14 @@ import type { SessionId } from "@ai-sidekicks/contracts/session";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
 
 import type { AppFacts } from "./app-facts.js";
+import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";
+import type { DaemonSubscriptionEnd } from "./daemon-forwarding.js";
+import type {
+  DaemonStatusRequest,
+  DaemonStatusTopic,
+  MainProcessState,
+} from "./daemon-status-topic.js";
+import type { WindowSize } from "./window/window-size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
@@ -91,13 +99,20 @@ export interface NotificationPermission {
 /**
  * One editor the app looks for. `installed` is whether this machine has it, found through the
  * operating system's register of installed apps; one that is not can be shown, not chosen.
- *
- * @consumedBy the editor list in Settings, when main answers it
  */
 export interface EditorEntry {
   readonly id: string;
   readonly label: string;
   readonly installed: boolean;
+}
+
+/**
+ * What one copy puts on the clipboard: the plain text, and a formatted flavor beside it that a
+ * paste target which reads formatting takes instead.
+ */
+export interface ClipboardContent {
+  readonly text: string;
+  readonly html?: string;
 }
 
 /**
@@ -289,27 +304,44 @@ export type BrowserPaneEvent =
   | { readonly kind: "downloadRefused"; readonly fileName: string }
   | { readonly kind: "pageCrashed" };
 
-/**
- * A window's minimum size, in CSS pixels.
- *
- * @consumedBy the window's minimum size call to main
- */
-export interface WindowSize {
-  readonly width: number;
-  readonly height: number;
-}
+/** What `daemon.subscribe` opens: one of the daemon's subscriptions, or main's status topic. */
+export type DaemonWireTopic = DaemonEvent | DaemonStatusTopic;
+
+/** What a topic is opened with: the request its daemon method registers, or nothing. */
+export type DaemonWireRequest<E extends DaemonWireTopic> = E extends DaemonEvent
+  ? DaemonSubscribeParams<E>
+  : DaemonStatusRequest;
+
+/** One value a topic delivers: its daemon method's emission, or main's state. */
+export type DaemonWirePayload<E extends DaemonWireTopic> = E extends DaemonEvent
+  ? DaemonEventPayload<E>
+  : MainProcessState;
 
 /**
  * The daemon's own wire: its JSON-RPC calls, and its subscriptions, each opened with the
- * request its method registers.
+ * request its method registers. A call the daemon refuses rejects with the wire error itself
+ * (`{code, message, data}`), and any other failed call with an `Error`; a subscription that
+ * cannot open throws.
  */
 export interface DaemonWire {
   call<M extends DaemonMethod>(method: M, params: DaemonParams<M>): Promise<DaemonResult<M>>;
-  subscribe<E extends DaemonEvent>(
+  /**
+   * Open one subscription. `daemon.status` is main's own topic: it opens while no service
+   * answers, its first delivery is the current state, and it never ends. A daemon subscription
+   * that ends after it opened, because the daemon completed or refused it or the link under it
+   * failed, calls `onEnded` once and delivers nothing more; closing it before then never does.
+   */
+  subscribe<E extends DaemonWireTopic>(
     event: E,
-    params: DaemonSubscribeParams<E>,
-    handler: (payload: DaemonEventPayload<E>) => void,
+    params: DaemonWireRequest<E>,
+    handler: (payload: DaemonWirePayload<E>) => void,
+    onEnded?: (end: DaemonSubscriptionEnd) => void,
   ): Unsubscribe;
+  /**
+   * Start the background service again with a full set of attempts: the boot card's `Retry`.
+   * Resolves once main has begun; the service's state reports how the start goes.
+   */
+  requestStart(): Promise<void>;
 }
 
 /**
@@ -324,9 +356,31 @@ export interface PreloadApi {
     showOpenDialog<Purpose extends OpenDialogPurpose>(
       options: OpenDialogOptions<Purpose>,
     ): Promise<OpenDialogResults[Purpose]>;
+    /**
+     * A token for a file dropped on the composer. Refused for a `File` the page built itself,
+     * which has no path, and for a folder.
+     */
+    getDroppedFileRef(file: File): Promise<FilePathRef>;
+    /**
+     * Write a pasted picture to a file only the person can read and answer its token. The file
+     * lasts until the page that pasted it goes; empty bytes are refused.
+     */
+    savePastedImage(bytes: ArrayBuffer): Promise<FilePathRef>;
     /** Open a web address in the system browser; refused unless it is `http:` or `https:`. */
     openExternal(url: string): Promise<void>;
-    copyToClipboard(text: string): Promise<void>;
+    /**
+     * Open a file or folder, at a line from 1 where one is given, in the editor the machine's
+     * settings name, or in the system default when none is named or the named one is gone.
+     */
+    openInEditor(ref: FilePathRef, line?: number): Promise<void>;
+    /** Every editor the app looks for, in list order, each saying whether this machine has it. */
+    listEditors(): Promise<EditorEntry[]>;
+    /** The operating system's notification permission for this app. */
+    getNotificationPermission(): Promise<NotificationPermission>;
+    /** Put the text, with its formatted flavor where one is given, on the clipboard in one write. */
+    copyToClipboard(content: ClipboardContent): Promise<void>;
+    /** Show a file or folder selected in the platform's file manager. */
+    revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
 
   readonly update: {
@@ -337,12 +391,23 @@ export interface PreloadApi {
     requestRestart(): Promise<void>;
   };
 
-  /** The machine's settings file, carried by the service's live read and its one writer. */
+  /**
+   * The machine's settings file, carried by the service, its one writer. A refused call rejects
+   * with the wire error itself, as `daemon.call` does.
+   */
   readonly machineSettings: {
+    /** The file as it stands, with the repair the service made since the last change. */
+    read(): Promise<MachineSettingsReading>;
     /** Write one change; answers the file as written. */
     write(change: MachineSettingsChange): Promise<MachineSettings>;
-    /** Each written change, the first delivery the file as it stands. */
-    subscribe(handler: (reading: MachineSettingsReading) => void): Unsubscribe;
+    /**
+     * Each written change, the first delivery the file as it stands. A feed that ends after it
+     * opened calls `onEnded` once, as a daemon subscription does.
+     */
+    subscribe(
+      handler: (reading: MachineSettingsReading) => void,
+      onEnded?: (end: DaemonSubscriptionEnd) => void,
+    ): Unsubscribe;
   };
 
   /**
@@ -353,6 +418,26 @@ export interface PreloadApi {
     read(): Promise<KeyboardMapReading>;
     /** Replace the whole map; answers the map as stored. */
     write(map: KeyboardMap): Promise<KeyboardMap>;
+  };
+
+  /** The window the renderer draws in: its id, its appearance, its minimum size and fullscreen. */
+  readonly window: {
+    /**
+     * The id main built this window under: the console window used last, or a new id on a first
+     * launch. The renderer's kept layout files this window under it.
+     */
+    readonly id: string;
+    /**
+     * The appearance chosen and its theme's two grounds: main sets the platform scheme, ticks the
+     * View menu, paints first frames from the grounds and keeps the record.
+     */
+    setAppearance(choice: AppearanceChoice, grounds: AppearanceGrounds): Promise<void>;
+    /** The appearance record on every change, the first delivery the kept one. */
+    subscribeAppearance(handler: (record: AppearanceRecord) => void): Unsubscribe;
+    /** Fullscreen starting or ending, the first delivery the current state. */
+    subscribeFullscreen(handler: (isFullScreen: boolean) => void): Unsubscribe;
+    /** The smallest size the window may shrink to. */
+    setMinimumSize(size: WindowSize): Promise<void>;
   };
 
   readonly app: AppFacts;
@@ -375,18 +460,26 @@ function stubThrow(member: string): never {
 
 /**
  * The preload API with every round-trip member throwing `NotImplementedError`. The caller
- * supplies the build facts, because only the preload can read what main passed.
+ * supplies the build facts and the window's id, because only the preload can read what main
+ * passed.
  */
-export function createStubBridge(app: AppFacts): PreloadApi {
+export function createStubBridge(app: AppFacts, windowId: string): PreloadApi {
   return {
     daemon: {
       call: () => stubThrow("daemon.call"),
       subscribe: () => stubThrow("daemon.subscribe"),
+      requestStart: () => stubThrow("daemon.requestStart"),
     },
     native: {
       showOpenDialog: () => stubThrow("native.showOpenDialog"),
+      getDroppedFileRef: () => stubThrow("native.getDroppedFileRef"),
+      savePastedImage: () => stubThrow("native.savePastedImage"),
       openExternal: () => stubThrow("native.openExternal"),
+      openInEditor: () => stubThrow("native.openInEditor"),
+      listEditors: () => stubThrow("native.listEditors"),
+      getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
     update: {
       getState: () => stubThrow("update.getState"),
@@ -396,12 +489,20 @@ export function createStubBridge(app: AppFacts): PreloadApi {
       requestRestart: () => stubThrow("update.requestRestart"),
     },
     machineSettings: {
+      read: () => stubThrow("machineSettings.read"),
       write: () => stubThrow("machineSettings.write"),
       subscribe: () => stubThrow("machineSettings.subscribe"),
     },
     keyboardMap: {
       read: () => stubThrow("keyboardMap.read"),
       write: () => stubThrow("keyboardMap.write"),
+    },
+    window: {
+      id: windowId,
+      setAppearance: () => stubThrow("window.setAppearance"),
+      subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
+      subscribeFullscreen: () => stubThrow("window.subscribeFullscreen"),
+      setMinimumSize: () => stubThrow("window.setMinimumSize"),
     },
     app,
   };

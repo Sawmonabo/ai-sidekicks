@@ -10,7 +10,10 @@ import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-de
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./session-controls.js";
+import {
+  SessionAddressedRequestSchema,
+  type SessionAddressedRequest,
+} from "./session-controls/methods.js";
 
 /**
  * Where the session compacts and the slider's range. The top stop is the provider's own

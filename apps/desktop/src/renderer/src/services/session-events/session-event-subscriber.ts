@@ -13,11 +13,18 @@
 //   as taking the subscription.
 // - No session left unbound because the wire was away when it opened:
 //   `failed-subscription-retry.ts` remembers failed opens and retries them on the returning edge.
+// - No feed lost when it stops: a stream that ends after it opened is opened again from the
+//   cursor of the last change it delivered, so the daemon catches up from there and nothing is
+//   missed or applied twice. One that delivered since it opened is opened again at once; one that
+//   did not waits for the returning edge, so a stream the daemon keeps ending never spins. A
+//   cursor the daemon can no longer resolve is dropped and the session re-read instead. Nothing is
+//   drawn for any of it: the service being unreachable is the status topic's to say.
 //
 // This class only consumes the returning edge; if it also produced it from its own opens, a
 // window whose only session failed to bind could never retry. The edge is reported by
+// `services/daemon/daemon-status.ts` from main's reading of the link, and by
 // `services/transport/observed-subscription.ts`, which every daemon subscription goes through, so
-// even a window with no bindable session can observe it.
+// a window whose every stream ended with the service still sees it come back.
 //
 // Each session gets its own `session.subscribe`, and deliveries are still checked against that
 // session because the stream comes from another process. A delivery is a frame: a batch of events
@@ -27,7 +34,11 @@
 // `services/daemon/session-event-payload.ts`. The four reads the endurance tier makes
 // (`session-diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
+import type { EventCursor } from "@ai-sidekicks/contracts/session";
+
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
+import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { RealClock } from "@renderer/lib/clock.js";
 import {
@@ -58,7 +69,11 @@ export interface SessionEventSubscriberOptions {
 export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
   readonly #bridge: PlatformBridge;
-  readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
+  readonly #bindingBySessionId = new Map<string, StreamBinding>();
+  /** The cursor of the last change each open session's stream delivered, where it delivered one. */
+  readonly #lastCursorBySessionId = new Map<string, EventCursor>();
+  /** Open sessions whose stream was bound once, so a later open is a resume. */
+  readonly #resumingSessionIds = new Set<string>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
   readonly #retry: FailedSubscriptionRetry;
@@ -121,7 +136,7 @@ export class SessionEventSubscriber {
 
   /** Sessions this subscriber holds a wire subscription for, in bind order. */
   public get boundSessionIds(): readonly string[] {
-    return [...this.#unsubscribeBySessionId.keys()];
+    return [...this.#bindingBySessionId.keys()];
   }
 
   /** Open sessions whose stream could not be opened. The retry's own reading. */
@@ -172,30 +187,32 @@ export class SessionEventSubscriber {
     this.#unsubscribeFromRegistry = undefined;
     this.#unsubscribeFromTransportReconnect?.();
     this.#unsubscribeFromTransportReconnect = undefined;
-    for (const unsubscribe of this.#unsubscribeBySessionId.values()) {
-      unsubscribe();
+    for (const binding of this.#bindingBySessionId.values()) {
+      binding.release();
     }
-    this.#unsubscribeBySessionId.clear();
+    this.#bindingBySessionId.clear();
     // A retained id is a promise to re-attempt, and a disposed subscriber makes none.
     this.#retry.clear();
   }
 
   /**
    * Opens one session's stream through `openObservedSubscription`, which owns what an open proves
-   * for the transport signal, so this class reports nothing itself.
+   * for the transport signal, so this class reports nothing itself. A session whose stream was
+   * bound before resumes after the cursor of the last change it delivered.
    *
    * A throw is not re-raised: out of the registry callback it would reach a mount effect and take
    * the window down for a transport that was merely away. Instead the signal is told the wire is
-   * unreachable (by `openObservedSubscription`), the store is marked `subscription-closed` so the
-   * session shows a named degradation rather than a quiet empty projection, and the id is retained
-   * for the returning edge. The failure goes to the window's diagnostic capture: it is a wire
-   * fact, not a broken invariant of this window. The store's cause is sticky until a completed
-   * re-pull clears it, and the retry asks for that re-pull. A session id the daemon does not
-   * admit, such as a hand-typed route address, has no stream to open, so it is marked closed and
-   * not retained.
+   * unreachable (by `openObservedSubscription`) and the id is retained for the returning edge. A
+   * first open also marks the store `subscription-closed`, so the session shows a named
+   * degradation rather than a quiet empty projection; a resume does not, since the store still
+   * holds everything delivered so far. The failure goes to the window's diagnostic capture: it is
+   * a wire fact, not a broken invariant of this window. The store's cause is sticky until a
+   * completed re-pull clears it, and the retry asks for that re-pull. A session id the daemon does
+   * not admit, such as a hand-typed route address, has no stream to open, so it is marked closed
+   * and not retained.
    */
   #bindSession(sessionId: string): void {
-    if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
+    if (this.#disposed || this.#bindingBySessionId.has(sessionId)) {
       return;
     }
     const wireSessionId = readSessionId(sessionId);
@@ -203,21 +220,31 @@ export class SessionEventSubscriber {
       this.#registry.markDegraded(sessionId, "subscription-closed");
       return;
     }
-    let release: Unsubscribe;
+    const isResume = this.#resumingSessionIds.has(sessionId);
+    const afterCursor = this.#lastCursorBySessionId.get(sessionId);
+    const binding: StreamBinding = { release: () => undefined, hasDelivered: false };
     try {
-      release = openObservedSubscription(this.#bridge.transportReconnect, () =>
+      binding.release = openObservedSubscription(this.#bridge.transportReconnect, () =>
         // The bridge's type is a claim about another process; `readSessionStreamFrame` checks it.
         this.#bridge.daemon.subscribe(
           SESSION_EVENT_STREAM,
-          { sessionId: wireSessionId },
+          afterCursor === undefined
+            ? { sessionId: wireSessionId }
+            : { sessionId: wireSessionId, afterCursor },
           (frame: unknown) => {
+            binding.hasDelivered = true;
             this.#deliver(sessionId, frame);
+          },
+          (end) => {
+            this.#resumeEndedStream(sessionId, binding, end);
           },
         ),
       );
     } catch (subscriptionFailure: unknown) {
       this.#retry.retain(sessionId);
-      this.#registry.markDegraded(sessionId, "subscription-closed");
+      if (!isResume) {
+        this.#registry.markDegraded(sessionId, "subscription-closed");
+      }
       recordWireFact(
         "subscription-open-failed",
         `session ${sessionId}: ${lossyStringify(subscriptionFailure)}`,
@@ -225,23 +252,55 @@ export class SessionEventSubscriber {
       return;
     }
     this.#retry.forget(sessionId);
-    this.#unsubscribeBySessionId.set(sessionId, release);
+    this.#bindingBySessionId.set(sessionId, binding);
+    this.#resumingSessionIds.add(sessionId);
     // The base-state read, asked for at the moment a stream starts; without it a bound store
-    // buffers forever. The refusal arm is unreachable because this runs on the registry's own
-    // `opened` change, so it is dropped rather than re-checked.
-    this.#registry.requestRefresh(sessionId, "subscribe");
+    // buffers forever. A stream resumed after a cursor needs none: the daemon catches it up from
+    // there. The refusal arm is unreachable because this runs only for a session the registry
+    // holds open, so it is dropped rather than re-checked.
+    if (afterCursor === undefined) {
+      this.#registry.requestRefresh(sessionId, "subscribe");
+    }
+  }
+
+  /**
+   * A stream that ended while the session was open: opened again after its last cursor, at once
+   * when it delivered since it opened and on the returning edge when it did not. A refusal that
+   * came with no delivery is the daemon declining the stream, which the store is marked for.
+   */
+  #resumeEndedStream(sessionId: string, binding: StreamBinding, end: DaemonSubscriptionEnd): void {
+    if (this.#disposed || this.#bindingBySessionId.get(sessionId) !== binding) {
+      return;
+    }
+    this.#bindingBySessionId.delete(sessionId);
+    recordWireFact("subscription-ended", `session ${sessionId}: ${describeSubscriptionEnd(end)}`);
+    if (end.reason === "refused" && end.refusal.data?.type === EVENT_CURSOR_UNRESOLVABLE_CODE) {
+      this.#lastCursorBySessionId.delete(sessionId);
+      this.#bindSession(sessionId);
+      return;
+    }
+    if (binding.hasDelivered) {
+      this.#bindSession(sessionId);
+      return;
+    }
+    this.#retry.retain(sessionId);
+    if (end.reason === "refused") {
+      this.#registry.markDegraded(sessionId, "subscription-closed");
+    }
   }
 
   #unbindSession(sessionId: string): void {
     // Dropped whether or not a subscription was taken; this bounds the retained set by the open
     // set.
     this.#retry.forget(sessionId);
-    const unsubscribe = this.#unsubscribeBySessionId.get(sessionId);
-    if (unsubscribe === undefined) {
+    this.#lastCursorBySessionId.delete(sessionId);
+    this.#resumingSessionIds.delete(sessionId);
+    const binding = this.#bindingBySessionId.get(sessionId);
+    if (binding === undefined) {
       return;
     }
-    this.#unsubscribeBySessionId.delete(sessionId);
-    unsubscribe();
+    this.#bindingBySessionId.delete(sessionId);
+    binding.release();
   }
 
   /**
@@ -260,6 +319,9 @@ export class SessionEventSubscriber {
       return;
     }
     this.#unreadableDeliveryCount += frame.unreadableEventCount;
+    if (this.#registry.has(sessionId)) {
+      this.#lastCursorBySessionId.set(sessionId, frame.resumeCursor);
+    }
     if (frame.dropped) {
       // A refusal means the session closed during this delivery; the close-race arm below reports
       // a frame that still carried events.
@@ -294,6 +356,12 @@ export class SessionEventSubscriber {
         transcriptWindowDiagnostics.readingFor(sessionId),
     });
   }
+}
+
+/** One open stream: how to close it, and whether it delivered since it opened. */
+interface StreamBinding {
+  release: Unsubscribe;
+  hasDelivered: boolean;
 }
 
 /** Capture a wire fact for diagnostics; it never reaches the screen or the tripwire. */

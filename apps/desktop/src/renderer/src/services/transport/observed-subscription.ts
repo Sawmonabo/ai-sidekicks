@@ -5,11 +5,10 @@
 // the edge needs a successful subscription. So the observation sits on the one call every
 // subscription goes through, making the edge a fact about the wire, not one session's binding.
 //
-// `daemon.subscribe` returns an unsubscribe handle or throws, and no member of `PreloadApi`
-// reports connection state, so an open that returned is direct evidence the wire is there and one
-// that threw is direct evidence it is not. Nothing here probes, polls or reads a call's rejection.
-// A subscription that opened and then died is still unseen (the gap `transport-reconnect.ts`
-// names); observing every open narrows it.
+// `daemon.subscribe` returns an unsubscribe handle or throws, so an open that returned is direct
+// evidence the wire is there and one that threw is direct evidence it is not. Nothing here probes,
+// polls or reads a call's rejection. A subscription that ends later is its owner's to open again
+// through the end arm; the link itself going away is reported by main's `daemon.status` topic.
 //
 // Under the fixture, `daemon.subscribe` cannot fail, so every open reports `reachable`; a scenario
 // that opened a stream inside one of its scripted outages would contradict its script until the

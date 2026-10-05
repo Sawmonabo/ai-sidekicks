@@ -60,28 +60,25 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
     },
   );
 
-  it(
-    "step 1 rejects an absolute path that does " + "not exist on disk and falls through to step 2",
-    () => {
-      // Without the existsSync guard a stale env path would be returned, and every doomed spawn
-      // would count against the 5-per-60s crash budget, making the host permanently unavailable
-      // after five attempts. The resolver rejects it and falls through to step 2.
-      const step2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
-      const existsMock = vi.fn<(p: string) => boolean>(() => false);
-      const { opts } = makeOpts({
-        env: { SIDEKICKS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
-        nodeRequire: { resolve: step2Mock },
-        existsSync: existsMock,
-      });
+  it("step 1 rejects an absolute path missing on disk and falls through to step 2", () => {
+    // Without the existsSync guard a stale env path would be returned, and every doomed spawn
+    // would count against the 5-per-60s crash budget, making the host permanently unavailable
+    // after five attempts. The resolver rejects it and falls through to step 2.
+    const step2Mock = vi.fn<(id: string) => string>(() => "/installed/pkg/bin/sidecar");
+    const existsMock = vi.fn<(p: string) => boolean>(() => false);
+    const { opts } = makeOpts({
+      env: { SIDEKICKS_PTY_SIDECAR_BIN: "/tmp/path/that/does/not/exist" },
+      nodeRequire: { resolve: step2Mock },
+      existsSync: existsMock,
+    });
 
-      const result: string = resolveSidecarBinaryPath(opts);
+    const result: string = resolveSidecarBinaryPath(opts);
 
-      expect(result).toBe("/installed/pkg/bin/sidecar");
-      // The env path was probed, returned false, and step 2 took over.
-      expect(existsMock).toHaveBeenCalledWith("/tmp/path/that/does/not/exist");
-      expect(step2Mock).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(result).toBe("/installed/pkg/bin/sidecar");
+    // The env path was probed, returned false, and step 2 took over.
+    expect(existsMock).toHaveBeenCalledWith("/tmp/path/that/does/not/exist");
+    expect(step2Mock).toHaveBeenCalledTimes(1);
+  });
 
   it("step 1 rejects a relative path (NOT coerced to absolute) and falls through to step 2", () => {
     // A relative path depends on process.cwd(), so the resolver rejects it instead of making it

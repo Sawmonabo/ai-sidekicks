@@ -4,12 +4,15 @@
 import type {
   MachineSettings,
   MachineSettingsChange,
+  MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
+import { openReopeningSubscription } from "@renderer/services/transport/reopening-subscription.js";
+import type { TransportReconnectSignal } from "@renderer/services/transport/transport-reconnect.js";
 import { GenerationLatch } from "@renderer/lib/reads/generation-latch.js";
 import {
   NOTHING_CHOSEN,
@@ -31,14 +34,24 @@ const MACHINE_SETTINGS_WRITE_ORIGIN = "machine-settings-write";
 /** The code a rejected write that carried none of its own is reported under. */
 const MACHINE_SETTINGS_WRITE_FAILED = "machine-settings-write-failed";
 
+/** The feed's name in the diagnostic records of its ends. */
+const MACHINE_SETTINGS_FEED_SUBJECT = "daemon.machineSettingsSubscribe";
+
+/** What the store asks of the bridge's `machineSettings`: the write and the feed. */
+export type MachineSettingsService = Pick<PlatformBridge["machineSettings"], "write" | "subscribe">;
+
 /**
  * The machine settings for one window.
  *
  * The feed is the read: the bridge's subscription delivers the file as it stands and then
- * each written change, so a delivery always installs and no separate read is made.
+ * each written change, so a delivery always installs and no separate read is made. A feed that
+ * could not open, or ended before delivering, opens again when the transport comes back; one that
+ * ended after delivering opens again at once, and its first delivery is the file as it stands, so
+ * nothing written meanwhile is missed.
  */
 export class MachineSettingsStore {
-  readonly #machineSettings: PlatformBridge["machineSettings"];
+  readonly #machineSettings: MachineSettingsService;
+  readonly #transportReconnect: TransportReconnectSignal;
   readonly #changes = new Emitter<void>("machine settings change");
   #snapshot: MachineSettingsSnapshot = NOTHING_CHOSEN;
   #unsubscribe: Unsubscribe | undefined;
@@ -51,8 +64,12 @@ export class MachineSettingsStore {
   /** Writes in flight per member; a count, so one of two settling does not clear the row. */
   readonly #writesInFlight = new Map<MachineSettingsMember, number>();
 
-  public constructor(machineSettings: PlatformBridge["machineSettings"]) {
+  public constructor(
+    machineSettings: MachineSettingsService,
+    transportReconnect: TransportReconnectSignal,
+  ) {
     this.#machineSettings = machineSettings;
+    this.#transportReconnect = transportReconnect;
   }
 
   public snapshot(): MachineSettingsSnapshot {
@@ -68,12 +85,15 @@ export class MachineSettingsStore {
     if (this.#unsubscribe !== undefined || this.#disposed) {
       return;
     }
-    this.#unsubscribe = this.#machineSettings.subscribe((reading) => {
-      if (this.#disposed) {
-        return;
-      }
-      this.#answers.supersede(this, ANSWER_KEY);
-      this.#publish({ ...this.#snapshot, reading });
+    // The feed's first delivery is the file as it stands, so a re-open needs no read of its own.
+    this.#unsubscribe = openReopeningSubscription({
+      signal: this.#transportReconnect,
+      subject: MACHINE_SETTINGS_FEED_SUBJECT,
+      open: (deliver, onEnded) => this.#machineSettings.subscribe(deliver, onEnded),
+      onFrame: (reading: MachineSettingsReading) => {
+        this.#install(reading);
+      },
+      firstOpenFailure: "reopenOnReconnect",
     });
   }
 
@@ -127,6 +147,14 @@ export class MachineSettingsStore {
       pendingMembers: this.#pendingMembers(),
       refusalByMember: this.#refusalsWith(member, refusal),
     });
+  }
+
+  #install(reading: MachineSettingsReading): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#answers.supersede(this, ANSWER_KEY);
+    this.#publish({ ...this.#snapshot, reading });
   }
 
   #settleWrite(member: MachineSettingsMember): void {

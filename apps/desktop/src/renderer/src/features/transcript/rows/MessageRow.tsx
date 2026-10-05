@@ -13,11 +13,15 @@ import { type InlineCardProps } from "@renderer/registries/inline-cards/inline-c
 import { type RowKindDescriptor } from "./row-kind.js";
 import type { HydratedRowProps } from "./hydrated-row-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { CopyButton } from "./components/CopyButton.js";
+import { CopyButton } from "@renderer/components/CopyButton/CopyButton.js";
+import { useClipboardCopy } from "@renderer/services/platform/hooks/useClipboardCopy.js";
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
 import { projectedPayload, readWireCount } from "@renderer/store/session-events/wire-payload.js";
+import { outputKindOf } from "./bodies/output-kinds.js";
+import { replyClipboardContent } from "../copy/clipboard-flavors.js";
+import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
 
 /** What a mount hands a message card, beyond the row itself. */
 export interface MessageRowProps extends HydratedRowProps {
@@ -53,7 +57,19 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       ? undefined
       : (props.liveText ??
         (props.content?.status === "available" ? props.content.body : undefined));
-  const copyControl = copyText === undefined ? undefined : <CopyButton text={copyText} />;
+  // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
+  // own message, and a reply drawn as text, copy as plain text and nothing else.
+  const copyFlavor: CopyFlavor =
+    rowKind.kind === "agent-message" &&
+    copyText !== undefined &&
+    outputKindOf(copyText, assistantMediaType) === "prose"
+      ? "markdown"
+      : "text";
+  const clipboardCopy = useClipboardCopy(() =>
+    copyFlavor === "markdown" ? replyClipboardContent(copyText ?? "") : { text: copyText ?? "" },
+  );
+  const copyControl =
+    copyText === undefined ? undefined : <CopyButton label="Copy" clipboardCopy={clipboardCopy} />;
   const footer =
     isUser && props.editControl !== undefined ? (
       <>
@@ -79,22 +95,25 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
           )}
           {rowKind.label}
         </span>
-        {isUser ? (
-          <UserBody row={props.row} footnotes={props.footnotes} />
-        ) : rowKind.kind === "thinking" ? (
-          props.thinkingRow
-        ) : (
-          <MessageContent
-            content={props.content}
-            {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-            // The media type is the producer-set `contentType` on the payload, and the same
-            // reading feeds the receipt below, so the renderer and the printed type agree.
-            {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
-            sourceId={props.row.id}
-            footnotes={props.footnotes}
-            label={rowKind.label}
-          />
-        )}
+        {/* The body alone is what a selection in the conversation copies out of this row. */}
+        <div className="meridian-message-card__body" {...{ [COPY_FLAVOR_ATTRIBUTE]: copyFlavor }}>
+          {isUser ? (
+            <UserBody row={props.row} footnotes={props.footnotes} />
+          ) : rowKind.kind === "thinking" ? (
+            props.thinkingRow
+          ) : (
+            <MessageContent
+              content={props.content}
+              {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+              // The media type is the producer-set `contentType` on the payload, and the same
+              // reading feeds the receipt below, so the renderer and the printed type agree.
+              {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
+              sourceId={props.row.id}
+              footnotes={props.footnotes}
+              label={rowKind.label}
+            />
+          )}
+        </div>
         <InlineCards cards={props.inlineCards ?? []} />
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine

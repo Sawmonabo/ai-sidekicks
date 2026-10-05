@@ -99,33 +99,27 @@ describe("Codex callback-tool round trip", () => {
     };
   }
 
-  it(
-    "adjudicates, runs and answers a call, " + "attributed to the run whose turn it names",
-    async () => {
-      // With two live runs the sole-active fallback has no answer; the named turn resolves the run.
-      const roundTrip = await roundTripHarness();
-      await roundTrip.startTurn(RUN_ID, TURN_ID);
-      await roundTrip.startTurn(SECOND_RUN_ID, SECOND_TURN_ID);
+  it("adjudicates, runs and answers a call, attributed to the run its turn names", async () => {
+    // With two live runs the sole-active fallback has no answer; the named turn resolves the run.
+    const roundTrip = await roundTripHarness();
+    await roundTrip.startTurn(RUN_ID, TURN_ID);
+    await roundTrip.startTurn(SECOND_RUN_ID, SECOND_TURN_ID);
 
-      const answer = await roundTrip.askToolCall({ callId: "call-1", turnId: SECOND_TURN_ID });
-      await roundTrip.askToolCall({ callId: "call-2", turnId: TURN_ID });
+    const answer = await roundTrip.askToolCall({ callId: "call-1", turnId: SECOND_TURN_ID });
+    await roundTrip.askToolCall({ callId: "call-2", turnId: TURN_ID });
 
-      expect(roundTrip.evaluatedToolNames).toStrictEqual([SEARCH_TOOL.name, SEARCH_TOOL.name]);
-      expect(
-        roundTrip.executedInvocations.map((invocation) => [
-          invocation.toolCallId,
-          invocation.runId,
-        ]),
-      ).toStrictEqual([
-        ["call-1", SECOND_RUN_ID],
-        ["call-2", RUN_ID],
-      ]);
-      expect(answer["result"]).toStrictEqual({
-        success: true,
-        contentItems: [{ type: "inputText", text: "2 matches" }],
-      });
-    },
-  );
+    expect(roundTrip.evaluatedToolNames).toStrictEqual([SEARCH_TOOL.name, SEARCH_TOOL.name]);
+    expect(
+      roundTrip.executedInvocations.map((invocation) => [invocation.toolCallId, invocation.runId]),
+    ).toStrictEqual([
+      ["call-1", SECOND_RUN_ID],
+      ["call-2", RUN_ID],
+    ]);
+    expect(answer["result"]).toStrictEqual({
+      success: true,
+      contentItems: [{ type: "inputText", text: "2 matches" }],
+    });
+  });
 
   it.each([
     ["names a tool that is not registered", { tool: "delete_everything", turnId: TURN_ID }],
@@ -333,27 +327,21 @@ describe("Codex provider command list", () => {
     expect(result.bindings[0]?.entries).toHaveLength(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
   });
 
-  it(
-    "re-reads in full on skills/changed, and " + "never serves one session's list to the next",
-    async () => {
-      const { harness, setSkills } = await enumerationHarness([
-        { name: "alpha" },
-        { name: "beta" },
-      ]);
-      expect(await entryNames(harness)).toEqual(["alpha", "beta"]);
-      await entryNames(harness);
-      expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+  it("re-reads fully on skills/changed, never serving one session's list to the next", async () => {
+    const { harness, setSkills } = await enumerationHarness([{ name: "alpha" }, { name: "beta" }]);
+    expect(await entryNames(harness)).toEqual(["alpha", "beta"]);
+    await entryNames(harness);
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
 
-      // The notification carries no payload, so a patch would leave the deleted `beta` behind.
-      setSkills([{ name: "alpha" }, { name: "gamma" }]);
-      harness.server.emitFrame({ jsonrpc: "2.0", method: "skills/changed", params: {} });
-      await drainMicrotasks();
-      expect(await entryNames(harness)).toEqual(["alpha", "gamma"]);
+    // The notification carries no payload, so a patch would leave the deleted `beta` behind.
+    setSkills([{ name: "alpha" }, { name: "gamma" }]);
+    harness.server.emitFrame({ jsonrpc: "2.0", method: "skills/changed", params: {} });
+    await drainMicrotasks();
+    expect(await entryNames(harness)).toEqual(["alpha", "gamma"]);
 
-      await harness.manager.closeSession({ sessionId: SESSION_ID });
-      await harness.manager.createSession(CREATE_PARAMS);
-      await entryNames(harness);
-      expect(harness.server.framesForMethod("skills/list")).toHaveLength(3);
-    },
-  );
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+    await harness.manager.createSession(CREATE_PARAMS);
+    await entryNames(harness);
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(3);
+  });
 });
