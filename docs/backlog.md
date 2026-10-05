@@ -136,3 +136,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: Codex never asks a server for its prompts: its app-server has no prompt verb, and its MCP client methods are `mcpServerStatus/list`, `mcpServer/oauth/login`, `config/mcpServer/reload`, `mcpServer/resource/read`, `mcpServer/tool/call` and an event stream that serves only hosted apps. So on a Codex session the daemon lists and reads a server's prompts through its own MCP client, which needs a credential for a server behind a sign-in. The comment on #5059 asks for `mcpServer/prompt/list` and `mcpServer/prompt/get` beside `mcpServer/resource/read`, on the connection Codex already holds.
 - Named gate: a Codex release with prompt calls on its app-server. Nothing in-tree blocks.
 - Exit Criteria: (a) a Codex session's prompts listed and read through Codex's own prompt calls, in place of the daemon's own MCP client; (b) until then, each newest-release pass checks the issue's state with `gh issue view 5059 -R openai/codex`.
+
+## BL-166: Live tear-off on Wayland waits on an Electron API
+
+- Status: `blocked` (external-world wait — Electron accepting and releasing a call that attaches a window to a pointer drag)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [ADR-040](./decisions/040-drag-is-our-own-on-pointer-events.md) (Linux on Wayland), [Plan-027](./plans/027-windows-and-linux.md) T27.2.15, [Electron issue #54650](https://github.com/electron/electron/issues/54650)
+- Summary: On native Wayland a session view torn out of its window cannot follow the pointer, because Electron offers no call for `xdg_toplevel_drag_v1`; the view's window opens where the compositor places it. We write the Electron change ourselves, a thin API over Chromium's `views::Widget::PrepareForMoveLoop` and `RunMoveLoop`, and offer it on #54650.
+- V1 Release Impact: none for macOS. The Linux leg ships the native drag ADR-040 describes; the live follow on Wayland arrives with the Electron release that carries the call.
+- Named gate: an Electron release with the call.
+- Exit Criteria: the release is taken, T27.2.15's Wayland drag moves onto the call, and this entry is deleted.
