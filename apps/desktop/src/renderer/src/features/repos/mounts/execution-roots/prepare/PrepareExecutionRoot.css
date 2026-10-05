@@ -1,6 +1,7 @@
 /*
- * Preparing an execution root. The shared dialog shape is in `../../mount-controls.css`, which
- * must load before this sheet; here are the reuse verdict's toned readings and the prepared line.
+ * Preparing an execution root. The buttons and the branch field wear the shared treatments in
+ * `styles/action-buttons.css` and `styles/form.css`; here are the reuse verdict's toned readings
+ * and the prepared line.
  */
 
 .meridian-prepare-root {

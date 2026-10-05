@@ -2,7 +2,7 @@
 // `lastError`, and the root preparation is held while the mount withholds its controls or a
 // mode switch is on the wire.
 
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "#renderer/store/session/session-store.js";
@@ -71,7 +71,7 @@ describe("WorkspaceCard — the row wears what the list gave it", () => {
 
 describe("WorkspaceCard — one availability for both binding controls", () => {
   function branchInput(container: HTMLElement): HTMLInputElement | null {
-    return container.querySelector<HTMLInputElement>(".meridian-prepare-root__branch-input");
+    return within(container).queryByLabelText<HTMLInputElement>("Branch");
   }
 
   it("holds the root preparation while the mount withholds its bind controls", () => {

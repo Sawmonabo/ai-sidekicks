@@ -1,8 +1,9 @@
 /*
- * Attaching a repository, and re-attaching one whose identity has drifted. The shared dialog
- * shape is in `../mount-controls.css`, which must load before this sheet. The block name carries
- * its feature (`meridian-repo-attach`), so sheets loaded into one document never share a BEM
- * block.
+ * Attaching a repository, and re-attaching one whose identity has drifted. The dialog, its
+ * buttons and its form parts wear the shared treatments in `styles/dialog.css`,
+ * `styles/action-buttons.css` and `styles/form.css`; this sheet keeps the minted mount's facts
+ * and the re-attach column. The block name carries its feature (`meridian-repo-attach`), so
+ * sheets loaded into one document never share a BEM block.
  */
 
 .meridian-repo-attach__minted,

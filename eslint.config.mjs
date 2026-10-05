@@ -24,6 +24,15 @@ const DAEMON_RANDOM_UUID_PROPERTY = {
  * The daemon's `randomUUID` import ban, hoisted for the same reason: the provider-driver
  * descriptor registry's block below restates it without the driver-folder ban.
  */
+/** A relative import through a provider's folder; only the descriptor registry may make one. */
+const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
+  regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
+  message:
+    "A provider's folder is imported only by the " +
+    "provider-driver descriptor registry; shared daemon code " +
+    "reads a provider through the registry and names none.",
+};
+
 const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
   {
     name: "node:crypto",
@@ -457,15 +466,7 @@ const repositoryConfig = defineConfig(
         "error",
         {
           paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
-          patterns: [
-            {
-              regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
-              message:
-                "A provider's folder is imported only by the " +
-                "provider-driver descriptor registry; shared daemon code " +
-                "reads a provider through the registry and names none.",
-            },
-          ],
+          patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN],
         },
       ],
     },
@@ -481,8 +482,8 @@ const repositoryConfig = defineConfig(
   // a PTY handle, a scratch filename): no row or event stores it and nothing sorts a set of them,
   // so uniqueness is the whole requirement and v4 supplies it. Each is exempt as a file, the
   // granularity a lint rule has, so a second mint added inside one of them passes lint and is
-  // caught in review; that is why the set stays at four. Only the two rules above are turned off;
-  // the test-seeding guard is unaffected.
+  // caught in review; that is why the set stays at four. Only the `randomUUID` bans are lifted:
+  // the provider-folder ban still applies, and the test-seeding guard is unaffected.
   {
     files: [
       // Scratch git-index filename, unlinked in the same call.
@@ -496,7 +497,7 @@ const repositoryConfig = defineConfig(
     ],
     rules: {
       "no-restricted-properties": "off",
-      "no-restricted-imports": "off",
+      "no-restricted-imports": ["error", { patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN] }],
     },
   },
   // The two read-side projectors are pure: no database, no temp directory, no clock; each is a

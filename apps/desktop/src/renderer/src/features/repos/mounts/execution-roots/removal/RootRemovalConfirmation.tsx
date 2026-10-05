@@ -10,6 +10,7 @@ import type { PlatformBridge } from "#renderer/services/platform/platform-bridge
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { useConfirmationLifecycle } from "../../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
 import { useRootRemoval } from "./hooks/useRootRemoval.js";
@@ -40,7 +41,7 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
     <div className="meridian-root-removal">
       <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
-          className="meridian-root-removal__trigger"
+          className={BUTTON_CLASS_NAME}
           disabled={reading.status === "sending"}
           aria-label={`${REMOVAL_LABEL} ${props.rootId}`}
         >
@@ -49,21 +50,18 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
         {/* The primitive's portal puts this in the window's airspace, where a native browser-pane
             view yields to it. */}
         <OverlayAlertDialogPopup
-          backdropClassName="meridian-root-removal__backdrop"
-          className="meridian-root-removal__dialog"
+          backdropClassName="meridian-dialog__backdrop"
+          className="meridian-dialog"
         >
-          <AlertDialog.Title className="meridian-root-removal__title">
+          <AlertDialog.Title className="meridian-dialog__title">
             {REMOVAL_QUESTION}
           </AlertDialog.Title>
-          <div className="meridian-root-removal__acts">
-            <AlertDialog.Close
-              className="meridian-root-removal__cancel"
-              onClick={lifecycle.canceled}
-            >
+          <div className="meridian-dialog__actions">
+            <AlertDialog.Close className={BUTTON_CLASS_NAME} onClick={lifecycle.canceled}>
               Keep it
             </AlertDialog.Close>
             <AlertDialog.Close
-              className="meridian-root-removal__confirm"
+              className={BUTTON_CLASS_NAME}
               onClick={() => {
                 send();
               }}

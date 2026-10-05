@@ -4,7 +4,7 @@
 // still on the wire (see also `execution-roots/removal/RootRemovalConfirmation.test.tsx`). The popup
 // is portaled, so acts are read off `document` and the settlement off the render container.
 
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
@@ -51,7 +51,13 @@ function renderControl(operations: RepoOperations): ReturnType<typeof render> {
   );
 }
 
-const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses("meridian-reattach");
+const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses({
+  trigger: `Re-attach ${LOCAL_PATH}`,
+  confirm: "Re-attach",
+  cancel: "Leave it as it is",
+});
+
+const SETTLEMENT = "Attached as a new mount. This row is now history.";
 
 describe("ReattachControl — the confirm press keeps its settlement", () => {
   it("still reports the re-attach as sent once confirming has closed the dialog", async () => {
@@ -71,11 +77,11 @@ describe("ReattachControl — a discarded consideration", () => {
 
     await pressOpen();
     await pressConfirm();
-    expect(container.querySelector(".meridian-reattach__attached")).not.toBeNull();
+    expect(within(container).queryByText(SETTLEMENT)).not.toBeNull();
 
     await pressOpen();
     await pressCancel();
 
-    expect(container.querySelector(".meridian-reattach__attached")).toBeNull();
+    expect(within(container).queryByText(SETTLEMENT)).toBeNull();
   });
 });

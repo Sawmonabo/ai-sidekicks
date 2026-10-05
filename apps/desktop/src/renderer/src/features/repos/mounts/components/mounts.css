@@ -1,6 +1,6 @@
 /*
- * The mount list, and the mount and workspace cards. Imported by `MountList.tsx`. The shared
- * act-dialog shape is `../mount-controls.css`.
+ * The mount list, and the mount and workspace cards. Imported by `MountList.tsx`. The
+ * open-changes control wears the shared action button from `styles/action-buttons.css`.
  */
 
 /* -------------------------------------------------------------- mount card */

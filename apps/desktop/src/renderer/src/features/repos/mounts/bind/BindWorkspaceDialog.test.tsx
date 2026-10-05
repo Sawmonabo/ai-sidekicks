@@ -4,7 +4,7 @@
 // Capabilities come from a call this suite owns, so a case can serve a different answer the
 // second time.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
@@ -85,7 +85,7 @@ function radioFor(mode: string): HTMLInputElement {
 }
 
 function bindButton(): HTMLButtonElement {
-  const control = document.querySelector<HTMLButtonElement>(".meridian-bind__confirm");
+  const control = screen.queryByRole<HTMLButtonElement>("button", { name: "Bind" });
   if (control === null) {
     throw new Error("the dialog rendered no Bind control");
   }
@@ -94,12 +94,12 @@ function bindButton(): HTMLButtonElement {
 
 /** What the dialog says under a shut control, or nothing where it says nothing. */
 function blockedSentence(): string | undefined {
-  return document.querySelector(".meridian-bind__blocked")?.textContent ?? undefined;
+  return document.querySelector(".meridian-form__blocked")?.textContent ?? undefined;
 }
 
 function pressTrigger(container: HTMLElement): void {
   act(() => {
-    container.querySelector<HTMLButtonElement>(".meridian-bind__trigger")?.click();
+    within(container).getByRole("button", { name: "Bind a workspace" }).click();
   });
 }
 
@@ -156,9 +156,9 @@ describe("the bind dialog — the mount's own default survives a close", () => {
     const open = await openDialog(EVERY_MODE);
     fireEvent.click(radioFor("bound-root"));
     act(() => {
-      document.querySelector<HTMLButtonElement>(".meridian-bind__cancel")?.click();
+      screen.getByRole("button", { name: "Cancel" }).click();
     });
-    expect(document.querySelector(".meridian-bind__dialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     pressTrigger(open.container);
 

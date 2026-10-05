@@ -3,7 +3,7 @@
 // by class, not role: they sit in a collapsed `<details>` that jsdom does not present to the
 // accessibility tree as a browser does.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
@@ -67,7 +67,7 @@ function renderForm(): FormUnderTest {
 }
 
 function branchInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector(".meridian-prepare-root__branch-input");
+  const input = within(container).queryByLabelText("Branch");
   if (!(input instanceof HTMLInputElement)) {
     throw new Error("the prepare form rendered no branch field");
   }
@@ -75,7 +75,7 @@ function branchInput(container: HTMLElement): HTMLInputElement {
 }
 
 function confirmButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector(".meridian-prepare-root__confirm");
+  const button = within(container).queryByRole("button", { name: "Prepare", hidden: true });
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error("the prepare form rendered no confirm control");
   }
@@ -83,7 +83,7 @@ function confirmButton(container: HTMLElement): HTMLButtonElement {
 }
 
 function blockedLine(container: HTMLElement): string | undefined {
-  return container.querySelector(".meridian-prepare-root__blocked")?.textContent ?? undefined;
+  return container.querySelector(".meridian-form__blocked")?.textContent ?? undefined;
 }
 
 function consentBox(container: HTMLElement): HTMLInputElement | undefined {

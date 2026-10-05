@@ -11,7 +11,7 @@ import type {
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
-import { act } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
@@ -24,6 +24,13 @@ import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
+
+/** The accessible names of one confirmation's trigger and its two answers. */
+export interface ConfirmationButtonNames {
+  readonly trigger: string;
+  readonly confirm: string;
+  readonly cancel: string;
+}
 
 /**
  * The presses one alert-dialog confirmation takes, read off `document` (the popup is portaled).
@@ -54,23 +61,25 @@ export async function settlePrerequisiteRead(
   }
 }
 
-/** The presses of the confirmation whose classes carry this block name. */
-export function confirmationPresses(block: string): ConfirmationPresses {
-  const press = async (element: string): Promise<void> => {
+/** The presses of the confirmation whose buttons carry these names. */
+export function confirmationPresses(names: ConfirmationButtonNames): ConfirmationPresses {
+  const button = (name: string): HTMLButtonElement | null =>
+    screen.queryByRole<HTMLButtonElement>("button", { name });
+  const press = async (name: string): Promise<void> => {
     await act(async () => {
-      document.querySelector<HTMLButtonElement>(`.${block}__${element}`)?.click();
+      button(name)?.click();
     });
   };
   return {
-    trigger: () => document.querySelector<HTMLButtonElement>(`.${block}__trigger`),
+    trigger: () => button(names.trigger),
     pressOpen: async () => {
-      await press("trigger");
+      await press(names.trigger);
     },
     pressConfirm: async () => {
-      await press("confirm");
+      await press(names.confirm);
     },
     pressCancel: async () => {
-      await press("cancel");
+      await press(names.cancel);
     },
   };
 }

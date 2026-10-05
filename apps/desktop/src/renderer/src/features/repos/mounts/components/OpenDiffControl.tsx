@@ -6,6 +6,7 @@
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
+import { BUTTON_CLASS_NAME } from "../button-class.js";
 
 /**
  * What a diff can be opened over from a repo row: the two entity kinds that carry a checkout,
@@ -26,7 +27,7 @@ export function OpenDiffControl(props: OpenDiffControlProps): React.JSX.Element 
   return (
     <button
       type="button"
-      className="meridian-open-diff"
+      className={BUTTON_CLASS_NAME}
       onClick={() => {
         props.onOpenDiff(subject);
       }}

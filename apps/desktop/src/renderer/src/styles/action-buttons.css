@@ -6,8 +6,8 @@
  * Sizes: `--regular` is the small text step with roomy side padding; `--small` is the smallest
  * text step with tight padding, laid out for a glyph beside the label. Faces: `--outline` is the
  * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
- * which strengthens on hover. A size or face no other control shares stays in that control's
- * class.
+ * which strengthens on hover and sinks with its text faded while disabled. A size or face no
+ * other control shares stays in that control's class.
  *
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
  * it (a details toggle, a message's Copy) and holds the whole treatment.
@@ -54,6 +54,12 @@
 
 :where(.meridian-action-button--raised:hover:enabled) {
   border-color: var(--meridian-edge-strong);
+}
+
+:where(.meridian-action-button--raised:disabled) {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
 }
 
 /* --- the disclosure trigger -------------------------------------------------- */

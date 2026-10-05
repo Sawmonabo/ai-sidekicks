@@ -1,0 +1,54 @@
+/*
+ * The parts of a form that sends one request to the daemon, in a dialog or inline: a labeled field,
+ * the input that composes a wire value, the sentence saying why its send control is closed, and
+ * what the request did once it settled. Each part wears its class beside the control's own.
+ *
+ * The rules sit inside `:where()` so they carry no specificity: a control's own class wins
+ * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
+ * a Meridian token.
+ */
+
+/* A label above its input. */
+:where(.meridian-form__field) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* What a field or a group of choices is, at one size. */
+:where(.meridian-form__label) {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A path or a branch name is a wire value a person is composing, so it uses the mono face the
+ * console renders wire strings in.
+ */
+:where(.meridian-form__wire-input) {
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+/* Why the send control is closed. Amber, not red: nothing has failed, something is missing. */
+:where(.meridian-form__blocked) {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* What the request did, stacked line under line. */
+:where(.meridian-form__settlement) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

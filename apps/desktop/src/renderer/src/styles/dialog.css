@@ -1,0 +1,50 @@
+/*
+ * The centered dialog: a modal question or a short form over a dimmed window. The dialog wears
+ * `meridian-dialog`, its backdrop `meridian-dialog__backdrop`, and its title, description and row
+ * of buttons the elements below, each beside the dialog's own class.
+ *
+ * The rules sit inside `:where()` so they carry no specificity: a dialog's own class wins
+ * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
+ * a Meridian token.
+ */
+
+:where(.meridian-dialog__backdrop) {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+:where(.meridian-dialog) {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+:where(.meridian-dialog__title) {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+:where(.meridian-dialog__description) {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The dialog's buttons, at its end edge: the one that walks away first, then the one that acts. */
+:where(.meridian-dialog__actions) {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}

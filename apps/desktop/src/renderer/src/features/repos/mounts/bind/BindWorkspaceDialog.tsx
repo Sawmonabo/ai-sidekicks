@@ -16,6 +16,7 @@ import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDi
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { SessionStore } from "#renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
+import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { executionModeRows } from "../execution-mode/execution-mode-rows.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { type BindReading } from "./controller.js";
@@ -97,28 +98,25 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
 
   return (
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
-      <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
+      <Dialog.Trigger className={BUTTON_CLASS_NAME}>Bind a workspace</Dialog.Trigger>
       {/* The portal, backdrop and popup are the primitive's, which registers this dialog in
           the window's airspace so a native browser-pane view yields to it. */}
-      <OverlayDialogPopup
-        backdropClassName="meridian-bind__backdrop"
-        className="meridian-bind__dialog"
-      >
-        <Dialog.Title className="meridian-bind__title">Bind a workspace</Dialog.Title>
-        <Dialog.Description className="meridian-bind__body">
+      <OverlayDialogPopup backdropClassName="meridian-dialog__backdrop" className="meridian-dialog">
+        <Dialog.Title className="meridian-dialog__title">Bind a workspace</Dialog.Title>
+        <Dialog.Description className="meridian-dialog__description">
           A workspace is a binding of this mount in one execution mode. Leaving the directory empty
           binds the mount root.
         </Dialog.Description>
         <p className="meridian-bind__root">
-          <span className="meridian-bind__legend">Mount root</span>
+          <span className="meridian-form__label">Mount root</span>
           <WireFigure value={props.canonicalRoot} title={props.canonicalRoot} />
         </p>
 
-        <label className="meridian-bind__directory">
-          <span className="meridian-bind__legend">Directory</span>
+        <label className="meridian-form__field">
+          <span className="meridian-form__label">Directory</span>
           <input
             type="text"
-            className="meridian-bind__directory-input"
+            className="meridian-form__wire-input"
             value={form.directory}
             spellCheck={false}
             autoComplete="off"
@@ -135,11 +133,11 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
         {renderModes(reading, selectedMode, selectMode)}
         {renderSettlement(reading)}
 
-        <div className="meridian-bind__acts">
-          <Dialog.Close className="meridian-bind__cancel">Cancel</Dialog.Close>
+        <div className="meridian-dialog__actions">
+          <Dialog.Close className={BUTTON_CLASS_NAME}>Cancel</Dialog.Close>
           <button
             type="button"
-            className="meridian-bind__confirm"
+            className={BUTTON_CLASS_NAME}
             disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
             onClick={submit}
           >
@@ -148,7 +146,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
         </div>
         {/* A refused read draws its refusal with the modes, which this line would contradict. */}
         {verdict.status === "incomplete" && reading.prerequisite.status !== "refused" ? (
-          <p className="meridian-bind__blocked" role="status">
+          <p className="meridian-form__blocked" role="status">
             {verdict.because}
           </p>
         ) : null}
@@ -205,7 +203,7 @@ function renderSettlement(reading: BindReading): React.JSX.Element | null {
       return <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />;
     case "bound":
       return (
-        <div className="meridian-bind__settlement" role="status">
+        <div className="meridian-form__settlement" role="status">
           <p className="meridian-bind__settlement-line">
             Bound as <WireFigure value={act.response.executionMode} title="execution mode" /> in
             state <WireFigure value={act.response.state} title="workspace state" />.

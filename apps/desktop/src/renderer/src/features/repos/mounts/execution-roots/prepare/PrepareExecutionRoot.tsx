@@ -17,6 +17,7 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { controlHoldSentence, type WorkspaceControlAvailability } from "../../health.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
@@ -100,11 +101,11 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         <span className="meridian-prepare-root__line">{summaryLineFor(reading)}</span>
       </summary>
 
-      <label className="meridian-prepare-root__branch">
-        <span className="meridian-prepare-root__legend">Branch</span>
+      <label className="meridian-form__field">
+        <span className="meridian-form__label">Branch</span>
         <input
           type="text"
-          className="meridian-prepare-root__branch-input"
+          className="meridian-form__wire-input"
           value={form.branchName}
           spellCheck={false}
           autoComplete="off"
@@ -140,7 +141,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
 
       <button
         type="button"
-        className="meridian-prepare-root__confirm"
+        className={BUTTON_CLASS_NAME}
         disabled={
           unavailableBecause !== undefined ||
           formVerdict.status !== "sendable" ||
@@ -158,7 +159,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       )}
       {/* A refused check draws its refusal above, which an unanswered line would contradict. */}
       {formVerdict.status === "incomplete" && reading.prerequisite.status !== "refused" ? (
-        <p className="meridian-prepare-root__blocked" role="status">
+        <p className="meridian-form__blocked" role="status">
           {formVerdict.because}
         </p>
       ) : null}
@@ -245,7 +246,7 @@ function renderSettlement(
           <span className="meridian-prepare-root__state">{reading.act.state}</span>
           {/* The re-read is a control, not an effect: it stays after the first press because the
               list can be asked again. */}
-          <button type="button" className="meridian-prepare-root__reread" onClick={onPrepared}>
+          <button type="button" className={BUTTON_CLASS_NAME} onClick={onPrepared}>
             Show it in the roots list
           </button>
         </div>

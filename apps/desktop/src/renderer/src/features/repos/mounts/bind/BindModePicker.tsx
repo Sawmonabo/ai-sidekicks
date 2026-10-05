@@ -19,7 +19,7 @@ export interface BindModePickerProps {
 export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
   return (
     <fieldset className="meridian-bind__modes">
-      <legend className="meridian-bind__legend">Execution mode</legend>
+      <legend className="meridian-form__label">Execution mode</legend>
       {props.options.map((option) => (
         <label
           className={

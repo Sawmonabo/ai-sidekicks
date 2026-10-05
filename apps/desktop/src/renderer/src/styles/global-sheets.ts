@@ -5,4 +5,6 @@
 import "./visually-hidden.css";
 import "./figure.css";
 import "./action-buttons.css";
+import "./dialog.css";
+import "./form.css";
 import "./focus-inset.css";

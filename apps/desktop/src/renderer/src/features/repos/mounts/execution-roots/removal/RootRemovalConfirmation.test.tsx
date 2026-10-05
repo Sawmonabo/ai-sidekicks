@@ -37,8 +37,11 @@ function renderConfirmation(operations: RepoOperations): ReturnType<typeof rende
   );
 }
 
-const { trigger, pressOpen, pressConfirm, pressCancel } =
-  confirmationPresses("meridian-root-removal");
+const { trigger, pressOpen, pressConfirm, pressCancel } = confirmationPresses({
+  trigger: `Remove ${WORKTREE_ID}`,
+  confirm: "Remove",
+  cancel: "Keep it",
+});
 
 describe("RootRemovalConfirmation — the confirm press keeps its settlement", () => {
   it("still reports the removal as sent once confirming has closed the dialog", async () => {
