@@ -249,12 +249,12 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-009-7, I-009-20
 - **Consumes:** the ask's normalized subject ← T2.8; the agent-memory folder and its link ← [Plan-024](./024-agent-definitions-and-peer-invocation.md); `disableAgentView` pinned at spawn ← Plan-013 T2.7
 - **T2.14 — An allow marks the session's review data stale — EXTENDs the T2.6 surface.**
-- **Files:** `packages/runtime-daemon/src/approvals/approval-service.ts` (EXTEND), `packages/runtime-daemon/src/approvals/__tests__/approval-service.test.ts` (EXTEND)
-- An approved resolution raises the tree-staleness signal on the session's working folder through [Plan-007](./007-worktree-lifecycle-and-execution-modes.md)'s working-tree stream (`repo.workingTreeSubscribe`, T3.10), after the resolution's durable commit, because work the person has not seen may now land; Review reads that signal as its reload mark ([Plan-008](./008-gitflow-pr-and-diff-attribution.md) T11.10), so the screen never sets staleness itself. A rejection, a cancellation and an answer the daemon gives itself (T2.13) raise nothing. Builds after Plan-007 Phase 3, which serves the stream.
-- **Tests:** an approved resolution raises exactly one staleness signal on the session's working folder, after the commit; a rejection, a cancellation and a designed answer raise none.
+- **Files:** `packages/runtime-daemon/src/approvals/approval-service.ts` (EXTEND), `packages/runtime-daemon/src/policy/permission-ask-normalizer.ts` (EXTEND — a designed allow answered in the admission pass), and the tests beside each (EXTEND)
+- Every allow raises the tree-staleness signal on the session's working folder through [Plan-007](./007-worktree-lifecycle-and-execution-modes.md)'s working-tree stream (`repo.workingTreeSubscribe`, T3.10), — an approved resolution after its durable commit, and an allow the daemon answers itself (T2.13) in T2.8's admission pass when it answers — because work the person has not seen may now land; Review reads that signal as its reload mark ([Plan-008](./008-gitflow-pr-and-diff-attribution.md) T11.10), so the screen never sets staleness itself. A rejection and a cancellation raise nothing. Builds after Plan-007 Phase 3, which serves the stream.
+- **Tests:** an approved resolution raises exactly one staleness signal on the session's working folder, after the commit, and a designed allow raises one when it answers; a rejection and a cancellation raise none.
 - **Spec coverage:** Spec-010 §Required Behavior (an allow marks the session's review data stale), [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (the daemon raises the tree-staleness signal on an allow)
 - **Verifies invariant:** none
-- **Consumes:** the resolution path ← T2.3, T2.6; the tree-staleness signal ← Plan-007 T3.10
+- **Consumes:** the resolution path ← T2.3, T2.6; the designed answers ← T2.13 through T2.8's admission pass; the tree-staleness signal ← Plan-007 T3.10
 
 ### Phase 3 — Approval IPC namespace + SDK + projection + invalidation flows
 
