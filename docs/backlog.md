@@ -146,4 +146,4 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: On native Wayland a session view torn out of its window cannot follow the pointer, because Electron offers no call for `xdg_toplevel_drag_v1`; the view's window opens where the compositor places it. We write the Electron change ourselves, a thin API over Chromium's `views::Widget::PrepareForMoveLoop` and `RunMoveLoop`, and offer it on #54650.
 - V1 Release Impact: none for macOS. The Linux leg ships the native drag ADR-040 describes; the live follow on Wayland arrives with the Electron release that carries the call.
 - Named gate: an Electron release with the call.
-- Exit Criteria: the release is taken, T27.2.15's Wayland drag moves onto the call, and this entry is deleted.
+- Exit Criteria: when the Linux work starts, where the Electron change for #54650 stands is checked, and the held socket-intercepting add-on ADR-040 records is looked at again if no release carries the call; the release is taken, T27.2.15's Wayland drag moves onto the call, and this entry is deleted.
