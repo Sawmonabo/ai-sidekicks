@@ -1,6 +1,6 @@
 import "./execution-mode-picker.css";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

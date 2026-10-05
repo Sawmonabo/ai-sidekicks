@@ -2,7 +2,7 @@
 // run's rows (re-execution reuses ordinals). Neither throws, so each group is asserted from
 // both sides.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 import { describe, expect, it } from "vitest";
 
 import { rollbackBoundaryRow, runRow } from "../transcript-event-rows.test-support.js";

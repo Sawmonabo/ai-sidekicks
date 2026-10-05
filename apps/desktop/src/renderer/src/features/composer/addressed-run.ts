@@ -3,7 +3,7 @@
 // own call; this only picks the run to point at, which "the newest row touched" gets wrong once a
 // run settles.
 
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";

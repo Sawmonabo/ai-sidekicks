@@ -15,7 +15,7 @@
 //     empty-state arm is covered by `DiffPane.test.tsx`, where a DOM assertion can say which
 //     empty state it is.
 
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { advanceScenarioUntil } from "../../helpers/scenario-manual-clock.js";
 import { bridgeAnswering } from "../../helpers/fixture-bridge.js";

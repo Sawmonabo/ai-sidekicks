@@ -3,7 +3,7 @@ import { useState } from "react";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
-} from "@ai-sidekicks/contracts/workflow-definition";
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
 
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";

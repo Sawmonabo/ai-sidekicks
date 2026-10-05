@@ -10,15 +10,15 @@
 // saving, and the drivers read the names they set on the processes they start from it.
 import { z } from "zod";
 
-import { DAEMON_DATA_FOLDER_NAME } from "./daemon-data.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { DAEMON_DATA_FOLDER_NAME } from "./daemon/data.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ExecutionModeSchema, type ExecutionMode } from "./repo.js";
-import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
+import { ExecutionModeSchema, type ExecutionMode } from "./repo/repo.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session/session.js";
 import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** Where the file sits, relative to the person's home folder. */

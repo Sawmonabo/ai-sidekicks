@@ -7,7 +7,7 @@ import "./PageTabStrip.css";
 
 import { useMemo } from "react";
 
-import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { useReorderDrag } from "@renderer/hooks/useReorderDrag.js";

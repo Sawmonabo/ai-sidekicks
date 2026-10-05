@@ -15,14 +15,14 @@ import type {
   DaemonHello,
   DaemonHelloAck,
   NegotiationIncompatibleReason,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type {
   Handler,
   HandlerContext,
   MethodRegistry,
   RegisterOptions,
   ZodType,
-} from "@ai-sidekicks/contracts/jsonrpc-registry";
+} from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { timingSafeEqual } from "node:crypto";
 
 import {
@@ -33,7 +33,7 @@ import {
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
   SUPPORTED_PROTOCOL_VERSIONS,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 /**
  * Codes for gate refusals: any method but `daemon.hello` before a hello completed

@@ -23,13 +23,13 @@
 // the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `run-stream-shapes.ts` holds what all
 // arms share, and `lib/wire-strings.ts` the string reader every wire reader uses.
 
-import { QueueItemSummarySchema } from "@ai-sidekicks/contracts/run-queue";
+import { QueueItemSummarySchema } from "@ai-sidekicks/contracts/run/queue";
 import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
-} from "@ai-sidekicks/contracts/run-control";
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
-import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run-control";
+} from "@ai-sidekicks/contracts/run/control";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
+import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";

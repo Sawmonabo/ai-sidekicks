@@ -5,7 +5,7 @@
 // the same row. The payload fetch lives in `artifact-payload-fetch.ts`; both meet the reader
 // at `ArtifactListReadingPublisher`.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";

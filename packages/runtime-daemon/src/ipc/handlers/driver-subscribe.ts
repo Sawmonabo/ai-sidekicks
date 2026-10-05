@@ -17,15 +17,15 @@
 // The registration is not `mutating`: it changes no domain row, so a version-mismatched
 // connection keeps this method.
 
-import type { DriverSubscribeEventsParams } from "@ai-sidekicks/contracts/provider-driver-wire";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
-import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { DRIVER_EVENT_TYPES } from "@ai-sidekicks/contracts/driver-event";
-import { DriverSubscribeEventsParamsSchema } from "@ai-sidekicks/contracts/provider-driver-wire";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event";
-import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import type { DriverSubscribeEventsParams } from "@ai-sidekicks/contracts/provider/driver/wire";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { DRIVER_EVENT_TYPES } from "@ai-sidekicks/contracts/provider/driver/event";
+import { DriverSubscribeEventsParamsSchema } from "@ai-sidekicks/contracts/provider/driver/wire";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
+import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { StreamingPrimitive } from "../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";

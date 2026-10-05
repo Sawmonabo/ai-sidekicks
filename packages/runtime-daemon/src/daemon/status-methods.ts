@@ -5,9 +5,9 @@
 import {
   DAEMON_STATUS_METHOD_DESCRIPTORS,
   type DaemonProcessState,
-} from "@ai-sidekicks/contracts/daemon-status";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+} from "@ai-sidekicks/contracts/daemon/status";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";

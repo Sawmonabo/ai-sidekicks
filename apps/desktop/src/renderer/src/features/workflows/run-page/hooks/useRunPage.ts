@@ -5,8 +5,8 @@ import {
   type WorkflowRunId,
   type WorkflowStep,
   type WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { refuse } from "@renderer/lib/refusal.js";
 import type { PushDrivenReadState } from "@renderer/store/reads/push-driven-read.js";

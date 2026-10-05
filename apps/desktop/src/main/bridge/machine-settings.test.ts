@@ -4,7 +4,7 @@
 
 import { setImmediate } from "node:timers/promises";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettingsReading,

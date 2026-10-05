@@ -11,8 +11,8 @@ import { userEvent } from "vitest/browser";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
-import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider-account-sign-in";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TokenRegistrationForm } from "@renderer/features/settings/pages/providers/fixtures/components/TokenRegistrationForm.js";

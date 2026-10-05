@@ -9,7 +9,7 @@
 // it is keyed by. The registration is not `mutating`, so a connection with an incompatible
 // protocol version can still follow presence.
 
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type {
   MachinePresence,
   PresenceSubscribeRequest,

@@ -8,7 +8,7 @@ import type {
   ReasoningEntry,
   ReasoningSurfaceReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import {
   REASONING_AVAILABILITY_COPY,
   reasoningTailOf,

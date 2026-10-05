@@ -9,7 +9,7 @@
 // dropped. Whether more rows remain is the reply's `hasMore`, never inferred from a short page.
 
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

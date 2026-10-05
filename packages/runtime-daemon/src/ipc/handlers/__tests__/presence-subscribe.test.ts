@@ -4,11 +4,11 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import type { MachinePresence, PresenceSubscribeResponse } from "@ai-sidekicks/contracts/presence";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
-import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { MethodRegistryImpl } from "../../registry.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";

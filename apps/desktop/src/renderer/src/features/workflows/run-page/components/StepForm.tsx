@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow-run-step";
+import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

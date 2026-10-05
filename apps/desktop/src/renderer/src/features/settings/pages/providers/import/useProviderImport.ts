@@ -9,7 +9,7 @@
 // The start is addressed on the start call through the subject-scoped holder, so a new call
 // retires the import with everything else the old one answered. How many imports run, what
 // a second start answers, and what the stream sends first are the service's rules, in the
-// contract's `provider-import.ts`. Both calls are arguments; a rejected call settles as a
+// contract's `provider/import.ts`. Both calls are arguments; a rejected call settles as a
 // refusal the panel draws.
 //
 // The start settles once and the stream is a stream, so the two phases are kept apart, and
@@ -25,7 +25,7 @@ import { useImportProgress } from "./useImportProgress.js";
 import type {
   ProviderImportProviderRequest,
   ProviderImportStartResponse,
-} from "@ai-sidekicks/contracts/provider-import";
+} from "@ai-sidekicks/contracts/provider/import";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

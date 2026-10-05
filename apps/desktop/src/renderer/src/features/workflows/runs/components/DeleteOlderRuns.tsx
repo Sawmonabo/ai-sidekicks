@@ -1,4 +1,4 @@
-import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";

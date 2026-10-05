@@ -1,7 +1,7 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { resolutionReceipt, timedOutReceipt } from "../step-receipts.js";

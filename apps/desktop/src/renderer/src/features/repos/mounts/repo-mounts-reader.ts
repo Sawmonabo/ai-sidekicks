@@ -10,10 +10,10 @@
 // The state is not in the session store because a mount read is a probe, not an event
 // projection.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";

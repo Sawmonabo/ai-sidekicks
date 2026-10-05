@@ -6,14 +6,14 @@ import {
   AgentDefinitionExportRequestSchema,
   AgentDefinitionImportRequestSchema,
   AgentDefinitionUpdateRequestSchema,
-} from "@ai-sidekicks/contracts/agent-definition";
-import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-draft";
+} from "@ai-sidekicks/contracts/agent/definition";
+import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 import {
   SessionHookListResponseSchema,
   SessionMemoryReadResponseSchema,
-} from "@ai-sidekicks/contracts/session-inspector";
-import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-definition-methods";
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
+} from "@ai-sidekicks/contracts/session/inspector";
+import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { describe, expect, it } from "vitest";
 
 import { mintTokensForPaths, swapTokensForPaths } from "./file-path-relay.js";

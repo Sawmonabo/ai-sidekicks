@@ -5,7 +5,7 @@
 // workspace rows, read shapes) and renders nothing. This one mounts a React tree with a live
 // announcer, so it is a `.tsx`.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 import { act, render } from "@testing-library/react";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";

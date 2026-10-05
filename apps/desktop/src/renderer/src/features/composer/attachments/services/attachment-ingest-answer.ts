@@ -8,7 +8,7 @@ import type {
   AttachmentIngestCompleteRequest,
   AttachmentIngestInitRequest,
 } from "@ai-sidekicks/contracts/artifacts/ingest";
-import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session-draft";
+import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
 /**
  * The four calls of one upload. The three the daemon registers take its own request

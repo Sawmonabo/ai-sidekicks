@@ -3,8 +3,8 @@
 // (plain, and one that records what reached the wire). One copy, so the draft and control
 // suites never script slightly different replies.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent-definition";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo";
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";

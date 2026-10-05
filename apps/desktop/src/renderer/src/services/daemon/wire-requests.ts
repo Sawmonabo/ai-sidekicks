@@ -6,16 +6,16 @@
 // `services/`, so features consume a typed reader. Each returns the value or `undefined`; the
 // caller composes any refusal.
 
-import { InterruptRunParamsSchema } from "@ai-sidekicks/contracts/provider-driver-wire";
+import { InterruptRunParamsSchema } from "@ai-sidekicks/contracts/provider/driver/wire";
 import {
   InterventionRequestPayloadSchema,
   type InterventionRequestPayload,
-} from "@ai-sidekicks/contracts/run-control";
+} from "@ai-sidekicks/contracts/run/control";
 import {
   QueueItemCreateRequestSchema,
   type QueueItemCreateRequest,
-} from "@ai-sidekicks/contracts/run-queue";
-import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/run/queue";
+import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 /** The intervention the wire admits, or `undefined` where the arm did not compose. */
 export function readInterventionRequest(

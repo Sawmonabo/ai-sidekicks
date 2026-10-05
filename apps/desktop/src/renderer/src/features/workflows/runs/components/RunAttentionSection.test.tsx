@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   WorkflowRunAttentionListResponseSchema,
   type WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { LOADING_NOTICE_DELAY_MS } from "@renderer/components/LoadingNotice/LoadingNotice.js";
 import { ManualClock } from "@renderer/lib/clock.js";

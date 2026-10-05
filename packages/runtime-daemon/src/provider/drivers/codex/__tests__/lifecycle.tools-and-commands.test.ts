@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   type SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider-driver-transcript";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import { bindCallbackToolsForSpawn, CallbackToolHost } from "../../../callback-tool-host.js";
 import { COMPACTION_WAIT_MS } from "../../../compaction-wait.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";

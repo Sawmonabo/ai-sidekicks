@@ -19,21 +19,21 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
-import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon-data";
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import {
   DAEMON_STOP_DRAIN_BOUND_MS,
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
-} from "@ai-sidekicks/contracts/daemon-lifecycle";
+} from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   resolveDaemonRunFolder,
   type DaemonRunFolder,
-} from "@ai-sidekicks/contracts/daemon-run-folder";
+} from "@ai-sidekicks/contracts/daemon/run-folder";
 
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon-status";
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import {
   MACHINE_SETTINGS_DEFAULTS,

@@ -3,7 +3,7 @@
 // read behind it, since a list read with no stream up is stale on arrival. Rows change only
 // when the daemon says so (a cancel only confirms the request); canceled rows stay in the feed.
 
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run-queue";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
 import {
   NO_TRIGGERING_EVENT_KINDS,

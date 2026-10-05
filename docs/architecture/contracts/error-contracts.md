@@ -74,7 +74,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 ### Negotiation Refusals
 
-`NegotiationError` throws (the gate-refusal codes in `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`) and `DaemonHelloAck.reason` strings (the handshake-incompatible reasons in `packages/contracts/src/jsonrpc-negotiation.ts`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
+`NegotiationError` throws (the gate-refusal codes in `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`) and `DaemonHelloAck.reason` strings (the handshake-incompatible reasons in `packages/contracts/src/jsonrpc/negotiation.ts`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
 
 | `data.type` | JSON-RPC `code` | Surface | Trigger |
 | --- | --- | --- | --- |

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow-definition";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
 import { useReadScope } from "@renderer/hooks/useReadScope.js";
 import type { Refusal } from "@renderer/lib/refusal.js";

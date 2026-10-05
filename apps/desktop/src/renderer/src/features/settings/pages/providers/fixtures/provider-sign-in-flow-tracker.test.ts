@@ -8,7 +8,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import {

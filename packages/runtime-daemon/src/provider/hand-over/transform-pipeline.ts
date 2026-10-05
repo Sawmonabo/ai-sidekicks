@@ -9,9 +9,9 @@
 // one id cannot be carried as-is, so the repair disambiguates the later call instead of dropping
 // it, and declares that it did.
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider/driver/transcript";
 
-import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts/provider/driver/transcript";
 
 import type {
   CanonicalTranscriptProjection,

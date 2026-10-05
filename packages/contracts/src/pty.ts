@@ -12,12 +12,12 @@
 import { z } from "zod";
 
 import { CommandIdSchema, type CommandId } from "./command.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session/session.js";
 
 /** The longest terminal id the daemon accepts. */
 export const TERMINAL_ID_MAX_LEN = 256;

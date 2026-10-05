@@ -12,9 +12,9 @@ import type {
   DriverCompactionResult,
   ProviderCommandListResult,
   ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";

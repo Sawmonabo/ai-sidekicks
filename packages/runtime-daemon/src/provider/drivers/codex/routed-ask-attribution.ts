@@ -1,8 +1,8 @@
 // Attributing each routed ask (an approval or callback-tool request) on the Codex leg to the run
 // that raised it, before the daemon's responder adjudicates it.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   type CodexLifecycleOptions,

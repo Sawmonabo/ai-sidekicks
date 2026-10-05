@@ -11,21 +11,21 @@
 // it lists the session's own answers and the project's rule files, and a rule holds at every
 // level that asks.
 //
-// This file imports nothing from `event.ts`: that module imports the payload schemas below, and
-// an import back would close an eager module cycle.
+// This file imports nothing from `event/session-event.ts`: that module imports the payload schemas
+// below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
+import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
-} from "./session.js";
+} from "./session/session.js";
 import { DeviceIdSchema, type DeviceId } from "./trust-statement.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 

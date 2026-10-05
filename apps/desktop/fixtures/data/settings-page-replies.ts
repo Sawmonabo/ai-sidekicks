@@ -25,7 +25,7 @@ import type {
   McpServerBindingRef,
   McpServerConfigChangedNotice,
   McpServerInventoryEntry,
-} from "@ai-sidekicks/contracts/mcp";
+} from "@ai-sidekicks/contracts/mcp/mcp";
 import type {
   ProviderAccountNotification,
   ProviderAccount,
@@ -34,20 +34,20 @@ import type {
   ProviderLoginExpiredRemedy,
   ProviderName,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   type ProviderAccountNotAuthenticatedDetails,
   type ProviderAccountProbeResponse,
   type ProviderAccountSetCurrentResponse,
-} from "@ai-sidekicks/contracts/provider-account-methods";
+} from "@ai-sidekicks/contracts/provider/account/methods";
 import {
   PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
   type ProviderAccountLoginCancelResponse,
   type ProviderAccountLoginResponse,
   type ProviderAccountRegisterResponse,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type {
   ScenarioNotice,
   ScenarioRefusalEnvelope,

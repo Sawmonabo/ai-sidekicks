@@ -3,14 +3,14 @@
 // `session.import` is a write that settles once with an import id; `session.importSubscribe`
 // is a stream, which can be open and silent, open and speaking, or closed. The two are held
 // apart. What the stream carries, and why it is keyed by provider, is in the contract's
-// `provider-import.ts`. Nothing is computed from the messages: the counts and the outcome
+// `provider/import.ts`. Nothing is computed from the messages: the counts and the outcome
 // are the service's own words.
 
 import type {
   ProviderImportId,
   ProviderImportProgress,
   ProviderImportProviderRequest,
-} from "@ai-sidekicks/contracts/provider-import";
+} from "@ai-sidekicks/contracts/provider/import";
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /** An open progress subscription: the messages, and the way to let go of it. */

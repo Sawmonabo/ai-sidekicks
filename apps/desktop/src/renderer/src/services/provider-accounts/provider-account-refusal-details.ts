@@ -3,16 +3,16 @@
 // not seal a pasted token. A refusal whose members do not parse carries neither, and still renders
 // its code and sentence.
 
-import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/account";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   ProviderAccountNotAuthenticatedDetailsSchema,
-} from "@ai-sidekicks/contracts/provider-account-methods";
+} from "@ai-sidekicks/contracts/provider/account/methods";
 import {
   PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
   ProviderAccountCredentialSealRefusedDetailsSchema,
   type KeychainRefusalCause,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { WireRefusal } from "@renderer/lib/wire-rejection.js";
 

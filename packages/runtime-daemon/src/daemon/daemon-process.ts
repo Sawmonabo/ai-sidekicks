@@ -15,10 +15,10 @@ import {
   DAEMON_STOP_DRAIN_BOUND_MS,
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
-} from "@ai-sidekicks/contracts/daemon-lifecycle";
-import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon-data";
-import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon-run-folder";
-import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon-status";
+} from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
+import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 

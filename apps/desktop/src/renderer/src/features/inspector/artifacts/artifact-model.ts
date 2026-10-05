@@ -8,7 +8,7 @@
 // Models no payload preview: payloads are explicit-fetch downloads, and nothing in the product
 // executes one.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type {
   ArtifactManifest,
   ArtifactState as ManifestState,

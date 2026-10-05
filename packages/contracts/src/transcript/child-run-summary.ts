@@ -8,8 +8,8 @@
 // would throw `ReferenceError` at import time instead of failing to compile.
 import { z } from "zod";
 
-import { RunIdSchema, type RunId } from "../provider-driver.js";
-import { RunStateSchema, type RunState } from "../run-state.js";
+import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
+import { RunStateSchema, type RunState } from "../run/state.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** Why a child-run summary is not the whole picture. Closed; a context compaction is not one. */

@@ -2,7 +2,7 @@
 // has asked for, and the answer a read gives back, which names the ask it answered so the tab can
 // tell rows still being replaced from rows that answer what is asked now.
 
-import type { WorkflowRunListResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunListResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 

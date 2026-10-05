@@ -13,8 +13,8 @@ export const COMPARED_STATES = { baseRef: "main", headRef: "feat/thing" } as con
 
 /** A plain unified patch: two files, one hunk each, one modified line pair. */
 export const PLAIN_PATCH: string = [
-  "--- packages/contracts/src/event.ts",
-  "+++ packages/contracts/src/event.ts",
+  "--- packages/contracts/src/event/session-event.ts",
+  "+++ packages/contracts/src/event/session-event.ts",
   "@@ -10,2 +10,2 @@",
   " const before = 1;",
   "-const value = compute(previousBudget, 11);",

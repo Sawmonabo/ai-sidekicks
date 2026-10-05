@@ -4,15 +4,15 @@
 // each reply is parsed against its method's registered shape; a refusal rejects the read and
 // becomes its failed state.
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider-account";
-import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow-definition-methods";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
+import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 import type {
   WorkflowRunAttentionListResponse,
   WorkflowRunListResponse,
   WorkflowRunReadResponse,
   WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { Clock } from "@renderer/lib/clock.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";

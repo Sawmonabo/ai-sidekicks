@@ -1,7 +1,7 @@
 // The attach act: the call it sends and how the reply reads. A mount belongs to the machine,
 // so the call carries the path and nothing about the session.
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import { ActController } from "../../acts/act-controller.js";
 import { type ActSettlementReading } from "../../acts/act-reading.js";
 import type { RepoOperations } from "../../repo-operations.js";

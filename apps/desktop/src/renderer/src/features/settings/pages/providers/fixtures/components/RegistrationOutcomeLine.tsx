@@ -1,7 +1,7 @@
 import {
   PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
   type KeychainRefusalCause,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 import type { ReactNode } from "react";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

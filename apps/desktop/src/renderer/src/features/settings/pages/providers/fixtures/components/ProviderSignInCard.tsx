@@ -1,4 +1,4 @@
-import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider-account-sign-in";
+import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 import type { ReactNode } from "react";
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";

@@ -1,8 +1,8 @@
 // Registers the service's lifecycle verbs: the flush a quit sends, the stop and restart Settings ›
 // Runtime and the command line send, and the answer to the main process's ping on a quiet link.
 
-import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon-lifecycle";
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";
 

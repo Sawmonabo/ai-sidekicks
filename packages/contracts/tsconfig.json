@@ -9,7 +9,7 @@
   "include": ["src/**/*"],
   // Test files are excluded from `tsc -b` so they don't ship in `dist/` (the package's `files` is
   // `["dist"]`); `tsconfig.test.json` type-validates them with `noEmit`. `src/**/*.test-d.ts`
-  // (conditional-type tests beside the contract files they validate, e.g. `run-control.test-d.ts`
-  // next to `run-control.ts`) is excluded by the same rule.
+  // (conditional-type tests beside the contract files they validate, e.g. `run/control.test-d.ts`
+  // next to `run/control.ts`) is excluded by the same rule.
   "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/*.test-d.ts"]
 }

@@ -3,8 +3,8 @@
  * posture and subagent policy into the thread, turn and config overrides Codex takes.
  */
 
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../spawn-env.js";
 import { RUN_OPENING_FRAME_ORIGIN } from "../../outbound-frame.js";
 import { isPlainObject } from "../../record-readers.js";

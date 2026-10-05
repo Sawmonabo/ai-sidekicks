@@ -6,7 +6,7 @@ import type {
   MethodRequestOf,
   MethodResponseOf,
 } from "@ai-sidekicks/contracts/method-descriptor";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 /** A descriptor answered with one result: a subscription streams and binds elsewhere. */
 type SingleResultDescriptor = AnyMethodDescriptor & {

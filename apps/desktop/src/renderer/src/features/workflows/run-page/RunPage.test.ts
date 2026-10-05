@@ -6,8 +6,8 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";

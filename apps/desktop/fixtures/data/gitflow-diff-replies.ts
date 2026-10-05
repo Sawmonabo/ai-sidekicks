@@ -7,7 +7,7 @@ import type {
   GitflowDiffReadResponse,
   WorkflowRunSnapshotPoint,
 } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import { readMember, readString } from "./workflow-run-writes.js";
 import { WORKFLOW_RUN_IDS } from "./workflow-runs.js";

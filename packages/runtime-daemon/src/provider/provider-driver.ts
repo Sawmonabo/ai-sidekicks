@@ -35,21 +35,21 @@ import {
   type ProviderToolMetadata,
   type RunId,
   type SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import {
   RecoveryConditionSchema,
   type RecoveryCondition,
-} from "@ai-sidekicks/contracts/provider-driver-recovery";
+} from "@ai-sidekicks/contracts/provider/driver/recovery";
 import {
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
-} from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/session/session";
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
   ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
 import { z } from "zod";
 
 // ---- ProviderDriver ----

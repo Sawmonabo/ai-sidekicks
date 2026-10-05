@@ -9,12 +9,12 @@ import type {
   InterruptRunParams,
   ProviderModel,
   ProviderMode,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 import { describe, expect, it } from "vitest";
 
 import { CLI_VERSION_REPORT, makeFlags } from "../__fixtures__/capability-results.js";

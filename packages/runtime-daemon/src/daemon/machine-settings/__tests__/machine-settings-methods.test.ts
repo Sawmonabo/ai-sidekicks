@@ -8,7 +8,10 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JsonRpcErrorCode, type JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import {
+  JsonRpcErrorCode,
+  type JsonRpcNotification,
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
@@ -18,7 +21,7 @@ import {
 import type {
   SubscribeAckResponse,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { findBranchPatternRefusal } from "../../../git/branch-name-pattern.js";
 import { mapJsonRpcError } from "../../../ipc/jsonrpc-error-mapping.js";

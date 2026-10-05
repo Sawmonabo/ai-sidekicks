@@ -4,8 +4,8 @@ import type {
   AgentDefinitionId,
   AgentId,
   AgentResolvedConfiguration,
-} from "@ai-sidekicks/contracts/agent-definition";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
+} from "@ai-sidekicks/contracts/agent/definition";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
 
 /**
  * One agent-list row on Claude with every optional member left out; a case adds what it is

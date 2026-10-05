@@ -5,7 +5,7 @@
 // by the event that announced it. A later transition into a state the table does not list is
 // how an item resolves; there is no separate resolution rule.
 import type { AttentionSeverity, AttentionTrigger } from "@ai-sidekicks/contracts/attention";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { normalizeOccurredAt } from "../events/canonicalizer.js";
 

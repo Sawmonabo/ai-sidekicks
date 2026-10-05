@@ -3,7 +3,10 @@
 // `authenticated` means a credential is present and not locally known dead, not that the
 // provider accepts it. A remedy is named as an act, never as a command to run.
 
-import type { ProviderAccount, ProviderReadiness } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccount,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts/provider/account/account";
 
 import {
   accountPlaneRemedySentence,

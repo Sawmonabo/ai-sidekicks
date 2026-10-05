@@ -23,15 +23,15 @@
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeVersionSchema,
-} from "@ai-sidekicks/contracts/event-envelope";
-import { EventCompactedPayloadSchema } from "@ai-sidekicks/contracts/event-declared-variants";
-import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event-envelope";
+} from "@ai-sidekicks/contracts/event/envelope";
+import { EventCompactedPayloadSchema } from "@ai-sidekicks/contracts/event/declared-variants";
+import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
 import type {
   EventCompactedPayload,
   EventCompactedRemovedSession,
-} from "@ai-sidekicks/contracts/event-declared-variants";
+} from "@ai-sidekicks/contracts/event/declared-variants";
 import type { NodeId } from "@ai-sidekicks/contracts/node-id";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Database, Statement } from "better-sqlite3";
 
 import type {

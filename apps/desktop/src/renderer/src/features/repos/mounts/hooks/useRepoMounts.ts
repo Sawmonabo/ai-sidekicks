@@ -4,7 +4,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
 
 import { useStoreBoundReader } from "@renderer/hooks/subject-scoped/useStoreBoundReader.js";
 import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";

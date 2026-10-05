@@ -5,7 +5,7 @@
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import {
   orderDeclaredLosses,
   segmentContentIsUnavailable,

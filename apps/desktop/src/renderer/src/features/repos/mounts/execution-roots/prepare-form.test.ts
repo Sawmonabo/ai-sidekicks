@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import {
   REUSE_UNANSWERED_COPY,

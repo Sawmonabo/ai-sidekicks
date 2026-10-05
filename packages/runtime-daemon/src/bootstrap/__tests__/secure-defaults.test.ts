@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 
 import type { SecureDefaultsConfig } from "../secure-defaults.js";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";

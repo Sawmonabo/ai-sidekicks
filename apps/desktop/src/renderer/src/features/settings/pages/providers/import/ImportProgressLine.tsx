@@ -5,7 +5,7 @@
 // sentence. Nothing is computed from the messages: the counts and the refusal are the
 // service's own, and a percentage would invent a denominator nobody sent.
 
-import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider-import";
+import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/import";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";

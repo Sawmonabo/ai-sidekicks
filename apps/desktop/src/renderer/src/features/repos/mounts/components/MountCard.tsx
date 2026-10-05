@@ -4,8 +4,8 @@
 // The bind entry shows only where the mount's availability admits it; re-attach only on
 // `identity_mismatch`, the permanent verdict, since `unreachable` is transient.
 
-import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { Chip } from "@renderer/components/Chip/Chip.js";

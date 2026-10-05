@@ -9,7 +9,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { vi } from "vitest";
 
 import { appFactsSwitches } from "@shared/app-facts.js";

@@ -3,7 +3,7 @@
 // both halves of a malformed reply cannot disclose its restriction in one and hide it in the
 // other.
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 /** One row, after the reply has been read but before anything is rendered. */

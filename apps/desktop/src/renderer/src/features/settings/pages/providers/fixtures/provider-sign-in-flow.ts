@@ -10,17 +10,17 @@ import type {
   ProviderAccount,
   ProviderAccountId,
   ProviderName,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import type {
   ProviderAccountProbeResponse,
   ProviderAccountSetCurrentResponse,
-} from "@ai-sidekicks/contracts/provider-account-methods";
+} from "@ai-sidekicks/contracts/provider/account/methods";
 import type {
   ProviderAccountLoginCancelResponse,
   ProviderAccountLoginResponse,
   ProviderAccountRegisterRequest,
   ProviderAccountRegisterResponse,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import { PROVIDER_LABELS } from "@renderer/lib/provider-labels.js";

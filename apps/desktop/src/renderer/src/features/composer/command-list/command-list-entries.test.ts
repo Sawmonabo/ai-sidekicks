@@ -1,7 +1,7 @@
 // Only the addressed run's binding reaches the command list: one binding's commands are never
 // listed under another binding's address, and where the binding cannot be named nothing is.
 import { describe, expect, it } from "vitest";
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
 
 import { selectAddressedBindingGroup } from "./command-list-entries.js";
 

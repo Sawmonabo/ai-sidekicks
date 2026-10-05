@@ -5,23 +5,23 @@
 // and stays `submitted` (Claude Code's). The shape is split by kind so neither carries the
 // other's states.
 //
-// Nothing imported here may reach `./event.js`, which imports the task update payload from
-// this module: a cycle among eager module-scope schemas throws at load.
+// Nothing imported here may reach `./event/session-event.js`, which imports the task update payload
+// from this module: a cycle among eager module-scope schemas throws at load.
 import { z } from "zod";
 
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
-} from "./session.js";
+} from "./session/session.js";
 
 /** The longest cloud task id the daemon accepts. */
 export const CLOUD_TASK_ID_MAX_LEN = 256;

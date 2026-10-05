@@ -21,7 +21,7 @@ import {
   type RepoDetachRequest,
   type RepoDetachResponse,
   type RepoMountReadResponse,
-} from "@ai-sidekicks/contracts/repo-folders";
+} from "@ai-sidekicks/contracts/repo/folders";
 import {
   RepoMountIdSchema,
   RepoMountStateSchema,
@@ -30,7 +30,7 @@ import {
   type RepoMountId,
   type RepoMountState,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
+} from "@ai-sidekicks/contracts/repo/repo";
 
 import {
   RepoAlreadyAttachedError,

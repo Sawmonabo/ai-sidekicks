@@ -4,8 +4,8 @@
 import { z } from "zod";
 
 import { composedTextSchema, countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { ArtifactIdSchema, type ArtifactId } from "../provider-driver.js";
-import { SessionIdSchema, type SessionId } from "../session.js";
+import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/driver.js";
+import { SessionIdSchema, type SessionId } from "../session/session.js";
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "./ingest.js";
 import { ArtifactManifestSchema, type ArtifactManifest } from "./manifest.js";

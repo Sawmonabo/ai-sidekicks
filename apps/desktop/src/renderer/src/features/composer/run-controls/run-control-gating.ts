@@ -15,8 +15,8 @@
 // not the same fact as a driver declaring `false`. This only projects what the daemon
 // declared; a control offered can still be refused by the daemon.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { isLiveRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { readingForRun } from "@renderer/store/driver-capabilities/driver-capability-readings.js";

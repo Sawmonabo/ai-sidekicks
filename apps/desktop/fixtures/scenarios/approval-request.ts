@@ -8,19 +8,19 @@
 // Approval beats carry the full registered payload of each variant.
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and strict payload layer (`SessionEventSchema`) in
-// `packages/contracts/src/event.ts`.
+// `packages/contracts/src/event/session-event.ts`.
 //
 // Ids are UUIDs, as the contracts' branded ids require, and a short readable id would render
 // narrower than a real one in a fixture that is measured.
 
-import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent-definition";
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import {
   UserIdSchema,
   SessionIdSchema,
   type UserId,
   type SessionId,
-} from "@ai-sidekicks/contracts/session";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/session/session";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

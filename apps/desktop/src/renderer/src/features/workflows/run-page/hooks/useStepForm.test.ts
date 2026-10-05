@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type {
   WorkflowHumanFormReadResponse,
   WorkflowStepKey,
-} from "@ai-sidekicks/contracts/workflow-run-step";
+} from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";

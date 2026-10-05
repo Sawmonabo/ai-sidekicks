@@ -12,8 +12,8 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { NodeId } from "@ai-sidekicks/contracts/node-id";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";

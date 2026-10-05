@@ -3,8 +3,8 @@
 // name: the wire declares no tool kind, and inferring one would assert a fact the daemon never
 // sent. Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 

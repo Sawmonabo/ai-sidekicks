@@ -1,4 +1,4 @@
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import { useState, type ReactNode } from "react";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

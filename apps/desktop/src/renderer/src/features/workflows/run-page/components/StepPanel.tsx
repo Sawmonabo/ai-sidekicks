@@ -4,9 +4,9 @@ import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/l
 import type {
   WorkflowDocument,
   WorkflowNodeKindId,
-} from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

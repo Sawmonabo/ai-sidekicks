@@ -6,7 +6,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

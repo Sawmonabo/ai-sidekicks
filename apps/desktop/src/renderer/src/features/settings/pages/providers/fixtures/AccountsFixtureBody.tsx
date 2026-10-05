@@ -10,7 +10,10 @@
 
 import "./accounts-fixture-body.css";
 
-import type { ProviderAccount, ProviderReadiness } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccount,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts/provider/account/account";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";

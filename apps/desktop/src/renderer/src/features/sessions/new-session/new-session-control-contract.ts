@@ -5,7 +5,7 @@
 // `features/sessions/start/session-start.ts`, because each step names a store or a route the
 // draft does not hold.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent-definition";
+import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /**

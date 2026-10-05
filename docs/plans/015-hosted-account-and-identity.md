@@ -119,7 +119,7 @@ The phases map 1:1 to the Implementation Steps. Each task names **Files** (targe
 
 ### Phase 1 — User Contracts
 
-Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consumed primitives ship from Plan-001 (`session.ts`).
+Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consumed primitives ship from Plan-001 (`session/session.ts`).
 
 #### Tasks
 
@@ -127,18 +127,18 @@ Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consum
   - Files: `packages/contracts/src/account/read.ts` (CREATE — reached at its own subpath, `@ai-sidekicks/contracts/account/read`, with nothing to re-export); `account.read` takes `AccountReadRequest {}` and returns `AccountReadResponse { userId; displayName }`
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (`account.read`), Spec-016 §Required Behavior (the account read = id + name)
   - **Verifies invariant:** none
-  - Consumes: `UserId` from `packages/contracts/src/session.ts` (shipped)
+  - Consumes: `UserId` from `packages/contracts/src/session/session.ts` (shipped)
   - Note: the account read carries only the user id and the name (CP-015-4), with no presence, as [Spec-016 §Required Behavior](../specs/016-hosted-account-and-identity.md#required-behavior) states.
 - **T1.2 — The name update.**
   - Files: `packages/contracts/src/account/name-update.ts` (CREATE — reached at its own subpath, `@ai-sidekicks/contracts/account/name-update`, with nothing to re-export); `account.nameUpdate` takes `AccountNameUpdateRequest { displayName }`, which names no user
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (`account.nameUpdate`), Spec-016 §Required Behavior
   - **Verifies invariant:** I-015-2
-  - Consumes: `UserId` (session.ts, shipped)
+  - Consumes: `UserId` (session/session.ts, shipped)
   - Note: schema is `.strict()` so the request cannot carry an actor-override field — binds I-015-2 at the wire boundary.
 
 ### Phase 2 — Identity → User Mapping
 
-**Precondition:** none within this plan. T2.1 and T2.2 consume `UserId` from Plan-001's `session.ts` (shipped) and the control plane's one schema; Phase 1's shapes are first read in Phase 3.
+**Precondition:** none within this plan. T2.1 and T2.2 consume `UserId` from Plan-001's `session/session.ts` (shipped) and the control plane's one schema; Phase 1's shapes are first read in Phase 3.
 
 Control-plane service that writes the account's one user record and resolves a signed-in account to it. Adds the `users` columns to the control plane's one schema.
 

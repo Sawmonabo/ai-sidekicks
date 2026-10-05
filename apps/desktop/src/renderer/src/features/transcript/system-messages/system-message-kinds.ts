@@ -6,7 +6,7 @@
 import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-} from "@ai-sidekicks/contracts/agent-provider-binding";
+} from "@ai-sidekicks/contracts/agent/provider-binding";
 
 import { type GlyphName } from "@renderer/styles/glyphs.js";
 

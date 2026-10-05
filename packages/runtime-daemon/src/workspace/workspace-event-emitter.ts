@@ -10,17 +10,17 @@
 import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event-envelope";
+} from "@ai-sidekicks/contracts/event/envelope";
 import {
   RepoWorkspaceLifecyclePayloadSchema,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
+} from "@ai-sidekicks/contracts/repo/repo";
 import type {
   WorkspaceArchivedEvent,
   WorkspacePreparingEvent,
   WorkspaceReadyEvent,
   WorkspaceStaleEvent,
-} from "@ai-sidekicks/contracts/event-declared-variants";
+} from "@ai-sidekicks/contracts/event/declared-variants";
 
 import type { EventLogAppendReceipt } from "../events/event-log-service.js";
 import {

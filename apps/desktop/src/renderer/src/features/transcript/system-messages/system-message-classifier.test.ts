@@ -2,7 +2,7 @@
 // read off its own arm, a compaction and a switch off their wire types, and an ordinary row is
 // never one.
 
-import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent-provider-binding";
+import { AGENT_PROVIDER_BINDING_CHANGED_EVENT } from "@ai-sidekicks/contracts/agent/provider-binding";
 import { describe, expect, it } from "vitest";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../transcript-event-rows.test-support.js";

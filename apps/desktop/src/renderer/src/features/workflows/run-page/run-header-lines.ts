@@ -8,8 +8,8 @@ import {
   WORKFLOW_STEP_TIMED_OUT_CODE,
   type WorkflowStep,
   type WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
 import { costFigure } from "../run-cost.js";

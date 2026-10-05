@@ -1,10 +1,10 @@
 // Workspace contracts: the `repo.*` pairs that bind a session's workspace to a mount and read
 // what it can do (`repo.workspaceBind`, `repo.executionModeCapabilitiesRead` and
-// `repo.workspaceList`). The ids and enums they compose live in repo.ts, and the mount pairs in
-// repo-folders.ts.
+// `repo.workspaceList`). The ids and enums they compose live in repo/repo.ts, and the mount pairs
+// in repo-folders.ts.
 //
-// This module imports nothing from `./event.js` and nothing whose import closure reaches it, for
-// the module-cycle reason in the header of `repo.ts`.
+// This module imports nothing from `./event/session-event.js` and nothing whose import closure
+// reaches it, for the module-cycle reason in the header of `repo/repo.ts`.
 import { z } from "zod";
 
 import {
@@ -16,13 +16,13 @@ import {
   type RepoMountId,
   type WorkspaceId,
   type WorkspaceState,
-} from "./repo.js";
+} from "./repo/repo.js";
 import {
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
   FILE_PATH_MAX_LEN,
-} from "./session.js";
+} from "./session/session.js";
 
 // These are daemon JSON-RPC methods only. Two conditional fields are obligations on the daemon, not
 // refinements: `restrictions` names every mode absent from `availableModes`, and `lastError` is

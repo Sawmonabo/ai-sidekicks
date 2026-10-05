@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   WorkflowHumanFormReadResponse,
   WorkflowStepKey,
-} from "@ai-sidekicks/contracts/workflow-run-step";
+} from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";

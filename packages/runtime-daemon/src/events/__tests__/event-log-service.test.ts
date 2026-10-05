@@ -8,9 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event-declared-variants";
-import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event-envelope";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/event/declared-variants";
+import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";

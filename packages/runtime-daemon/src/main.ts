@@ -10,9 +10,9 @@ import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
 
-import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon-lifecycle";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon-run-folder";
+import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
 import { DaemonProcess, resolveDataFolder } from "./daemon/daemon-process.js";

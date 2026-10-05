@@ -4,7 +4,7 @@
 // at a page count so a cursor that never ends cannot loop; a capped read answers
 // `complete: false`. The page read is an argument: this module holds the walk, not the wire.
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "../../composer-bounds.js";
 
 /** What one walk of the enumeration read. */

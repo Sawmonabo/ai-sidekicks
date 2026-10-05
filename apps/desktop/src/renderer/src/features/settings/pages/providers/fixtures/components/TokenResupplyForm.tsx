@@ -1,4 +1,4 @@
-import type { ProviderAccount } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/account";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import {

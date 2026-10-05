@@ -13,20 +13,20 @@
 import type {
   WorkflowNodeId,
   WorkflowPinnedItem,
-} from "@ai-sidekicks/contracts/workflow-definition";
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type {
   WorkflowDefinitionListResponse,
   WorkflowVersionChainReadResponse,
   WorkflowVersionReadResponse,
-} from "@ai-sidekicks/contracts/workflow-definition-methods";
-import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow-definition-builder";
-import type { WorkflowRunId, WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
+import type { WorkflowRunId, WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 import type {
   WorkflowRunCancelResponse,
   WorkflowRunResumeResponse,
   WorkflowRunRetryResponse,
   WorkflowRunStartResponse,
-} from "@ai-sidekicks/contracts/workflow-run-control";
+} from "@ai-sidekicks/contracts/workflow/run/control";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
@@ -34,13 +34,13 @@ import type {
   WorkflowRunsDeletePreviewResponse,
   WorkflowRunsPauseState,
   WorkflowSubscribeNotification,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 import type {
   WorkflowGateResolveResponse,
   WorkflowHumanFormDraftSaveResponse,
   WorkflowHumanFormReadResponse,
   WorkflowStepReadResponse,
-} from "@ai-sidekicks/contracts/workflow-run-step";
+} from "@ai-sidekicks/contracts/workflow/run/step";
 import type { QuestionId, QuestionResolveResponse } from "@ai-sidekicks/contracts/question";
 import type {
   ScenarioNotice,

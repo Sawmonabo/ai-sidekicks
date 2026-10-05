@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
-import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider-account-sign-in";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 

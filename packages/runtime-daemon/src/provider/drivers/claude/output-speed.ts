@@ -3,7 +3,7 @@
 // driver's table does not list runs at standard, and a refusal leaves the process on the level it
 // held; either way the declared state, not the request, says what the process runs at.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import {

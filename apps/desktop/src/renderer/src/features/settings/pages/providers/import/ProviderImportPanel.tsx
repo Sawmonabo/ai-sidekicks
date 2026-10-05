@@ -14,7 +14,10 @@ import "./provider-import.css";
 
 import { useMemo, useState } from "react";
 
-import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import {
+  PROVIDER_NAMES,
+  type ProviderName,
+} from "@ai-sidekicks/contracts/provider/account/account";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";

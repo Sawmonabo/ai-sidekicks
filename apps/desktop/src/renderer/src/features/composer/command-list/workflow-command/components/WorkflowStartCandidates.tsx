@@ -3,7 +3,7 @@
 // the list in hand. Selecting one completes the line; the popover's rule against inserting text
 // covers provider entries only, not the argument of a command the runtime itself intercepts.
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import { workflowDefinitionCandidates } from "../definition-match.js";

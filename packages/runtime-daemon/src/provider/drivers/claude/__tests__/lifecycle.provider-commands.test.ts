@@ -6,8 +6,8 @@ import {
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { describe, expect, it } from "vitest";
 
 import { COMPACTION_WAIT_MS, type CompactionWaitScheduler } from "../../../compaction-wait.js";

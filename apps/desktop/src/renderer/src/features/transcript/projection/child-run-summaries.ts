@@ -4,8 +4,8 @@
 // child, the only row naming both, so it takes a fresh object each pass.
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import {
   RUN_INITIAL_STATE,
   RUN_QUEUED_EVENT_KIND,

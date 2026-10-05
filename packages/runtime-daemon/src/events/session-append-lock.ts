@@ -24,7 +24,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 /**
  * One live acquisition. The queue-tail check compares holds by identity, and `released` stops a

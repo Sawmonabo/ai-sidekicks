@@ -6,12 +6,12 @@
 // caller pulls values out of (`next()`, `cancel()`, `[Symbol.asyncIterator]()`). The two shapes are
 // not structurally compatible.
 
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 
 /**
  * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix

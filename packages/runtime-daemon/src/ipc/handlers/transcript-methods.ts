@@ -18,8 +18,8 @@ import {
   TRANSCRIPT_SEARCH_METHOD,
 } from "@ai-sidekicks/contracts/transcript/methods";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type {
   TranscriptMethodName,
   TranscriptMethodRequest,

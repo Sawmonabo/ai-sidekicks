@@ -10,7 +10,7 @@ import { RunGroupBody } from "./RunGroupBody.js";
 import { groupRowsByRun } from "../run-groups.js";
 import { findRunGroup } from "../run-groups.test-support.js";
 import { runRow } from "../../transcript-event-rows.test-support.js";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 const RUN_ID = "run-a";
 

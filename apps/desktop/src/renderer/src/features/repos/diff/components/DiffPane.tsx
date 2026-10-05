@@ -5,8 +5,8 @@
 
 import "./diff.css";
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";

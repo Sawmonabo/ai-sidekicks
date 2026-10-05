@@ -5,12 +5,12 @@
 // to the JSON-RPC error envelope outside this file. The descriptor is `mutating`, so the gate
 // refuses it on a connection whose `daemon.hello` has not completed.
 
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type {
   SessionCreateRequest,
   SessionCreateResponse,
-} from "@ai-sidekicks/contracts/session-directory";
-import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
+} from "@ai-sidekicks/contracts/session/directory";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 
 import { registerDescribedMethod } from "./register-described-method.js";
 

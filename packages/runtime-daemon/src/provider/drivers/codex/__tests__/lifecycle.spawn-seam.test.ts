@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { CodexDriverConfigError, parseCodexSessionConfig } from "../index.js";
 import {
   EXECUTABLE_PATH,

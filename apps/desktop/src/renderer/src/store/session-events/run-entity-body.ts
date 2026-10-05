@@ -3,9 +3,9 @@
 // decides which run a beat mutates; this changes when the wire's members do. It imports nothing
 // of the session store or the event envelope.
 
-import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run-queued";
-import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run-control";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
+import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";

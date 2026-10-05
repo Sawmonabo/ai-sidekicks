@@ -1,4 +1,4 @@
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
 import { useState } from "react";
 
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";

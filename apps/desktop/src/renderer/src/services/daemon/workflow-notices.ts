@@ -10,7 +10,7 @@
 import {
   WorkflowSubscribeNotificationSchema,
   type WorkflowSubscribeNotification,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { Clock } from "@renderer/lib/clock.js";

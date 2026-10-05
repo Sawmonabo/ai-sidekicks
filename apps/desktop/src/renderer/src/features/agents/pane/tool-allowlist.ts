@@ -10,7 +10,7 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
 
 /**
  * What the resolved configuration says this agent may reach. A union so the "no configuration"

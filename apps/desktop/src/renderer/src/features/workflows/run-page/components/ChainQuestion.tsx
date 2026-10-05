@@ -4,7 +4,7 @@ import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type {
   WorkflowChainQuestion,
   WorkflowChainRoot,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";

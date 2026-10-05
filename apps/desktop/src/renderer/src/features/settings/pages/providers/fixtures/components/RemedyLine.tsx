@@ -2,7 +2,7 @@ import type {
   ProviderAccount,
   ProviderName,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

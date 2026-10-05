@@ -6,7 +6,7 @@ import {
   HIGHLIGHT_METHOD_DESCRIPTORS,
   HIGHLIGHT_READ_METHOD,
 } from "@ai-sidekicks/contracts/highlight";
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import type { CodeHighlighter } from "../../highlight/code-highlighter.js";
 import { registerDescribedMethod } from "./register-described-method.js";

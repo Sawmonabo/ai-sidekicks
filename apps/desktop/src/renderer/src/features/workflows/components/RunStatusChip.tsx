@@ -1,4 +1,7 @@
-import type { WorkflowRunStatus, WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow-run";
+import type {
+  WorkflowRunStatus,
+  WorkflowWaitCause,
+} from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
 import { isPersonWaitCause } from "../run-steps.js";

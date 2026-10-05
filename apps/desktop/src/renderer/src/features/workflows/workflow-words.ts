@@ -9,12 +9,12 @@ import type {
   WorkflowStepStatus,
   WorkflowTriggerKind,
   WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/run/run";
 import {
   WORKFLOW_SANDBOX_UNAVAILABLE_CODE,
   WORKFLOW_STEP_THREAD_FAILED_CODE,
   WORKFLOW_STEP_TIMED_OUT_CODE,
-} from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { formatCount } from "@renderer/lib/wire-figures.js";
 

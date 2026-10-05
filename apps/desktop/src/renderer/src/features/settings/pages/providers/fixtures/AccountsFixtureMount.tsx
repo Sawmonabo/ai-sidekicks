@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";

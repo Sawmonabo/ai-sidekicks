@@ -5,7 +5,7 @@ import type {
   ArtifactPayloadEncoding,
   ArtifactPayloadText,
 } from "@ai-sidekicks/contracts/artifacts/operations";
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 /**
  * What one artifact's payload fetch has established.

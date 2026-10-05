@@ -5,11 +5,11 @@
 // body are `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
 
 import { z } from "zod";
-import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run-queued";
-import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session-created";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
+import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session/created";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import {
   type StoredEntity,

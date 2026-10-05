@@ -7,7 +7,7 @@ import "./execution-root-cards.css";
 
 import { useId } from "react";
 
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";

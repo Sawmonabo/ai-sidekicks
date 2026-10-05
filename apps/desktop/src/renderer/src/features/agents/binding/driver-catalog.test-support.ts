@@ -6,8 +6,8 @@
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider-driver";
-import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/account/account";
 
 import type { DriverCatalogReading } from "./driver-catalog.js";
 

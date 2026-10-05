@@ -16,11 +16,11 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon-data";
-import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon-lifecycle";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon-run-folder";
+import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { connect } from "../ipc/__tests__/local-socket-client.test-support.js";

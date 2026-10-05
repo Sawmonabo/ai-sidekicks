@@ -35,7 +35,7 @@
 // (`session-diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-import type { EventCursor } from "@ai-sidekicks/contracts/session";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
 
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";

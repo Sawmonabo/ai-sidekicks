@@ -5,7 +5,7 @@
 // its own rather than dropped, and a state this build cannot name is not an attention state.
 // Clearing a block that was never seen resolved is the defect the register exists to prevent.
 
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { structuralKey } from "@renderer/lib/structural-key.js";
 import type { ProjectedSessionEvent } from "../entities/entities.js";

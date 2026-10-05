@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { InFlightMutations } from "../../ipc/in-flight-mutations.js";
 import { MethodRegistryImpl } from "../../ipc/registry.js";

@@ -23,7 +23,7 @@ import type {
   DriverInterventionResult,
   InterruptRunParams,
   RunId,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,

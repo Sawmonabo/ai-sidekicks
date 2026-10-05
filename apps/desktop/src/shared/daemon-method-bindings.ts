@@ -9,24 +9,24 @@
 // `session-event-streams.ts` owns the stream names.
 
 import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";
-import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-driver-wire";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/wire";
 import { GITFLOW_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/gitflow/methods";
 import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight";
-import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp-governance";
+import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/governance";
 import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
-import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
-import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-directory";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session";
-import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-inspector";
+import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/session";
+import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
 import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
-import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-definition-methods";
-import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-control";
-import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-records";
-import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-step";
+import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/control";
+import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
+import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { AnyMethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
-import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon-methods";
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/methods";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 /**
  * Every daemon method the app calls, closed.

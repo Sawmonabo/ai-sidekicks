@@ -6,17 +6,17 @@
 // messages survive a reload. The first answer settles the plan everywhere; a later answer reads
 // back the state it settled to rather than applying again.
 //
-// This file imports nothing from `event.ts`: that module imports the payload schemas below, and
-// an import back would close an eager module cycle.
+// This file imports nothing from `event/session-event.ts`: that module imports the payload schemas
+// below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
-import { PermissionLevelSchema, type PermissionLevel } from "./session-controls/methods.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
+import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
+import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session/session.js";
+import { PermissionLevelSchema, type PermissionLevel } from "./session/controls/methods.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of one plan record, stable across a reload and every device. */

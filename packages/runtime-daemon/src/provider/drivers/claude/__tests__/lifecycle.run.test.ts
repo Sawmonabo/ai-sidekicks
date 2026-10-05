@@ -2,7 +2,7 @@
 // their own turn, and the tripwire that fails a run whose command-shaped text the provider
 // swallowed.
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { describe, expect, it } from "vitest";
 
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";

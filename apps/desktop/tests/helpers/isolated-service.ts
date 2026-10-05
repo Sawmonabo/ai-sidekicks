@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon-lifecycle";
+import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
 
 import { spawnManagedElectronChild } from "./electron-child.js";
 import { PACKAGE_ROOT } from "./fixture-bundle.js";

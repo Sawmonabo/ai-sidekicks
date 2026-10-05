@@ -1,6 +1,6 @@
 // Binds one set of staged attachments to one component's lifetime.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";

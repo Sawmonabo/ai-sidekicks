@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { DriverCapabilityReadout } from "./driver-capability-readout.js";
 import { boundDriverNameForRun, readingForRun } from "./driver-capability-readings.js";
 

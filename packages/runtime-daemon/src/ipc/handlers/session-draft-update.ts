@@ -2,8 +2,8 @@
 // replaces the draft held; an empty text clears it, which is how Send clears it. An unknown
 // session is refused with `session.not_found`.
 
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session-draft";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 
 import type { SessionDraftStore } from "../../session/session-draft-store.js";
 

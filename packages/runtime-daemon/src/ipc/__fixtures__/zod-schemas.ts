@@ -1,7 +1,7 @@
 // `ZodType` doubles shared by the IPC test suites. The registry only reads `safeParse`, so each
 // double implements only that and no real schema is built.
 
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 /** Schema mock that accepts any input as `{ success: true, data }`. */
 export function passthroughSchema<T>(): ZodType<T> {

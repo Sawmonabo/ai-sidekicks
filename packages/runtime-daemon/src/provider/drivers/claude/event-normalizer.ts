@@ -11,9 +11,9 @@
 // `queued_notification` (daemon-to-CLI, so anomalous inbound), `model_refusal_*`,
 // `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
 
-import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event";
-import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session-event";
+import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";

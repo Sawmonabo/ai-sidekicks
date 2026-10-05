@@ -1,7 +1,7 @@
 // A form built from a kind's parameter list refuses an invalid answer, so a step waiting on a
 // person never receives a value the kind did not declare.
 
-import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow-kind";
+import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import { describe, expect, it } from "vitest";
 import { checkParamAnswers, seedParamAnswers } from "./param-answers.js";
 

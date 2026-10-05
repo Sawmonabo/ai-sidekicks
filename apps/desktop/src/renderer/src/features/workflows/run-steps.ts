@@ -6,7 +6,7 @@ import type {
   WorkflowStep,
   WorkflowStepStatus,
   WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/run/run";
 
 /** One of a node's step records, and the pass of the node it belongs to. */
 export interface NodePass {

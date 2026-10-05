@@ -6,13 +6,13 @@
 import { act } from "@testing-library/react";
 import { type Mock, vi } from "vitest";
 
-import type { ArtifactId, RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 import type {
   ArtifactPayloadEncoding,
   ArtifactReadResponse,
 } from "@ai-sidekicks/contracts/artifacts/operations";
-import type { SessionId, UserId } from "@ai-sidekicks/contracts/session";
+import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/session";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { ManualClock } from "@renderer/lib/clock.js";

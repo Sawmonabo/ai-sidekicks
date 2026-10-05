@@ -3,7 +3,7 @@
 // value is total over exactly the optional columns (`OptionalColumnKey`), so a column that becomes
 // optional or stops being optional fails to compile until its sentence is written or removed.
 
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 
 /**
  * Every text column of a worktree row, as the wire names it: the members whose value is

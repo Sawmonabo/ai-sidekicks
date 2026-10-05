@@ -5,8 +5,8 @@
 
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { RUN_GRAPH_NODE_WIDTH, runGraphNodeHeight, type CanvasPoint } from "./run-graph-layout.js";
 import { itemCountWords } from "../../workflow-words.js";

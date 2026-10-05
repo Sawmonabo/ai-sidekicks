@@ -3,7 +3,7 @@
 import type {
   ProviderAccountId,
   ProviderLoginExpiredRemedy,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

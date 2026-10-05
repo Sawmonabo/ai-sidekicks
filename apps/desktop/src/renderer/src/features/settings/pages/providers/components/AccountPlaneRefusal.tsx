@@ -11,7 +11,7 @@ import "./account-plane-handoff.css";
 import type {
   ProviderLoginExpiredRemedy,
   ProviderName,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
 import { type Refusal } from "@renderer/lib/refusal.js";

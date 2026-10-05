@@ -3,7 +3,7 @@
 // limit; any framing violation throws, because a desynced stream cannot be resynchronized. Bytes
 // are plain `Uint8Array`s, so every runtime can use it; a Node `Buffer` is one.
 
-import { MAX_MESSAGE_BYTES, type JsonRpcMessage } from "./jsonrpc.js";
+import { MAX_MESSAGE_BYTES, type JsonRpcMessage } from "./jsonrpc/jsonrpc.js";
 
 /** The framing header name: matched case-insensitively on receive, emitted in this casing. */
 export const CONTENT_LENGTH_HEADER = "Content-Length";

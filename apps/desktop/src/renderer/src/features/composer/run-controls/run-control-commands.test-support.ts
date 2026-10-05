@@ -4,8 +4,8 @@
 import type {
   InterventionRequestResponse,
   RunControlAck,
-} from "@ai-sidekicks/contracts/run-control";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+} from "@ai-sidekicks/contracts/run/control";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { type RunControlCommandRun } from "./contributions/run-control-commands.js";
 import {

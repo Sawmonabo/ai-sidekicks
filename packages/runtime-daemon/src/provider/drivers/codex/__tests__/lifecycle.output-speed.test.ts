@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { CreateSessionParams } from "../../../provider-driver.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import { CodexTransportError, type CodexModelCatalogExchange } from "../index.js";

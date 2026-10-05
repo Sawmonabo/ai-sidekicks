@@ -9,22 +9,22 @@
 //   this module holds no socket.
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
-import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import type {
   LocalSubscriptionProducer,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionId,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelParamsSchema,
   SubscriptionCancelResultSchema,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 /**
  * Thrown synchronously from `next(value)` when the value fails the subscription's `valueSchema`: a

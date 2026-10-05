@@ -2,7 +2,7 @@
 // issue. A number keeps the typed text and a select stores the option's real value; turning
 // either into what is sent is the check's job.
 
-import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow-kind";
+import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow/kind";
 
 /** What the form hands one leaf field. */
 export interface ParamLeafFieldProps {

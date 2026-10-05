@@ -6,12 +6,12 @@
 import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
-import { wireFreeFormString } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import { wireFreeFormString } from "@ai-sidekicks/contracts/session/session";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { isPlainObject } from "../../record-readers.js";
 

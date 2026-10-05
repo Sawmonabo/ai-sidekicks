@@ -1,12 +1,12 @@
 import { useId } from "react";
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import {
   WORKFLOW_RUN_STATUSES,
   WORKFLOW_TRIGGER_KINDS,
   type WorkflowRunStatus,
   type WorkflowTriggerKind,
-} from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../../workflow-words.js";
 import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../run-filters.js";

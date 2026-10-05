@@ -4,7 +4,7 @@
 // read, its answered steps carrying the record of how and when.
 
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { RequestStampReader } from "@renderer/services/daemon/scenario-reply.fixture.js";
 import type {
   WorkflowRunId,
@@ -12,7 +12,7 @@ import type {
   WorkflowStep,
   WorkflowStepResolutionKind,
   WorkflowTriggerKind,
-} from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/run/run";
 
 import {
   WORKFLOW_DEFINITION_RECORDS,

@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import type { AgentId } from "@ai-sidekicks/contracts/agent-definition";
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type {
   EventCursor,
   SessionId,
@@ -14,24 +14,24 @@ import type {
   SessionStreamFrame,
   SessionSubscribeRequest,
   SessionSubscribeResponse,
-} from "@ai-sidekicks/contracts/session";
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
+} from "@ai-sidekicks/contracts/session/session";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type {
   SessionCreateRequest,
   SessionCreateResponse,
-} from "@ai-sidekicks/contracts/session-directory";
+} from "@ai-sidekicks/contracts/session/directory";
 import type {
   SubscriptionId,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/session";
 import {
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../registry.js";

@@ -7,7 +7,7 @@
 // Every beat is a registered event with its registered payload, and every id is the UUID its
 // branded type declares. `tests/helpers/scenario-contract-check/contract-check.ts` holds the
 // beats to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict payload layer
-// (`SessionEventSchema`) in `packages/contracts/src/event.ts`. So:
+// (`SessionEventSchema`) in `packages/contracts/src/event/session-event.ts`. So:
 //
 //   - `session.created` carries the lead, so the `agents` projection rebuilds from the log
 //     alone. The reviewer takes part only when a run names it.
@@ -26,19 +26,19 @@
 // first entry, so a second `driver.listProviderCommands` refusal would be unreachable. That arm
 // is tested in `features/composer/command-list/`, over a bridge whose scenario refuses the call.
 
-import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent-definition";
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import {
   UserIdSchema,
   SessionIdSchema,
   type UserId,
   type SessionId,
-} from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/session/session";
 import {
   RunIdSchema,
   type RunId,
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

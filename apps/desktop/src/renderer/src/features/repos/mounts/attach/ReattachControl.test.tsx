@@ -7,7 +7,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import type { RepoOperations } from "../../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";

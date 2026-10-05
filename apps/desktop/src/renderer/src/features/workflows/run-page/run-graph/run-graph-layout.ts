@@ -5,7 +5,7 @@
 
 import { graphlib, layout } from "@dagrejs/dagre";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow-definition";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
 /** A point on the canvas, in canvas units. */
 export interface CanvasPoint {

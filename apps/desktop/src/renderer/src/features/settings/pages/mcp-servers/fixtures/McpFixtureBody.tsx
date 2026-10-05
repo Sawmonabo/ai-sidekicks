@@ -15,7 +15,7 @@ import "./mcp-fixture-body.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/mcp";
 import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

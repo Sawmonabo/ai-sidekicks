@@ -12,7 +12,7 @@
 
 import { useEffect } from "react";
 
-import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon-status";
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import { coerceToRefusal } from "@renderer/lib/coerce-to-refusal.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

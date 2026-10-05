@@ -2,7 +2,7 @@
 // whether they may be sent. The form keeps what the person typed (a number field holds its
 // text, a JSON field its source), so the check is where text becomes the value that is sent.
 
-import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow-kind";
+import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 /** The answers a form holds, keyed by field id. */
 export type ParamAnswers = Readonly<Record<string, unknown>>;

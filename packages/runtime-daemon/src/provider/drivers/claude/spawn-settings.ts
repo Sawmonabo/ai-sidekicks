@@ -6,7 +6,7 @@
 import type {
   ExecutionPosture,
   SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import { CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS } from "./subagent-policy.js";
 
 /** The server every callback tool is served under; the provider namespaces tools by server. */

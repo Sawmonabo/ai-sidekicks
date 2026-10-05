@@ -2,13 +2,13 @@
 // both publish it, so neither imports the other's class just to name the shared value.
 // `not-read` and an empty list are different facts: `status` says whether a read was made.
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/workspace";
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 

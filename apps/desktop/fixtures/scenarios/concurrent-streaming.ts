@@ -23,7 +23,7 @@
 // Every beat is a registered event with its registered payload.
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event.ts`, because a fixture that plays a type no daemon emits
+// `packages/contracts/src/event/session-event.ts`, because a fixture that plays a type no daemon emits
 // produces passing results about a wire that does not exist.
 //
 // The approval pair and the run-state pair are two records, not one: `approval_flow` records

@@ -9,7 +9,7 @@ import type {
   MethodRegistry,
   RegisterOptions,
   ZodType,
-} from "@ai-sidekicks/contracts/jsonrpc-registry";
+} from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 /**
  * Records every mutating call dispatched through the registry it wraps. A call is recorded once its

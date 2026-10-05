@@ -7,10 +7,10 @@
 // a later computed read may reflect, and the notices it pushes. The detail sentence travels on the
 // settlement because the diagnosis and remedy are properties of what the engine did.
 
-import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp-event";
-import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider-account-methods";
-import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow-run-records";
-import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/event";
+import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
+import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
+import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { daemonMethodBindingFor } from "@shared/daemon-method-bindings.js";
 import { parseInstant } from "@renderer/lib/instant.js";

@@ -17,8 +17,8 @@ import {
   type WorkflowDefinitionScope,
   type WorkflowDocument,
   type WorkflowDraftDocument,
-} from "@ai-sidekicks/contracts/workflow-definition";
-import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { z } from "zod";
 
 const positiveNumber = z.number().int().positive();

@@ -1,6 +1,6 @@
 // What a bind form sends, and what it refuses to send.
 
-import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/session";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/session/session";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 import { describe, expect, it } from "vitest";
 

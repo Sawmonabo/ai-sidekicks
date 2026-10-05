@@ -4,7 +4,7 @@
 // Marks are single-field and present exactly when superseded, a row at the cutoff survives,
 // and marks are epoch-scoped because re-execution reuses ordinals.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 /** One group of rows a single rollback rewound. */
 export interface SupersededTurns {

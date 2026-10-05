@@ -17,7 +17,7 @@
 // Every beat is a registered event with its registered payload.
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event.ts`, and `fixtures/data/script-entries.ts` carries the
+// `packages/contracts/src/event/session-event.ts`, and `fixtures/data/script-entries.ts` carries the
 // payload builders so a member cannot drift between two beats of one kind.
 //
 // Deliberately not scripted:
@@ -336,7 +336,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   {
     atMs: 2_600,
     kind: "run.rolled_back",
-    // `RunRolledBackEvent`'s members (`packages/contracts/src/run-control.ts`): the
+    // `RunRolledBackEvent`'s members (`packages/contracts/src/run/control.ts`): the
     // post-rollback progression value and the turn boundary the run landed at, which the
     // superseded turns above it are measured against.
     actorId: USER_YOU,

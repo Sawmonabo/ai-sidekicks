@@ -10,8 +10,8 @@ import { SystemMessageClassifier } from "../system-message-classifier.js";
 import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-} from "@ai-sidekicks/contracts/agent-provider-binding";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+} from "@ai-sidekicks/contracts/agent/provider-binding";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
   const systemMessage = new SystemMessageClassifier().classify(row);

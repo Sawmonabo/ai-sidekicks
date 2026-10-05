@@ -18,7 +18,7 @@ import {
   type ExecutionMode,
   type VcsType,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
+} from "@ai-sidekicks/contracts/repo/repo";
 import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,

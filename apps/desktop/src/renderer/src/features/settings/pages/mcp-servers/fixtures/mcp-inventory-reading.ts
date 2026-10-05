@@ -8,7 +8,7 @@
 
 import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@shared/preload-api.js";
-import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
 import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */

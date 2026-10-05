@@ -2,7 +2,7 @@
 // cards it hosts, and what its receipt leaves out.
 
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

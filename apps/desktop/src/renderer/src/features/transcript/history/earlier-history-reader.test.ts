@@ -10,8 +10,8 @@ import {
   type TranscriptReadRequest,
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 import { type DaemonReply } from "@renderer/services/daemon/daemon-reply.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";

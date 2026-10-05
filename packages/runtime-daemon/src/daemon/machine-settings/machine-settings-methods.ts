@@ -14,9 +14,9 @@ import {
   type MachineSettingsReading,
   type MachineSettingsSubscribeRequest,
 } from "@ai-sidekicks/contracts/machine-settings";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { registerDescribedMethod } from "../../ipc/handlers/register-described-method.js";

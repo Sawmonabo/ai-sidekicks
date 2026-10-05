@@ -24,13 +24,13 @@ import {
   JSONRPC_VERSION,
   JsonRpcErrorCode,
   type JsonRpcRequest,
-} from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   CURRENT_PROTOCOL_VERSION,
   type DaemonHelloAck,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon-lifecycle";
-import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon-status";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -13,18 +13,18 @@ import {
   AgentIdSchema,
   type AgentDefinitionId,
   type AgentId,
-} from "./agent-definition.js";
+} from "./agent/definition.js";
 import {
   AgentTreeMemberSchema,
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "./agent.js";
+} from "./agent/agent.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
-import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
-import { RunStateSchema, type RunState } from "./run-state.js";
+import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider/driver/driver.js";
+import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider/driver/wire.js";
+import { RunStateSchema, type RunState } from "./run/state.js";
 import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
 import {
   OrchestrationBudgetReadRequestSchema,
@@ -36,8 +36,8 @@ import {
   type OrchestrationBudgetState,
   type SessionCostReceipt,
   type SessionCostReceiptRequest,
-} from "./session-cost.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+} from "./session/cost.js";
+import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session/session.js";
 
 // orchestration.runCreate
 

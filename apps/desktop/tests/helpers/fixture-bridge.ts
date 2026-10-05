@@ -7,9 +7,9 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon-methods";
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
-import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/daemon/methods";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
 import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
 import type { ServedDaemonCall, Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

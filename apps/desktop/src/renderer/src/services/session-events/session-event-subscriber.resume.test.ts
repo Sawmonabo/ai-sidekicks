@@ -5,9 +5,9 @@
 // catches up past a cursor as the daemon does.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";

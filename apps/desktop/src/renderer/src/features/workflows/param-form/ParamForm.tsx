@@ -2,7 +2,7 @@
 // builder's inspector reuses it. It holds no state; the answers and the last check's issues
 // come from the caller, which seeds them and checks them with `param-answers.ts`.
 
-import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow-kind";
+import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import { isParamFieldShown, seedParamAnswers } from "./param-answers.js";
 import type { ParamAnswers, ParamIssues } from "./param-answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";

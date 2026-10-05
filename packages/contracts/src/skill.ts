@@ -13,17 +13,17 @@ import {
   type AgentDefinitionScope,
   refinePluginOrigin,
   refineProjectScope,
-} from "./agent-definition.js";
+} from "./agent/definition.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/driver.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session/session.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /**

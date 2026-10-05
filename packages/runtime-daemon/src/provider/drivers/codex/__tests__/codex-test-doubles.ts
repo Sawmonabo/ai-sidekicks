@@ -6,8 +6,8 @@ import {
   type DriverCapabilities,
   type DriverCapabilityFlag,
   type RunId,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import {
   DriverDiagnosticsEmitter,
   type DriverDiagnosticRecord,

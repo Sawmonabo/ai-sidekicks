@@ -5,8 +5,8 @@
 // binding's group reaches the list, because a command enumerated under one binding is never
 // offered under another.
 
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
 import type { CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { ComposerTarget } from "../composer-target.js";

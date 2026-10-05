@@ -7,8 +7,8 @@ import type {
   BranchContextId,
   WorktreeId,
   WorktreeStatusRecord,
-} from "@ai-sidekicks/contracts/worktree";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+} from "@ai-sidekicks/contracts/worktree/worktree";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 import { act } from "@testing-library/react";

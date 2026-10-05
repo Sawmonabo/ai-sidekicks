@@ -1,4 +1,4 @@
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { codeWords } from "../../workflow-words.js";

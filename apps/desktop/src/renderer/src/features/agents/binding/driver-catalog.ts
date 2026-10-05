@@ -7,8 +7,8 @@
 import type {
   ListCapabilitiesResult,
   ListModelsResult,
-} from "@ai-sidekicks/contracts/provider-driver-wire";
-import type { ProviderModel } from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/wire";
+import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 /** Both catalog reads, held together because no axis control can use one alone. */
 export interface DriverCatalogReading {

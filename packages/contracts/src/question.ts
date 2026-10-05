@@ -11,15 +11,15 @@
 // no projection and no artifact, and the person's turn records only that a secret
 // was answered.
 //
-// This file imports nothing from `event.ts`: that module imports the payload
+// This file imports nothing from `event/session-event.ts`: that module imports the payload
 // schema below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
+import { SessionIdSchema, type SessionId } from "./session/session.js";
 
 /** The daemon-minted id of one question record. */
 export type QuestionId = string & { readonly __brand: "QuestionId" };

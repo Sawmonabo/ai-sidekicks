@@ -4,7 +4,7 @@ import {
   type BillingMode,
   type ProviderAccount,
   type ProviderName,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { BILLING_MODE_WORDS } from "@renderer/lib/account-plane-sentences.js";

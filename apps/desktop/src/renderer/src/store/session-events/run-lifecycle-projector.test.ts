@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run-queued";
+import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
 
 import { SCENARIOS } from "@fixtures/index.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "@fixtures/scenarios/concurrent-streaming.js";

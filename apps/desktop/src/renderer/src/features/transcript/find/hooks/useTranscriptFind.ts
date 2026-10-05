@@ -5,7 +5,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 import {
   emptyFindResult,

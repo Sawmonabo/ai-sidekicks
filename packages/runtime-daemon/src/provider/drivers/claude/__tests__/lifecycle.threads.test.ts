@@ -1,7 +1,7 @@
 // `lifecycle.ts` threads: inbound frames routed to the right thread and metered once as per-turn
 // deltas, child subagents kept off the parent's transcript, and subagent admission per process.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { describe, expect, it } from "vitest";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";

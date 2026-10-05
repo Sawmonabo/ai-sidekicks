@@ -8,7 +8,7 @@ import type {
   SessionRestorePart,
   SessionRestoreResult,
   SessionRestoreScope,
-} from "@ai-sidekicks/contracts/session-restore";
+} from "@ai-sidekicks/contracts/session/restore";
 
 /** Where an undo went back to: before one of your messages, or to a named snapshot. */
 export type RestoreTarget =

@@ -19,8 +19,8 @@ import {
   ExecutionModeSchema,
   type ExecutionMode,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
-import { WorktreeStateSchema } from "@ai-sidekicks/contracts/worktree";
+} from "@ai-sidekicks/contracts/repo/repo";
+import { WorktreeStateSchema } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import {
   WorkspaceBranchMismatchError,

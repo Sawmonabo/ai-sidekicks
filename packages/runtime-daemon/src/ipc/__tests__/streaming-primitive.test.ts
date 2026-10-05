@@ -4,18 +4,18 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import type {
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionNotifyParams,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { MethodRegistryImpl } from "../registry.js";
 import {

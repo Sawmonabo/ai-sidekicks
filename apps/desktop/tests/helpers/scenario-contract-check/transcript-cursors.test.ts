@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon-methods";
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
-import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session";
+import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/methods";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
 
 import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";
 import { SCENARIOS } from "@fixtures/index.js";

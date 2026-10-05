@@ -8,8 +8,8 @@
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 /** One question record, as much of it as the row's payload carries. */

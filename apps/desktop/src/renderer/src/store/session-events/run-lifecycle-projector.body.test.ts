@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider-driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import type { ProjectedSessionEvent } from "../session/entities/entities.js";
 import { projectRunLifecycleEvent } from "./run-lifecycle-projector.js";

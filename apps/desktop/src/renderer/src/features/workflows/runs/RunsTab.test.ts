@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";

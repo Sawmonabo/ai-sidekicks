@@ -6,12 +6,12 @@
 // filters keeps the rows drawn until the new answer replaces them. A page `Load earlier` could
 // not read keeps the rows above it, with its error and `Try again` below them.
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
   WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

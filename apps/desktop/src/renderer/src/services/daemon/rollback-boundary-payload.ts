@@ -7,7 +7,7 @@
 import {
   RunRolledBackEventSchema,
   type RunRolledBackEvent,
-} from "@ai-sidekicks/contracts/run-control";
+} from "@ai-sidekicks/contracts/run/control";
 
 /**
  * Read a `run.rolled_back` payload, or `undefined` where the wire's is off contract. Not a throw

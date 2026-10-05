@@ -24,7 +24,7 @@
 // the two header names, and `assertDpopCredentialMaterial` checks them.
 
 import type { NodeId } from "@ai-sidekicks/contracts/node-id";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 /** The HTTP header carrying the DPoP-bound access token; callers and tests share this spelling. */
 export const AUTHORIZATION_HEADER_NAME = "Authorization";

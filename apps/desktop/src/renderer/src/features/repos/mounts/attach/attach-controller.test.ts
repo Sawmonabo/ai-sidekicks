@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";

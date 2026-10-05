@@ -7,8 +7,8 @@
 // Fail-closed, and absent is not `false`. No declaration for a driver leaves every control this
 // readout gates off screen, a different fact from a driver having declared the flag absent.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 

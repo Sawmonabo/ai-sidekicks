@@ -10,7 +10,7 @@ import type {
   ProviderName,
   ProviderReadinessState,
   ProviderRemedy,
-} from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/account/account";
 
 import { PROVIDER_LABELS } from "./provider-labels.js";
 

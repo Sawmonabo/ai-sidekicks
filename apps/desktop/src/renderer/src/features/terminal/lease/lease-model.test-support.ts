@@ -6,7 +6,7 @@
 
 import { PTY_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/pty";
 import type { CommandId } from "@ai-sidekicks/contracts/command";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {

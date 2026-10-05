@@ -4,11 +4,11 @@
 // the states the daemon's own refusals name, so a press the screen allows and the daemon still
 // refuses shows the daemon's words instead.
 
-import type { WorkflowRunStatus, WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+import type { WorkflowRunStatus, WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 import {
   GOING_RUN_STATUSES,
   type WorkflowRunReadResponse,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { isLaterStep } from "./run-steps.js";
 

@@ -14,9 +14,9 @@ import type {
   DriverCompactionResult,
   ProviderCommandListResult,
   ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import { ThreadFrameRouter } from "../../thread-frame-router.js";
 import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";

@@ -6,8 +6,8 @@
 // measured replies live in its own `__fixtures__/capability-probe-replies.ts`; the transport takes
 // that driver's default reply builder.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider-driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
 import type {
   CapabilityDetectionMechanism,

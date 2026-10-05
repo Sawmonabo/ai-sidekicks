@@ -5,7 +5,7 @@
 // they are named so cases read as "the first mount".
 
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo-folders";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
 
 /** The session both suites read for. */

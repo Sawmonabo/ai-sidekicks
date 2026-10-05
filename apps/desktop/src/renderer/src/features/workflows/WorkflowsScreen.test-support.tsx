@@ -8,7 +8,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import {

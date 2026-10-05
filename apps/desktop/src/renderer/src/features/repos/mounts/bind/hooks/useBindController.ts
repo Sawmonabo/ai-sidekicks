@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
 
 import { useOwnerWindow } from "@renderer/hooks/owner-window/useOwnerWindow.js";
 import { useBridgeClock } from "@renderer/services/platform/hooks/useClock.js";

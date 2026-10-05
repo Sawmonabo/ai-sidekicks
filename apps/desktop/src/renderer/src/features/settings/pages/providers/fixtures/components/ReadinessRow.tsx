@@ -1,4 +1,7 @@
-import type { ProviderAccount, ProviderReadiness } from "@ai-sidekicks/contracts/provider-account";
+import type {
+  ProviderAccount,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts/provider/account/account";
 import type { ReactNode } from "react";
 
 import type { Refusal } from "@renderer/lib/refusal.js";

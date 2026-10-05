@@ -9,9 +9,9 @@ import type {
   JsonRpcId,
   JsonRpcNotification,
   JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc";
-import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import {
   buildSubscriptionNotify,

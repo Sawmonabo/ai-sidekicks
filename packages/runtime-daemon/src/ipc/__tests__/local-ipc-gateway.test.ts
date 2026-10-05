@@ -8,9 +8,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type { Handler } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import type { Handler } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   encodeFrame,
   FramingError,

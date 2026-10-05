@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
   WorkflowRunAttentionListResponse,
   WorkflowRunsPauseState,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";

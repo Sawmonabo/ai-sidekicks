@@ -1,7 +1,7 @@
 // The one classifier table: which event types get no row kind, and how a tool result's state
 // ranks.
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event-envelope";
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { describe, expect, it } from "vitest";
 
 import { classifyTranscriptRow, toolResultState } from "./row-kind.js";

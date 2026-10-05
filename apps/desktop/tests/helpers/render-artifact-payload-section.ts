@@ -5,7 +5,7 @@
 // section, so a case exercises the real binding and section against the calls it scripts. What is
 // served comes from `artifact-list-readers.ts`, so mounted and reader cases share one fixture.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { render } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

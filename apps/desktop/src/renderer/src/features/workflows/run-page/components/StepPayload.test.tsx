@@ -5,7 +5,10 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { WorkflowItemSchema, type WorkflowItem } from "@ai-sidekicks/contracts/workflow-definition";
+import {
+  WorkflowItemSchema,
+  type WorkflowItem,
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
 
 import { liveBridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { ElementHeightShim } from "@test/helpers/element-height-shim.js";

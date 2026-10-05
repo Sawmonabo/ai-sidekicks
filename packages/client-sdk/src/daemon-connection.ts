@@ -11,7 +11,7 @@ import * as os from "node:os";
 import {
   resolveDaemonRunFolder,
   type DaemonRunFolder,
-} from "@ai-sidekicks/contracts/daemon-run-folder";
+} from "@ai-sidekicks/contracts/daemon/run-folder";
 import {
   CURRENT_PROTOCOL_VERSION,
   DAEMON_HELLO_METHOD,
@@ -20,7 +20,7 @@ import {
   type DaemonHello,
   type DaemonHelloAck,
   SUPPORTED_PROTOCOL_VERSIONS,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { JsonRpcClient, JsonRpcRemoteError } from "./transport/json-rpc-client.js";
 import { connectLocalSocket } from "./transport/local-socket-transport.js";

@@ -3,8 +3,8 @@
 // or a rewind supersedes it. A trip quarantines the session and the run and reports the run
 // failure.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   type OutboundFrameTripwire,

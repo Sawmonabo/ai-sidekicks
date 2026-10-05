@@ -9,7 +9,7 @@
 // answers never settles.
 import { AsyncEntry } from "@napi-rs/keyring";
 
-import type { WorkflowSecretStoreUnavailableCause } from "@ai-sidekicks/contracts/workflow-secret";
+import type { WorkflowSecretStoreUnavailableCause } from "@ai-sidekicks/contracts/workflow/secret";
 
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "./secret-keychain.js";
 

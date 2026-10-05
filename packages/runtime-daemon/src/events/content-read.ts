@@ -14,11 +14,11 @@ import type {
   EventEnvelope,
   HydratedSessionEvent,
   HydratedSessionEventContent,
-} from "@ai-sidekicks/contracts/event-envelope";
+} from "@ai-sidekicks/contracts/event/envelope";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event-declared-variants";
+} from "@ai-sidekicks/contracts/event/declared-variants";
 
 /**
  * One stored row, as the caller read it. `contentPayload` is `unknown` because it arrives straight

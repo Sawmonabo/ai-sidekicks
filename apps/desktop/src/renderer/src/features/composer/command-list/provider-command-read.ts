@@ -3,7 +3,7 @@
 // parses request and reply and never rejects: an unreadable reply and `driver.unavailable` alike
 // arrive as a refusal. The round's signal is a parameter, since the holder owns the read.
 
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";

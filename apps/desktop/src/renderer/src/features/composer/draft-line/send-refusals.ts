@@ -3,7 +3,7 @@
 // so nothing here reads one, and the only daemon refusal built here is an intervention answered
 // with a declining lifecycle state.
 
-import type { InterventionState } from "@ai-sidekicks/contracts/run-control";
+import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 

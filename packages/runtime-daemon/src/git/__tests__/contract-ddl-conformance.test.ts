@@ -10,11 +10,11 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type IdempotencyClass,
   type InterventionType,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo";
-import type { InterventionState } from "@ai-sidekicks/contracts/run-control";
-import type { QueueItemState } from "@ai-sidekicks/contracts/run-queue";
-import type { WorktreeState } from "@ai-sidekicks/contracts/worktree";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
+import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
+import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 

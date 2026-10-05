@@ -4,23 +4,27 @@
 // progress, Generate, and the payload of `git.settled`, the one event that records a
 // commit, a push, a pull, an opened change request or a posted review.
 //
-// This module imports nothing that reaches `../event.js`: `event.ts` imports
-// `GitSettledPayloadSchema` from here, and a cycle among module-scope zod schemas
-// throws at load time.
+// This module imports nothing that reaches `../event/session-event.js`: `event/session-event.ts`
+// imports `GitSettledPayloadSchema` from here, and a cycle among module-scope zod schemas throws at
+// load time.
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
-import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
+import {
+  DRIVER_FAILURE_DETAIL_MAX_LEN,
+  RunIdSchema,
+  type RunId,
+} from "../provider/driver/driver.js";
+import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
 import {
   FILE_PATH_MAX_LEN,
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
-} from "../session.js";
-import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow-definition.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow-run.js";
+} from "../session/session.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/definition.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/run.js";
 import {
   ChangeRequestSummarySchema,
   GIT_HOST_KINDS,

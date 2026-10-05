@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   WorkflowRunListResponse,
   WorkflowRunSummary,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { WORKFLOW_RUN_IDS } from "@fixtures/data/workflow-runs.js";
 import type { DaemonSubscriptionEnd } from "@shared/daemon-forwarding.js";

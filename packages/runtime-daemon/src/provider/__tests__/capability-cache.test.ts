@@ -7,9 +7,9 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilities,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider-driver";
-import { DriverCapabilityReportSchema } from "@ai-sidekicks/contracts/provider-driver-wire";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import { DriverCapabilityReportSchema } from "@ai-sidekicks/contracts/provider/driver/wire";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
 
 import { DriverCapabilityCache } from "../capability-cache.js";
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";

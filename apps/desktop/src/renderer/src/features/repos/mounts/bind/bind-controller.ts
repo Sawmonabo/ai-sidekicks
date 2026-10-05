@@ -3,8 +3,8 @@
 // mounts does not put a read on the wire per mount. A bind answers with the mode and lifecycle
 // state and no root; the workspace list is where a root is read from.
 
-import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type {
   WorkspaceBindResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,

@@ -3,7 +3,7 @@
  * target gateway, and the coordinator that keeps a target to one brief send.
  */
 
-import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider-driver-transcript";
+import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { OutboundTextFrame } from "../outbound-frame.js";
 import { OutboundTextFrameWriter } from "../outbound-frame.js";
 import {

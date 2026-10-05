@@ -5,7 +5,7 @@
 import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import * as net from "node:net";
 
-import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon-run-folder";
+import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
 import { DaemonAlreadyRunningError } from "./daemon-already-running-error.js";
 

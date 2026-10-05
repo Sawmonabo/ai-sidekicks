@@ -5,9 +5,9 @@
 import { useRef } from "react";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { EventCursor } from "@ai-sidekicks/contracts/session";
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

@@ -5,15 +5,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonHello, DaemonHelloAck } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
-import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { DaemonHello, DaemonHelloAck } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import {
   DAEMON_HELLO_METHOD,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
   SUPPORTED_PROTOCOL_VERSIONS,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 import { NegotiationError, ProtocolNegotiator } from "../protocol-negotiation.js";

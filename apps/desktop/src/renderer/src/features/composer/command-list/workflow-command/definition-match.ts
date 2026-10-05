@@ -3,7 +3,7 @@
 // `deploy` must never start `deploy-production`. Case is folded because a name is a label, not a
 // wire identifier. Candidates are a prefix reading, since an unfinished word is a prefix.
 
-import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow-definition-methods";
+import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 /** What resolving a typed name against the enumeration answered. */
 export type WorkflowDefinitionMatch =

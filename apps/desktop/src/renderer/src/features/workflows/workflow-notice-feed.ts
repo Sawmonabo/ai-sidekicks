@@ -8,7 +8,7 @@
 // stands; the reads beside it still answer, they only stop refreshing. So is a stream that ended
 // and could not open again, until a re-open works: the hold it opens with sets the feed open.
 
-import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { Unsubscribe } from "@shared/preload-api.js";
 import { Emitter } from "@renderer/lib/emitter.js";

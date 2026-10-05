@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { MILLISECONDS_PER_DAY } from "@renderer/lib/instant.js";
 import type { Refusal } from "@renderer/lib/refusal.js";

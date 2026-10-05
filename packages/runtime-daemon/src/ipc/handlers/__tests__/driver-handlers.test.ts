@@ -5,22 +5,22 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentId } from "@ai-sidekicks/contracts/agent-definition";
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type {
   ApplyInterventionParams,
   DriverCapabilityFlag,
   RunId,
-} from "@ai-sidekicks/contracts/provider-driver";
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc";
-import type { UserId, SessionId } from "@ai-sidekicks/contracts/session";
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider-driver-wire";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider-account";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
-import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider-driver";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
-import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider-account";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/wire";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/driver";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/account/account";
 
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";

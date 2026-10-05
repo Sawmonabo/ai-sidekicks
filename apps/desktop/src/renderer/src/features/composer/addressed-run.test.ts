@@ -2,7 +2,7 @@
 // each one, so the new-turn path is unreachable for the rest of the session.
 
 import { describe, expect, it } from "vitest";
-import type { RunState } from "@ai-sidekicks/contracts/run-state";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { resolveAddressedRun } from "./addressed-run.js";

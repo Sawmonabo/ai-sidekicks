@@ -2,7 +2,7 @@
 // Each axis is valid only relative to its parent. Callers pass what the agent will run under,
 // inherited axes included, because the daemon merges those in before it validates.
 
-import type { AgentBindingSwitchTarget } from "@ai-sidekicks/contracts/agent-provider-binding";
+import type { AgentBindingSwitchTarget } from "@ai-sidekicks/contracts/agent/provider-binding";
 
 import {
   catalogCarriesEffortLevel,

@@ -7,8 +7,8 @@ import type {
   WorkflowDocument,
   WorkflowItem,
   WorkflowPinnedItem,
-} from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow-run";
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { RunControlAvailability } from "../run-controls.js";

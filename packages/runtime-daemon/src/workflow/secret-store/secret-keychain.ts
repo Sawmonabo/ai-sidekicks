@@ -5,7 +5,7 @@
 import {
   WORKFLOW_SECRET_STORE_UNAVAILABLE_CODE,
   type WorkflowSecretStoreUnavailableCause,
-} from "@ai-sidekicks/contracts/workflow-secret";
+} from "@ai-sidekicks/contracts/workflow/secret";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 

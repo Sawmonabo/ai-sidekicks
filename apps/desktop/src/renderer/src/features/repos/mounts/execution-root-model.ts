@@ -3,7 +3,7 @@
 // is `execution-root-columns.ts`. There is no `worktree.failed` event: `failed` arrives through a
 // status re-read. Snapshot refs live under `refs/sidekicks/`, never `refs/heads/`.
 
-import type { ListedWorktreeState } from "@ai-sidekicks/contracts/worktree";
+import type { ListedWorktreeState } from "@ai-sidekicks/contracts/worktree/worktree";
 
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 

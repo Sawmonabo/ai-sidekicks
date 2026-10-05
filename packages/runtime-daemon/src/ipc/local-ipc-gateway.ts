@@ -13,21 +13,21 @@
 
 import * as net from "node:net";
 
-import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type {
   JsonRpcErrorResponse,
   JsonRpcId,
   JsonRpcNotification,
   JsonRpcResponse,
-} from "@ai-sidekicks/contracts/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
   isJsonRpcIdWithinBound,
   JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
   MAX_MESSAGE_BYTES,
-} from "@ai-sidekicks/contracts/jsonrpc";
-import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   encodeFrame,
   FramingError,

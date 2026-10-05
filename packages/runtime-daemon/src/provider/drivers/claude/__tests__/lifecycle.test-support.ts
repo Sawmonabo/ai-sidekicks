@@ -1,8 +1,8 @@
 // Shared setup for the `lifecycle.ts` tests: a lifecycle wired to the transport and dispatch
 // doubles, plus the arrangements most tests open with.
 
-import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import type {

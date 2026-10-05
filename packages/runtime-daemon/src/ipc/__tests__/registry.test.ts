@@ -4,8 +4,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc";
+import type { Handler, HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 
 import { mapJsonRpcError } from "../jsonrpc-error-mapping.js";
 import {

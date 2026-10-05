@@ -3,8 +3,8 @@
 
 import * as net from "node:net";
 
-import type { JsonRpcMessage } from "@ai-sidekicks/contracts/jsonrpc";
-import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc";
+import type { JsonRpcMessage } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { encodeFrame, parseFrame } from "@ai-sidekicks/contracts/content-length-framing";
 
 /** Decodes every complete frame at the head of `bytes`. */

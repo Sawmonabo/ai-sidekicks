@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest";
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event-declared-variants";
-import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event-envelope";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
+} from "@ai-sidekicks/contracts/event/declared-variants";
+import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/session";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 
 import { hydrateStoredEvent } from "../content-read.js";
 

@@ -5,15 +5,15 @@
 // composed: the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it,
 // so a `session:sequence` key would resolve for no caller.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
   type TranscriptEventRow,
-} from "@ai-sidekicks/contracts/transcript/row";
-import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/transcript/row/row";
+import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
 
 import { readRollbackBoundaryPayload } from "@renderer/services/daemon/rollback-boundary-payload.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";

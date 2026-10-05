@@ -12,19 +12,19 @@
 import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
-} from "@ai-sidekicks/contracts/event-envelope";
+} from "@ai-sidekicks/contracts/event/envelope";
 import {
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
   type WorktreeState,
-} from "@ai-sidekicks/contracts/worktree";
+} from "@ai-sidekicks/contracts/worktree/worktree";
 import type {
   WorktreeCreatedEvent,
   WorktreeDirtyEvent,
   WorktreeMergedEvent,
   WorktreeReadyEvent,
   WorktreeRetiredEvent,
-} from "@ai-sidekicks/contracts/event-declared-variants";
+} from "@ai-sidekicks/contracts/event/declared-variants";
 
 import type { EventLogAppendReceipt } from "../events/event-log-service.js";
 import {

@@ -6,15 +6,15 @@
 import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   type RunId,
-} from "@ai-sidekicks/contracts/provider-driver";
+} from "@ai-sidekicks/contracts/provider/driver/driver";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandBinding,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
   type ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider-driver-transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import {
   readDeclaredOutputSpeed,
   type RunOutputSpeedSettledListener,

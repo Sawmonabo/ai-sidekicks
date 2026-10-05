@@ -27,16 +27,16 @@ import type {
   SessionStreamFrame,
   SessionSubscribeRequest,
   SessionSubscribeResponse,
-} from "@ai-sidekicks/contracts/session";
-import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event-variant-types";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event";
+} from "@ai-sidekicks/contracts/session/session";
+import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
 import {
   SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
-} from "@ai-sidekicks/contracts/session";
-import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc-streaming";
+} from "@ai-sidekicks/contracts/session/session";
+import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
 import type { StreamingPrimitive } from "../streaming-primitive.js";

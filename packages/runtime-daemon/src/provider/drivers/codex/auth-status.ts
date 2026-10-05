@@ -3,7 +3,7 @@
  * recovery condition.
  */
 
-import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider-driver-recovery";
+import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
 import { isPlainObject } from "../../record-readers.js";
 import type { CodexAppServerConnection } from "./app-server-connection.js";
 import { CodexProviderRequestError, normalizeProviderFailureDetail } from "./session-errors.js";

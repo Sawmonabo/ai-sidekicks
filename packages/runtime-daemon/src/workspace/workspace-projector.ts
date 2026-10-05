@@ -14,7 +14,7 @@ import {
   type RepoMountHealth,
   type VcsType,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo";
+} from "@ai-sidekicks/contracts/repo/repo";
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts/workspace";
 
 /**

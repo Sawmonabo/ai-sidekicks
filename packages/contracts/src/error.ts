@@ -2,7 +2,7 @@
 // `event.cursor_unresolvable`.
 import { z } from "zod";
 
-import { wireFreeFormString } from "./session.js";
+import { wireFreeFormString } from "./session/session.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** Type of {@link RESOURCE_LIMIT_EXCEEDED_CODE}. */

@@ -1,7 +1,7 @@
 // One authored beat composed into the wire envelope the daemon would have sent, and a run of them
 // into the `session.subscribe` frames that carry them. A scenario is authored in
 // `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical `EventEnvelope`
-// (`packages/contracts/src/event-envelope.ts`), whose event type is `type` and whose attribution
+// (`packages/contracts/src/event/envelope.ts`), whose event type is `type` and whose attribution
 // is `actor`.
 // A fixture that delivered the authoring shape would agree with the app's decode boundary and
 // with nothing the daemon sends, so this is the one place the first becomes the second.
@@ -11,13 +11,13 @@
 // judges are the schemas, run by `tests/helpers/scenario-contract-check/contract-check.ts` on every
 // beat before a scenario ships and by `session-event-payload.ts` on every delivery.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import {
   STREAM_FRAME_MAX_CHANGES,
   type StreamFrame,
-} from "@ai-sidekicks/contracts/jsonrpc-streaming";
-import type { EventCategory } from "@ai-sidekicks/contracts/event-envelope";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

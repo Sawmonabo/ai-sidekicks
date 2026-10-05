@@ -4,7 +4,7 @@
 // storage. The descriptor is not `mutating`, so a connection with an incompatible protocol
 // version can still read it.
 import type { MachinePresence } from "@ai-sidekicks/contracts/presence";
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 
 import { registerDescribedMethod } from "./register-described-method.js";

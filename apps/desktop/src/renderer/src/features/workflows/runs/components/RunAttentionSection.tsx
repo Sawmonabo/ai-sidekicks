@@ -3,7 +3,7 @@ import { useId } from "react";
 import type {
   WorkflowRunAttentionEntry,
   WorkflowRunAttentionListResponse,
-} from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { LoadingNotice } from "@renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

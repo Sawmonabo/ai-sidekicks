@@ -7,10 +7,13 @@
 // not check that an event's category matches its type, and every projector routes on `kind` alone,
 // so `projectSessionEvent` checks the pairing against the contracts census.
 
-import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event-envelope";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event";
-import { SessionStreamFrameSchema, type EventCursor } from "@ai-sidekicks/contracts/session";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
+import {
+  SessionStreamFrameSchema,
+  type EventCursor,
+} from "@ai-sidekicks/contracts/session/session";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

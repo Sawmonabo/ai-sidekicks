@@ -8,25 +8,25 @@
 // and each emission carries the whole list, so a late subscriber needs no resend and a dropped
 // frame costs nothing.
 //
-// This module imports nothing from `./event.js` and nothing that reaches it, because an import
-// cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
+// This module imports nothing from `./event/session-event.js` and nothing that reaches it, because
+// an import cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
   BranchNamePatternChangeSchema,
   BranchNamePatternSchema,
   EnvironmentRowSchema,
   type EnvironmentRow,
 } from "./machine-settings.js";
-import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo/repo.js";
 import {
   SessionIdSchema,
   wireFreeFormString,
   type SessionId,
   FILE_PATH_MAX_LEN,
-} from "./session.js";
+} from "./session/session.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of a project: the record beside a mount that the person names. */

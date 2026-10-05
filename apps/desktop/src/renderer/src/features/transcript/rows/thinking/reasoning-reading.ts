@@ -4,8 +4,8 @@
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 /** One arm of the contract's closed availability discriminant. */
 export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"];

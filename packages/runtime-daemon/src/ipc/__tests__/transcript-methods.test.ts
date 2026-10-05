@@ -8,10 +8,10 @@ import type {
   ReasoningSurfaceReadResponse,
   TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc-registry";
-import type { RunId } from "@ai-sidekicks/contracts/provider-driver";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 import {
   TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
   TRANSCRIPT_READ_METHOD,

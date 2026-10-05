@@ -24,7 +24,7 @@ import type {
   DaemonParams,
   DaemonResult,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon-methods";
+} from "@ai-sidekicks/contracts/daemon/methods";
 import type {
   MachineSettings,
   MachineSettingsChange,
@@ -32,8 +32,8 @@ import type {
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow-run";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import type { AppFacts } from "./app-facts.js";
 import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";

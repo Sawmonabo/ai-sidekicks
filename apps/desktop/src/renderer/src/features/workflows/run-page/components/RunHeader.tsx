@@ -1,6 +1,6 @@
-import type { EventCursor } from "@ai-sidekicks/contracts/session";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { parseInstant } from "@renderer/lib/instant.js";
 import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";

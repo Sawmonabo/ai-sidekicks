@@ -8,7 +8,7 @@ import type {
   ProviderAccountLoginCancelResponse,
   ProviderAccountLoginResponse,
   ProviderAccountRegisterResponse,
-} from "@ai-sidekicks/contracts/provider-account-sign-in";
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import type {

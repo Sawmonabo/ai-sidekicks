@@ -15,7 +15,7 @@ import {
   WorktreeStateSchema,
   type WorktreeRetireResponse,
   type WorktreeState,
-} from "@ai-sidekicks/contracts/worktree";
+} from "@ai-sidekicks/contracts/worktree/worktree";
 import { RepoMountNotFoundError } from "../workspace/repo-errors.js";
 import {
   WorktreeBranchCollisionError,

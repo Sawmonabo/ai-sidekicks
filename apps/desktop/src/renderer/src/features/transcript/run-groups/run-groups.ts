@@ -4,7 +4,7 @@
 // never sorts. Whether a group is open lives in `run-group-fold-state.ts`, so the live run group
 // never collapses. This module renders nothing; `RunGroupHeader.tsx` draws the model.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
 
 import { RunGroupBodyRowWindow, countClippedHeadRows } from "./run-group-body.js";
 import {

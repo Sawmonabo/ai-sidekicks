@@ -5,15 +5,15 @@
 import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
-} from "@ai-sidekicks/contracts/agent-provider-binding";
-import type { AgentDefinition } from "@ai-sidekicks/contracts/agent-definition";
-import type { AgentListAck, AgentListRequest } from "@ai-sidekicks/contracts/agent";
+} from "@ai-sidekicks/contracts/agent/provider-binding";
+import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
+import type { AgentListAck, AgentListRequest } from "@ai-sidekicks/contracts/agent/agent";
 import type {
   ChildRunLinkReadRequest,
   ChildRunLinkReadResponse,
 } from "@ai-sidekicks/contracts/orchestration";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Clock } from "@renderer/lib/clock.js";
 import { callDaemon } from "@renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

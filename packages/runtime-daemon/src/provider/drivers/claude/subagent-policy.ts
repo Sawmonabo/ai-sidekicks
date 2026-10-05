@@ -3,7 +3,7 @@
  * subagents run at once.
  */
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import { ClaudeSessionUnavailableError } from "./session-errors.js";
 import type { SubagentDefinition, SubagentPolicy } from "../../provider-driver.js";

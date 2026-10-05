@@ -25,9 +25,12 @@
 // escape by being forgotten; it would have to leave both its stream and the excluded-payload
 // table, and each is a compile error in its own module.
 
-import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event-envelope";
-import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "@ai-sidekicks/contracts/event";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
+import {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  SessionEventSchema,
+} from "@ai-sidekicks/contracts/event/session-event";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { describeSchemaIssue } from "./scenario-contract-defect.js";
 import { describeRunAndQueueSemanticsDefect } from "./run-and-queue-semantics.js";
@@ -42,7 +45,7 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
     return (
       `"${beat.event.kind}" is not a registered event type, so no daemon emits it. ` +
       "Script the registered type this beat means instead — the census is " +
-      "`SESSION_EVENT_CATEGORY_BY_TYPE` in `packages/contracts/src/event.ts`."
+      "`SESSION_EVENT_CATEGORY_BY_TYPE` in `packages/contracts/src/event/session-event.ts`."
     );
   }
   const semantics = describeRunAndQueueSemanticsDefect(beat);

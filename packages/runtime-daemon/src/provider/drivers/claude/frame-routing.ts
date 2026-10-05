@@ -2,7 +2,7 @@
 // whether it projects, and the usage accountant meters it. Subagent starts and stops register and
 // complete child threads, and the session's own handshake and compaction boundaries are tapped.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../thread-frame-router.js";

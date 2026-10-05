@@ -1,8 +1,8 @@
 import "./StepPayload.css";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider-driver";
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow-definition";
-import type { WorkflowPayloadRef } from "@ai-sidekicks/contracts/workflow-run";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowPayloadRef } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { CopyButton } from "@renderer/components/CopyButton/CopyButton.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";

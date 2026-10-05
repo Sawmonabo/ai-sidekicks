@@ -6,7 +6,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow-run-records";
+import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";

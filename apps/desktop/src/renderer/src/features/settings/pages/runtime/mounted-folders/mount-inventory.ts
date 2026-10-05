@@ -15,8 +15,8 @@
 import type {
   RepoMountReadRequest,
   RepoMountReadResponse,
-} from "@ai-sidekicks/contracts/repo-folders";
-import type { SessionEventType } from "@ai-sidekicks/contracts/event-registry";
+} from "@ai-sidekicks/contracts/repo/folders";
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type {
   WorkspaceListRequest,
   WorkspaceListResponse,

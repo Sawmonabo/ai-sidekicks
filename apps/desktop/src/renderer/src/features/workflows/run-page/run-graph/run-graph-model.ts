@@ -4,13 +4,16 @@
 // hears, which node is live and which edges a run is flowing through. Pure and free of the graph
 // library, so the page's own chunk can read it without pulling the canvas in.
 
-import type { WorkflowDocument, WorkflowNode } from "@ai-sidekicks/contracts/workflow-definition";
+import type {
+  WorkflowDocument,
+  WorkflowNode,
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type {
   WorkflowStep,
   WorkflowStepStatus,
   WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow-run";
-import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow-run-records";
+} from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "@renderer/lib/wire-figures.js";
 import { isLaterStep, isPersonWaitCause } from "../../run-steps.js";

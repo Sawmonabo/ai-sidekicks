@@ -22,14 +22,14 @@ import {
   DAEMON_LIFECYCLE_METHOD_DESCRIPTORS,
   DAEMON_STOP_DRAIN_BOUND_MS,
   type DaemonLifecycleAccepted,
-} from "@ai-sidekicks/contracts/daemon-lifecycle";
-import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon-status";
+} from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
   CURRENT_PROTOCOL_VERSION,
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   type DaemonHelloAck,
-} from "@ai-sidekicks/contracts/jsonrpc-negotiation";
+} from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   ProcessIdentitySchema,
   type ProcessIdentity,

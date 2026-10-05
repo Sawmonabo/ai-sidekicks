@@ -17,9 +17,9 @@
 // A daemon subscription that ends while the page still holds it is told to the page as an end.
 
 import { JsonRpcRemoteError, type LocalSubscriptionConsumer } from "@ai-sidekicks/client-sdk";
-import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon-lifecycle";
-import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc";
-import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc-registry";
+import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
 import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import { z, type ZodType } from "zod";

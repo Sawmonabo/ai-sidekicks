@@ -11,8 +11,8 @@ import type {
   McpLiveApplicationResult,
   McpServerInventoryEntry,
   McpServerLegStatus,
-} from "@ai-sidekicks/contracts/mcp";
-import type { SessionId } from "@ai-sidekicks/contracts/session";
+} from "@ai-sidekicks/contracts/mcp/mcp";
+import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { duplicateKeyReports, reportsWhileReactRan } from "@test/helpers/react-reports.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";
