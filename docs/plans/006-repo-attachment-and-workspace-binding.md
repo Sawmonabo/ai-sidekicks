@@ -394,7 +394,7 @@ This supplement EXTENDs the Phase-1 resolver and trust-envelope modules and the 
 
 ### Phase 4 — Console surfaces
 
-**Goal.** None in this plan. The console's new-session picker, clone card, projects settings page and runtime settings page are Plan-020's console, which calls the methods Phase 3 registers under the rules CP-006-6 states.
+**Goal.** None in this plan beyond the console components T3.11 replaces with the banner's `Re-attach`. The console's new-session picker, clone card, projects settings page, runtime settings page and lost-folder banner are Plan-020's console, which calls the methods Phase 3 registers under the rules CP-006-6 states.
 
 ## References
 
