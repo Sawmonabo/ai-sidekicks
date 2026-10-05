@@ -1,10 +1,14 @@
+/* The rail is a drag region of the window and its buttons are cut out of it. On macOS its top
+ * holds the traffic lights: the platform reports their area as `env(titlebar-area-height)`, an
+ * inset that is undefined in fullscreen and on every other platform, where the padding stays. */
 .meridian-rail {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-block: var(--meridian-space-3);
+  padding-block: env(titlebar-area-height, var(--meridian-space-3)) var(--meridian-space-3);
   border-right: 1px solid var(--meridian-edge);
   background: var(--meridian-surface-sunken);
+  app-region: drag;
 }
 
 .meridian-rail__list {
@@ -32,6 +36,7 @@
   background: transparent;
   color: var(--meridian-text-muted);
   cursor: default;
+  app-region: no-drag;
   transition:
     background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
     color var(--meridian-motion-quick) var(--meridian-ease-settle);

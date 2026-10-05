@@ -74,9 +74,12 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
   const baseWindow = new BaseWindow({
     ...options.bounds,
     show: false,
-    // On macOS the console fills the window under the traffic lights; elsewhere the system's
-    // own title strip stays.
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    // On macOS the console fills the window under the traffic lights, and the overlay hands the
+    // document their area as `env(titlebar-area-*)`, which is empty in fullscreen, so the rail's
+    // inset follows the buttons. Elsewhere the system's own title strip stays.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset", titleBarOverlay: true }
+      : { titleBarStyle: "default" }),
     backgroundColor: options.background,
   });
   const view = new WebContentsView({

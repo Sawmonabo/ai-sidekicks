@@ -2,7 +2,8 @@
 
 /* --- The header --------------------------------------------------------- */
 
-/* One line: a header that grows to two rows moves the pane layout under a cursor. */
+/* One line: a header that grows to two rows moves the pane layout under a cursor. Its empty
+ * space is a drag region of the window. */
 .meridian-session-header {
   display: flex;
   align-items: center;
@@ -12,6 +13,13 @@
   border-bottom: 1px solid var(--meridian-edge);
   background: var(--meridian-surface);
   font-size: var(--meridian-text-sm);
+  app-region: drag;
+}
+
+/* A press on a control presses it, and the session's title drags the view, never the window. */
+.meridian-session-header :is(button, input, select, textarea, a, [role="button"]),
+.meridian-session-header__identity {
+  app-region: no-drag;
 }
 
 .meridian-session-header__identity {

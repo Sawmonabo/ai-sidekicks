@@ -12,6 +12,8 @@
   position: fixed;
   inset: 0;
   background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+  /* Over the window's drag regions a press must reach the backdrop and the dialog. */
+  app-region: no-drag;
 }
 
 :where(.meridian-dialog) {
@@ -27,6 +29,7 @@
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-lg);
   background: var(--meridian-surface-raised);
+  app-region: no-drag;
 }
 
 :where(.meridian-dialog__title) {
