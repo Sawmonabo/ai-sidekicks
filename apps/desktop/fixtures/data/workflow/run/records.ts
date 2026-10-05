@@ -85,6 +85,8 @@ export function minutesAhead(minutesAfter: number): string {
 }
 
 const DEVICE = "device-0001" as DeviceId;
+// The project every saved workflow here belongs to, by its record's id.
+const PROJECT = "019b7a00-0280-75e5-8510-ada11a5a3100";
 const DIGEST = "wf-morning-digest" as WorkflowDefinitionId;
 const RELEASE = "wf-release-review" as WorkflowDefinitionId;
 const SUMMARIZE = "wf-summarize-folder" as WorkflowDefinitionId;
@@ -214,7 +216,7 @@ function summary(
     id,
     name,
     scope: "project",
-    scopeRef: "/work/sidekicks",
+    scopeRef: PROJECT,
     latestVersionNumber,
     latestWorkflowVersionId: `${id}-v${String(latestVersionNumber)}`,
     contentHash: `b3:${id.slice(3, 11)}`,

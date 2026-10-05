@@ -88,8 +88,8 @@ export const WorkflowDefinitionScopeSchema: z.ZodType<
 > = z.enum(WORKFLOW_DEFINITION_SCOPES);
 
 /**
- * A scope's identity: the authoring session's id at `session`, the resolved repository
- * root at `project`, and the empty string at `shared`, which refers to nothing narrower.
+ * A scope's identity: the authoring session's id at `session`, the project record's id at
+ * `project`, and the empty string at `shared`, which refers to nothing narrower.
  */
 export const WorkflowDefinitionScopeRefSchema: z.ZodType<string, string> = z
   .string()

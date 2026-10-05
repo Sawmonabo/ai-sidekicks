@@ -11,6 +11,7 @@ import {
 } from "../methods.js";
 
 const AGENT_ID = "33333333-3333-4333-8333-333333333333";
+const PROJECT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f20";
 const NOW = "2026-09-29T08:00:00.000Z";
 
 const DOCUMENT = {
@@ -32,7 +33,7 @@ describe("workflow.definitionCreate", () => {
   it("creates from the document, whose name is the one name", () => {
     const create = {
       scope: "project",
-      scopeRef: "/repo",
+      scopeRef: PROJECT_ID,
       document: DOCUMENT,
     };
     expect(WorkflowDefinitionCreateRequestSchema.safeParse(create).success).toBe(true);
@@ -48,7 +49,7 @@ describe("workflow.definitionRead", () => {
       id: "def-1",
       name: "Test workflow",
       scope: "project",
-      scopeRef: "/repo",
+      scopeRef: PROJECT_ID,
       versionNumber: 3,
       workflowVersionId: "ver-3",
       contentHash: "b3:0123abcd",

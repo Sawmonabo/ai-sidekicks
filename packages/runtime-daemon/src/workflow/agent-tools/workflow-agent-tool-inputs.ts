@@ -140,7 +140,7 @@ export const WorkflowCreateToolInputSchema: z.ZodType<
   .object({
     scope: WorkflowDefinitionScopeSchema.describe("Where the workflow is saved."),
     scopeRef: WorkflowDefinitionScopeRefSchema.optional().describe(
-      "The repository root for a project workflow. Omitted for session and shared.",
+      "The project record's id for a project workflow. Omitted for session and shared.",
     ),
     parentContentHash: WorkflowContentHashSchema.optional().describe(
       "The content hash of the shared workflow this one branches from, when it does.",
