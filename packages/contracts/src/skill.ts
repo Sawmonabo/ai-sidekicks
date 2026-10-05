@@ -1,5 +1,5 @@
-// Skills: the list of every skill folder, file reads and saves, availability per provider, the
-// scan a widening runs, and the refusals of those verbs. A skill is its whole folder. The daemon
+// Skills: the list of every skill folder, file reads and saves, the name a typed skill would be
+// called by, availability per provider, the scan a widening runs, and the refusals of those verbs. A skill is its whole folder. The daemon
 // parses every `SKILL.md` itself because a provider can load a broken one without a word, so a
 // provider's own skill enumeration is evidence of what it loaded, never a second registry.
 // Skills are node-local configuration: no verb here appends an event.
@@ -328,6 +328,68 @@ export const SkillUpdateResponseSchema: z.ZodType<SkillUpdateResponse> = z
   .object({ skill: SkillListEntrySchema })
   .strict();
 
+// skill.callFormRead
+
+/**
+ * The name a skill of ours would be called by, read while its name is typed and before any
+ * save: the typed `name`, folded as `skill.create` folds it, at `scope` (default `global`; a
+ * project scope names its project). `skillId` names the folder being edited, so it is never
+ * its own collision; a new skill sends none.
+ */
+export interface SkillCallFormReadRequest {
+  name: string;
+  scope?: AgentDefinitionScope | undefined;
+  projectId?: string | undefined;
+  skillId?: SkillId | undefined;
+}
+/** Parses a {@link SkillCallFormReadRequest}. */
+export const SkillCallFormReadRequestSchema: z.ZodType<
+  SkillCallFormReadRequest,
+  SkillCallFormReadRequest
+> = z
+  .object({
+    name: newSkillNameSchema,
+    scope: z.enum(AGENT_DEFINITION_SCOPES).optional(),
+    projectId: uuidTextFormSchema.optional(),
+    skillId: SkillIdSchema.optional(),
+  })
+  .strict()
+  .superRefine(refineProjectScope);
+
+/**
+ * The other folder of ours a name would share its packed name with, one global and one project.
+ * Both still pack and nothing is refused; `callForms` is what the other folder is called by once
+ * the typed one is saved, the project one taking the `-2` suffix.
+ */
+export interface SkillCallFormCollision {
+  skillId: SkillId;
+  scope: AgentDefinitionScope;
+  folderPath: string;
+  callForms: SkillCallForms;
+}
+/** Parses a {@link SkillCallFormCollision}. */
+export const SkillCallFormCollisionSchema: z.ZodType<SkillCallFormCollision> = z
+  .object({
+    skillId: SkillIdSchema,
+    scope: z.enum(AGENT_DEFINITION_SCOPES),
+    folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "folderPath"),
+    callForms: SkillCallFormsSchema,
+  })
+  .strict();
+
+/**
+ * What the typed name would be called by on each provider once saved, derived by the same code
+ * that builds the session pack, and the folder it collides with, or null when none does.
+ */
+export interface SkillCallFormReadResponse {
+  callForms: SkillCallForms;
+  collision: SkillCallFormCollision | null;
+}
+/** Parses a {@link SkillCallFormReadResponse}. */
+export const SkillCallFormReadResponseSchema: z.ZodType<SkillCallFormReadResponse> = z
+  .object({ callForms: SkillCallFormsSchema, collision: SkillCallFormCollisionSchema.nullable() })
+  .strict();
+
 // skill.availabilityUpdate
 
 /**
@@ -583,6 +645,11 @@ export interface SkillMethodDescriptors {
     SkillUpdateRequest,
     SkillUpdateResponse
   >;
+  readonly "skill.callFormRead": MethodDescriptor<
+    "skill.callFormRead",
+    SkillCallFormReadRequest,
+    SkillCallFormReadResponse
+  >;
   readonly "skill.availabilityUpdate": MethodDescriptor<
     "skill.availabilityUpdate",
     SkillAvailabilityUpdateRequest,
@@ -642,6 +709,13 @@ export const SKILL_METHOD_DESCRIPTORS: SkillMethodDescriptors = defineMethodDesc
     mutating: true,
     requestSchema: SkillUpdateRequestSchema,
     responseSchema: SkillUpdateResponseSchema,
+  },
+  "skill.callFormRead": {
+    method: "skill.callFormRead",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: SkillCallFormReadRequestSchema,
+    responseSchema: SkillCallFormReadResponseSchema,
   },
   "skill.availabilityUpdate": {
     method: "skill.availabilityUpdate",
