@@ -2234,6 +2234,13 @@ interface ProviderModel {
   // output-speed axis); absent = the model exposes no speed selection. A provider that publishes
   // no per-model set (Claude Code) declares its set on `GetCapabilitiesResult.outputSpeedLevels`.
   outputSpeedLevels?: string[];
+  // Whether the model has a fast output mode, as its provider reports it (Claude Code's
+  // `supportsFastMode`, the Codex tier its catalog names `Fast`). Required so a missing reading
+  // never looks like "no fast mode".
+  fast: boolean;
+  // The window in tokens as the provider reports it; absent until a reading arrives, never filled
+  // from a table or a default.
+  contextWindow?: number;
 }
 
 interface ProviderMode {
@@ -8467,7 +8474,7 @@ interface McpLiveApplicationResult {
 //   mcp.setToolOverride   McpServerBindingRef & {clientIdempotencyKey: string, override: McpToolOverride} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication}
 //   mcp.clearToolOverride McpServerBindingRef & {clientIdempotencyKey: string, toolName: string} → {server: McpServerInventoryEntry, applied: McpToolOverrideApplication} // grades cover the cleared facets' reversion path
 //   mcp.oauthLogin        McpServerBindingRef & {clientIdempotencyKey: string} → {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of server it is, and returns the address of the sign-in page for the client to open; a new mcp.oauthLogin on a server whose sign-in is still waiting ends that wait and starts the next attempt; mcp.oauth_flow_failed is LAUNCH-phase only — a failure to start the sign-in (discovery, registration, or the provider's own flow in its throwaway home) — and an async completion failure arrives as mcp.server_oauth_completed outcome: 'failure' on the mcp.subscribe stream, never a late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a caller that never received the URL starts a new sign-in under a fresh key
-//   mcp.oauthLogout       {serverId: string, clientIdempotencyKey: string} → {servers: McpServerInventoryEntry[]} // `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the daemon holds one sign-in per server, used by both providers and every binding that names it, so the reply lists each of those bindings after the sign-out. It deletes the daemon's refresh token for the server, and its signing key where the server demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's next call to that server carries no token and the server reads needs-auth in every session on both providers until the next sign-in
+//   mcp.oauthLogout       {serverId: string, clientIdempotencyKey: string} → EmptyPayload // `Sign out of this server`. `serverId` is the server's address, not a scope-qualified binding: the daemon holds one sign-in per server, used by both providers and every binding that names it, and each of those bindings' change after the sign-out arrives as its status notice on mcp.subscribe. It deletes the daemon's refresh token for the server, and its signing key where the server demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's next call to that server carries no token and the server reads needs-auth in every session on both providers until the next sign-in
 //   mcp.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string} → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s), LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the same leg), every live leg of one session when only sessionId is given, every live leg otherwise; per-leg post-reconnect statuses, honest per leg
 // Session operations (Spec-024 §A session's own tool servers), in the session.* namespace; none emits a governance event:
 // `serverName` is the server's name in the session's own list, the name both providers start the session's servers by; it is not the address `mcp.oauthLogout` takes, and a server run as a local command has none.
