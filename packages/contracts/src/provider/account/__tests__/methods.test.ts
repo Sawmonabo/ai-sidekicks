@@ -1,6 +1,7 @@
 // `providerAccount.*` update, remove, set-current, probe and usage: neither set-current nor
 // remove admits a partial success, the register request refuses a caller-asserted credential
-// generation, and usage is answered in whole micro-dollars.
+// generation, a typed name arrives trimmed on register and rename, and usage is answered in whole
+// micro-dollars.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -93,6 +94,23 @@ describe("request/response pairs", () => {
       ProviderAccountRemoveResponseSchema.safeParse({ accountId: ACCOUNT_ID, removed: false })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("a typed account name", () => {
+  it("arrives trimmed on register and on rename, so stored names never differ by spaces", () => {
+    const registered = ProviderAccountRegisterRequestSchema.parse({
+      provider: "codex",
+      billingMode: "metered",
+      nonInteractiveToken: "sk-example-token",
+      displayLabel: " Work\u00a0",
+    });
+    expect(registered.displayLabel).toBe("Work");
+    const renamed = ProviderAccountUpdateRequestSchema.parse({
+      accountId: ACCOUNT_ID,
+      displayLabel: "\tOffice ",
+    });
+    expect(renamed.displayLabel).toBe("Office");
   });
 });
 

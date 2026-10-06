@@ -115,10 +115,13 @@ export const ProviderAccountUpdateRequestSchema: z.ZodType<
 > = z
   .object({
     accountId: ProviderAccountIdSchema,
+    // Trimmed as the register request trims it.
     displayLabel: wireFreeFormString(
       PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
       "ProviderAccountUpdateRequest.displayLabel",
-    ).optional(),
+    )
+      .trim()
+      .optional(),
     billingMode: BillingModeSchema.optional(),
     probeEnabled: z.boolean().optional(),
     windowStartEnabled: z.boolean().optional(),

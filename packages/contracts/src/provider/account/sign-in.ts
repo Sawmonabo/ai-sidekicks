@@ -79,10 +79,13 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
 > = z
   .object({
     provider: ProviderNameSchema,
+    // Trimmed here, so a stored name never differs from another by its surrounding spaces.
     displayLabel: wireFreeFormString(
       PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
       "ProviderAccountRegisterRequest.displayLabel",
-    ).optional(),
+    )
+      .trim()
+      .optional(),
     billingMode: BillingModeSchema,
     makeDefault: z.boolean().optional(),
     accountId: ProviderAccountIdSchema.optional(),
@@ -193,9 +196,8 @@ export const PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE =
   "provideraccount.token_not_accepted" as const;
 
 /**
- * The name given to a token or API-key account repeats one of that provider's
- * other account names, compared without case or surrounding spaces. `Rename`
- * refuses on the same code.
+ * The name given to a token or API-key account repeats one of that provider's other account names,
+ * compared by `foldName`. `Rename` refuses on the same code.
  */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE =
   "provideraccount.display_label_taken" as const;

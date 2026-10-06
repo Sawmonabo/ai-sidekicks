@@ -47,19 +47,6 @@ export const PROVIDER_ACCOUNT_LABEL_MAX_LEN: number =
   PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN +
   2 * " · ".length;
 
-/**
- * The form two typed account names are compared in, so the service's uniqueness check and the
- * screen's agree on every name: compatibility-normalized (NFKC), case-folded with the
- * locale-independent case mappings, and trimmed of Unicode whitespace. `Ärzte` and ` ärzte `
- * compare equal.
- */
-export function comparableDisplayLabel(displayLabel: string): string {
-  // Upper then lower folds the cases a single lowering misses (`ß` and `SS` both become `ss`);
-  // the second NFKC recomposes what case mapping decomposed. `toLocale*` is not used, because
-  // its answer moves with the machine's locale.
-  return displayLabel.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC").trim();
-}
-
 // Each enum is one literal tuple surfaced twice: as the Zod schema the wire parses with, and as
 // a `readonly` array the schema conformance test compares with the database CHECK list.
 

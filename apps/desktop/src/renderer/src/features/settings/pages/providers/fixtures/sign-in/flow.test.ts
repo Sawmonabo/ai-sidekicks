@@ -109,15 +109,15 @@ describe("readRegistrationFields", () => {
     expect(blank?.code).toBe("registration-label-blank");
     expect(blank?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
     expect(blank?.detail).toBe("Name this account.");
-    // Compared without case or surrounding spaces, so two rows can never read alike.
+    // Trimmed, then compared by `foldName`, so two rows can never read alike.
     const taken = refusalOf(readRegistrationFields(typed(" metered "), [REGISTERED.account]));
     expect(taken?.code).toBe(PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE);
     expect(taken?.detail).toBe("Another Codex account already has this name.");
     // Folded beyond ASCII, as the service's table folds it, so the two never disagree; a plain
     // lowering would let `STRASSE` beside `Straße`.
     for (const [registered, typedName] of [
-      ["Ärzte", "ärzte "],
       ["Straße", "STRASSE"],
+      ["STRAẞE", "strasse"],
     ] as const) {
       const folded = refusalOf(
         readRegistrationFields(typed(typedName), [

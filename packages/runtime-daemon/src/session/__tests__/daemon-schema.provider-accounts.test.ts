@@ -1,11 +1,11 @@
 // The provider-account tables on the schema the real migration runner builds. Every member of the
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
 // generation below the floor is refused, a provider holds one default account at most, a
-// credential home belongs to one account, a typed name is optional, unique per provider in its
-// comparable form and renamed only where one is carried, a quota reading is keyed by account and
-// limit alone, and a memory-import outcome whose count and time disagree with it is refused. The
-// member lists are `Record<Union, true>` maps, so a member added to the contract is a type error
-// here until its case exists, and that case then fails until the CHECK admits it.
+// credential home belongs to one account, a typed name is optional, unique per provider by its
+// fold and renamed only where one is carried, INSERT OR REPLACE included, a quota reading is keyed
+// by account and limit alone, and a memory-import outcome whose count and time disagree with it is
+// refused. The member lists are `Record<Union, true>` maps, so a member added to the contract is a
+// type error here until its case exists, and that case then fails until the CHECK admits it.
 
 import {
   CREDENTIAL_GENERATION_MIN,
@@ -13,11 +13,12 @@ import {
   type ProviderAccountHealthState,
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { type ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyMigrations, applyPragmas, registerSchemaFunctions } from "../migration-runner.js";
+import { applyMigrations, applyPragmas } from "../migration-runner.js";
 
 const TIMESTAMP = "2026-09-30T00:00:00.000Z";
 const NON_MEMBER = "not-a-member";
@@ -71,7 +72,6 @@ describe("provider-account schema", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     applyPragmas(db);
-    registerSchemaFunctions(db);
     applyMigrations(db);
   });
 
@@ -82,21 +82,27 @@ describe("provider-account schema", () => {
   // Each account gets its own id and, unless a case names one, its own home path, and none is a
   // default unless a case says so, so the unique indexes never refuse a row for a reason other
   // than the column under test. A health state is stored with the time it was observed, as the
-  // schema requires of the pair.
-  function insertAccount(overrides: Partial<AccountColumns>): string {
+  // schema requires of the pair, and a typed name with its fold, as the store writes it. `replace`
+  // writes over the account with that id.
+  function insertAccount(
+    overrides: Partial<AccountColumns>,
+    replace?: { readonly accountId: string },
+  ): string {
     const account = { ...VALID_ACCOUNT, ...overrides };
     nextAccountNumber += 1;
-    const accountId = `account-${String(nextAccountNumber)}`;
+    const accountId = replace?.accountId ?? `account-${String(nextAccountNumber)}`;
     db.prepare(
-      `INSERT INTO provider_accounts (account_id, provider, display_label, credential_home_path,
+      `INSERT ${replace === undefined ? "" : "OR REPLACE "}INTO provider_accounts (account_id,
+         provider, display_label, display_label_folded, credential_home_path,
          credential_generation, billing_mode, health_state, health_observed_at,
          memory_import_outcome, memory_import_count, memory_imported_at, is_default, created_at,
          updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       accountId,
       account.provider,
       account.displayLabel,
+      account.displayLabel === null ? null : foldName(account.displayLabel),
       account.credentialHomePath ?? `/homes/${accountId}`,
       account.credentialGeneration,
       account.billingMode,
@@ -176,33 +182,68 @@ describe("provider-account schema", () => {
     ).toEqual({ display_label: null });
   });
 
-  it("refuses a provider's second account with the same typed name, ignoring case and spaces", () => {
+  it("refuses a provider's second account with the same typed name under its fold", () => {
     insertAccount({ provider: "claude", displayLabel: "Work" });
-    expect(() => insertAccount({ provider: "claude", displayLabel: " work " })).toThrow(
-      /UNIQUE constraint failed/,
-    );
-    // Folded as the screen folds it, beyond ASCII: SQLite's own lower() would let these pairs in.
-    insertAccount({ provider: "claude", displayLabel: "Ärzte" });
-    expect(() => insertAccount({ provider: "claude", displayLabel: "ärzte " })).toThrow(
-      /UNIQUE constraint failed/,
+    expect(() => insertAccount({ provider: "claude", displayLabel: "WORK" })).toThrow(
+      /holds that display_label/,
     );
     insertAccount({ provider: "claude", displayLabel: "Straße" });
     expect(() => insertAccount({ provider: "claude", displayLabel: "STRASSE" })).toThrow(
-      /UNIQUE constraint failed/,
+      /holds that display_label/,
     );
     expect(() => insertAccount({ provider: "codex", displayLabel: "work" })).not.toThrow();
     expect(() => insertAccount({ provider: "claude", displayLabel: "Personal" })).not.toThrow();
   });
 
-  it("renames an account that carries a typed name, and names no other", () => {
+  it("refuses a name with no fold beside it, and a fold with no name", () => {
+    const write = db.prepare(
+      `INSERT INTO provider_accounts (account_id, provider, display_label, display_label_folded,
+         credential_home_path, billing_mode, created_at, updated_at)
+       VALUES (?, 'claude', ?, ?, ?, 'subscription', ?, ?)`,
+    );
+    expect(() => write.run("a", "Work", null, "/homes/a", TIMESTAMP, TIMESTAMP)).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => write.run("b", null, "work", "/homes/b", TIMESTAMP, TIMESTAMP)).toThrow(
+      /CHECK constraint failed/,
+    );
+  });
+
+  it("renames an account that carries a typed name, to a name no other account holds", () => {
     const named = insertAccount({ displayLabel: "Work" });
     const unnamed = insertAccount({ displayLabel: null });
+    insertAccount({ displayLabel: "Personal" });
     const rename = db.prepare(
-      "UPDATE provider_accounts SET display_label = ? WHERE account_id = ?",
+      "UPDATE provider_accounts SET display_label = ?, display_label_folded = ? WHERE account_id = ?",
     );
-    expect(() => rename.run("Office", named)).not.toThrow();
-    expect(() => rename.run("Office 2", unnamed)).toThrow(/renamed only on an account/);
-    expect(() => rename.run(null, named)).toThrow(/renamed only on an account/);
+    expect(() => rename.run("Office", foldName("Office"), named)).not.toThrow();
+    expect(() => rename.run("Office 2", foldName("Office 2"), unnamed)).toThrow(
+      /renamed only on an account/,
+    );
+    expect(() => rename.run(null, null, named)).toThrow(/renamed only on an account/);
+    expect(() => rename.run("PERSONAL", foldName("PERSONAL"), named)).toThrow(
+      /UNIQUE constraint failed/,
+    );
+  });
+
+  it("holds the name rules against INSERT OR REPLACE, which no update trigger sees", () => {
+    const named = insertAccount({ displayLabel: "Work" });
+    const unnamed = insertAccount({ displayLabel: null });
+    expect(() => insertAccount({ displayLabel: "Office" }, { accountId: unnamed })).toThrow(
+      /renamed only on an account/,
+    );
+    expect(() => insertAccount({ displayLabel: null }, { accountId: named })).toThrow(
+      /renamed only on an account/,
+    );
+    // REPLACE answers a taken name by deleting the account that holds it; the account stays.
+    const other = insertAccount({ displayLabel: "Office" });
+    expect(() => insertAccount({ displayLabel: "WORK" }, { accountId: other })).toThrow(
+      /holds that display_label/,
+    );
+    expect(
+      db.prepare("SELECT display_label FROM provider_accounts WHERE account_id = ?").get(named),
+    ).toEqual({ display_label: "Work" });
+    expect(() => insertAccount({ displayLabel: "Office 2" }, { accountId: other })).not.toThrow();
   });
 
   it("keys a quota reading on (account_id, limit_id), with window_mins an attribute", () => {

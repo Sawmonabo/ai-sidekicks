@@ -5,11 +5,11 @@
 // is a state of the flow and the page learns the account's fate by re-reading the registry.
 // A token exists here only for the length of one registration call, never in a state.
 
-import {
-  comparableDisplayLabel,
-  type BillingMode,
-  type ProviderAccount,
-  type ProviderAccountId,
+import { foldName } from "@ai-sidekicks/contracts/name-fold";
+import type {
+  BillingMode,
+  ProviderAccount,
+  ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
@@ -199,9 +199,9 @@ export type RegistrationFieldReading =
  * Read the form's ordinary fields, before anything is sent and before the token is read.
  *
  * Runs before the token exists in the submit handler, so a refused name cannot discard a typed
- * credential. The name is required and differs from that provider's other account names,
- * compared in the form the service compares them in; a name of only spaces passes the browser's
- * `required` check and is refused here. The refusal never echoes the name, which is user content.
+ * credential. The name is trimmed and required, and differs from that provider's other account
+ * names compared by `foldName`, as the service compares them; a name of only spaces passes the
+ * browser's `required` check and is refused here. The refusal never echoes the name, which is user content.
  * The form asks nothing about billing, so an admitted account's billing is `unknown`.
  */
 export function readRegistrationFields(
@@ -219,12 +219,12 @@ export function readRegistrationFields(
       ),
     };
   }
-  const comparedName = comparableDisplayLabel(displayLabel);
+  const comparedName = foldName(displayLabel);
   const isTaken = accounts.some(
     (account) =>
       account.provider === typed.provider &&
       account.displayLabel !== undefined &&
-      comparableDisplayLabel(account.displayLabel) === comparedName,
+      foldName(account.displayLabel) === comparedName,
   );
   if (isTaken) {
     return {

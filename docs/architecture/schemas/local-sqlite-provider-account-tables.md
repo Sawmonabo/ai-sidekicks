@@ -12,8 +12,8 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-025 §Account identity and credential generation). A NULL identity would key nothing — `(account_id, credential_generation)` would be unmatchable, the child table's `ON DELETE CASCADE` would never fire for it, and the credential home derived from it could not be attributed back — and a `STRICT` table's PRIMARY KEY column cannot hold NULL, which the explicit `NOT NULL` states.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
-  display_label         TEXT,  -- the name the person typed, present only on an account added from a pasted token or API key, where it is required; NULL on every other account, which its provider-reported identity names (Spec-025 §The account registry). Treated as personal data. Unique per provider in its comparable form, by the index below, and renamed only where one is carried
-  display_label_key     TEXT GENERATED ALWAYS AS (comparable_display_label(display_label)) STORED,  -- the name in the one form names are compared in: `comparableDisplayLabel` in the contracts package (compatibility-normalized, case-folded with the locale-independent mappings, trimmed of Unicode whitespace), which the daemon registers as this SQL function on every connection and the screen's own check also calls, so the table and the screen never disagree on whether two names match. NULL where there is no name
+  display_label         TEXT,  -- the name the person typed, present only on an account added from a pasted token or API key, where it is required; NULL on every other account, which its provider-reported identity names (Spec-025 §The account registry). Treated as personal data. Unique per provider by its fold, by the index below, and renamed only where one is carried
+  display_label_folded  TEXT,  -- the full Unicode case fold of `display_label`, written by the store with `foldName` (`packages/contracts/src/name-fold.ts`) on every insert and rename, the one fold the screen's own check also calls, so the table and the screen never disagree on whether two names match; NULL exactly where `display_label` is. A stored fold rather than SQLite's `NOCASE`, which folds only ASCII, for the reason [Agent Definition Tables](local-sqlite-agent-definition-tables.md) gives for `name_folded`
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-023-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-023-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. A fractional generation never reaches the column: a `STRICT` INTEGER column stores `2.0` and `'3'` as integers and refuses `1.5`, so a monotonic counter cannot become divisible.
@@ -53,7 +53,9 @@ CREATE TABLE provider_accounts (
   -- no observation time cannot answer `observedAt`, and an observation time with no reading is a
   -- timestamp for nothing. Either half-populated row would make the readiness projection serve an
   -- incoherent observation, so the database refuses both instead of leaving it to every writer.
-  CHECK ((health_state IS NULL) = (health_observed_at IS NULL))
+  CHECK ((health_state IS NULL) = (health_observed_at IS NULL)),
+  -- A typed name and its fold are written together, so the unique index never misses a name.
+  CHECK ((display_label IS NULL) = (display_label_folded IS NULL))
 );
 
 -- Exactly one current account per provider (I-023-5) — the flag this schema calls `is_default` and
@@ -77,12 +79,12 @@ CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
 CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
 
--- One typed name per provider, compared in its comparable form, where a name is present: a second
--- account of one provider with the same name is unrepresentable, and a register or rename that
--- would make one is refused `provideraccount.display_label_taken`.
+-- One typed name per provider, compared by its fold, where a name is present: a second account of
+-- one provider with the same name is unrepresentable, and a register or rename that would make one
+-- is refused `provideraccount.display_label_taken`.
 CREATE UNIQUE INDEX provider_accounts_unique_display_label
-  ON provider_accounts(provider, display_label_key)
-  WHERE display_label_key IS NOT NULL;
+  ON provider_accounts(provider, display_label_folded)
+  WHERE display_label_folded IS NOT NULL;
 
 -- A typed name is renamed only on an account that carries one: an account its provider names never
 -- gains one, and a pasted-token account never loses its.
@@ -91,6 +93,33 @@ CREATE TRIGGER trg_provider_accounts_display_label_kept
   WHEN (OLD.display_label IS NULL) != (NEW.display_label IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
+END;
+
+-- The same rule and the name index against INSERT OR REPLACE, which deletes the rows it collides
+-- with instead of updating them, so no UPDATE trigger sees it (sqlite.org/lang_conflict.html).
+-- Refused: a replacement that gives or takes away an account's typed name, and one whose name
+-- another account of the provider holds, which REPLACE would answer by deleting that account.
+CREATE TRIGGER trg_provider_accounts_display_label_kept_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.account_id = NEW.account_id
+      AND (held.display_label IS NULL) != (NEW.display_label IS NULL)
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
+END;
+
+CREATE TRIGGER trg_provider_accounts_display_label_unique_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN NEW.display_label_folded IS NOT NULL AND EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.provider = NEW.provider
+      AND held.display_label_folded = NEW.display_label_folded
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account of this provider holds that display_label');
 END;
 ```
 
