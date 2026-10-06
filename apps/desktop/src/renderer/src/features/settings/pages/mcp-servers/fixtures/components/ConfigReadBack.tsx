@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
+import { SERVER_TRANSPORT_WORDS } from "../../server-transport-words.js";
 
 /**
  * One binding's configuration, exactly as the daemon serves it back.
@@ -22,7 +23,7 @@ export function ConfigReadBack(props: {
   const { config } = props;
   return (
     <div className="meridian-mcp__config">
-      <Chip label={config.transport} mono />
+      <Chip label={SERVER_TRANSPORT_WORDS[config.transport]} />
       {config.transport === "stdio" ? (
         <>
           <WireFigure value={config.command} />

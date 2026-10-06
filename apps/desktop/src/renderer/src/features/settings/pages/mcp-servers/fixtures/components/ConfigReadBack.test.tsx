@@ -29,3 +29,18 @@ describe("ConfigReadBack — the served arguments", () => {
     expect(renderedArguments).toEqual(["--read-only", "--root", "/srv/data"]);
   });
 });
+
+describe("ConfigReadBack — how the server runs", () => {
+  it("says a command or an address in the add form's words, never the transport", () => {
+    const drawn = [
+      { config: { transport: "stdio", command: "npx" }, words: "A command" },
+      { config: { transport: "http", url: "https://mcp.example.test/" }, words: "An address" },
+      { config: { transport: "sse", url: "https://mcp.example.test/sse" }, words: "An address" },
+    ] as const;
+    for (const { config, words } of drawn) {
+      const { container, unmount } = render(<ConfigReadBack config={config} />);
+      expect(container.querySelector(".meridian-chip__label")?.textContent).toBe(words);
+      unmount();
+    }
+  });
+});

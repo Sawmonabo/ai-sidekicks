@@ -4,7 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "../../mcp-server-status-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/mcp";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";

@@ -4,6 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpToolOverride } from "@ai-sidekicks/contracts/mcp/mcp";
+import { APPROVAL_MODE_WORDS, IDEMPOTENCY_CLASS_WORDS } from "../../tool-override-words.js";
 
 /**
  * The tool overrides pinned on one binding, by facet.
@@ -38,9 +39,11 @@ export function ToolOverrideList(props: {
               tone={override.enabled ? "neutral" : "attention"}
             />
           )}
-          {override.approvalMode === undefined ? null : <Chip label={override.approvalMode} mono />}
+          {override.approvalMode === undefined ? null : (
+            <Chip label={APPROVAL_MODE_WORDS[override.approvalMode]} />
+          )}
           {override.idempotencyClass === undefined ? null : (
-            <Chip label={override.idempotencyClass} mono />
+            <Chip label={IDEMPOTENCY_CLASS_WORDS[override.idempotencyClass]} />
           )}
         </li>
       ))}

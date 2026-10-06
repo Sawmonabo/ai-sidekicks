@@ -73,6 +73,7 @@ function renderLiveResults(results: readonly McpLiveApplicationResult[]): ReactN
         <li key={mcpLiveLegKeyOf(liveResult)} className="meridian-mcp__live-result">
           <Chip
             label={liveResult.outcome}
+            mono
             tone={liveResult.outcome === "applied" ? "neutral" : "failure"}
           />
           <span className="meridian-settings-page__aside">in session</span>
