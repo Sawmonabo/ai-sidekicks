@@ -286,14 +286,11 @@ jobs:
   # own turbo edge produced. A matrix leg has its own checkout and `out/**`, so the tiers run in
   # parallel without colliding.
   #
-  # `--concurrency=1` stays inside each leg: a leg naming two tasks must not put two Chromium or
-  # Electron processes on one 4-vCPU runner.
-  #
   # The enumeration is deliberate: a Vitest project added to `apps/desktop/vitest.config.ts` is not
   # picked up here. A project wired into neither this matrix nor the package's aggregate `test`
   # script is a review rejection (`apps/desktop/AGENTS.md`). The `accessibility` and `endurance`
-  # projects are in neither on purpose: they run only by name until the console-polish unit makes
-  # them gates on every PR.
+  # projects are in neither on purpose: they run only by name until the accessibility sweeps and
+  # the endurance reference run become gates on every PR.
   #
   # The slow tiers sit in `desktop-slow`, which shares these steps and the same check names.
   desktop:
@@ -308,11 +305,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `serial: true` marks a leg whose tasks drive a real browser or Electron window: only one
-        # such process may be alive at a time, and a build dependency must not overlap the tier it
-        # builds for. Unmarked legs are plain Node test projects and the import-graph check, which
-        # run at default concurrency. The dead-code check covers every workspace, so it runs in the
-        # `structure` job.
+        # `serial: true` marks a leg whose tier drives a real browser or Electron window: a build
+        # dependency must not overlap the tier it builds for. Unmarked legs are plain Node test
+        # projects and the import-graph check, which run at default concurrency. The dead-code
+        # check covers every workspace, so it runs in the `structure` job.
         include:
           - tier: "test:main-unit test:renderer"
           - tier: "test:browser"

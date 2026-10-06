@@ -18,7 +18,8 @@ import process from "node:process";
 /**
  * The runner class `.github/workflows/ci.yml` names for the desktop tiers.
  *
- * `ubuntu-latest` is the runner of every desktop tier's job.
+ * `ubuntu-latest` is the runner of the `desktop` and `desktop-slow` jobs. The endurance tier runs
+ * in neither yet, so this names the class its comparisons are pinned to, not a job it runs in.
  */
 const PINNED_RUNNER_CLASS = "ubuntu-latest";
 

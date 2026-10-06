@@ -241,8 +241,8 @@
       "cache": false
     },
     "test:accessibility": {
-      // Runs only by name, outside the `test` aggregate and CI, until the console-polish unit makes
-      // it a gate on every PR.
+      // Runs only by name, outside the `test` aggregate and CI, until the accessibility sweeps
+      // become a gate on every PR.
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
@@ -312,8 +312,8 @@
     "test:endurance": {
       // Same bundle, tens of seconds rather than milliseconds. Its own task rather than a slow file
       // inside the end-to-end tier, so `test:e2e` stays a fast gate a person will run before
-      // pushing. Runs only by name, outside the `test` aggregate and CI, until the console-polish
-      // unit makes it a gate on every PR.
+      // pushing. Runs only by name, outside the `test` aggregate and CI, until the endurance
+      // reference run becomes a gate on every PR.
       "dependsOn": ["build:fixtures"],
       "inputs": [
         "src/renderer/src/**",
@@ -355,10 +355,11 @@
       "cache": false
     },
     "test": {
-      // Every tier a desktop PR is gated on, in the order the three build flavors allow and the
-      // order `.github/workflows/ci.yml` runs them, so a developer's `pnpm test` and the required
-      // check answer the same question. Nothing checks that the two sets agree; a PR that adds or
-      // removes a tier edits both lists in the same diff.
+      // Every tier `.github/workflows/ci.yml` runs for the desktop, in the order the three build
+      // flavors allow, so a developer's `pnpm test` and CI answer the same question. Its `desktop`
+      // job gates every desktop PR on all of them but `test:e2e`, which its `desktop-slow` job runs
+      // on the nightly run, on pull requests into `main` and on a manual run. Nothing checks that
+      // the two sets agree; a PR that adds or removes a tier edits both lists in the same diff.
       //
       // The order is load-bearing and is why the script is a chain of `turbo run` invocations
       // rather than one. `build`, `build:smoke` and `build:fixtures` all write `out/**` and differ
