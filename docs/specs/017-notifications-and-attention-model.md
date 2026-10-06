@@ -76,7 +76,7 @@ This spec covers in-app attention state, the operating system's notification on 
 - If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items.
 - A kind switch, the master switch and a session's mute withhold notifications and deliveries off the machine only. None of them removes, hides or downgrades an entry in the bell's list or the count, none of them gates a withdrawal, and a mute never withholds `Waiting on you`.
 - A web-address message that fails is tried again at 5 seconds, 5 minutes and 30 minutes and then counted as undelivered on the page's status line; at most 100 messages wait at once, and past that the oldest is dropped and counted. A digest the mail server refuses, or cannot be reached for, is written on the page's status line, the switch stays on, nothing is queued past its period, and the next period tries again.
-- A credential store that is locked or unavailable when a delivery secret is needed refuses the act with its cause and falls back to no other store; where the daemon keeps its secrets in `secrets.json` (Linux with no Secret Service, a Mac whose service runs while the person is logged out) the secret is there and neither cause arises.
+- A credential store that is locked or unavailable when a delivery secret is needed refuses the act with its cause and falls back to no other store; where the daemon keeps its secrets in `secrets.json` (Linux with no Secret Service; a Mac from its approved logged-out service's takeover until `sidekicks daemon uninstall`, even after that service is turned off in Login Items & Extensions) the secret is there and neither cause arises.
 
 ## Interfaces And Contracts
 

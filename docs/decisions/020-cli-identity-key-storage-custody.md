@@ -35,7 +35,7 @@ Where does the service keep each of its secrets, on macOS, Linux and Windows —
 
 ## Decision
 
-The service keeps **each secret as its own item in the operating system's credential store**: through `@napi-rs/keyring` the login keychain on macOS and the Secret Service on Linux; on Windows Credential Manager, written in the service's Windows half through `windows-native-keyring-store` on both kinds of Windows computer, with `@napi-rs/keyring` not used for the daemon's entries there. On Linux it opens the Secret Service store explicitly, and when no Secret Service answers it keeps its items in one file in its own data folder, readable by this account alone; a Mac whose service runs while the person is logged out keeps them in the same file, because that service cannot reach the login keychain. A write-probe-read-delete cycle verifies the store before the service accepts it. Nothing in the daemon's database is encrypted by the app.
+The service keeps **each secret as its own item in the operating system's credential store**: through `@napi-rs/keyring` the login keychain on macOS and the Secret Service on Linux; on Windows Credential Manager, written in the service's Windows half through `windows-native-keyring-store` on both kinds of Windows computer, with `@napi-rs/keyring` not used for the daemon's entries there. On Linux it opens the Secret Service store explicitly, and when no Secret Service answers it keeps its items in one file in its own data folder, readable by this account alone; a Mac keeps them in the same file from the approved logged-out service's takeover until `sidekicks daemon uninstall` moves them back, including after that service is turned off in Login Items & Extensions, and never while it waits for approval, because its logged-out service cannot reach the login keychain. A write-probe-read-delete cycle verifies the store before the service accepts it. Nothing in the daemon's database is encrypted by the app.
 
 ### The Credential Store
 
@@ -133,7 +133,7 @@ The machine's Ed25519 identity key MUST NOT be silently regenerated. Specificall
 
 ### Option A: Each secret its own credential-store item, with a `0600` file where that store cannot be used (Chosen)
 
-- **What:** Every secret is its own item in the operating system's credential store, verified by write-probe-read-delete before the store is accepted; the Secret Service opened explicitly on Linux, and one file readable by this account alone where no Secret Service answers and on a Mac whose service runs while the person is logged out; Windows' Credential Manager through the Windows half on both kinds of Windows computer.
+- **What:** Every secret is its own item in the operating system's credential store, verified by write-probe-read-delete before the store is accepted; the Secret Service opened explicitly on Linux, and one file readable by this account alone where no Secret Service answers and on a Mac whose secrets are in it; Windows' Credential Manager through the Windows half on both kinds of Windows computer.
 - **Steel man:** Every secret opens unattended; the store is the one each platform's own sign-in tools use, protected by the person's login; the app runs no key, wrap or sealing format of its own; no silent fallback, since the store the items are in is named; no silent rotation of the identity key; a headless Linux machine still runs, the way `gh` and Codex do.
 - **Weaknesses:** The `0600` file protects only against other users on the machine; a locked keychain fails a run that needs an item until the person unlocks it.
 
@@ -212,7 +212,7 @@ This ADR makes the following explicit disclaimers to prevent misreading of the c
 - **Hardware binding.** No item is bound to a security chip; a store's own protection is all the items have.
 - **Credential Guard protection (Windows).** Credential Guard protects `CRED_TYPE_DOMAIN_PASSWORD` only; our `CRED_TYPE_GENERIC` credential receives no Credential Guard protection. DPAPI wrapping is provided by the OS as an at-rest protection layer, rooted in the user's logon credential, but this is software-protected, not hardware-rooted.
 - **Attestation.** No item is used to attest the machine to anyone; no HSM is involved anywhere in the custody path.
-- **Data Protection Keychain (macOS).** The items use the login keychain, or `secrets.json` on a Mac whose service runs while the person is logged out; they do not get the Data Protection Keychain's per-item access lists, biometric gate or iCloud sync, which a launchd daemon cannot use ([TN3137: On Mac keychains](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)).
+- **Data Protection Keychain (macOS).** The items use the login keychain, or `secrets.json` on a Mac whose logged-out service has moved them there; they do not get the Data Protection Keychain's per-item access lists, biometric gate or iCloud sync, which a launchd daemon cannot use ([TN3137: On Mac keychains](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains)).
 
 ## Decision Validation
 
