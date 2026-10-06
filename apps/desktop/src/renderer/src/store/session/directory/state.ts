@@ -32,3 +32,16 @@ export type SessionDirectoryFrame =
  * composition supplies it, held stable per window, so `store/` stays below `services/`.
  */
 export type SessionDirectoryFeed = (onFrame: (frame: SessionDirectoryFrame) => void) => Unsubscribe;
+
+/**
+ * The session `sessionId` as the service's list names it, or `undefined` while the list is not
+ * served or does not name that session yet.
+ */
+export function listedSessionOf(
+  directory: SessionDirectoryState,
+  sessionId: string,
+): SessionListEntry | undefined {
+  return directory.status === "served"
+    ? directory.sessions.find((session) => session.sessionId === sessionId)
+    : undefined;
+}

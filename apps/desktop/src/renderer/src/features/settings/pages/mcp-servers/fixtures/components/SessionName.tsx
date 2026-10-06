@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import {
+  listedSessionOf,
+  type SessionDirectoryState,
+} from "#renderer/store/session/directory/state.js";
 import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 
 /**
@@ -15,10 +18,7 @@ export function SessionName(props: {
   readonly sessionDirectory: SessionDirectoryState;
 }): ReactNode {
   const { sessionId, sessionDirectory } = props;
-  const entry =
-    sessionDirectory.status === "served"
-      ? sessionDirectory.sessions.find((session) => session.sessionId === sessionId)
-      : undefined;
+  const entry = listedSessionOf(sessionDirectory, sessionId);
   if (entry === undefined) {
     return <Nothing kind="not-loaded" placement="inline" title="Loading…" />;
   }

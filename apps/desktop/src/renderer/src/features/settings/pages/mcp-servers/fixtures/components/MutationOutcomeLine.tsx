@@ -3,7 +3,10 @@ import type { ReactNode } from "react";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { type SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import {
+  listedSessionOf,
+  type SessionDirectoryState,
+} from "#renderer/store/session/directory/state.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mutation.js";
@@ -13,7 +16,8 @@ import { SessionName } from "./SessionName.js";
  * What the last change to one control did, in place: `Sending…` while it is on its way, once past
  * the short delay; then one line for each grade the service answered, saying when the change
  * takes effect, and one line for each running session it failed on, named as the session list
- * names it.
+ * names it. A session the list does not name yet gets its line only once its name arrives, so no
+ * placeholder is ever read out as a name.
  *
  * A partial outcome reads as one: a change can be saved and still miss one running session, and
  * a single verdict would leave that session on the old setting while the person believes it
@@ -38,7 +42,9 @@ export function MutationOutcomeLine(props: {
   }
   const { binding, settlement } = outcome;
   const failedSessions = (settlement.liveResults ?? []).filter(
-    (liveResult) => liveResult.outcome === "failed",
+    (liveResult) =>
+      liveResult.outcome === "failed" &&
+      listedSessionOf(sessionDirectory, liveResult.sessionId) !== undefined,
   );
   return (
     <div className="meridian-mcp__outcome" role="status">

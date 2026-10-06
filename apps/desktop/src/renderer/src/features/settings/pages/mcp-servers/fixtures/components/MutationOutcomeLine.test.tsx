@@ -1,6 +1,6 @@
 // How a change settles in place: one line per grade saying when it takes effect, and one line per
-// running session it failed on, named as the session list names it. No grade, outcome value,
-// error code or session id reaches the screen.
+// running session it failed on, named as the session list names it, and drawn only once the list
+// names it. No grade, outcome value, error code, session id or loading word reaches the line.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -103,7 +103,6 @@ describe("MutationOutcomeLine", () => {
       "Refresh-token expiry is still running with the old setting.",
       "New chat is still running with the old setting.",
       "New session is still running with the old setting.",
-      "Loading… is still running with the old setting.",
     ]);
     const untitledNames = [...container.querySelectorAll(".meridian-mcp__untitled-session")].map(
       (name) => name.textContent,
@@ -112,5 +111,46 @@ describe("MutationOutcomeLine", () => {
     for (const hidden of [TITLED_SESSION, "mcp.config_write_conflict", "failed", "applied"]) {
       expect(container.textContent).not.toContain(hidden);
     }
+  });
+
+  it("draws a failed session's line only once the session list names it", () => {
+    const outcome = settledOn(
+      ["user_config_write"],
+      [
+        {
+          sessionId: UNLISTED_SESSION,
+          bindingId: "leg-unlisted",
+          outcome: "failed",
+          errorCode: "mcp.config_write_conflict",
+        },
+      ],
+    );
+    const drawOver = (sessionDirectory: SessionDirectoryState): React.JSX.Element => (
+      <MutationOutcomeLine
+        outcome={outcome}
+        sessionDirectory={sessionDirectory}
+        clock={new ManualClock(0)}
+      />
+    );
+    const { container, rerender } = render(drawOver({ status: "reading" }));
+    expect(linesOf(container)).toStrictEqual(["Saved to Codex's settings. New sessions use it."]);
+    expect(container.textContent).not.toContain("Loading…");
+
+    rerender(drawOver(DIRECTORY));
+    expect(linesOf(container)).toStrictEqual(["Saved to Codex's settings. New sessions use it."]);
+
+    rerender(
+      drawOver({
+        status: "served",
+        sessions: [
+          ...DIRECTORY.sessions,
+          sessionListEntry({ sessionId: UNLISTED_SESSION, name: "Fix login" }),
+        ],
+      }),
+    );
+    expect(linesOf(container)).toStrictEqual([
+      "Saved to Codex's settings. New sessions use it.",
+      "Fix login is still running with the old setting.",
+    ]);
   });
 });
