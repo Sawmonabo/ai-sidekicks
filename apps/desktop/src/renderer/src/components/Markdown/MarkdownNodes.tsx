@@ -28,6 +28,11 @@ export interface MarkdownRenderContext {
   readonly definedFootnoteIdentifiers: ReadonlySet<string>;
   /** Where a settled code block's colors come from. */
   readonly codeSpanReader: CodeSpanReader;
+  /**
+   * Draws a code block's own Copy for its source, or `undefined` for a body whose blocks offer
+   * none. Required, so a body that forgot it fails to compile rather than reading as a choice.
+   */
+  readonly renderCodeCopy: ((source: string) => React.ReactNode) | undefined;
 }
 
 /** Render a document's top-level children. The entry point every card uses. */
@@ -274,6 +279,7 @@ function renderFence(
         infoString={language}
         isSettled={false}
         codeSpanReader={context.codeSpanReader}
+        renderCopy={context.renderCodeCopy}
       />
     );
   }
@@ -283,6 +289,7 @@ function renderFence(
       infoString={language}
       isSettled={context.isSettled}
       codeSpanReader={context.codeSpanReader}
+      renderCopy={context.renderCodeCopy}
     />
   );
 }

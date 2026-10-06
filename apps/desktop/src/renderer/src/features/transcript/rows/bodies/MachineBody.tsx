@@ -85,6 +85,8 @@ function renderBodyText(
       sourceId={props.sourceId}
       footnotes={props.footnotes}
       isComplete={isComplete}
+      // Only an agent's reply is drawn as prose here; a tool's output never is.
+      offersCodeCopy
     />
   );
 }

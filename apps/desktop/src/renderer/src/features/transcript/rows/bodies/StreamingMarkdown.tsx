@@ -21,6 +21,7 @@ import {
 } from "#renderer/components/Markdown/parse/markdown-parse.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { SettledBlock } from "./SettledBlock.js";
+import { renderCodeBlockCopy } from "./CodeBlockCopy.js";
 
 /**
  * The empty node list, once: a fresh `[]` per render would give a body with no tail a new prop
@@ -48,6 +49,8 @@ export interface StreamingMarkdownProps {
    * character can change what it means.
    */
   readonly isComplete: boolean;
+  /** Whether each code block carries its own Copy: an agent's reply does, a person's message not. */
+  readonly offersCodeCopy: boolean;
 }
 
 /** Renders a markdown body incrementally: settled blocks memoized, the tail re-parsed. */
@@ -99,13 +102,19 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   );
 
   const codeSpanReader = useCodeSpanReader();
+  const renderCodeCopy = props.offersCodeCopy ? renderCodeBlockCopy : undefined;
   const settledContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader }),
-    [definedFootnoteIdentifiers, codeSpanReader],
+    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy }),
+    [definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
   const volatileContext = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: props.isComplete, definedFootnoteIdentifiers, codeSpanReader }),
-    [props.isComplete, definedFootnoteIdentifiers, codeSpanReader],
+    () => ({
+      isSettled: props.isComplete,
+      definedFootnoteIdentifiers,
+      codeSpanReader,
+      renderCodeCopy,
+    }),
+    [props.isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
 
   // An effect, not a render, so no render mutates a registry that two cards share.

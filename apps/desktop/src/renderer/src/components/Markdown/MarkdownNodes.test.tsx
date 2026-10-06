@@ -23,6 +23,7 @@ function renderMarkdown(source: string, definedFootnotes: readonly string[] = []
         isSettled: true,
         definedFootnoteIdentifiers: new Set(definedFootnotes),
         codeSpanReader: NO_CODE_SPANS,
+        renderCodeCopy: undefined,
       }}
     />,
   );

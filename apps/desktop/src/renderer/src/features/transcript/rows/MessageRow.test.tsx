@@ -183,6 +183,37 @@ describe("a message's Copy", () => {
     ]);
   });
 
+  it("gives each code block in a reply its own Copy, which copies that block alone", async () => {
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const copied: ClipboardContent[] = [];
+    vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
+      copied.push(content);
+    });
+    const reply = renderMessageCard({
+      content: { status: "available", body: "Run it:\n\n```ts\nconst a = 1;\n```\n" },
+      replyRowIds: ["event-01"],
+      fixture,
+    });
+    const codeBlock = reply.querySelector(".meridian-code-block");
+    const blockCopy = codeBlock?.querySelector("button");
+    expect(codeBlock?.querySelector("[data-language]")?.getAttribute("data-language")).toBe("ts");
+    expect(blockCopy?.textContent).toBe("Copy");
+    await act(async () => {
+      fireEvent.click(blockCopy ?? reply);
+      await Promise.resolve();
+    });
+    expect(copied).toStrictEqual([{ text: "const a = 1;" }]);
+    expect(blockCopy?.textContent).toBe("Copied");
+
+    // A person's own message draws its code with no Copy of its own.
+    const asked = renderMessageCard({
+      type: "user.message",
+      summary: "Why does this fail?\n\n```ts\nconst a = 1;\n```\n",
+    });
+    expect(asked.querySelector(".meridian-code-block")).not.toBeNull();
+    expect(asked.querySelector(".meridian-code-block button")).toBeNull();
+  });
+
   it("writes the person's own message as plain text and nothing else", async () => {
     const copied = await pressCopy({ type: "user.message", summary: "Rename **the reader**" });
 

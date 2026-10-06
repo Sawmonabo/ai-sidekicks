@@ -9,8 +9,10 @@ import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpa
 import { CodeBlock, type CodeBlockProps } from "./CodeBlock.js";
 
 /** A code block colored by the window's own reader, as the transcript mounts one. */
-function WindowCodeBlock(props: Omit<CodeBlockProps, "codeSpanReader">): React.JSX.Element {
-  return <CodeBlock {...props} codeSpanReader={useCodeSpanReader()} />;
+function WindowCodeBlock(
+  props: Omit<CodeBlockProps, "codeSpanReader" | "renderCopy">,
+): React.JSX.Element {
+  return <CodeBlock {...props} codeSpanReader={useCodeSpanReader()} renderCopy={undefined} />;
 }
 
 function answeringSpans(spans: readonly number[]): ReturnType<typeof bridgeAnswering> {
