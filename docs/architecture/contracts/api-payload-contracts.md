@@ -6969,6 +6969,11 @@ interface WorkflowDefinitionReadResponse {
     at: string;
     outcome: "started" | "skipped" | "waiting" | "token_mismatch";
   };
+  // When the workflow was deleted, absent while it is not. A deleted workflow still reads, as its
+  // versions do through workflow.versionRead, so the run filter names it by its real name and the
+  // Builder opens the Workflows tab with `That workflow is not here.`; `workflow.not_found` means
+  // the definition was never created.
+  deletedAt?: string;
 }
 
 // WorkflowDefinitionList — workflow.definitionList. The one enumeration of saved workflows: the
@@ -8162,7 +8167,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | Method | Procedure type | Request → Response | Notes |
 | --- | --- | --- | --- |
 | `workflow.definitionCreate` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition_refused` with every finding |
-| `workflow.definitionRead` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token |
+| `workflow.definitionRead` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token; a deleted workflow still reads, with `deletedAt` set |
 | `workflow.definitionList` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every workflow in the one library with the facts its catalog row shows, paged |
 | `workflow.versionRead` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
 | `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own, working in the repository `projectId` names, else in the asking session's recorded folder, else, with neither, in the run's own folder; refuses `workflow.project_on_project_session` for a `projectId` beside a project session's `sessionId`; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-025); refuses `workflow.repository_required` for a start that names no project's repository — a `None` run, or a chat's start naming none — of a version holding a Git, Read a repo diff or Run tests step |

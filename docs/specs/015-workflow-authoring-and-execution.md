@@ -339,7 +339,7 @@ The wire registry carries the `workflow.*` methods, each named root-plus-camelCa
 | Method | Purpose |
 | --- | --- |
 | `workflow.definitionCreate` | Takes a workflow document, content-hashes it, persists version 1, and validates the full refusal set, a name another workflow holds among them; also serves Duplicate. |
-| `workflow.definitionRead` | The latest version unless one is named. |
+| `workflow.definitionRead` | The latest version unless one is named. A deleted workflow still reads, marked deleted, so the run filter names it; only a definition never created is not found. |
 | `workflow.definitionUpdate` | A new immutable version of an existing definition, optimistic on the expected version; Save, Restore and the schedule verb ride it. |
 | `workflow.definitionList` | Every workflow in the one library, each entry carrying its last run, its schedule and whether it is enabled. |
 | `workflow.definitionDelete` | Soft delete; runs keep their pinned versions, and the reply counts them. |

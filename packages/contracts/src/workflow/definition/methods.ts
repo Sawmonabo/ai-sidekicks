@@ -123,8 +123,9 @@ export const WorkflowDefinitionCreateResponseSchema: z.ZodType<WorkflowDefinitio
 // workflow.definitionRead
 
 /**
- * The `workflow.definitionRead` input: one definition, at `version` when given and at
- * its latest version otherwise.
+ * The `workflow.definitionRead` input: one definition, at `version` when given and at its latest
+ * version otherwise. A deleted definition still reads; only one never created is refused
+ * `workflow.not_found`.
  */
 export interface WorkflowDefinitionReadRequest {
   definitionId: WorkflowDefinitionId;
@@ -168,6 +169,11 @@ export interface WorkflowDefinitionReadResponse {
   webhookTokenCreatedAt?: string | undefined;
   webhookTokenLastUsedAt?: string | undefined;
   webhookLastFire?: { at: string; outcome: WorkflowWebhookFireOutcome } | undefined;
+  /**
+   * When the workflow was deleted, absent while it is not. A deleted workflow still reads, so a
+   * run filter can name it; the builder opens no deleted workflow.
+   */
+  deletedAt?: string | undefined;
 }
 /** Wire schema for {@link WorkflowDefinitionReadResponse}. */
 export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionReadResponse> = z
@@ -186,6 +192,7 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
       .object({ at: isoDateTimeSchema, outcome: z.enum(WORKFLOW_WEBHOOK_FIRE_OUTCOMES) })
       .strict()
       .optional(),
+    deletedAt: isoDateTimeSchema.optional(),
   })
   .strict()
   .refine(

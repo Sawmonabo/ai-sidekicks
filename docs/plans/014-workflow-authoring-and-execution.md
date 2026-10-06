@@ -110,7 +110,7 @@ No other table holds step state or step output, and no table holds join state: `
 | Contract type | Method string | Note |
 | --- | --- | --- |
 | `WorkflowDefinitionCreate` | `workflow.definitionCreate` | Takes a workflow document, content-hashes it, persists version 1, and validates the full refusal set |
-| `WorkflowDefinitionRead` | `workflow.definitionRead` | Definition header plus the current version pointer and the workflow's own permission level; the latest version unless one is named |
+| `WorkflowDefinitionRead` | `workflow.definitionRead` | Definition header plus the current version pointer and the workflow's own permission level; the latest version unless one is named; a deleted workflow still reads, with `deletedAt` set |
 | `WorkflowDefinitionUpdate` | `workflow.definitionUpdate` | A new immutable version of an existing definition, optimistic on the expected version |
 | `WorkflowDefinitionList` | `workflow.definitionList` | Every workflow in the one library, each entry carrying its last run, its last skipped fire, its schedule and whether it is enabled |
 | `WorkflowDefinitionDelete` | `workflow.definitionDelete` | Soft delete; runs keep their pinned versions, and the reply states how many |
