@@ -760,6 +760,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.secretList {}` → `{secrets: [{secretId, scope, scopeRef, name}]}` | List the secrets the chooser offers: the shared ones and each project's, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.secretReplace {secretId, secretValue}` → `{secretId}` | `Replace value` on a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.stepRead` | Read a step's input, output or log (step panel, inspector data panels) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.7 |
+| `workflow.stepTabArtifactCreate` | Store what one step-panel tab holds as an artifact (`Open as artifact`) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.7 |
 | `workflow.subscribe` | Live updates: runs, steps, schedules, the start hold | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.12 |
 | `workflow.versionChainRead` | Version history (Versions panel list, the pinned-version chip) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.10 |
 | `workflow.versionDiffRead` | Structural difference between two versions (panel count, canvas highlight, old and new params) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.10 |
@@ -6859,6 +6860,14 @@ interface WorkflowStep {
   // Present exactly on a `waiting` step: what it waits on. The status list is not widened for a wait: a
   // step parked on a spent provider account reads `waiting` with cause `account`.
   waitCause?: WorkflowWaitCause;
+  // Present exactly on a step waiting on `account`: the spent account, with its provider and the one
+  // label every surface names an account by, so the run header reads `The Codex account <label> is
+  // spent…` and no account id reaches the screen.
+  waitAccount?: {
+    providerAccountId: ProviderAccountId;
+    provider: "claude" | "codex";
+    label: string;
+  };
   // Only on a `waiting` step, and only where the wait armed one: the instant it resumes itself. Where
   // none is armed, no instant is invented.
   resumeAt?: string; // RFC 3339 UTC
@@ -7104,6 +7113,7 @@ interface WorkflowRunReadResponse {
   // that node's step status, and the panel holds one step at a time. A waiting step says what it
   // waits on and when it resumes itself on its own record, so one workflow.runRead renders why the
   // run waits, per branch, with no rebuild from the transcript (Spec-015 §Park surfacing on the read model).
+  // A `waiting` run always carries at least one `waiting` step: a run waits only while a step does.
   steps: WorkflowStep[];
   // How the run was started and by whom, which the run row and the run header both read. `startedBy`
   // carries the message anchor on a chat-borne start, which is how a run links back to the message that
@@ -7512,6 +7522,16 @@ interface WorkflowStepReadResponse {
   nextCursor?: string;
 }
 
+// WorkflowStepTabArtifactCreate — workflow.stepTabArtifactCreate. A step-panel tab's `Open as artifact`:
+// the daemon stores what that tab holds — an inline input, output or log, the step's cost or its
+// error — as an artifact of the run's session through ArtifactPublish (§Plan-011), and answers its id.
+interface WorkflowStepTabArtifactCreateRequest extends WorkflowStepKey {
+  which: "input" | "output" | "log" | "cost" | "error";
+}
+interface WorkflowStepTabArtifactCreateResponse {
+  artifactId: ArtifactId;
+}
+
 // WorkflowRunRetry — workflow.runRetry. Re-runs from a NAMED STEP: that step and its descendants run
 // again, with the prior run's data pinned upstream so the retry feeds on exactly what the original fed on.
 // It mints a new run in `retry` mode rather than mutating the original, which stays readable. It is
@@ -7914,6 +7934,7 @@ type WorkflowRunAttentionEntry =
       workflowRunId: WorkflowRunId;
       workflowName: string;
       waitCause: Exclude<WorkflowWaitCause, "account">;
+      waitingStepName: string; // the step that waits, which the entry names
       waitingSince: string;
     }
   | {
@@ -8158,6 +8179,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.runList` | `query` | `WorkflowRunListRequest` → `WorkflowRunListResponse` | The runs enumeration, with the filters the table narrows on, the version scope Show runs hands in, the total and paging |
 | `workflow.versionChainRead` | `query` | `WorkflowVersionChainReadRequest` → `WorkflowVersionChainReadResponse` | The chain one run's pinned version belongs to, addressed by that version id |
 | `workflow.stepRead` | `query` | `WorkflowStepReadRequest` → `WorkflowStepReadResponse` | One step's input, output or log by ref, paged and redacted |
+| `workflow.stepTabArtifactCreate` | `mutation` | `WorkflowStepTabArtifactCreateRequest` → `WorkflowStepTabArtifactCreateResponse` | Stores what one step-panel tab holds — an inline payload, the step's cost or its error — as an artifact through `ArtifactPublish`, answering its id |
 | `workflow.runRetry` | `mutation` | `WorkflowRunRetryRequest` → `WorkflowRunRetryResponse` | Re-runs from a named step with the prior run's data pinned upstream; mints a new run in `retry` mode; refuses `workflow.retry_unavailable` or `workflow.invalid_transition` |
 | `workflow.runRerun` | `mutation` | `WorkflowRunRerunRequest` → `WorkflowRunStartResponse` | Starts a new run of the named run's own pinned version with the input and mode it was started with, in its session; emits `workflow.started`; the person's own start, judged by no policy |
 | `workflow.nodeExecute` | `mutation` | `WorkflowNodeExecuteRequest` → `WorkflowNodeExecuteResponse` | Executes one node, or it and its ancestors, against pinned or prior input, in the trigger's `Repository`, or, on a `chat` or `sub-workflow` trigger, the one `projectId` names; the daemon computes the filtered run |
@@ -8255,7 +8277,7 @@ type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native
 // empty-string PK component. Payload/read-model types compose this union via intersection (never
 // `interface extends` — unions don't extend).
 // A fourth arm names a server an installed plugin carries in its `.mcp.json`, its scopeRef the
-// plugin's name: listed on the MCP servers page as `Declared by plugin <name>` and sent
+// plugin's name: listed on the MCP servers page as `From plugin <name>` and sent
 // to a session only when switched on for it. Its declaration changes only with the plugin, so
 // mcp.upsertServer and mcp.removeServer refuse it; mcp.setEnabled and the tool overrides target it.
 // A binding in a scope the person writes, its declaration in a provider's own config.
