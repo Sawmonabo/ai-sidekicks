@@ -1,6 +1,6 @@
 // Input schemas for the workflow tools an agent calls from a session, for the tools whose input
 // differs from the request of the method they drive. `workflow_run` is in
-// `@ai-sidekicks/contracts/workflow/run-tool`, which the desktop also reads. `workflow_kinds`,
+// `@ai-sidekicks/contracts/workflow/run/tool`, which the desktop also reads. `workflow_kinds`,
 // `workflow_list`, `workflow_create`, `workflow_update` and `workflow_enable` take their methods'
 // request schemas (`workflow.kindList`, `workflow.definitionList`, `workflow.definitionCreate`,
 // `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.

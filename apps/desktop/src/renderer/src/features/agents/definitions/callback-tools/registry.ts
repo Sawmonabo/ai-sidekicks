@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
-import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run-tool";
+import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run/tool";
 
 /**
  * The registry in the two states the callback tools section keeps apart. Both carry entries:
