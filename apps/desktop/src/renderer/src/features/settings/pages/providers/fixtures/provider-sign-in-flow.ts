@@ -197,13 +197,10 @@ export type RegistrationFieldReading =
  * credential. The name is required and differs from that provider's other account names,
  * compared without case or surrounding spaces; a name of only spaces passes the browser's
  * `required` check and is refused here. The refusal never echoes the name, which is user content.
+ * The form asks nothing about billing, so an admitted account's billing is `unknown`.
  */
 export function readRegistrationFields(
-  typed: {
-    readonly displayLabel: string;
-    readonly provider: ProviderName;
-    readonly billingMode: BillingMode;
-  },
+  typed: { readonly displayLabel: string; readonly provider: ProviderName },
   accounts: readonly ProviderAccount[],
 ): RegistrationFieldReading {
   const displayLabel = typed.displayLabel.trim();
@@ -235,7 +232,7 @@ export function readRegistrationFields(
   }
   return {
     kind: "admitted",
-    fields: { provider: typed.provider, displayLabel, billingMode: typed.billingMode },
+    fields: { provider: typed.provider, displayLabel, billingMode: "unknown" },
   };
 }
 

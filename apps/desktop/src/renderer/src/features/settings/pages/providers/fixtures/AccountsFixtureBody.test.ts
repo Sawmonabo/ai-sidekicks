@@ -11,6 +11,7 @@ import {
   ACCOUNT_REGISTRY,
   mountAccountsPage,
   pressFirstStartControl,
+  signInAddressOf,
   startControls,
   WIRE_LIMIT_IDS,
 } from "./accounts-fixture-body.test-support.js";
@@ -49,7 +50,7 @@ describe("AccountsFixtureBody", () => {
     });
 
     // The flow the press started is on screen, with its code and its way out...
-    expect(container.textContent).toContain("provider.example.test/device");
+    expect(signInAddressOf(container)).toContain("provider.example.test/device");
     expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1);
     // ...and no row offers a second start, with the reason where the control was.
     for (const control of startControls(container)) {

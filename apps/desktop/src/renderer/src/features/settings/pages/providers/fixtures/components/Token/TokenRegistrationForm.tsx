@@ -1,14 +1,9 @@
-import {
-  BILLING_MODES,
-  PROVIDER_NAMES,
-  type BillingMode,
-  type ProviderAccount,
-  type ProviderName,
+import type {
+  ProviderAccount,
+  ProviderName,
 } from "@ai-sidekicks/contracts/provider/account/account";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { BILLING_MODE_WORDS } from "#renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
 import {
   IDLE_TOKEN_REGISTRATION,
@@ -20,8 +15,8 @@ import {
 } from "../../provider-sign-in-flow.js";
 
 /**
- * `Paste a token instead`: a name and one masked field for a credential the person minted at the
- * provider, opened by that control and closed by `Cancel`.
+ * `Paste a token instead`: a name and one masked field for a credential the person minted at
+ * `provider`, opened by that control and closed by `Cancel`.
  *
  * The token field is write-only by construction: it is read from its own ref in the submit
  * handler, put on the request, and cleared in the same block. It is never a `useState` member
@@ -31,18 +26,16 @@ import {
  */
 export function TokenRegistrationForm(props: {
   readonly register: ProviderAccountRegisterCall;
+  /** The provider the pasted token was minted at; the form sits under its name. */
+  readonly provider: ProviderName;
   /** The accounts already registered, whose names a new one must differ from per provider. */
   readonly accounts: readonly ProviderAccount[];
 }): ReactNode {
-  const { register, accounts } = props;
+  const { register, provider, accounts } = props;
   const nameFieldId = useId();
-  const providerFieldId = useId();
-  const billingFieldId = useId();
   const tokenFieldId = useId();
   const displayLabelInput = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [provider, setProvider] = useState<ProviderName>(PROVIDER_NAMES[0] as ProviderName);
-  const [billingMode, setBillingMode] = useState<BillingMode>(BILLING_MODES[0] as BillingMode);
   const tokenInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<TokenRegistrationOutcome>(IDLE_TOKEN_REGISTRATION);
 
@@ -66,7 +59,7 @@ export function TokenRegistrationForm(props: {
     // cannot be sent leaves the credential where the person put it; `required` accepts a name
     // of spaces.
     const reading = readRegistrationFields(
-      { displayLabel: displayLabelInput.current?.value ?? "", provider, billingMode },
+      { displayLabel: displayLabelInput.current?.value ?? "", provider },
       accounts,
     );
     if (reading.kind === "refused") {
@@ -94,42 +87,6 @@ export function TokenRegistrationForm(props: {
         type="text"
         required
       />
-
-      <label htmlFor={providerFieldId} className="meridian-form__label">
-        Provider
-      </label>
-      <select
-        className="meridian-form__input"
-        id={providerFieldId}
-        value={provider}
-        onChange={(event) => {
-          setProvider(PROVIDER_NAMES.find((name) => name === event.target.value) ?? provider);
-        }}
-      >
-        {PROVIDER_NAMES.map((name) => (
-          <option key={name} value={name}>
-            {PROVIDER_LABELS[name]}
-          </option>
-        ))}
-      </select>
-
-      <label htmlFor={billingFieldId} className="meridian-form__label">
-        Billing
-      </label>
-      <select
-        className="meridian-form__input"
-        id={billingFieldId}
-        value={billingMode}
-        onChange={(event) => {
-          setBillingMode(BILLING_MODES.find((mode) => mode === event.target.value) ?? billingMode);
-        }}
-      >
-        {BILLING_MODES.map((mode) => (
-          <option key={mode} value={mode}>
-            {BILLING_MODE_WORDS[mode]}
-          </option>
-        ))}
-      </select>
 
       <label htmlFor={tokenFieldId} className="meridian-visually-hidden">
         Paste the token you minted at the provider.

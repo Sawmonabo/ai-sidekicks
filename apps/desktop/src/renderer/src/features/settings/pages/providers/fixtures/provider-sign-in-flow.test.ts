@@ -79,9 +79,9 @@ describe("submitTokenRegistration", () => {
 });
 
 describe("readRegistrationFields", () => {
-  /** The three ordinary fields, as the form hands them over. */
+  /** The ordinary fields, as the form hands them over. */
   function typed(displayLabel: string): Parameters<typeof readRegistrationFields>[0] {
-    return { displayLabel, provider: "codex", billingMode: "metered" };
+    return { displayLabel, provider: "codex" };
   }
 
   /** The refusal one reading carries, or `undefined` where it admitted the fields. */
@@ -95,7 +95,7 @@ describe("readRegistrationFields", () => {
       readRegistrationFields(typed("  Metered  "), [claudeAccount]),
     ).toStrictEqual<RegistrationFieldReading>({
       kind: "admitted",
-      fields: { provider: "codex", displayLabel: "Metered", billingMode: "metered" },
+      fields: { provider: "codex", displayLabel: "Metered", billingMode: "unknown" },
     });
   });
 

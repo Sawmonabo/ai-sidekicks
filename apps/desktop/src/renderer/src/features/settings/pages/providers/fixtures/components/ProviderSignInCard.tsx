@@ -10,8 +10,9 @@ import { useSignInTimeLeft } from "../hooks/useSignInTimeLeft.js";
 import type { ProviderSignInFlowState } from "../provider-sign-in-flow.js";
 
 /**
- * What a person needs to finish the provider's own sign-in: the code with how long it has left,
- * `Open the sign-in page` with the address beside it, and `Cancel`; or, where it did not finish,
+ * What a person needs to finish the provider's own sign-in: the code, the line under it saying how
+ * long it has left, `Open the sign-in page` with the address beside it in a read-only field, and
+ * `Cancel`; or, where it did not finish,
  * that line with the provider's own reason, the row's `Sign in` still there to start again.
  *
  * It is no verdict about the account: whether the account ended up signed in is the registry's to
@@ -59,17 +60,20 @@ function SignInInProgress(props: {
   const timeLeftMilliseconds = useSignInTimeLeft(attempt.expiresAt);
   const { refusal, openSignInPage } = useOpenSignInPage();
   return (
-    <div className="meridian-accounts__signin" role="group" aria-label="Sign-in in progress">
+    <div className="meridian-accounts__signin">
       {attempt.userCode === undefined ? null : (
         <p className="meridian-settings-page__state">
-          Enter this code where the provider asks for it: <WireFigure value={attempt.userCode} />
-          {timeLeftMilliseconds === undefined ? null : timeLeftMilliseconds > 0 ? (
+          <WireFigure value={attempt.userCode} />
+        </p>
+      )}
+      {attempt.userCode === undefined || timeLeftMilliseconds === undefined ? null : (
+        <p className="meridian-settings-page__aside">
+          {timeLeftMilliseconds > 0 ? (
             <>
-              {" · "}
-              <DerivedFigure text={formatDuration(timeLeftMilliseconds)} /> left
+              This code expires in <DerivedFigure text={formatDuration(timeLeftMilliseconds)} />.
             </>
           ) : (
-            " · This code has expired."
+            "This code has expired."
           )}
         </p>
       )}
@@ -83,7 +87,12 @@ function SignInInProgress(props: {
         >
           Open the sign-in page
         </button>{" "}
-        <WireFigure value={attempt.verificationUri} />
+        <input
+          className="meridian-form__input meridian-form__input--wire"
+          readOnly
+          value={attempt.verificationUri}
+          aria-label="Sign-in address"
+        />
       </p>
       {refusal === undefined ? null : (
         <p

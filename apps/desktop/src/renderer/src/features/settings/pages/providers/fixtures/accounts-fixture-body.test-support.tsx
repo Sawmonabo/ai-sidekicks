@@ -178,3 +178,8 @@ export function pressFirstStartControl(container: HTMLElement): void {
   }
   fireEvent.click(control);
 }
+
+/** The address a running sign-in draws in its read-only field, or `undefined` while none runs. */
+export function signInAddressOf(container: HTMLElement): string | undefined {
+  return container.querySelector<HTMLInputElement>('input[aria-label="Sign-in address"]')?.value;
+}

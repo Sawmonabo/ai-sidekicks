@@ -10,13 +10,22 @@
 
 import "./accounts-fixture-body.css";
 
-import type {
-  ProviderAccount,
-  ProviderReadiness,
+import {
+  PROVIDER_NAMES,
+  type ProviderAccount,
+  type ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/account";
-import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { BILLING_MODE_WORDS } from "#renderer/lib/account-plane-sentences.js";
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
@@ -240,7 +249,16 @@ export function AccountsFixtureBody(props: {
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Register an account</h3>
-        <TokenRegistrationForm register={operations.register} accounts={registry.accounts} />
+        {PROVIDER_NAMES.map((provider) => (
+          <Fragment key={provider}>
+            <h4 className="meridian-settings-page__block-title">{PROVIDER_LABELS[provider]}</h4>
+            <TokenRegistrationForm
+              register={operations.register}
+              provider={provider}
+              accounts={registry.accounts}
+            />
+          </Fragment>
+        ))}
       </section>
     </>
   );

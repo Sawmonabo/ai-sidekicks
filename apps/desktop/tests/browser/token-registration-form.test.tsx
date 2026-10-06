@@ -54,7 +54,7 @@ describe("browser — the provider-account token field is write-only in the engi
   async function renderRegistrationForm(): Promise<HTMLElement> {
     const { container } = render(
       <LiveAnnouncerProvider>
-        <TokenRegistrationForm register={registerAnswering} accounts={[]} />
+        <TokenRegistrationForm register={registerAnswering} provider="codex" accounts={[]} />
       </LiveAnnouncerProvider>,
     );
     document.body.append(container);

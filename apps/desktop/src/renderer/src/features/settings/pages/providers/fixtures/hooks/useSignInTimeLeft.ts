@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useState } from "react";
 
 import { useDeadlineWake } from "#renderer/hooks/useDeadlineWake.js";
 import { MILLISECONDS_PER_SECOND, parseInstant } from "#renderer/lib/instant.js";
@@ -13,17 +13,17 @@ export function useSignInTimeLeft(expiresAt: string | undefined): number | undef
   const clock = useClock();
   const reading = expiresAt === undefined ? undefined : parseInstant(expiresAt);
   const expiresAtMilliseconds = reading?.kind === "instant" ? reading.epochMilliseconds : undefined;
-  // The instant the previous render woke at, so the marks are counted from it. Two marks are
-  // armed because the wake-up returns the mark it crossed, and the next one must still be ahead.
-  const wokeAtRef = useRef<number | undefined>(undefined);
-  wokeAtRef.current ??= clock.now();
+  // The instant the marks are counted from: the first render's reading, then each wake-up's. Two
+  // marks are armed because the wake-up returns the mark it crossed, and the next one must still
+  // be ahead until the effect below moves the count on.
+  const [marksFrom, setMarksFrom] = useState(() => clock.now());
   const instant = useDeadlineWake(
     clock,
-    expiresAtMilliseconds === undefined
-      ? []
-      : nextSecondMarks(expiresAtMilliseconds, wokeAtRef.current),
+    expiresAtMilliseconds === undefined ? [] : nextSecondMarks(expiresAtMilliseconds, marksFrom),
   );
-  wokeAtRef.current = instant;
+  useEffect(() => {
+    setMarksFrom(instant);
+  }, [instant]);
   return expiresAtMilliseconds === undefined
     ? undefined
     : Math.max(0, expiresAtMilliseconds - instant);

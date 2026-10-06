@@ -15,7 +15,7 @@ import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { ProvidersPage } from "../ProvidersPage.js";
-import { pressFirstStartControl } from "./accounts-fixture-body.test-support.js";
+import { pressFirstStartControl, signInAddressOf } from "./accounts-fixture-body.test-support.js";
 import { registerAccountsFixtureBody } from "./register-accounts-fixture-body.js";
 
 afterEach(() => {
@@ -55,17 +55,17 @@ describe("AccountsFixtureMount", () => {
     await settle(() => {
       fixture.scenarioEngine.advance(200);
     });
-    expect(container.textContent).toContain("provider.example.test/device");
+    expect(signInAddressOf(container)).toContain("provider.example.test/device");
     // The code's time left counts down on the window's clock, a second at a time.
-    expect(container.textContent).toContain("15:00 left");
+    expect(container.textContent).toContain("This code expires in 15:00.");
     await settle(() => {
       fixture.scenarioEngine.advance(1000);
     });
-    expect(container.textContent).toContain("14:59 left");
+    expect(container.textContent).toContain("This code expires in 14:59.");
     await settle(() => {
       fixture.scenarioEngine.advance(1000);
     });
-    expect(container.textContent).toContain("14:58 left");
+    expect(container.textContent).toContain("This code expires in 14:58.");
   });
 
   it("says a failed sign-in did not finish, then clears one that finishes", async () => {
@@ -75,12 +75,12 @@ describe("AccountsFixtureMount", () => {
       await settle(() => {
         fixture.scenarioEngine.advance(200);
       });
-      expect(container.textContent).toContain("provider.example.test/device");
+      expect(signInAddressOf(container)).toContain("provider.example.test/device");
       // The scripted sign-in ends on its own seconds later, reported on the registry's tail.
       await settle(() => {
         fixture.scenarioEngine.advance(5000);
       });
-      expect(container.textContent).not.toContain("provider.example.test/device");
+      expect(signInAddressOf(container)).toBeUndefined();
     };
 
     // The first sign-in fails, with the provider's own reason under the line.
