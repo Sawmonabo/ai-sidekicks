@@ -3,13 +3,11 @@
 // document's tree. Everything below reads the window it is in from `OwnerWindowContext`, and runs
 // its frame work on that window's own paint through `WindowClockProvider`.
 
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { OwnerWindowContext } from "#renderer/hooks/owner-window/useOwnerWindow.js";
-import { railDestinationFor } from "#renderer/routing/readers.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
-import type { AppRoute } from "#renderer/routing/routes.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { WindowClockProvider } from "#renderer/services/platform/WindowClockProvider.js";
 import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
@@ -24,14 +22,13 @@ import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
 import { AppShell } from "#renderer/layout/AppShell/AppShell.js";
-import { RAIL_ENTRY_TEMPLATES } from "#renderer/layout/NavigationRail/NavigationRail.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
-import { discloseUnkeptScheme } from "./hooks/useAppearance.js";
-import { useDaemonStatusReport } from "./hooks/useDaemonStatusReport.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
+import { useWindowTitle } from "./hooks/useWindowTitle.js";
 import { AppRouter } from "./AppRouter.js";
+import { discloseUnkeptScheme } from "./unkept-scheme.js";
 import { windowMountPoint } from "./window-document.js";
 
 /** The stores every window shares, which the app keeps for as long as it runs. */
@@ -85,8 +82,6 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
 
   useHashRouteBinding(frameStore, hash, ownerWindow);
 
-  useDaemonStatusReport(bridge, frameStore);
-
   // Focus triggers a refresh; nothing polls.
   useWindowFocusRefresh(frameStore, appStores.sessionStoreRegistry, ownerWindow);
 
@@ -133,23 +128,4 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       <AppRouter context={screenContext} />
     </AppShell>
   );
-}
-
-/**
- * Title the window after what it shows: the session's id on a session's page, since no read gives
- * a session's title yet, the destination's label elsewhere, and the app's name otherwise. Main
- * mirrors it onto the native window, so it is what the Window menu lists.
- */
-function useWindowTitle(ownerWindow: Window, route: AppRoute, appTitle: string): void {
-  useEffect(() => {
-    ownerWindow.document.title = windowTitleFor(route, appTitle);
-  }, [ownerWindow, route, appTitle]);
-}
-
-function windowTitleFor(route: AppRoute, appTitle: string): string {
-  if (route.kind === "session") {
-    return route.sessionId;
-  }
-  const destination = railDestinationFor(route);
-  return destination === undefined ? appTitle : RAIL_ENTRY_TEMPLATES[destination].label;
 }

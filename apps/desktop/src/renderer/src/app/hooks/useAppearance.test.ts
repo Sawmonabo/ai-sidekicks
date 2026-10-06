@@ -16,7 +16,8 @@ import type { PlatformBridge } from "#renderer/services/platform/platform-bridge
 import type { AppearanceMembers } from "#renderer/services/window/appearance-client.js";
 import { WindowStore } from "#renderer/store/window/window-store.js";
 import { SCHEME_ATTRIBUTE, THEME_ATTRIBUTE, type AppearanceRecord } from "#shared/appearance.js";
-import { discloseUnkeptScheme, useAppearance } from "./useAppearance.js";
+import { discloseUnkeptScheme } from "../unkept-scheme.js";
+import { useAppearance } from "./useAppearance.js";
 
 const KEPT: AppearanceRecord = {
   theme: "graphite",

@@ -2,7 +2,8 @@
 // app opens one window on the sessions list, reads no kept window layout and leaves it as it was,
 // and says so in one line; `Restore windows` reopens every kept window and tells main the safe
 // start ended. The negative control is an ordinary load over the same kept layout, which opens the
-// kept windows and shows no line. Main's ask to reopen a window, once none is open, opens it.
+// kept windows on their kept addresses, brings the window used last back to its own, and shows no
+// line. Main's ask to reopen a window, once none is open, opens it.
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,8 +14,9 @@ import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.f
 import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-persistence-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
-  keepWindowIds,
-  readKeptWindowIds,
+  keepWindows,
+  readKeptWindows,
+  type KeptWindow,
 } from "#renderer/store/window-layout/kept-window-layout.js";
 import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 import { FIRST_RUN_SCENARIO_ID } from "#fixtures/scenarios/first-run.js";
@@ -24,8 +26,16 @@ import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
 const SAFE_START_LINE = "The app restarted after repeated problems. Your windows weren't restored.";
 
-/** The windows the last run kept, beside the one the fixture launch names as used last. */
-const KEPT_WINDOW_IDS = ["window/kept-first", "window/kept-second"];
+/** The window the fixture launch names as used last, as the last run kept it. */
+const USED_LAST_KEPT: KeptWindow = { windowId: FIXTURE_WINDOW_ID, route: { kind: "workflows" } };
+
+/** The other windows the last run kept, each on its own address. */
+const OTHERS_KEPT: readonly KeptWindow[] = [
+  { windowId: "window/kept-first", route: { kind: "settings", page: undefined } },
+  { windowId: "window/kept-second", route: { kind: "sessions" } },
+];
+
+const KEPT_WINDOW_IDS = OTHERS_KEPT.map(({ windowId }) => windowId);
 
 /** What main heard from the console document, and how a case asks it to reopen a window. */
 interface MainStandIn {
@@ -95,7 +105,7 @@ async function withUiStateStore<Answer>(
 beforeEach(async () => {
   document.location.hash = "";
   await deleteUiStateDatabase();
-  await withUiStateStore(async (store) => keepWindowIds(store, KEPT_WINDOW_IDS));
+  await withUiStateStore(async (store) => keepWindows(store, [USED_LAST_KEPT, ...OTHERS_KEPT]));
 });
 
 afterEach(async () => {
@@ -120,7 +130,7 @@ describe("a safe start", () => {
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    expect(await withUiStateStore(readKeptWindowIds)).toEqual(KEPT_WINDOW_IDS);
+    expect(await withUiStateStore(readKeptWindows)).toEqual([USED_LAST_KEPT, ...OTHERS_KEPT]);
     expect(main.safeStartEnds()).toBe(0);
 
     await act(async () => {
@@ -132,18 +142,26 @@ describe("a safe start", () => {
     await expect.poll(() => shown.queryByText(SAFE_START_LINE)).toBeNull();
     // Main keeps each window's place again.
     expect(main.safeStartEnds()).toBe(1);
-    // Restored, the kept layout follows the open windows again.
+    expect(frames.windowNamed("window/kept-first").location.hash).toBe("#/settings");
+    // Restored, the kept layout follows the open windows again, the used-last one where it is now.
     await expect
-      .poll(async () => withUiStateStore(readKeptWindowIds))
-      .toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]);
+      .poll(async () => withUiStateStore(readKeptWindows))
+      .toEqual([{ windowId: FIXTURE_WINDOW_ID, route: { kind: "sessions" } }, ...OTHERS_KEPT]);
   });
 
-  it("negative control: an ordinary load opens the kept windows and shows no line", async () => {
+  it("negative control: an ordinary load opens the kept windows where they were", async () => {
     const frames = new FrameWindows();
     const usedLast = await renderAppSettled(FIRST_RUN_SCENARIO_ID, frames);
 
     await expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]);
+    await expect.poll(() => usedLast.location.hash).toBe("#/workflows");
+    expect(frames.windowNamed("window/kept-first").location.hash).toBe("#/settings");
+    expect(frames.windowNamed("window/kept-second").location.hash).toBe("#/sessions");
     expect(within(usedLast.document.body).queryByText(SAFE_START_LINE)).toBeNull();
+    // The kept layout is written only after its read, so it still holds every address.
+    await expect
+      .poll(async () => withUiStateStore(readKeptWindows))
+      .toEqual([USED_LAST_KEPT, ...OTHERS_KEPT]);
   });
 });
 

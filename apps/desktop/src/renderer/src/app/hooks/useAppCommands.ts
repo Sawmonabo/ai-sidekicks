@@ -21,7 +21,7 @@ import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding
 import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
 import { buildNavigationCommands } from "#renderer/layout/NavigationRail/navigation-commands.js";
 import { buildColorSchemeCommand, useBridgeCommands } from "#renderer/features/settings/index.js";
-import { discloseUnkeptScheme } from "./useAppearance.js";
+import { discloseUnkeptScheme } from "../unkept-scheme.js";
 
 /** What the app's commands act through. */
 export interface AppCommandsInput {

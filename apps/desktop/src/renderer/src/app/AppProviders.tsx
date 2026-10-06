@@ -15,12 +15,13 @@ import { RealClock } from "#renderer/lib/clock.js";
 import { routeWindowTripwiresToDiagnosticCapture } from "#renderer/lib/diagnostic-capture/tripwire-diagnostic-route.js";
 import { ForwardingClock } from "#renderer/lib/forwarding-clock.js";
 import { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
-import { OpenWindows, type WindowOpener } from "#renderer/services/window/open-windows.js";
+import { type WindowOpener } from "#renderer/services/window/open-windows.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/entity-projector-registry.js";
 import { inlineCardRegistry } from "#renderer/registries/inline-cards/inline-card-registry.js";
 import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { useOpenWindows } from "./hooks/useOpenWindows.js";
 import { AppBootstrap } from "./AppBootstrap.js";
 import { registerFeatureContributions } from "./registrations.js";
 
@@ -59,9 +60,7 @@ export interface AppProvidersProps {
 export function AppProviders(props: AppProvidersProps): React.JSX.Element {
   const { openWindow } = props;
   const [frames] = useState(() => new OpenWindowFrames());
-  const [openWindows] = useState(
-    () => new OpenWindows({ openWindow, consoleDocument: document, frames }),
-  );
+  const openWindows = useOpenWindows(openWindow, frames);
   return (
     <PlatformBridgeProvider
       {...(props.composition === undefined ? {} : { composition: props.composition })}

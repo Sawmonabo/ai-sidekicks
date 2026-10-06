@@ -1,7 +1,6 @@
 // The bridge gate. With a bridge the app opens its windows; without one, it opens one window to say
 // so, since the console document it runs in is never shown.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { useBridgeResolution } from "#renderer/services/platform/hooks/useBridgeResolution.js";
@@ -9,9 +8,9 @@ import type { BridgeUnavailable } from "#renderer/services/platform/bridge-conte
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import { sessionReadThroughDaemon } from "#renderer/services/daemon/session/read.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { consoleWindowId } from "#shared/window/frame-name.js";
+import { useBridgeUnavailableWindow } from "./hooks/useBridgeUnavailableWindow.js";
 import { AppWindows } from "./AppWindows.js";
-import { prepareWindowDocument, windowMountPoint } from "./window-document.js";
+import { windowMountPoint } from "./window-document.js";
 
 /** What the provider stack hands the gate. */
 export interface AppBootstrapProps {
@@ -45,26 +44,12 @@ export function AppBootstrap(props: AppBootstrapProps): React.JSX.Element {
   );
 }
 
-/** One window, under a new id since no bridge says which was used last, holding the card. */
+/** The one window saying no bridge resolved, holding the card. */
 function BridgeUnavailableWindow(props: {
   readonly openWindows: OpenWindows;
   readonly unavailable: BridgeUnavailable;
 }): React.JSX.Element | null {
-  const { openWindows } = props;
-  const [windowId] = useState(() => consoleWindowId(crypto.randomUUID()));
-  const windows = useSyncExternalStore(
-    useCallback((onChange: () => void) => openWindows.subscribe(onChange), [openWindows]),
-    useCallback(() => openWindows.list(), [openWindows]),
-  );
-  useEffect(() => {
-    const stopPreparing = openWindows.prepareEveryDocument(prepareWindowDocument);
-    openWindows.open(windowId);
-    return () => {
-      stopPreparing();
-      openWindows.closeAll();
-    };
-  }, [openWindows, windowId]);
-  const opened = windows.find((openWindow) => openWindow.windowId === windowId);
+  const opened = useBridgeUnavailableWindow(props.openWindows);
   if (opened === undefined) {
     return null;
   }

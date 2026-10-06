@@ -50,14 +50,30 @@ export class OpenWindows {
   readonly #held = new Map<string, HeldWindow>();
   readonly #listeners = new Set<() => void>();
   readonly #documentPreparations = new Set<(windowDocument: Document) => void>();
+  readonly #onConsolePageHide = (): void => {
+    this.#isConsoleUnloading = true;
+  };
   #usedLastFirst: readonly OpenWindow[] = [];
   #isConsoleUnloading = false;
+  #isDisposed = false;
 
   public constructor(options: OpenWindowsOptions) {
     this.#options = options;
-    options.consoleDocument.defaultView?.addEventListener("pagehide", () => {
-      this.#isConsoleUnloading = true;
-    });
+    options.consoleDocument.defaultView?.addEventListener("pagehide", this.#onConsolePageHide);
+  }
+
+  /** Whether {@link dispose} has run. */
+  public get isDisposed(): boolean {
+    return this.#isDisposed;
+  }
+
+  /** Stop hearing the console document unload; terminal. The windows' own close is `closeAll`. */
+  public dispose(): void {
+    this.#isDisposed = true;
+    this.#options.consoleDocument.defaultView?.removeEventListener(
+      "pagehide",
+      this.#onConsolePageHide,
+    );
   }
 
   /**
