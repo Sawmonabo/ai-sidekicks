@@ -40,7 +40,7 @@
     "structure:dead-code": "knip --directory ../.. --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
     "structure:layering": "depcruise src fixtures build scripts vitest --config .dependency-cruiser.mjs --output-type err",
     "structure": "pnpm run structure:dead-code && pnpm run structure:layering",
-    "test": "turbo run test:main-unit test:renderer --filter=@ai-sidekicks/desktop && turbo run test:browser test:accessibility --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:e2e test:endurance --filter=@ai-sidekicks/desktop --concurrency=1"
+    "test": "turbo run test:main-unit test:renderer --filter=@ai-sidekicks/desktop && turbo run test:browser --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:e2e --filter=@ai-sidekicks/desktop --concurrency=1"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",

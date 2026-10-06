@@ -106,7 +106,7 @@ export interface LaunchAppOptions {
    * Defaults to `BODY_ALLOWANCE_MS`, the shorter registered figure, so a tier that says nothing
    * fails inside a bound that names itself. The endurance tier states
    * `ENDURANCE_BODY_ALLOWANCE_MS`, and its `testTimeout` is derived from that row
-   * (`tierTimeoutFor`, `vitest.config.ts`).
+   * (`tierTimeoutFor`, `vitest/tier-projects.ts`).
    */
   readonly bodyAllowanceMs?: number;
   /**

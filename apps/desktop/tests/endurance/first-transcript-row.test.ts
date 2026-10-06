@@ -1,5 +1,5 @@
 // The time-to-first-transcript-row budget, measured from window show, in fixture mode.
-// This file is the row's `measuredBy`, and it compares through the registry's own
+// This file is the row's harness, and it compares through the registry's own
 // `evaluateBudget`, so the gate and the budget row share one number in one file.
 //
 // The instant a window is shown is a main-process act, and in an automated launch on macOS it

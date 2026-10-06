@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 //
 // The terminal-instance memory budget: one `terminal` pane instance at the default scrollback is
-// bounded at 20 MiB in `tests/budget/document.json`, and this file is that row's `measuredBy`.
+// bounded at 20 MiB in `tests/budget/document.json`, and this file is that row's harness.
 //
 // The reading is taken in a real window, not beside the adapter: the row's subject is the
 // `@xterm/xterm` instance, its WebGL renderer and the pane's own state, and a Node process

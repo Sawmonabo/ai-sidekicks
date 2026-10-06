@@ -64,7 +64,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     // Tier: accessibility. `axe-core` runs inside the browser-mode page rather than through
     // `@axe-core/playwright`, which needs a `@playwright/test` `Page`; Vitest browser mode hands
     // that only to server-side custom commands, and it is the orchestrator page, not the tester
-    // iframe.
+    // iframe. Runs only by name until the accessibility sweeps become a gate on every PR.
     define: { __FIXTURE_BUILD__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
@@ -127,7 +127,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
   {
     // Tier: endurance. The same application, held open and driven, with the heap read at both
     // ends of the run. Its own project so `pnpm test:e2e` stays a fast gate and the slow tier is
-    // opted into by name.
+    // opted into by name, the only way it runs until the endurance reference run becomes a gate
+    // on every PR.
     //
     // It imports renderer source, and the global it asserts on belongs to the renderer in another
     // process, so the fixture flag is `false` as in `e2e`, like `main-unit`'s
