@@ -1,8 +1,17 @@
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { DatabaseConnections } from "../database/connections.js";
+import type { WriteStatement } from "../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
+
+// Returns one row only while the session has an event, so a guarded write refuses an unknown one.
+const SESSION_EXISTS_SQL = "SELECT 1 FROM session_events WHERE session_id = ? LIMIT 1";
+const UPSERT_DRAFT_SQL = `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
+  ON CONFLICT (session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`;
+const DELETE_DRAFT_SQL = "DELETE FROM session_drafts WHERE session_id = ?";
 
 /**
  * Stores each session's unsent composer draft, one `session_drafts` row per session. The last
@@ -10,26 +19,16 @@ import { SessionNotFoundError } from "../ipc/session-errors.js";
  * clears it.
  */
 export class SessionDraftStore {
-  readonly #database: Database;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #now: () => Date;
-  readonly #sessionExists: Statement<[string]>;
-  readonly #upsertDraft: Statement<[string, string, string]>;
-  readonly #deleteDraft: Statement<[string]>;
   readonly #selectDraft: Statement<[string], { text: string }>;
 
-  constructor(database: Database, now: () => Date = () => new Date()) {
-    this.#database = database;
+  constructor(database: DatabaseConnections, now: () => Date = () => new Date()) {
+    this.#writer = database.writer;
     this.#now = now;
-    this.#sessionExists = database.prepare(
-      "SELECT 1 FROM session_events WHERE session_id = ? LIMIT 1",
+    this.#selectDraft = database.reader.prepare(
+      "SELECT text FROM session_drafts WHERE session_id = ?",
     );
-    this.#upsertDraft = database.prepare(
-      `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT (session_id) DO UPDATE SET text = excluded.text,
-         updated_at = excluded.updated_at`,
-    );
-    this.#deleteDraft = database.prepare("DELETE FROM session_drafts WHERE session_id = ?");
-    this.#selectDraft = database.prepare("SELECT text FROM session_drafts WHERE session_id = ?");
   }
 
   /** The session's held draft, or the empty string when none is held. */
@@ -38,22 +37,28 @@ export class SessionDraftStore {
   }
 
   /**
-   * Holds `text` as the session's draft, or clears the draft when `text` is empty,
-   * and returns when it was stored. Throws {@link SessionNotFoundError} for a session
-   * the daemon has no record of.
+   * Holds `text` as the session's draft, or clears the draft when `text` is empty, and resolves
+   * with when it was stored once committed. Rejects with {@link SessionNotFoundError} for a
+   * session the daemon has no record of.
    */
-  write(sessionId: SessionId, text: string): string {
+  async write(sessionId: SessionId, text: string): Promise<string> {
     const updatedAt = this.#now().toISOString();
-    this.#database.transaction(() => {
-      if (this.#sessionExists.get(sessionId) === undefined) {
+    // The existence check and the change are one write, so a purge cannot land between them.
+    const change: WriteStatement =
+      text === ""
+        ? { sql: DELETE_DRAFT_SQL, bindings: [sessionId] }
+        : { sql: UPSERT_DRAFT_SQL, bindings: [sessionId, text, updatedAt] };
+    try {
+      await this.#writer.write([
+        { sql: SESSION_EXISTS_SQL, bindings: [sessionId], expectedRowCount: 1 },
+        change,
+      ]);
+    } catch (error) {
+      if (error instanceof WriteRefusedError) {
         throw new SessionNotFoundError(`No session ${sessionId}.`, { sessionId });
       }
-      if (text === "") {
-        this.#deleteDraft.run(sessionId);
-      } else {
-        this.#upsertDraft.run(sessionId, text, updatedAt);
-      }
-    })();
+      throw error;
+    }
     return updatedAt;
   }
 }

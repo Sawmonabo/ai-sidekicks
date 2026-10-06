@@ -8,12 +8,12 @@
 //     A refusal leaves the column NULL, so after a restart the call stays halted, never run
 //     again.
 //   * The UPDATE only fires on `mcp_task_id IS NULL` (first wins). Zero rows changed is resolved
-//     by one SELECT: no receipt, the same handle (idempotent success), or another (refused).
-
-import type { Database, Statement } from "better-sqlite3";
+//     by the SELECT the same write runs after it: no receipt, the same handle (idempotent
+//     success), or another (refused).
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
+import type { DatabaseWriter } from "../../database/writer.js";
 import type { DriverDiagnosticsEmitter } from "../driver/diagnostics.js";
 import type { McpTaskHandleObservation, McpTaskHandleSink } from "./tool-calls.js";
 
@@ -121,15 +121,22 @@ interface StoredHandleRow {
   readonly mcp_task_id: string | null;
 }
 
+const CLAIM_HANDLE_SQL = `
+  UPDATE command_receipts
+     SET mcp_task_id = ?
+   WHERE command_id = ?
+     AND mcp_task_id IS NULL`;
+
+const READ_STORED_HANDLE_SQL = `SELECT mcp_task_id FROM command_receipts WHERE command_id = ?`;
+
 /** The sole writer of `command_receipts.mcp_task_id`; one per driver binding (attribution). */
 export class McpTaskHandleRecorder {
   readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #claimHandleStatement: Statement<[string, string]>;
-  readonly #readStoredHandleStatement: Statement<[string]>;
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(
-    database: Database,
+    writer: Pick<DatabaseWriter, "write">,
     options: {
       readonly provider: ProviderName;
       readonly diagnostics: DriverDiagnosticsEmitter;
@@ -137,57 +144,53 @@ export class McpTaskHandleRecorder {
   ) {
     this.#provider = options.provider;
     this.#diagnostics = options.diagnostics;
-    this.#claimHandleStatement = database.prepare(
-      `UPDATE command_receipts
-          SET mcp_task_id = ?
-        WHERE command_id = ?
-          AND mcp_task_id IS NULL`,
-    );
-    this.#readStoredHandleStatement = database.prepare(
-      `SELECT mcp_task_id FROM command_receipts WHERE command_id = ?`,
-    );
+    this.#writer = writer;
   }
 
   /**
-   * Offers one observed handle to its receipt row. Never throws (a driver turn must not fail over
-   * a recovery optimization): every failure is a typed outcome that leaves the column NULL.
+   * Offers one observed handle to its receipt row. Never rejects over storage (a driver turn must
+   * not fail over a recovery optimization): every failure is a typed outcome that leaves the
+   * column NULL.
    */
-  record(observation: McpTaskHandleObservation): McpTaskHandleRecordOutcome {
+  async record(observation: McpTaskHandleObservation): Promise<McpTaskHandleRecordOutcome> {
     const boundsRefusal = classifyMcpTaskIdRefusal(observation.mcpTaskId);
     if (boundsRefusal !== undefined) {
       return this.#refuse(observation, boundsRefusal);
     }
 
+    let claimResult;
+    let storedResult;
     try {
-      const claimResult = this.#claimHandleStatement.run(
-        observation.mcpTaskId,
-        observation.commandId,
-      );
-      if (claimResult.changes > 0) {
-        return { status: "recorded" };
-      }
-
-      // Zero rows changed: the row is absent or already has a handle. Reading it back tells which;
-      // `mcp_task_id` only goes from NULL to non-NULL, so the read-back cannot go stale.
-      const storedRow = this.#readStoredHandleStatement.get(observation.commandId) as
-        | StoredHandleRow
-        | undefined;
-      if (storedRow === undefined) {
-        return this.#refuse(observation, "receipt_absent");
-      }
-      if (storedRow.mcp_task_id === observation.mcpTaskId) {
-        return { status: "already-recorded" };
-      }
-      return this.#refuse(observation, "handle_conflict");
+      // The read-back runs in the same write, so it sees the row exactly as the claim left it.
+      [claimResult, storedResult] = await this.#writer.write([
+        { sql: CLAIM_HANDLE_SQL, bindings: [observation.mcpTaskId, observation.commandId] },
+        { sql: READ_STORED_HANDLE_SQL, bindings: [observation.commandId] },
+      ]);
     } catch (thrown) {
       return this.#reportStorageFailure(observation, thrown);
     }
+    if ((claimResult?.rowCount ?? 0) > 0) {
+      return { status: "recorded" };
+    }
+
+    // Zero rows changed: the row is absent or already has a handle; the read-back tells which.
+    const storedRow = storedResult?.rows[0] as StoredHandleRow | undefined;
+    if (storedRow === undefined) {
+      return this.#refuse(observation, "receipt_absent");
+    }
+    if (storedRow.mcp_task_id === observation.mcpTaskId) {
+      return { status: "already-recorded" };
+    }
+    return this.#refuse(observation, "handle_conflict");
   }
 
-  /** The recorder as the `McpTaskHandleSink`; {@link record} diagnoses failures. */
+  /**
+   * The recorder as the `McpTaskHandleSink`: it hands the handle to {@link record}, which stores
+   * it or diagnoses why not.
+   */
   asSink(): McpTaskHandleSink {
-    return (observation: McpTaskHandleObservation): void => {
-      this.record(observation);
+    return async (observation: McpTaskHandleObservation): Promise<void> => {
+      await this.record(observation);
     };
   }
 

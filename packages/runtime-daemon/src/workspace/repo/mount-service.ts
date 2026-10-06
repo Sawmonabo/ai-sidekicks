@@ -5,13 +5,13 @@
  *
  * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
  * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
- * - Detach reads, archives and flips the mount in one `IMMEDIATE` transaction, then appends
+ * - Detach checks for running agents, archives and flips the mount in one write, then appends
  *   `workspace.archived` events, so a crash leaves rows durable and events missing.
  * - On Windows bare `git` resolves from the working directory first, so config supplies an
  *   absolute `gitExecutablePath`.
  */
 
-import type { Database, Statement, Transaction } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import {
@@ -32,6 +32,8 @@ import {
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
 
+import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseWriter } from "../../database/writer.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
@@ -81,17 +83,6 @@ export class RepoMountServiceInvariantError extends Error {
   }
 }
 
-/** Aborts the detach transaction when the mount flip matches no row; `detach` catches it. */
-class MountDetachRaceError extends Error {
-  constructor(repoMountId: string) {
-    super(
-      `RepoMountService.detach: repo mount ${repoMountId} left the attached state between the ` +
-        `read and the detach transaction; rolling back the archives this transaction wrote.`,
-    );
-    this.name = "MountDetachRaceError";
-  }
-}
-
 interface RepoMountRow {
   readonly id: string;
   readonly node_id: string;
@@ -105,15 +96,12 @@ interface RepoMountRow {
 interface DependentWorkspaceRow {
   readonly id: string;
   readonly session_id: string;
-  readonly state: string;
-  /** 1 while a run started in this workspace has not released its execution root. */
-  readonly has_running_agent: 0 | 1;
 }
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface RepoMountServiceDeps {
-  /** Open daemon database; every write commits alone, so it need not be the event log's handle. */
-  readonly database: Database;
+  /** The daemon database: reads on its reader, writes through its writer. */
+  readonly database: DatabaseConnections;
   /** The seam through which the detach cascade's `workspace.archived` events are appended. */
   readonly events: WorkspaceEventEmitter;
   /** The daemon's own node id, stamped on every mount it attaches. */
@@ -177,9 +165,64 @@ const ARCHIVED_WORKSPACE_STATE = "archived" satisfies WorkspaceState;
 
 const BUSY_WORKSPACE_STATE = "busy" satisfies WorkspaceState;
 
+const INSERT_MOUNT_SQL = `INSERT INTO repo_mounts (
+     id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
+   ) VALUES (
+     @id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now,
+     @now, '{}'
+   )`;
+
+// A dependent with an agent running in it: `busy`, or holding a run whose execution root is
+// unreleased, since a run releases its workspace hold and its execution root separately.
+const RUNNING_DEPENDENT_PREDICATE = `workspaces.repo_mount_id = @repo_mount_id
+   AND (workspaces.state = '${BUSY_WORKSPACE_STATE}'
+        OR EXISTS (
+          SELECT 1
+            FROM run_execution_contexts AS run_context
+           WHERE run_context.workspace_id = workspaces.id
+             AND run_context.released_at IS NULL))`;
+
+// The detach's four statements run as one write, so the running check, the archive and the flip
+// see one state. The oldest running dependent's session is the one a refusal names; `id` breaks
+// ties between workspaces created in the same tick.
+const SELECT_RUNNING_DEPENDENT_SQL = `SELECT session_id
+     FROM workspaces
+    WHERE ${RUNNING_DEPENDENT_PREDICATE}
+    ORDER BY created_at ASC, id ASC
+    LIMIT 1`;
+
+// The dependents the archive below moves, in event order; read in the same write, so the list
+// and the archive agree.
+const SELECT_ARCHIVABLE_DEPENDENTS_SQL = `SELECT id, session_id
+     FROM workspaces
+    WHERE repo_mount_id = @repo_mount_id AND state <> '${ARCHIVED_WORKSPACE_STATE}'
+    ORDER BY created_at ASC, id ASC`;
+
+// Archives only while the mount is still attached and no agent runs on it, so a lost race or a
+// running agent writes nothing. `metadata` is untouched: a `busy` workspace refuses the detach,
+// so no stale `holdingRunId` exists.
+const ARCHIVE_DEPENDENTS_SQL = `UPDATE workspaces
+      SET state = '${ARCHIVED_WORKSPACE_STATE}',
+          updated_at = @now
+    WHERE repo_mount_id = @repo_mount_id
+      AND state <> '${ARCHIVED_WORKSPACE_STATE}'
+      AND EXISTS (
+        SELECT 1 FROM repo_mounts
+         WHERE id = @repo_mount_id AND state = '${ATTACHED_MOUNT_STATE}')
+      AND NOT EXISTS (SELECT 1 FROM workspaces WHERE ${RUNNING_DEPENDENT_PREDICATE})`;
+
+// Compare-and-swap: `attached` in the predicate is the legal-predecessor rule and the mutual
+// exclusion between concurrent detaches.
+const DETACH_MOUNT_SQL = `UPDATE repo_mounts
+      SET state = '${DETACHED_MOUNT_STATE}',
+          updated_at = @now
+    WHERE id = @repo_mount_id
+      AND state = '${ATTACHED_MOUNT_STATE}'
+      AND NOT EXISTS (SELECT 1 FROM workspaces WHERE ${RUNNING_DEPENDENT_PREDICATE})`;
+
 /**
  * Owns every read and write of the `repo_mounts` table. The detach cascade also archives the
- * mount's `workspaces` rows here, because they must share a transaction with the mount flip.
+ * mount's `workspaces` rows here, because they must share one write with the mount flip.
  */
 export class RepoMountService {
   readonly #events: WorkspaceEventEmitter;
@@ -189,15 +232,9 @@ export class RepoMountService {
   readonly #now: () => string;
   readonly #newRepoMountId: () => string;
 
-  readonly #insertMountStmt: Statement;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectMountStmt: Statement;
   readonly #selectActiveMountByRootStmt: Statement;
-  readonly #selectDependentWorkspacesStmt: Statement;
-  readonly #archiveWorkspaceStmt: Statement;
-  readonly #detachMountStmt: Statement;
-  readonly #detachCascade: Transaction<
-    (repoMountId: string, now: string) => readonly DependentWorkspaceRow[]
-  >;
 
   constructor(deps: RepoMountServiceDeps) {
     if (deps.resolver !== undefined && deps.gitExecutablePath !== undefined) {
@@ -237,17 +274,8 @@ export class RepoMountService {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;
 
-    const database = deps.database;
-
-    this.#insertMountStmt = database.prepare(
-      `INSERT INTO repo_mounts (
-         id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at,
-         metadata
-       ) VALUES (
-         @id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now,
-         @now, '{}'
-       )`,
-    );
+    const database = deps.database.reader;
+    this.#writer = deps.database.writer;
 
     // Unscoped by state: a read must answer for a `detached` mount.
     this.#selectMountStmt = database.prepare(
@@ -264,47 +292,6 @@ export class RepoMountService {
         WHERE node_id = @node_id
           AND canonical_root = @canonical_root
           AND state = '${ATTACHED_MOUNT_STATE}'`,
-    );
-
-    // Every state: the running check needs `busy` rows, and `archived` rows must be seen to be
-    // skipped. A run releases its workspace hold and its execution root separately, so an
-    // unreleased run context marks a running agent on a workspace that is no longer `busy`. `id`
-    // breaks ties between workspaces created in the same tick.
-    this.#selectDependentWorkspacesStmt = database.prepare(
-      `SELECT id, session_id, state,
-              EXISTS (
-                SELECT 1
-                  FROM run_execution_contexts AS run_context
-                 WHERE run_context.workspace_id = workspaces.id
-                   AND run_context.released_at IS NULL
-              ) AS has_running_agent
-         FROM workspaces
-        WHERE repo_mount_id = @repo_mount_id
-        ORDER BY created_at ASC, id ASC`,
-    );
-
-    // Writes a table this service does not own so the archive shares the mount flip's
-    // transaction. `state <> 'archived'` makes a re-archive match zero rows. `metadata` is
-    // untouched: a `busy` workspace refuses the detach, so no stale `holdingRunId` exists.
-    this.#archiveWorkspaceStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = '${ARCHIVED_WORKSPACE_STATE}',
-              updated_at = @now
-        WHERE id = @workspace_id AND state <> '${ARCHIVED_WORKSPACE_STATE}'`,
-    );
-
-    // Compare-and-swap: `attached` in the predicate is the legal-predecessor rule and the mutual
-    // exclusion between concurrent detaches.
-    this.#detachMountStmt = database.prepare(
-      `UPDATE repo_mounts
-          SET state = '${DETACHED_MOUNT_STATE}',
-              updated_at = @now
-        WHERE id = @repo_mount_id AND state = '${ATTACHED_MOUNT_STATE}'`,
-    );
-
-    this.#detachCascade = database.transaction(
-      (repoMountId: string, now: string): readonly DependentWorkspaceRow[] =>
-        this.#runDetachCascade(repoMountId, now),
     );
   }
 
@@ -327,7 +314,7 @@ export class RepoMountService {
       vcsType: resolution.vcsType,
     });
 
-    this.#insertMountRow({
+    await this.#insertMountRow({
       repoMountId,
       // Provenance: the path as typed, which differs from the root under a subdirectory or symlink.
       localPath: input.localPath,
@@ -367,18 +354,23 @@ export class RepoMountService {
       return this.#projectDetachOutcome(repoMountId, row.state, []);
     }
 
-    const now = this.#now();
-    let archivedWorkspaces: readonly DependentWorkspaceRow[];
-    try {
-      archivedWorkspaces = this.#detachCascade.immediate(repoMountId, now);
-    } catch (error) {
-      if (!(error instanceof MountDetachRaceError)) {
-        throw error;
-      }
-      // A concurrent detach won and ours rolled back whole: report the winner's state.
+    const bindings = { repo_mount_id: repoMountId, now: this.#now() };
+    const [runningDependent, archivable, , flip] = await this.#writer.write([
+      { sql: SELECT_RUNNING_DEPENDENT_SQL, bindings },
+      { sql: SELECT_ARCHIVABLE_DEPENDENTS_SQL, bindings },
+      { sql: ARCHIVE_DEPENDENTS_SQL, bindings },
+      { sql: DETACH_MOUNT_SQL, bindings },
+    ]);
+    const runningSession = runningDependent?.rows[0] as { readonly session_id: string } | undefined;
+    if (runningSession !== undefined) {
+      throw new RepoDetachConflictError(runningSession.session_id);
+    }
+    if (flip?.rowCount !== 1) {
+      // A concurrent detach won, so this write changed nothing: report the winner's state.
       const current = this.#requireMountRow(repoMountId);
       return this.#projectDetachOutcome(repoMountId, current.state, []);
     }
+    const archivedWorkspaces = (archivable?.rows ?? []) as readonly DependentWorkspaceRow[];
 
     // After the commit, so a crash cannot log archivals for rows that never moved. Every append
     // is attempted even after a failure; failures are rethrown below.
@@ -417,59 +409,30 @@ export class RepoMountService {
   }
 
   /**
-   * The detach write set, run as the transaction body so the dependent read holds the write lock.
-   * Returns the dependents it transitioned, one event each.
-   */
-  #runDetachCascade(repoMountId: string, now: string): readonly DependentWorkspaceRow[] {
-    const dependents = this.#selectDependentWorkspacesStmt.all({
-      repo_mount_id: repoMountId,
-    }) as DependentWorkspaceRow[];
-
-    // The refusal names one running session; the oldest running workspace's, by the query's order.
-    const runningDependent = dependents.find(
-      (dependent) => dependent.state === BUSY_WORKSPACE_STATE || dependent.has_running_agent === 1,
-    );
-    if (runningDependent !== undefined) {
-      throw new RepoDetachConflictError(runningDependent.session_id);
-    }
-
-    const archivedWorkspaces: DependentWorkspaceRow[] = [];
-    for (const dependent of dependents) {
-      if (dependent.state === ARCHIVED_WORKSPACE_STATE) {
-        continue;
-      }
-      this.#archiveWorkspaceStmt.run({ workspace_id: dependent.id, now });
-      archivedWorkspaces.push(dependent);
-    }
-
-    const flip = this.#detachMountStmt.run({ repo_mount_id: repoMountId, now });
-    if (flip.changes !== 1) {
-      throw new MountDetachRaceError(repoMountId);
-    }
-
-    return archivedWorkspaces;
-  }
-
-  /**
    * Insert the mount row, translating the active-root uniqueness failure into
    * `repo.already_attached`. The failed INSERT is undone alone, so the lookup sees the old rows.
    */
-  #insertMountRow(fields: {
+  async #insertMountRow(fields: {
     readonly repoMountId: string;
     readonly localPath: string;
     readonly canonicalRoot: string;
     readonly vcsType: string;
     readonly attachedAt: string;
-  }): void {
+  }): Promise<void> {
     try {
-      this.#insertMountStmt.run({
-        id: fields.repoMountId,
-        node_id: this.#nodeId,
-        local_path: fields.localPath,
-        canonical_root: fields.canonicalRoot,
-        vcs_type: fields.vcsType,
-        now: fields.attachedAt,
-      });
+      await this.#writer.write([
+        {
+          sql: INSERT_MOUNT_SQL,
+          bindings: {
+            id: fields.repoMountId,
+            node_id: this.#nodeId,
+            local_path: fields.localPath,
+            canonical_root: fields.canonicalRoot,
+            vcs_type: fields.vcsType,
+            now: fields.attachedAt,
+          },
+        },
+      ]);
     } catch (error) {
       if (!hasSqliteErrorCode(error, "SQLITE_CONSTRAINT")) {
         throw error;

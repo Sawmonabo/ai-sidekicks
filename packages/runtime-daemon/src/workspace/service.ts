@@ -1,16 +1,16 @@
 /**
  * Workspace lifecycle service: the daemon-side owner of the `workspaces` table.
  *
- * - Every transition writes its row inside the emitter's `transactionalPrelude`, so the row and its
- *   event commit together. The writes are compare-and-swap `UPDATE`s that re-check and throw inside
- *   the prelude.
+ * - Every transition writes its row in the emitter's `transactionalPrelude`, so the row and its
+ *   event commit together. The writes are compare-and-swap `UPDATE`s expecting one row; a moved row
+ *   refuses the write, event and all.
  * - `fs_root` is an approval-scope boundary: a bind and `beginRootPreparation` write NULL, and only
  *   `completeRootPreparation` writes a path.
  * - The four `workspace.*` domain errors follow the carrier pattern of `./repo/errors.js`; every
  *   code comes from the error registry, and this module mints none.
  */
 
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 import {
   ExecutionModeSchema,
   RepoMountIdSchema,
@@ -25,6 +25,9 @@ import type {
   WorkspaceListRequest,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/repo/workspace";
+import type { DatabaseConnections } from "../database/connections.js";
+import type { WriteStatement } from "../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { RepoMountNotFoundError } from "./repo/errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";
@@ -40,8 +43,8 @@ import {
 } from "./projector.js";
 import {
   assertAbsoluteExecutionRoot,
-  assertSingleRowChanged,
   createDefaultPathProbe,
+  expectSingleRowChanged,
   type FilesystemPathProbeFn,
   HOLDING_RUN_ID_METADATA_PATH,
   LAST_ERROR_METADATA_PATH,
@@ -52,7 +55,6 @@ import {
   wrapRowFailure,
 } from "./row-guards.js";
 import {
-  StaleTransitionRaceError,
   WorkspaceBusyError,
   WorkspaceModeUnsupportedError,
   WorkspaceNotFoundError,
@@ -60,6 +62,72 @@ import {
   WorkspaceStaleError,
 } from "./errors.js";
 import { normalizeWorkspaceLastError } from "./last-error.js";
+
+// `SELECT` rather than `VALUES` re-tests the mount's attachment inside the write: a detach cascade
+// can flip the mount during `bind`'s awaits, and the foreign key would still hold. Zero rows
+// refuses the write and takes the `workspace.preparing` event with it.
+const BIND_WORKSPACE_SQL = `INSERT INTO workspaces (
+     id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
+     created_at, updated_at
+   )
+   SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing', '{}',
+          @now, @now
+     FROM repo_mounts
+    WHERE id = @repo_mount_id AND state = 'attached'`;
+
+// `stale` is a legal predecessor so a failed switch can be retried. `fs_root` is nulled because a
+// stale root would keep matching approvals; `lastError` is cleared so a retried `preparing` row
+// does not advertise the last failure. `execution_mode` is set: completion takes no mode.
+const BEGIN_ROOT_PREPARATION_SQL = `UPDATE workspaces
+      SET execution_mode = @execution_mode,
+          fs_root = NULL,
+          state = 'preparing',
+          metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+          updated_at = @now
+    WHERE id = @workspace_id AND state IN ('ready', 'stale')`;
+
+// A cycle can complete without re-entering through `beginRootPreparation`; clear it here too.
+const COMPLETE_ROOT_PREPARATION_SQL = `UPDATE workspaces
+      SET fs_root = @fs_root,
+          state = 'ready',
+          metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+          updated_at = @now
+    WHERE id = @workspace_id AND state = 'preparing'`;
+
+// `json_set`, not a whole-blob rewrite: `metadata` is shared and holds keys other writers own.
+const FAIL_ROOT_PREPARATION_WITH_DETAIL_SQL = `UPDATE workspaces
+      SET state = 'stale',
+          metadata = json_set(metadata, '${LAST_ERROR_METADATA_PATH}', @last_error),
+          updated_at = @now
+    WHERE id = @workspace_id AND state = 'preparing'`;
+
+const FAIL_ROOT_PREPARATION_WITHOUT_DETAIL_SQL = `UPDATE workspaces
+      SET state = 'stale',
+          metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+          updated_at = @now
+    WHERE id = @workspace_id AND state = 'preparing'`;
+
+// `stale` is absent (re-staling is a no-op) and so is terminal `archived`. So is `busy`: a run
+// keeps its hold to the end, and the first read after the release stales the row.
+const MARK_STALE_SQL = `UPDATE workspaces
+      SET state = 'stale',
+          updated_at = @now
+    WHERE id = @workspace_id AND state IN ('preparing', 'ready')`;
+
+// The compare-and-swap is the mutual exclusion: of concurrent runs reading `ready`, exactly one
+// changes the row.
+const MARK_BUSY_SQL = `UPDATE workspaces
+      SET state = 'busy',
+          metadata = json_set(metadata, '${HOLDING_RUN_ID_METADATA_PATH}', @run_id),
+          updated_at = @now
+    WHERE id = @workspace_id AND state = 'ready'`;
+
+// Only a held row is released; the release is no health verdict, so the next read probes it.
+const RELEASE_BUSY_SQL = `UPDATE workspaces
+      SET state = 'ready',
+          metadata = json_remove(metadata, '${HOLDING_RUN_ID_METADATA_PATH}'),
+          updated_at = @now
+    WHERE id = @workspace_id AND state = 'busy'`;
 
 /**
  * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies
@@ -73,10 +141,10 @@ export interface SessionExistenceReader {
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface WorkspaceServiceDeps {
   /**
-   * Open daemon database, statements prepared in the constructor. Must be the event log's own
-   * connection: on another one, row/event atomicity is silently lost.
+   * The daemon database: reads prepared on its reader in the constructor, writes through its
+   * writer, the one the event log appends through.
    */
-  readonly database: Database;
+  readonly database: DatabaseConnections;
   /** The single seam through which workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
   readonly sessions: SessionExistenceReader;
@@ -105,7 +173,7 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 /**
  * Owns every workspace lifecycle transition and statement against `workspaces`, except the detach
  * cascade's read and archive write in `./repo/mount-service.js`, which share the mount flip's
- * transaction. Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
+ * write. Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
  */
 export class WorkspaceService {
   readonly #events: WorkspaceEventEmitter;
@@ -120,14 +188,7 @@ export class WorkspaceService {
   readonly #selectWorkspaceStmt: Statement;
   readonly #listWorkspacesStmt: Statement;
   readonly #listWorkspacesByMountStmt: Statement;
-  readonly #bindWorkspaceStmt: Statement;
-  readonly #beginRootPreparationStmt: Statement;
-  readonly #completeRootPreparationStmt: Statement;
-  readonly #failRootPreparationWithDetailStmt: Statement;
-  readonly #failRootPreparationWithoutDetailStmt: Statement;
-  readonly #markStaleStmt: Statement;
-  readonly #markBusyStmt: Statement;
-  readonly #releaseBusyStmt: Statement;
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;
@@ -137,7 +198,8 @@ export class WorkspaceService {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorkspaceId = deps.newWorkspaceId ?? mintUuidV7;
 
-    const database = deps.database;
+    const database = deps.database.reader;
+    this.#writer = deps.database.writer;
 
     // Attached only: a detached mount is not a bind target, and `repo.not_found` is more honest.
     this.#selectAttachedMountStmt = database.prepare(
@@ -173,88 +235,6 @@ export class WorkspaceService {
          FROM workspaces
         WHERE session_id = @session_id AND repo_mount_id = @repo_mount_id
         ORDER BY created_at ASC, id ASC`,
-    );
-
-    // `SELECT` rather than `VALUES` re-tests the mount's attachment inside the write transaction: a
-    // detach cascade can flip the mount during `bind`'s awaits, and the foreign key would still
-    // hold. Zero rows changed aborts the prelude and takes the `workspace.preparing` event with it.
-    this.#bindWorkspaceStmt = database.prepare(
-      `INSERT INTO workspaces (
-         id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
-         created_at, updated_at
-       )
-       SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing', '{}',
-              @now, @now
-         FROM repo_mounts
-        WHERE id = @repo_mount_id AND state = 'attached'`,
-    );
-
-    // `stale` is a legal predecessor so a failed switch can be retried. `fs_root` is nulled because
-    // a stale root would keep matching approvals; `lastError` is cleared so a retried `preparing`
-    // row does not advertise the last failure. `execution_mode` is set: completion takes no mode.
-    this.#beginRootPreparationStmt = database.prepare(
-      `UPDATE workspaces
-          SET execution_mode = @execution_mode,
-              fs_root = NULL,
-              state = 'preparing',
-              metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
-              updated_at = @now
-        WHERE id = @workspace_id AND state IN ('ready', 'stale')`,
-    );
-
-    // A cycle can complete without re-entering through `beginRootPreparation`; clear it here too.
-    this.#completeRootPreparationStmt = database.prepare(
-      `UPDATE workspaces
-          SET fs_root = @fs_root,
-              state = 'ready',
-              metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
-              updated_at = @now
-        WHERE id = @workspace_id AND state = 'preparing'`,
-    );
-
-    // `json_set`, not a whole-blob rewrite: `metadata` is shared and holds keys other writers own.
-    this.#failRootPreparationWithDetailStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = 'stale',
-              metadata = json_set(metadata, '${LAST_ERROR_METADATA_PATH}', @last_error),
-              updated_at = @now
-        WHERE id = @workspace_id AND state = 'preparing'`,
-    );
-
-    this.#failRootPreparationWithoutDetailStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = 'stale',
-              metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
-              updated_at = @now
-        WHERE id = @workspace_id AND state = 'preparing'`,
-    );
-
-    // `stale` is absent (re-staling is a no-op) and so is terminal `archived`. So is `busy`: a run
-    // keeps its hold to the end, and the first read after the release stales the row.
-    this.#markStaleStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = 'stale',
-              updated_at = @now
-        WHERE id = @workspace_id AND state IN ('preparing', 'ready')`,
-    );
-
-    // The compare-and-swap is the mutual exclusion: concurrent runs reading `ready` produce exactly
-    // one `changes === 1`.
-    this.#markBusyStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = 'busy',
-              metadata = json_set(metadata, '${HOLDING_RUN_ID_METADATA_PATH}', @run_id),
-              updated_at = @now
-        WHERE id = @workspace_id AND state = 'ready'`,
-    );
-
-    // Only a held row is released; the release is no health verdict, so the next read probes it.
-    this.#releaseBusyStmt = database.prepare(
-      `UPDATE workspaces
-          SET state = 'ready',
-              metadata = json_remove(metadata, '${HOLDING_RUN_ID_METADATA_PATH}'),
-              updated_at = @now
-        WHERE id = @workspace_id AND state = 'busy'`,
     );
   }
 
@@ -317,31 +297,33 @@ export class WorkspaceService {
     const createdAt = this.#now();
 
     // The mount's attachment is re-tested in this write; zero rows means a detach cascade won the
-    // race, and aborting rolls the event back.
-    const insertRow = (): void => {
-      assertSingleRowChanged(
-        this.#bindWorkspaceStmt.run({
-          id: workspaceId,
-          session_id: input.sessionId,
-          repo_mount_id: mountRow.id,
-          execution_mode: input.executionMode,
-          now: createdAt,
-        }),
-        workspaceId,
-        "bind",
-        "its repo mount",
-      );
+    // race, and the refusal takes the event with it.
+    const insertRow: WriteStatement = {
+      sql: BIND_WORKSPACE_SQL,
+      bindings: {
+        id: workspaceId,
+        session_id: input.sessionId,
+        repo_mount_id: mountRow.id,
+        execution_mode: input.executionMode,
+        now: createdAt,
+      },
+      expectedRowCount: 1,
     };
 
     // The birth event carries `repoMountId`, the only place a transcript reader learns the
     // workspace/mount association.
-    await this.#events.emitWorkspacePreparing({
-      sessionId: input.sessionId,
+    await expectSingleRowChanged(
+      this.#events.emitWorkspacePreparing({
+        sessionId: input.sessionId,
+        workspaceId,
+        repoMountId: mountRow.id,
+        actor: input.actor ?? null,
+        transactionalPrelude: [insertRow],
+      }),
       workspaceId,
-      repoMountId: mountRow.id,
-      actor: input.actor ?? null,
-      transactionalPrelude: insertRow,
-    });
+      "bind",
+      "its repo mount",
+    );
 
     return {
       workspaceId: WorkspaceIdSchema.parse(workspaceId),
@@ -433,23 +415,22 @@ export class WorkspaceService {
     // Precise refusal before the compare-and-swap, which can only say the predecessor was illegal.
     this.#refuseIllegalPredecessor(row, ["ready", "stale"], "begin preparing");
 
-    const now = this.#now();
-    await this.#events.emitWorkspacePreparing({
-      sessionId: row.session_id,
+    await expectSingleRowChanged(
+      this.#events.emitWorkspacePreparing({
+        sessionId: row.session_id,
+        workspaceId,
+        actor: options.actor ?? null,
+        transactionalPrelude: [
+          {
+            sql: BEGIN_ROOT_PREPARATION_SQL,
+            bindings: { workspace_id: workspaceId, execution_mode: targetMode, now: this.#now() },
+            expectedRowCount: 1,
+          },
+        ],
+      }),
       workspaceId,
-      actor: options.actor ?? null,
-      transactionalPrelude: () => {
-        assertSingleRowChanged(
-          this.#beginRootPreparationStmt.run({
-            workspace_id: workspaceId,
-            execution_mode: targetMode,
-            now,
-          }),
-          workspaceId,
-          "begin preparing",
-        );
-      },
-    });
+      "begin preparing",
+    );
   }
 
   /**
@@ -466,23 +447,22 @@ export class WorkspaceService {
     const row = this.#requireWorkspaceRow(workspaceId);
     this.#refuseIllegalPredecessor(row, ["preparing"], "finish preparing");
 
-    const now = this.#now();
-    await this.#events.emitWorkspaceReady({
-      sessionId: row.session_id,
+    await expectSingleRowChanged(
+      this.#events.emitWorkspaceReady({
+        sessionId: row.session_id,
+        workspaceId,
+        actor: options.actor ?? null,
+        transactionalPrelude: [
+          {
+            sql: COMPLETE_ROOT_PREPARATION_SQL,
+            bindings: { workspace_id: workspaceId, fs_root: fsRoot, now: this.#now() },
+            expectedRowCount: 1,
+          },
+        ],
+      }),
       workspaceId,
-      actor: options.actor ?? null,
-      transactionalPrelude: () => {
-        assertSingleRowChanged(
-          this.#completeRootPreparationStmt.run({
-            workspace_id: workspaceId,
-            fs_root: fsRoot,
-            now,
-          }),
-          workspaceId,
-          "finish preparing",
-        );
-      },
-    });
+      "finish preparing",
+    );
   }
 
   /**
@@ -500,22 +480,28 @@ export class WorkspaceService {
 
     const lastError = normalizeWorkspaceLastError(failureDetail);
     const now = this.#now();
-    await this.#events.emitWorkspaceStale({
-      sessionId: row.session_id,
+    const recordFailure: WriteStatement =
+      lastError === null
+        ? {
+            sql: FAIL_ROOT_PREPARATION_WITHOUT_DETAIL_SQL,
+            bindings: { workspace_id: workspaceId, now },
+            expectedRowCount: 1,
+          }
+        : {
+            sql: FAIL_ROOT_PREPARATION_WITH_DETAIL_SQL,
+            bindings: { workspace_id: workspaceId, last_error: lastError, now },
+            expectedRowCount: 1,
+          };
+    await expectSingleRowChanged(
+      this.#events.emitWorkspaceStale({
+        sessionId: row.session_id,
+        workspaceId,
+        actor: options.actor ?? null,
+        transactionalPrelude: [recordFailure],
+      }),
       workspaceId,
-      actor: options.actor ?? null,
-      transactionalPrelude: () => {
-        const result =
-          lastError === null
-            ? this.#failRootPreparationWithoutDetailStmt.run({ workspace_id: workspaceId, now })
-            : this.#failRootPreparationWithDetailStmt.run({
-                workspace_id: workspaceId,
-                last_error: lastError,
-                now,
-              });
-        assertSingleRowChanged(result, workspaceId, "record a preparation failure for");
-      },
-    });
+      "record a preparation failure for",
+    );
   }
 
   /**
@@ -538,25 +524,25 @@ export class WorkspaceService {
       return false;
     }
 
-    const now = this.#now();
     try {
       await this.#events.emitWorkspaceStale({
         sessionId: row.session_id,
         workspaceId,
         actor: options.actor ?? null,
-        transactionalPrelude: () => {
-          // Aborting is the only way to decline the event: the append path inserts the event row
-          // after the prelude regardless. A concurrent reader staling the row, or a run taking its
-          // hold, since the read is an expected race.
-          const result = this.#markStaleStmt.run({ workspace_id: workspaceId, now });
-          if (result.changes !== 1) {
-            throw new StaleTransitionRaceError(workspaceId);
-          }
-        },
+        // A refusal is the only way to decline the event: the append path inserts the event row
+        // after the prelude regardless. A concurrent reader staling the row, or a run taking its
+        // hold, since the read is an expected race.
+        transactionalPrelude: [
+          {
+            sql: MARK_STALE_SQL,
+            bindings: { workspace_id: workspaceId, now: this.#now() },
+            expectedRowCount: 1,
+          },
+        ],
       });
     } catch (error) {
-      // Only the sentinel; anything else is a durability failure `#observeState` attributes.
-      if (error instanceof StaleTransitionRaceError) {
+      // Only the refusal; anything else is a durability failure `#observeState` attributes.
+      if (error instanceof WriteRefusedError) {
         return false;
       }
       throw error;
@@ -593,12 +579,13 @@ export class WorkspaceService {
       );
     }
 
-    const changes = this.#markBusyStmt.run({
-      workspace_id: workspaceId,
-      run_id: runId,
-      now: this.#now(),
-    }).changes;
-    if (changes !== 1) {
+    const [taken] = await this.#writer.write([
+      {
+        sql: MARK_BUSY_SQL,
+        bindings: { workspace_id: workspaceId, run_id: runId, now: this.#now() },
+      },
+    ]);
+    if (taken?.rowCount !== 1) {
       // The compare-and-swap lost; re-read to answer with the reason, not the mechanism.
       const currentRow = this.#findWorkspaceRow(workspaceId);
       if (currentRow === undefined) {
@@ -623,8 +610,11 @@ export class WorkspaceService {
    * released. A non-`busy` row is a no-op: this runs in a `finally` where a throw would mask the
    * run's real failure. A root that vanished mid-run is staled by the next read's probe.
    */
-  releaseBusy(workspaceId: string): boolean {
-    return this.#releaseBusyStmt.run({ workspace_id: workspaceId, now: this.#now() }).changes === 1;
+  async releaseBusy(workspaceId: string): Promise<boolean> {
+    const [released] = await this.#writer.write([
+      { sql: RELEASE_BUSY_SQL, bindings: { workspace_id: workspaceId, now: this.#now() } },
+    ]);
+    return released?.rowCount === 1;
   }
 
   /**

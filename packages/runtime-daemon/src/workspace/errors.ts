@@ -158,19 +158,3 @@ export class WorkspaceServiceInvariantError extends Error {
     this.workspaceId = options.workspaceId ?? null;
   }
 }
-
-/**
- * Module-private abort signal for `markStale`'s compare-and-swap. The append path inserts the event
- * row after the prelude regardless, so only a throw stops a duplicate `workspace.stale`;
- * `markStale` catches this class and returns `false`.
- */
-export class StaleTransitionRaceError extends Error {
-  constructor(workspaceId: string) {
-    super(
-      `WorkspaceService.markStale: workspace ${workspaceId} was staled by another reader, or ` +
-        `held by a run, between the read and the write transaction; aborting so no ` +
-        `workspace.stale event is appended for a transition that did not happen.`,
-    );
-    this.name = "StaleTransitionRaceError";
-  }
-}

@@ -4,11 +4,15 @@ import type { Database } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { DatabaseWriter } from "../../database/writer.js";
 import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 
 /** Seeds a session's log so `SessionService.rebuildSession` returns a snapshot for it. */
-export function seedSession(database: Database, sessionId: SessionId): void {
-  insertStoredEvent(database, {
+export async function seedSession(
+  writer: Pick<DatabaseWriter, "write">,
+  sessionId: SessionId,
+): Promise<void> {
+  await insertStoredEvent(writer, {
     id: `evt-${sessionId}`,
     sessionId,
     sequence: 0,

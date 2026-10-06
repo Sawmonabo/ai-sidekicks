@@ -18,11 +18,15 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import { openDatabase } from "../../../session/migration-runner.js";
 import { SessionService } from "../../../session/service.js";
 import { ExecutionRootService } from "../../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
@@ -262,6 +266,8 @@ interface AcceptanceContext {
   readonly fixtureRoot: string;
   readonly executionRootsDirectory: string;
   readonly repository: FixtureRepository;
+  readonly scratch: ScratchDatabase;
+  /** The test's own read-write connection, for seeding rows and reading them back. */
   readonly db: DatabaseType;
   readonly workspaces: WorkspaceService;
   readonly worktrees: WorktreeService;
@@ -281,25 +287,26 @@ beforeEach(async () => {
     buildFixtureEnvironment(fixtureRoot),
   );
   const executionRootsDirectory: string = join(fixtureRoot, "execution-roots");
-  const db: DatabaseType = openDatabase(join(fixtureRoot, "acceptance.db"));
-  const eventLog = new EventLogService({ db });
+  const scratch: ScratchDatabase = await openScratchDatabase();
+  const db: DatabaseType = new Database(scratch.databasePath);
+  const eventLog = new EventLogService({ writer: scratch.writer });
   const clock = (): string => CLOCK_INSTANT;
 
   const workspaces = new WorkspaceService({
-    database: db,
+    database: scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: eventLog }),
-    sessions: new SessionService(db),
+    sessions: new SessionService(scratch.reader),
     now: clock,
   });
   // No `git` seam: that selects the production `execFile` runner.
   const worktrees = new WorktreeService({
-    database: db,
+    database: scratch,
     events: new WorktreeEventEmitter({ sessionEvents: eventLog }),
     executionRootsDirectory,
     now: clock,
   });
   const executionRoots = new ExecutionRootService({
-    database: db,
+    database: scratch,
     workspaces: {
       assertWritable: (workspaceId) => workspaces.assertWritable(workspaceId),
       beginRootPreparation: (workspaceId, targetMode) =>
@@ -324,6 +331,7 @@ beforeEach(async () => {
     fixtureRoot,
     executionRootsDirectory,
     repository,
+    scratch,
     db,
     workspaces,
     worktrees,
@@ -337,10 +345,9 @@ beforeEach(async () => {
   ).run(REPO_MOUNT_ID, repository.root, repository.root, CLOCK_INSTANT, CLOCK_INSTANT);
 });
 
-afterEach(() => {
-  if (ctx.db.open) {
-    ctx.db.close();
-  }
+afterEach(async () => {
+  ctx.db.close();
+  await ctx.scratch.close();
   rmSync(ctx.fixtureRoot, { recursive: true, force: true });
 });
 
@@ -448,7 +455,7 @@ describe("provisioned-worktree mode on real git", () => {
       expect(
         await captureRejection(() => ctx.worktrees.retire(prepared.worktreeId)),
       ).toBeInstanceOf(WorktreeRetireConflictError);
-      ctx.workspaces.releaseBusy(WORKSPACE_ID);
+      await ctx.workspaces.releaseBusy(WORKSPACE_ID);
 
       await ctx.worktrees.retire(prepared.worktreeId);
       expect(existsSync(prepared.executionRoot)).toBe(true);

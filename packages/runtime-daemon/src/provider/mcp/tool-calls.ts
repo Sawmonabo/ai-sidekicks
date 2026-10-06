@@ -37,9 +37,10 @@ export interface McpTaskHandleObservation extends McpTaskDispatchIdentity {
 
 /**
  * Where an observed task handle lands: `McpTaskHandleRecorder.asSink()`, which stores it on the
- * dispatch's `command_receipts` row. Returns `void`: a store failure cannot fail a turn.
+ * dispatch's `command_receipts` row. Resolves once stored or diagnosed: a store failure cannot
+ * fail a turn.
  */
-export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => void;
+export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => Promise<void>;
 
 /**
  * Extracts `task.taskId` from an untrusted `CreateTaskResult`-shaped acceptance; anything but a
@@ -64,14 +65,14 @@ export function extractMcpTaskId(acceptanceResult: unknown): string | undefined 
  * Hands the sink an observation only when the acceptance carries a handle; otherwise nothing is
  * stored and after a restart the call stays halted, never run again.
  */
-export function observeMcpTaskAcceptance(
+export async function observeMcpTaskAcceptance(
   sink: McpTaskHandleSink,
   dispatch: McpTaskDispatchIdentity,
   acceptanceResult: unknown,
-): void {
+): Promise<void> {
   const mcpTaskId = extractMcpTaskId(acceptanceResult);
   if (mcpTaskId === undefined) {
     return;
   }
-  sink({ ...dispatch, mcpTaskId });
+  await sink({ ...dispatch, mcpTaskId });
 }

@@ -9,13 +9,16 @@
 //     steps is retried and never recorded as a cleanup that did not happen.
 
 import { join, relative, sep } from "node:path";
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 import {
   WorktreeIdSchema,
   WorktreeStateSchema,
   type WorktreeRetireResponse,
   type WorktreeState,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { DatabaseConnections } from "../../database/connections.js";
+import type { WriteStatement } from "../../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { RepoMountNotFoundError } from "../../workspace/repo/errors.js";
 import {
   WorktreeBranchCollisionError,
@@ -36,7 +39,7 @@ import {
 } from "../process.js";
 import { MAX_BRANCH_NAME_ORDINAL } from "./branch-name.js";
 import {
-  assertSingleWorktreeRowChanged,
+  explainWorktreeRowRefusal,
   type AttachedMountRow,
   type BranchLookupParams,
   type HoldingWorkspaceRow,
@@ -53,11 +56,8 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 
 /** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
-  /**
-   * MUST be the connection {@link events} appends through, or a row write silently leaves the event
-   * transaction. Nothing here can verify that, so the composition root owns it.
-   */
-  readonly database: Database;
+  /** Reads on its reader; a row write without an event goes through its writer. */
+  readonly database: DatabaseConnections;
   /** Event emission seam; this service constructs no envelopes of its own. */
   readonly events: WorktreeEventEmitter;
   /**
@@ -137,17 +137,74 @@ const WORKTREE_ROOTS_SEGMENT = "worktrees";
 // Spelled to match `idx_worktrees_active_branch` exactly, so "live" reads agree with the arbiter.
 const LIVE_WORKTREE_STATE_PREDICATE = "worktrees.state NOT IN ('retired', 'failed')";
 
+// `state` is left to the column DEFAULT ('creating'); naming it would copy that fact.
+const INSERT_WORKTREE_SQL = `INSERT INTO worktrees (
+    id, repo_mount_id, created_by_session_id, created_by_run_id,
+    branch_name, fs_root, created_at, updated_at
+  ) VALUES (
+    @id, @repo_mount_id, @created_by_session_id, @created_by_run_id,
+    @branch_name, @fs_root, @now, @now
+  )`;
+
+const MARK_READY_SQL = `UPDATE worktrees
+    SET state = 'ready', updated_at = @now
+  WHERE id = @worktree_id AND state = 'creating'`;
+
+// No event accompanies this one: the caller's `failRootPreparation` events the failure as
+// `workspace.stale`.
+const MARK_FAILED_SQL = `UPDATE worktrees
+    SET state = 'failed', updated_at = @now
+  WHERE id = @worktree_id AND state = 'creating'`;
+
+// The retirement's write checks, in order, that the row is not yet retired and that no `busy`
+// workspace holds its root, then retires it; every non-`retired` state is a legal predecessor,
+// `failed` included.
+const SELECT_UNRETIRED_WORKTREE_SQL = `SELECT id FROM worktrees
+  WHERE id = @worktree_id AND state <> 'retired'`;
+const RETIRE_SQL = `UPDATE worktrees
+    SET state = 'retired', updated_at = @now
+  WHERE id = @worktree_id AND state <> 'retired'`;
+// The positions of the retirement write's checks among its statements.
+const UNRETIRED_CHECK_INDEX = 0;
+const BUSY_HOLDER_CHECK_INDEX = 1;
+
+// Guarded on `cleaned_at IS NULL` so a concurrent pass that already stamped the row does not have
+// its timestamp overwritten.
+const STAMP_CLEANED_SQL = `UPDATE worktrees
+    SET cleaned_at = @now, updated_at = @now
+  WHERE id = @worktree_id AND cleaned_at IS NULL`;
+
+// Keyed on `fs_root`, not `branch_contexts`: context rows are retained history, so a join would let
+// a workspace since moved to another root block a retirement. A `busy` workspace at this `fs_root`
+// is exactly a run holding it. Runs in the retirement's write and per sweep row.
+const SELECT_BUSY_HOLDER_SQL = `SELECT holder.id AS workspace_id
+    FROM worktrees
+    JOIN workspaces AS holder ON holder.fs_root = worktrees.fs_root
+   WHERE worktrees.id = @worktree_id
+     AND holder.state = 'busy'
+   LIMIT 1`;
+
+// A transition statement on one worktree row, guarded on its row count when one is given.
+function transitionStatement(
+  sql: string,
+  params: WorktreeTransitionParams,
+  expectedRowCount?: number,
+): WriteStatement {
+  // Spread, because an interface carries no index signature for the bindings' record.
+  const bindings = { ...params };
+  return expectedRowCount === undefined ? { sql, bindings } : { sql, bindings, expectedRowCount };
+}
+
 /**
- * Aborts `#emitRetirement`'s prelude for an already-retired row: the append path INSERTs the event
- * unconditionally and only a throw rolls back. Internal, not a `DaemonDomainError`; `retire` and
+ * What `#emitRetirement` throws when its write found the row already retired, so no second
+ * `worktree.retired` was appended. Internal, not a `DaemonDomainError`; `retire` and
  * `cleanupPass` both catch it.
  */
 class WorktreeAlreadyRetiredError extends Error {
   constructor(worktreeId: string) {
     super(
       `WorktreeService: worktree ${worktreeId} was already retired when the retirement ` +
-        `transaction opened; aborting so no second worktree.retired event is appended for one ` +
-        `transition.`,
+        `was written; nothing was appended, so one transition carries one worktree.retired event.`,
     );
     this.name = "WorktreeAlreadyRetiredError";
   }
@@ -201,11 +258,7 @@ export class WorktreeService {
   readonly #selectBusyHolderStmt: Statement<WorktreeLookupParams, HoldingWorkspaceRow>;
   readonly #selectSweepableStmt: Statement<[], WorktreeRetirementRow>;
   readonly #selectUncleanedRetiredStmt: Statement<[], WorktreeRootRow>;
-  readonly #insertWorktreeStmt: Statement<InsertWorktreeParams>;
-  readonly #markReadyStmt: Statement<WorktreeTransitionParams>;
-  readonly #markFailedStmt: Statement<WorktreeTransitionParams>;
-  readonly #retireStmt: Statement<WorktreeTransitionParams>;
-  readonly #stampCleanedStmt: Statement<WorktreeTransitionParams>;
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;
@@ -220,7 +273,8 @@ export class WorktreeService {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorktreeId = deps.newWorktreeId ?? mintUuidV7;
 
-    const database = deps.database;
+    const database = deps.database.reader;
+    this.#writer = deps.database.writer;
 
     // Only `attached` mounts are provisioning targets; a detached one gets `repo.not_found`.
     this.#selectAttachedMountStmt = database.prepare<MountLookupParams, AttachedMountRow>(
@@ -245,16 +299,8 @@ export class WorktreeService {
         LIMIT 1`,
     );
 
-    // Keyed on `fs_root`, not `branch_contexts`: context rows are retained history, so a join would
-    // let a workspace since moved to another root block a retirement. A `busy` workspace at this
-    // `fs_root` is exactly a run holding it. Runs in the retirement prelude and per sweep row.
     this.#selectBusyHolderStmt = database.prepare<WorktreeLookupParams, HoldingWorkspaceRow>(
-      `SELECT holder.id AS workspace_id
-         FROM worktrees
-         JOIN workspaces AS holder ON holder.fs_root = worktrees.fs_root
-        WHERE worktrees.id = @worktree_id
-          AND holder.state = 'busy'
-        LIMIT 1`,
+      SELECT_BUSY_HOLDER_SQL,
     );
 
     // Live worktrees on a mount no longer `attached`. They retire through `#emitRetirement`, so the
@@ -288,47 +334,6 @@ export class WorktreeService {
                    AND holder.fs_root = worktrees.fs_root
               )
         ORDER BY worktrees.updated_at ASC, worktrees.id ASC`,
-    );
-
-    // `state` is left to the column DEFAULT ('creating'); naming it would copy that fact.
-    this.#insertWorktreeStmt = database.prepare<InsertWorktreeParams>(
-      `INSERT INTO worktrees (
-         id, repo_mount_id, created_by_session_id, created_by_run_id,
-         branch_name, fs_root, created_at, updated_at
-       ) VALUES (
-         @id, @repo_mount_id, @created_by_session_id, @created_by_run_id,
-         @branch_name, @fs_root, @now, @now
-       )`,
-    );
-
-    this.#markReadyStmt = database.prepare<WorktreeTransitionParams>(
-      `UPDATE worktrees
-          SET state = 'ready', updated_at = @now
-        WHERE id = @worktree_id AND state = 'creating'`,
-    );
-
-    // No event accompanies this one: the caller's `failRootPreparation` events the failure as
-    // `workspace.stale`.
-    this.#markFailedStmt = database.prepare<WorktreeTransitionParams>(
-      `UPDATE worktrees
-          SET state = 'failed', updated_at = @now
-        WHERE id = @worktree_id AND state = 'creating'`,
-    );
-
-    // Every non-`retired` state is a legal predecessor, `failed` included. The prelude has already
-    // handled a `retired` row, so a mismatch here is an invariant violation (plain assert).
-    this.#retireStmt = database.prepare<WorktreeTransitionParams>(
-      `UPDATE worktrees
-          SET state = 'retired', updated_at = @now
-        WHERE id = @worktree_id AND state <> 'retired'`,
-    );
-
-    // Guarded on `cleaned_at IS NULL` so a concurrent pass that already stamped the row does not
-    // have its timestamp overwritten.
-    this.#stampCleanedStmt = database.prepare<WorktreeTransitionParams>(
-      `UPDATE worktrees
-          SET cleaned_at = @now, updated_at = @now
-        WHERE id = @worktree_id AND cleaned_at IS NULL`,
     );
   }
 
@@ -386,20 +391,16 @@ export class WorktreeService {
         repoMountId: input.repoMountId,
         actor: input.actor ?? null,
         ...(input.correlationId != null ? { correlationId: input.correlationId } : {}),
-        transactionalPrelude: () => {
-          assertSingleWorktreeRowChanged(
-            this.#markReadyStmt.run({ worktree_id: worktreeId, now: this.#now() }),
-            worktreeId,
-            "mark ready",
-          );
-        },
+        transactionalPrelude: [
+          transitionStatement(MARK_READY_SQL, { worktree_id: worktreeId, now: this.#now() }, 1),
+        ],
       });
     } catch (readyEmissionFailure) {
       // Same recovery as materialization: a `creating` row is live under the unique index and
       // unreachable by any sweep, so a bare throw would wedge (mount, branch). A rejected append
-      // commits nothing, so `#markFailedStmt`'s `creating` predicate matches.
+      // commits nothing, so the `failed` transition's `creating` predicate matches.
       throw withCleanupFailures(
-        readyEmissionFailure,
+        explainWorktreeRowRefusal(readyEmissionFailure, worktreeId, "mark ready"),
         await this.#recordCreateFailure({
           worktreeId,
           fsRoot,
@@ -438,7 +439,7 @@ export class WorktreeService {
     // Parses the row's id, not the argument, after the not-found refusal, so a malformed argument
     // gets `WorktreeNotFoundError` rather than a ZodError.
     const parsedWorktreeId = WorktreeIdSchema.parse(row.id);
-    // A fast path, not the authority: the prelude re-reads the state in the transaction. It only
+    // A fast path, not the authority: the retirement's write checks the state again. It only
     // spares an already-retired row the append lock.
     if (WorktreeStateSchema.parse(row.state) === "retired") {
       return { worktreeId: parsedWorktreeId, state: "retired" };
@@ -488,7 +489,9 @@ export class WorktreeService {
       await this.#filesystem.removePath(row.fs_root);
       // After the removal: `worktree prune` only drops entries whose directory is missing.
       await this.#pruneWorktreeAdministrativeEntries(row.canonical_root);
-      this.#stampCleanedStmt.run({ worktree_id: row.id, now: this.#now() });
+      await this.#writer.write([
+        transitionStatement(STAMP_CLEANED_SQL, { worktree_id: row.id, now: this.#now() }),
+      ]);
       cleanedWorktreeIds.push(row.id);
     }
 
@@ -552,17 +555,20 @@ export class WorktreeService {
           repoMountId: input.repoMountId,
           actor: input.actor ?? null,
           ...(input.correlationId != null ? { correlationId: input.correlationId } : {}),
-          transactionalPrelude: () => {
-            this.#insertWorktreeStmt.run({
-              id: attempt.worktreeId,
-              repo_mount_id: input.repoMountId,
-              created_by_session_id: input.sessionId,
-              created_by_run_id: input.runId ?? null,
-              branch_name: candidateBranchName,
-              fs_root: attempt.fsRoot,
-              now: this.#now(),
-            });
-          },
+          transactionalPrelude: [
+            {
+              sql: INSERT_WORKTREE_SQL,
+              bindings: {
+                id: attempt.worktreeId,
+                repo_mount_id: input.repoMountId,
+                created_by_session_id: input.sessionId,
+                created_by_run_id: input.runId ?? null,
+                branch_name: candidateBranchName,
+                fs_root: attempt.fsRoot,
+                now: this.#now(),
+              } satisfies InsertWorktreeParams,
+            },
+          ],
         });
         return candidateBranchName;
       } catch (appendFailure) {
@@ -598,7 +604,9 @@ export class WorktreeService {
   async #recordCreateFailure(recovery: CreateFailureRecovery): Promise<unknown[]> {
     // Zero rows changed is tolerated, not asserted: an assert would replace the creation failure
     // the caller re-raises.
-    this.#markFailedStmt.run({ worktree_id: recovery.worktreeId, now: this.#now() });
+    await this.#writer.write([
+      transitionStatement(MARK_FAILED_SQL, { worktree_id: recovery.worktreeId, now: this.#now() }),
+    ]);
     try {
       await this.#filesystem.removePath(recovery.fsRoot);
     } catch (cleanupFailure: unknown) {
@@ -611,42 +619,64 @@ export class WorktreeService {
   }
 
   /**
-   * Appends `worktree.retired` with the whole decision in its prelude, inside the event's
-   * transaction: an already-`retired` row aborts with the sentinel, a `busy` holder refuses before
-   * the INSERT so nothing persists, and the compare-and-swap keeps the plain assert.
+   * Appends `worktree.retired` with the whole decision in the same write: an already-`retired` row
+   * refuses it with the sentinel, a `busy` holder refuses it so nothing persists, and the
+   * compare-and-swap keeps the plain error.
    */
   async #emitRetirement(row: WorktreeRetirementRow, options: RetireWorktreeOptions): Promise<void> {
-    await this.#events.emitWorktreeRetired({
-      // The row's own session: the event belongs to the creator, and the sweep has no caller.
-      sessionId: row.created_by_session_id,
-      worktreeId: row.id,
-      repoMountId: row.repo_mount_id,
-      actor: options.actor ?? null,
-      ...(options.correlationId != null ? { correlationId: options.correlationId } : {}),
-      transactionalPrelude: () => {
-        const current = this.#selectWorktreeStmt.get({ worktree_id: row.id });
-        if (current === undefined) {
-          // No `DELETE` path exists, so a vanished row is corruption, not a race.
-          throw new Error(
-            `cannot retire worktree "${row.id}": its row disappeared before the write committed`,
-          );
+    const worktreeLookup = { worktree_id: row.id } satisfies WorktreeLookupParams;
+    try {
+      await this.#events.emitWorktreeRetired({
+        // The row's own session: the event belongs to the creator, and the sweep has no caller.
+        sessionId: row.created_by_session_id,
+        worktreeId: row.id,
+        repoMountId: row.repo_mount_id,
+        actor: options.actor ?? null,
+        ...(options.correlationId != null ? { correlationId: options.correlationId } : {}),
+        transactionalPrelude: [
+          { sql: SELECT_UNRETIRED_WORKTREE_SQL, bindings: worktreeLookup, expectedRowCount: 1 },
+          { sql: SELECT_BUSY_HOLDER_SQL, bindings: worktreeLookup, expectedRowCount: 0 },
+          transitionStatement(RETIRE_SQL, { worktree_id: row.id, now: this.#now() }, 1),
+        ],
+      });
+    } catch (retirementFailure) {
+      if (!(retirementFailure instanceof WriteRefusedError)) {
+        throw retirementFailure;
+      }
+      if (retirementFailure.statementIndex === UNRETIRED_CHECK_INDEX) {
+        throw this.#explainUnretiredRefusal(row.id, retirementFailure);
+      }
+      if (retirementFailure.statementIndex === BUSY_HOLDER_CHECK_INDEX) {
+        const holder = this.#selectBusyHolderStmt.get(worktreeLookup);
+        if (holder === undefined) {
+          // The hold was let go after the write saw it, so the retirement is legal again.
+          await this.#emitRetirement(row, options);
+          return;
         }
-        if (WorktreeStateSchema.parse(current.state) === "retired") {
-          throw new WorktreeAlreadyRetiredError(row.id);
-        }
+        throw new WorktreeRetireConflictError(row.id, holder.workspace_id);
+      }
+      throw explainWorktreeRowRefusal(retirementFailure, row.id, "retire");
+    }
+  }
 
-        const holder = this.#selectBusyHolderStmt.get({ worktree_id: row.id });
-        if (holder !== undefined) {
-          throw new WorktreeRetireConflictError(row.id, holder.workspace_id);
-        }
-
-        assertSingleWorktreeRowChanged(
-          this.#retireStmt.run({ worktree_id: row.id, now: this.#now() }),
-          row.id,
-          "retire",
-        );
-      },
-    });
+  // The write found no unretired row: retired is terminal and no `DELETE` path exists, so the row
+  // is retired, or it vanished, which is corruption rather than a race.
+  #explainUnretiredRefusal(worktreeId: string, refusal: WriteRefusedError): Error {
+    const current = this.#selectWorktreeStmt.get({ worktree_id: worktreeId });
+    if (current === undefined) {
+      return new Error(
+        `cannot retire worktree "${worktreeId}": its row disappeared before the write committed`,
+        { cause: refusal },
+      );
+    }
+    if (WorktreeStateSchema.parse(current.state) === "retired") {
+      return new WorktreeAlreadyRetiredError(worktreeId);
+    }
+    return new Error(
+      `cannot retire worktree "${worktreeId}": it left its expected state before the write ` +
+        `committed`,
+      { cause: refusal },
+    );
   }
 
   /**

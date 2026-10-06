@@ -1,8 +1,10 @@
 /**
  * The `worktrees` row and statement-parameter shapes the worktree service reads and writes, and
- * the compare-and-swap check its transitions run. Type arguments on `prepare<Bind, Result>` make
- * query and shape drift a type error, not a cast.
+ * what a refused compare-and-swap on one of its transitions means. Type arguments on
+ * `prepare<Bind, Result>` make query and shape drift a type error, not a cast.
  */
+
+import { WriteRefusedError } from "../../database/writer.js";
 
 /** The `worktrees` columns a retirement reads: the row, its mount, its creator and its state. */
 export interface WorktreeRetirementRow {
@@ -71,19 +73,21 @@ export interface WorktreeTransitionParams {
 }
 
 /**
- * Asserts a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
- * a throw aborts the transaction and the event row with it. A plain `Error`: an internal
- * consistency failure with no caller repair.
+ * What a refused compare-and-swap on one worktree row means: the row left its expected state
+ * before the write committed. Any other failure is returned unchanged. The refusal becomes a plain
+ * `Error`: an internal consistency failure with no caller repair.
  */
-export function assertSingleWorktreeRowChanged(
-  result: { readonly changes: number },
+export function explainWorktreeRowRefusal(
+  failure: unknown,
   worktreeId: string,
   attemptedAction: string,
-): void {
-  if (result.changes !== 1) {
-    throw new Error(
-      `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before ` +
-        `the write committed`,
-    );
+): unknown {
+  if (!(failure instanceof WriteRefusedError)) {
+    return failure;
   }
+  return new Error(
+    `cannot ${attemptedAction} worktree "${worktreeId}": it left its expected state before ` +
+      `the write committed`,
+    { cause: failure },
+  );
 }

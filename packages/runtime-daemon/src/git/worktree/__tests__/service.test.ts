@@ -6,14 +6,18 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import type { EventLogAppendReceipt } from "../../../events/log-service.js";
-import { openDatabase } from "../../../session/migration-runner.js";
 import { RepoMountNotFoundError } from "../../../workspace/repo/errors.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { WorktreeEventEmitter } from "../event-emitter.js";
@@ -129,6 +133,8 @@ class FakeGit {
 // ----------------------------------------------------------------------------
 
 interface TestContext {
+  scratch: ScratchDatabase;
+  /** The test's own read-write connection, for seeding rows and reading them back. */
   db: DatabaseType;
   eventLog: EventLogService;
   emitter: WorktreeEventEmitter;
@@ -140,14 +146,14 @@ interface TestContext {
 
 let ctx: TestContext;
 
-beforeEach(() => {
+beforeEach(async () => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-service-test-"));
-  const db: DatabaseType = openDatabase(join(tmpDir, "test.db"));
-  const eventLog = new EventLogService({
-    db,
-  });
+  const scratch: ScratchDatabase = await openScratchDatabase();
+  const db: DatabaseType = new Database(scratch.databasePath);
+  const eventLog = new EventLogService({ writer: scratch.writer });
   const executionRootsDirectory: string = join(tmpDir, "execution-roots");
   ctx = {
+    scratch,
     db,
     eventLog,
     emitter: new WorktreeEventEmitter({ sessionEvents: eventLog }),
@@ -159,16 +165,15 @@ beforeEach(() => {
   insertMount({ repoMountId: REPO_MOUNT_ID });
 });
 
-afterEach(() => {
-  if (ctx.db.open) {
-    ctx.db.close();
-  }
+afterEach(async () => {
+  ctx.db.close();
+  await ctx.scratch.close();
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
 function makeService(overrides: Partial<WorktreeServiceDeps> = {}): WorktreeService {
   return new WorktreeService({
-    database: ctx.db,
+    database: ctx.scratch,
     events: ctx.emitter,
     executionRootsDirectory: ctx.executionRootsDirectory,
     git: ctx.git.run,
@@ -287,8 +292,8 @@ async function createReadyWorktree(service: WorktreeService): Promise<CreatedWor
 // ----------------------------------------------------------------------------
 //
 // The race injector performs its interfering write and then delegates to `super`: the write
-// commits on the same connection just before the append transaction opens, a window a check made
-// outside that transaction cannot see. The failure injector rejects without calling `super`, so
+// commits just before the append's write is taken, a window a check made outside that write
+// cannot see. The failure injector rejects without calling `super`, so
 // no append transaction opens.
 
 /** Takes the busy hold while the retirement is in flight. */

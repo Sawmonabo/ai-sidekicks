@@ -9,14 +9,15 @@
 //
 //   - `event_maintenance` rows are never purged: the delete excludes them in SQL, and they record
 //     maintenance, this purge's own receipt included.
-//   - The connection runs with `secure_delete` on, so a freed page is overwritten with zeros. The
-//     write-ahead log still holds the deleted pages' earlier images until a checkpoint, so the
-//     purge ends with `wal_checkpoint(TRUNCATE)` once its deletes and its receipt have committed.
+//   - The writer's connection runs with `secure_delete` on, so a freed page is overwritten with
+//     zeros. The write-ahead log still holds the deleted pages' earlier images until a checkpoint,
+//     so the purge ends with the writer's `TRUNCATE` checkpoint once its deletes and its receipt
+//     have committed.
 //   - The purge refuses to start inside an append-lock hold. The lock is reentrant per owner, so a
 //     purge entered inside a hold would delete rows outside the serialization the hold provides.
 //   - A refused session does not stop the deletion; the others are independent. Each session's
-//     rows go in one transaction, so a refused session lost nothing and the receipt does not name
-//     it. Each refusal is on that session's outcome.
+//     range read and deletes go in one write, so a refused session lost nothing and the receipt
+//     does not name it. Each refusal is on that session's outcome.
 //   - Each session is deleted under one hold of its append lock. The receipt is appended after
 //     every session, outside every hold, because the append takes its own lock.
 
@@ -32,14 +33,14 @@ import type {
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { Database, Statement } from "better-sqlite3";
-
+import type { WriteStatement } from "../../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
 } from "../log-service.js";
-import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./append-lock.js";
+import { sessionAppendLock } from "./append-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 
 /** The category a purge never touches: maintenance records, its own receipt included. */
@@ -97,8 +98,8 @@ export interface SessionPurgeEventLog {
 
 /** Construction dependencies. */
 export interface SessionPurgeDeps {
-  /** The connection every delete and the checkpoint run on, opened with `secure_delete` on. */
-  readonly db: Database;
+  /** The writer every delete and the checkpoint go through; its connection has `secure_delete` on. */
+  readonly writer: Pick<DatabaseWriter, "write" | "checkpoint">;
   /** This daemon's NodeId, attributed in every receipt. */
   readonly nodeId: NodeId;
   /** Where the receipt is appended. */
@@ -111,21 +112,15 @@ export interface SessionPurgeDeps {
   readonly newEventId?: () => string;
 }
 
-// The range read's raw shape. Every member is `unknown` because column types are claims
-// TypeScript never checked; the read boundary is where they are checked.
+// The range read's row once rows were deleted: its guard returns it only when both ends are safe
+// integers.
 interface PurgeRangeRow {
-  readonly fromSequence: unknown;
-  readonly toSequence: unknown;
+  readonly fromSequence: number;
+  readonly toSequence: number;
 }
 
-// One row of `PRAGMA wal_checkpoint`: `busy` is 1 when a reader or writer kept the checkpoint
-// from completing, so the log was not truncated.
-interface WalCheckpointRow {
-  readonly busy: number;
-}
-
-// Thrown to abort one session or the whole deletion. Caught in `purge` and turned into a
-// `refusedReason`; never escapes it.
+// Thrown to refuse one session. Caught in `purge` and turned into its `refusedReason`; never
+// escapes it.
 class SessionPurgeRefusal extends Error {
   constructor(message: string) {
     super(message);
@@ -135,35 +130,20 @@ class SessionPurgeRefusal extends Error {
 
 /** Deletes the sessions one deletion removes. */
 export class SessionPurge {
-  readonly #db: Database;
+  readonly #writer: Pick<DatabaseWriter, "write" | "checkpoint">;
   readonly #nodeId: NodeId;
   readonly #eventLog: SessionPurgeEventLog;
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
 
-  readonly #rangeStmt: Statement;
-  readonly #deleteSnapshotsStmt: Statement;
-  readonly #deleteEventsStmt: Statement;
-
   constructor(deps: SessionPurgeDeps) {
-    this.#db = deps.db;
+    this.#writer = deps.writer;
     this.#nodeId = deps.nodeId;
     this.#eventLog = deps.eventLog;
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
-
-    this.#rangeStmt = deps.db.prepare(
-      `SELECT MIN(sequence) AS fromSequence, MAX(sequence) AS toSequence
-         FROM session_events
-        WHERE ${PURGEABLE_WHERE}`,
-    );
-    // A snapshot names the event it reflects, so the session's snapshots go first.
-    this.#deleteSnapshotsStmt = deps.db.prepare(
-      "DELETE FROM session_snapshots WHERE session_id = ?",
-    );
-    this.#deleteEventsStmt = deps.db.prepare(`DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`);
   }
 
   /**
@@ -177,7 +157,7 @@ export class SessionPurge {
     const operationId: string = this.#operationIdFactory();
     const purgeInstant: Date = this.#now();
 
-    if (isWithinSessionAppendLockHold()) {
+    if (sessionAppendLock.isHeldHere()) {
       return {
         operationId,
         outcomes: [],
@@ -214,7 +194,7 @@ export class SessionPurge {
             `sessions were deleted: ${describeError(error)}`,
         );
       }
-      const checkpointFailure: string | undefined = this.#truncateWriteAheadLog();
+      const checkpointFailure: string | undefined = await this.#truncateWriteAheadLog();
       if (checkpointFailure !== undefined) {
         failures.push(checkpointFailure);
       }
@@ -229,37 +209,46 @@ export class SessionPurge {
 
   async #purgeSession(sessionId: SessionId): Promise<SessionPurgeOutcome> {
     try {
-      return await withSessionAppendLock(sessionId, () =>
-        Promise.resolve(this.#deleteSessionRows(sessionId)),
-      );
+      return await sessionAppendLock.run(sessionId, () => this.#deleteSessionRows(sessionId));
     } catch (error) {
       return { sessionId, rowsDeleted: 0, refusedReason: describeError(error) };
     }
   }
 
-  // One transaction: the range read, the snapshots and the events commit or roll back together.
-  #deleteSessionRows(sessionId: SessionId): SessionPurgeOutcome {
-    return this.#db.transaction((): SessionPurgeOutcome => {
-      const range = this.#rangeStmt.get(sessionId) as PurgeRangeRow;
-      this.#deleteSnapshotsStmt.run(sessionId);
-      const rowsDeleted: number = this.#deleteEventsStmt.run(sessionId).changes;
-      if (rowsDeleted === 0) {
-        return { sessionId, rowsDeleted };
-      }
-      return {
-        sessionId,
-        rowsDeleted,
-        fromSequence: readNumber(range.fromSequence, "first deleted sequence"),
-        toSequence: readNumber(range.toSequence, "last deleted sequence"),
-      };
-    })();
+  // One write: the range read, the snapshots and the events commit or roll back together.
+  async #deleteSessionRows(sessionId: SessionId): Promise<SessionPurgeOutcome> {
+    const [rangeResult, , eventsResult] = await this.#writer
+      .write(deleteSessionRowsStatements(sessionId))
+      .catch((error: unknown) => {
+        throw error instanceof WriteRefusedError
+          ? new SessionPurgeRefusal(
+              "the session's stored sequences are not safe integers; refusing to delete rows " +
+                "whose range the receipt could not name.",
+            )
+          : error;
+      });
+    const rowsDeleted: number = eventsResult?.rowCount ?? 0;
+    if (rowsDeleted === 0) {
+      return { sessionId, rowsDeleted };
+    }
+    const range = rangeResult?.rows[0] as PurgeRangeRow;
+    return {
+      sessionId,
+      rowsDeleted,
+      fromSequence: range.fromSequence,
+      toSequence: range.toSequence,
+    };
   }
 
   /** Returns why the log could not be truncated, or undefined once it was. */
-  #truncateWriteAheadLog(): string | undefined {
-    const rows = this.#db.pragma("wal_checkpoint(TRUNCATE)") as readonly WalCheckpointRow[];
-    if (rows[0]?.busy === 0) {
-      return undefined;
+  async #truncateWriteAheadLog(): Promise<string | undefined> {
+    try {
+      const checkpoint = await this.#writer.checkpoint("TRUNCATE");
+      if (!checkpoint.isBusy) {
+        return undefined;
+      }
+    } catch (error) {
+      return `the write-ahead log could not be truncated after the purge: ${describeError(error)}`;
     }
     return (
       "the write-ahead log could not be truncated after the purge, because another connection " +
@@ -294,25 +283,28 @@ export class SessionPurge {
   }
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/**
+ * The range read and the two deletes of one session. The range read returns its row only while
+ * the stored sequences are safe integers, so a range the receipt could not name refuses the write
+ * before anything is deleted. A snapshot names the event it reflects, so snapshots go first.
+ */
+function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
+  return [
+    {
+      sql: `SELECT MIN(sequence) AS fromSequence, MAX(sequence) AS toSequence
+              FROM session_events
+             WHERE ${PURGEABLE_WHERE}
+            HAVING MIN(sequence) IS NULL
+                OR (typeof(MIN(sequence)) = 'integer' AND typeof(MAX(sequence)) = 'integer'
+                    AND MIN(sequence) >= 0 AND MAX(sequence) <= ${String(Number.MAX_SAFE_INTEGER)})`,
+      bindings: [sessionId],
+      expectedRowCount: 1,
+    },
+    { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
+    { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
+  ];
 }
 
-/**
- * A finite number, accepting a `bigint` only when it is a safe integer: past 2^53 the nearest
- * double names a different row and would put a wrong range into the receipt.
- */
-function readNumber(value: unknown, column: string): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "bigint") {
-    const narrowed: number = Number(value);
-    if (Number.isSafeInteger(narrowed)) return narrowed;
-    throw new SessionPurgeRefusal(
-      `${column} is a bigint past the safe-integer range (${String(value)}); refusing to narrow ` +
-        "it, because the nearest double names a different row than the one stored.",
-    );
-  }
-  throw new SessionPurgeRefusal(
-    `${column} is not a finite INTEGER (got ${typeof value}); the stored row is corrupt.`,
-  );
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

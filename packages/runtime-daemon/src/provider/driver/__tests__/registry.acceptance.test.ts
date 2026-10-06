@@ -2,13 +2,15 @@
 // driver as the only double: capability gating agrees between the live registry, a registry
 // re-seeded from the durable cache after a restart, and a refreshed registry.
 
-import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../../__fixtures__/capture-failure.js";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { openDatabase } from "../../../session/migration-runner.js";
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   CLI_VERSION_REPORT,
@@ -86,23 +88,21 @@ interface Stack {
   readonly registry: ProviderRegistry;
 }
 
-let db: DatabaseType;
+let scratch: ScratchDatabase;
 
 function makeStack(): Stack {
   return {
-    writer: new DriverCapabilitiesWriter(db, makeAdvancingClock()),
+    writer: new DriverCapabilitiesWriter(scratch, makeAdvancingClock()),
     registry: new ProviderRegistry(),
   };
 }
 
-beforeEach(() => {
-  db = openDatabase(":memory:");
+beforeEach(async () => {
+  scratch = await openScratchDatabase();
 });
 
-afterEach(() => {
-  if (db.open) {
-    db.close();
-  }
+afterEach(async () => {
+  await scratch.close();
 });
 
 describe("capability gating across the registry, the durable cache and a restart", () => {

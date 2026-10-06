@@ -19,7 +19,7 @@ export function registerSessionDraftUpdate(
     SESSION_DRAFT_METHOD_DESCRIPTORS["session.draftUpdate"],
     async (request) => ({
       sessionId: request.sessionId,
-      updatedAt: draftStore.write(request.sessionId, request.text),
+      updatedAt: await draftStore.write(request.sessionId, request.text),
     }),
   );
 }

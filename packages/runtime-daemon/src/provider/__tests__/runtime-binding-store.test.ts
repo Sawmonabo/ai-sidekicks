@@ -8,11 +8,12 @@ import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/pr
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { captureThrow } from "../../__fixtures__/capture-failure.js";
-import { openDatabase } from "../../session/migration-runner.js";
+import { captureRejection, captureThrow } from "../../__fixtures__/capture-failure.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {
@@ -34,16 +35,18 @@ const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
 const DRIVER_NAME: ProviderName = "claude";
 const CONTRACT_VERSION: string = "1.2.3";
 
+let scratch: ScratchDatabase;
+// The test's own connection, for raw reads and for staging rows the store would refuse.
 let db: DatabaseType;
 
-beforeEach(() => {
-  db = openDatabase(":memory:");
+beforeEach(async () => {
+  scratch = await openScratchDatabase();
+  db = new Database(scratch.databasePath);
 });
 
-afterEach(() => {
-  if (db.open) {
-    db.close();
-  }
+afterEach(async () => {
+  db.close();
+  await scratch.close();
 });
 
 function makeIdSource(): () => string {
@@ -52,7 +55,7 @@ function makeIdSource(): () => string {
 }
 
 function makeStore(now: () => string = makeAdvancingClock()): RuntimeBindingStore {
-  return new RuntimeBindingStore(db, { now, newId: makeIdSource() });
+  return new RuntimeBindingStore(scratch, { now, newId: makeIdSource() });
 }
 
 // A fully-populated spawn-bound record: every member of the closed key set, shaped as real
@@ -147,7 +150,7 @@ function readRawCliVersion(id: string): {
 }
 
 // Reads the mutable columns raw: the store's accessors refuse a corrupt row, so they cannot
-// show what a refused transaction left behind.
+// show what a refused write left behind.
 function readRawMutableColumns(id: string): {
   contract_version: string;
   resume_handle: string | null;
@@ -181,9 +184,9 @@ function countBindings(): number {
 }
 
 describe("RuntimeBindingStore — CRUD round-trips", () => {
-  it("create → findById round-trips every column", () => {
+  it("create → findById round-trips every column", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -204,22 +207,22 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
     expect(found).toEqual(created);
   });
 
-  it("findByRun returns ALL bindings for a run (1:many)", () => {
+  it("findByRun returns ALL bindings for a run (1:many)", async () => {
     const store = makeStore();
-    const first = store.create({
+    const first = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
       spawnConfig: {},
     });
-    const second = store.create({
+    const second = await store.create({
       runId: RUN_ID,
       driverName: "codex",
       contractVersion: "2.0.0",
       spawnConfig: {},
     });
     // A binding on a DIFFERENT run must not appear.
-    store.create({
+    await store.create({
       runId: OTHER_RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -231,9 +234,9 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
     expect(forRun.map((binding) => binding.id)).toEqual([first.id, second.id]);
   });
 
-  it("update mutates the patched fields, bumps updatedAt, preserves createdAt", () => {
+  it("update mutates the patched fields, bumps updatedAt, preserves createdAt", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -241,7 +244,7 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
       runtimeMetadata: { a: 1 },
     });
 
-    const updated = store.update(created.id, {
+    const updated = await store.update(created.id, {
       contractVersion: "1.1.0",
       runtimeMetadata: { a: 2, b: 3 },
     });
@@ -259,9 +262,9 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
     expect(store.findById(created.id)).toEqual(updated);
   });
 
-  it("update can clear resumeHandle to null (COALESCE-binding would silently no-op)", () => {
+  it("update can clear resumeHandle to null (COALESCE-binding would silently no-op)", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -269,14 +272,14 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
       resumeHandle: "present-handle",
     });
 
-    const cleared = store.update(created.id, { resumeHandle: null });
+    const cleared = await store.update(created.id, { resumeHandle: null });
     expect(cleared?.resumeHandle).toBeNull();
     expect(store.findById(created.id)?.resumeHandle).toBeNull();
   });
 
-  it("update leaves absent patch keys untouched", () => {
+  it("update leaves absent patch keys untouched", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -285,7 +288,7 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
       runtimeMetadata: { keep: true },
     });
 
-    const updated = store.update(created.id, { contractVersion: "1.0.1" });
+    const updated = await store.update(created.id, { contractVersion: "1.0.1" });
     expect(updated?.contractVersion).toBe("1.0.1");
     expect(updated?.resumeHandle).toBe("keep-me");
     expect(updated?.runtimeMetadata).toEqual({ keep: true });
@@ -293,19 +296,19 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
 });
 
 describe("RuntimeBindingStore — contract_version is canonical semver and length-bounded", () => {
-  it("rejects a contract_version one character over its cap", () => {
+  it("rejects a contract_version one character over its cap", async () => {
     const overVersion: string = "1.0.0-" + "a".repeat(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN - 6 + 1);
     expect(overVersion.length).toBe(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN + 1);
 
     const store = makeStore();
-    expect(() =>
+    await expect(
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
         contractVersion: overVersion,
         spawnConfig: {},
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
   });
 
   const rejectedVersions: string[] = [
@@ -319,16 +322,16 @@ describe("RuntimeBindingStore — contract_version is canonical semver and lengt
   ];
 
   for (const version of rejectedVersions) {
-    it(`rejects non-canonical / loose / malformed ${JSON.stringify(version)}`, () => {
+    it(`rejects non-canonical / loose / malformed ${JSON.stringify(version)}`, async () => {
       const store = makeStore();
-      const thrown = captureThrow(() => {
+      const thrown = await captureRejection(() =>
         store.create({
           runId: RUN_ID,
           driverName: DRIVER_NAME,
           contractVersion: version,
           spawnConfig: {},
-        });
-      });
+        }),
+      );
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
       expect(validationError.fields?.["field"]).toBe("contract_version");
@@ -337,10 +340,10 @@ describe("RuntimeBindingStore — contract_version is canonical semver and lengt
 });
 
 describe("RuntimeBindingStore — resume_handle", () => {
-  it("rejects a RESUME_HANDLE_MAX_LEN+1-length resume_handle", () => {
+  it("rejects a RESUME_HANDLE_MAX_LEN+1-length resume_handle", async () => {
     const overHandle: string = "h".repeat(RESUME_HANDLE_MAX_LEN + 1);
     const store = makeStore();
-    expect(() =>
+    await expect(
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
@@ -348,27 +351,27 @@ describe("RuntimeBindingStore — resume_handle", () => {
         spawnConfig: {},
         resumeHandle: overHandle,
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
   });
 
-  it("rejects a whitespace-only resume_handle (the /\\S/ hardening beyond the DB CHECK)", () => {
+  it("rejects a whitespace-only resume_handle (the /\\S/ hardening beyond the DB CHECK)", async () => {
     const store = makeStore();
-    const thrown = captureThrow(() => {
+    const thrown = await captureRejection(() =>
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
         contractVersion: CONTRACT_VERSION,
         spawnConfig: {},
         resumeHandle: "   ",
-      });
-    });
+      }),
+    );
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("resume_handle");
   });
 
-  it("rejects a NUL-containing resume_handle", () => {
+  it("rejects a NUL-containing resume_handle", async () => {
     const store = makeStore();
-    expect(() =>
+    await expect(
       store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
@@ -376,14 +379,14 @@ describe("RuntimeBindingStore — resume_handle", () => {
         spawnConfig: {},
         resumeHandle: "before\0after",
       }),
-    ).toThrow(ProviderOutputValidationError);
+    ).rejects.toThrow(ProviderOutputValidationError);
   });
 });
 
 describe("RuntimeBindingStore — findResumableBindings", () => {
-  it("returns only bindings with a non-null resume_handle", () => {
+  it("returns only bindings with a non-null resume_handle", async () => {
     const store = makeStore();
-    const withHandle = store.create({
+    const withHandle = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -391,13 +394,13 @@ describe("RuntimeBindingStore — findResumableBindings", () => {
       resumeHandle: "resumable-1",
     });
     // No handle: must not appear.
-    store.create({
+    await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
       spawnConfig: {},
     });
-    const otherWithHandle = store.create({
+    const otherWithHandle = await store.create({
       runId: OTHER_RUN_ID,
       driverName: "codex",
       contractVersion: "2.0.0",
@@ -414,9 +417,9 @@ describe("RuntimeBindingStore — findResumableBindings", () => {
 });
 
 describe("RuntimeBindingStore — update revalidation", () => {
-  it("rejects an update to a non-canonical contract_version and leaves the row unchanged", () => {
+  it("rejects an update to a non-canonical contract_version and leaves the row unchanged", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -424,19 +427,19 @@ describe("RuntimeBindingStore — update revalidation", () => {
       resumeHandle: "h",
     });
 
-    expect(() => store.update(created.id, { contractVersion: "1.0" })).toThrow(
+    await expect(store.update(created.id, { contractVersion: "1.0" })).rejects.toThrow(
       ProviderOutputValidationError,
     );
 
-    // Validation runs before the transaction, so the row is untouched.
+    // Validation runs before the write, so the row is untouched.
     const after = store.findById(created.id);
     expect(after?.contractVersion).toBe("1.0.0");
     expect(after?.updatedAt).toBe(created.updatedAt);
   });
 
-  it("rejects an update to an invalid resume_handle and leaves the row unchanged", () => {
+  it("rejects an update to an invalid resume_handle and leaves the row unchanged", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -444,7 +447,7 @@ describe("RuntimeBindingStore — update revalidation", () => {
       resumeHandle: "original",
     });
 
-    expect(() => store.update(created.id, { resumeHandle: "   " })).toThrow(
+    await expect(store.update(created.id, { resumeHandle: "   " })).rejects.toThrow(
       ProviderOutputValidationError,
     );
 
@@ -456,13 +459,13 @@ describe("RuntimeBindingStore — update revalidation", () => {
   it(
     "REFUSES an update onto a row whose stored " +
       "spawn_config is unreadable, and commits NOTHING",
-    () => {
+    async () => {
       // Committing a patch onto an unreadable record would make it newer, still unreadable, and
       // stamped with an `updated_at` implying this daemon wrote it, hiding the corruption from
-      // the recovery read. So the parse runs inside the transaction before the UPDATE, and its
-      // throw rolls everything back.
+      // the recovery read. So the parse runs before the UPDATE is sent, and its throw stops the
+      // write.
       const store = makeStore();
-      const created = store.create({
+      const created = await store.create({
         runId: RUN_ID,
         driverName: DRIVER_NAME,
         contractVersion: "1.0.0",
@@ -472,9 +475,9 @@ describe("RuntimeBindingStore — update revalidation", () => {
       });
       corruptSpawnConfigOutOfBand(created.id, "{not json at all");
 
-      const thrown = captureThrow(() => {
-        store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" });
-      });
+      const thrown = await captureRejection(() =>
+        store.update(created.id, { contractVersion: "1.0.1", resumeHandle: "handle-after" }),
+      );
 
       // A plain internal-invariant Error naming the row: corrupt daemon-written storage, not
       // provider input.
@@ -483,7 +486,7 @@ describe("RuntimeBindingStore — update revalidation", () => {
       expect((thrown as Error).message).toContain(created.id);
       expect((thrown as Error).message).toContain("spawn_config");
 
-      // Read raw: the store's accessors refuse this row and could not tell "rolled back" from
+      // Read raw: the store's accessors refuse this row and could not tell "never written" from
       // "unreadable".
       const raw = readRawMutableColumns(created.id);
       expect(raw.contract_version).toBe("1.0.0");
@@ -498,15 +501,15 @@ describe("RuntimeBindingStore — update revalidation", () => {
 });
 
 describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
-  it("agrees with findByRun for a single run id", () => {
+  it("agrees with findByRun for a single run id", async () => {
     const store = makeStore();
-    store.create({
+    await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
       spawnConfig: {},
     });
-    store.create({
+    await store.create({
       runId: OTHER_RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -516,18 +519,18 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
     expect(store.findByRuns([RUN_ID])).toEqual(store.findByRun(RUN_ID));
   });
 
-  it("returns SUPERSEDED pre-relaunch bindings alongside the current one", () => {
+  it("returns SUPERSEDED pre-relaunch bindings alongside the current one", async () => {
     // A relaunch mints a new binding row and retains the old one as history. The store has no
     // liveness column, so both come back and the caller owns the liveness intersection.
     const store = makeStore();
-    const beforeRelaunch = store.create({
+    const beforeRelaunch = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
       resumeHandle: "handle-before-relaunch",
       spawnConfig: { resolvedExecutablePath: "/opt/homebrew/bin/claude" },
     });
-    const afterRelaunch = store.create({
+    const afterRelaunch = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -541,9 +544,9 @@ describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
 });
 
 describe("RuntimeBindingStore — spawn_config", () => {
-  it("round-trips the FULL spawn-bound record on create and on read", () => {
+  it("round-trips the FULL spawn-bound record on create and on read", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -609,9 +612,9 @@ describe("RuntimeBindingStore — driver_name", () => {
 });
 
 describe("RuntimeBindingStore — cliVersion pair", () => {
-  it("round-trips the pair and stores BOTH columns", () => {
+  it("round-trips the pair and stores BOTH columns", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -627,9 +630,9 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     });
   });
 
-  it("keeps an unparsed printed version; refuses a parse with no printed version", () => {
+  it("keeps an unparsed printed version; refuses a parse with no printed version", async () => {
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -651,11 +654,11 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
     expect(countBindings()).toBe(1);
   });
 
-  it("the two-column CHECK survives an UPDATE that names neither column", () => {
+  it("the two-column CHECK survives an UPDATE that names neither column", async () => {
     // SQLite re-evaluates every CHECK on a row for every write to it, so the update path must
     // carry the pair through untouched.
     const store = makeStore();
-    const created = store.create({
+    const created = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: "1.0.0",
@@ -663,7 +666,7 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
       spawnConfig: FULL_SPAWN_CONFIG,
     });
 
-    const updated = store.update(created.id, { contractVersion: "1.0.1" });
+    const updated = await store.update(created.id, { contractVersion: "1.0.1" });
 
     expect(updated?.contractVersion).toBe("1.0.1");
     // Spawn-scoped provenance is immutable and survives the patch.
@@ -728,7 +731,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
     });
 
     const store = makeStore();
-    const created = store.create(
+    const created = await store.create(
       withSpawnedVersionCarriers(
         {
           runId: RUN_ID,
@@ -758,9 +761,9 @@ describe("composeResumeSessionParams", () => {
     onMcpServerStatus: undefined,
   };
 
-  it("re-realizes every spawn-bound leg from the durable row", () => {
+  it("re-realizes every spawn-bound leg from the durable row", async () => {
     const store = makeStore();
-    const binding = store.create({
+    const binding = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -785,14 +788,14 @@ describe("composeResumeSessionParams", () => {
     });
   });
 
-  it("stores a NO-IDENTIFIER create without any account key, byte for byte", () => {
+  it("stores a NO-IDENTIFIER create without any account key, byte for byte", async () => {
     // With no identifier the stored bytes carry no account member at all, so nothing downstream
     // can read an unbound account as bound-but-empty.
     const store = makeStore();
     const unboundSpawnConfig: RuntimeBindingSpawnConfig = {
       executionPosture: EXECUTION_POSTURE,
     };
-    const binding = store.create({
+    const binding = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -809,9 +812,9 @@ describe("composeResumeSessionParams", () => {
     ).toBeUndefined();
   });
 
-  it("binds the injected function legs, which no row can carry", () => {
+  it("binds the injected function legs, which no row can carry", async () => {
     const store = makeStore();
-    const binding = store.create({
+    const binding = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,
@@ -829,11 +832,11 @@ describe("composeResumeSessionParams", () => {
     expect(params.onCallbackToolCall).toBe(onCallbackToolCall);
   });
 
-  it("refuses a binding with no resume handle, typed for the recovery dispatcher", () => {
+  it("refuses a binding with no resume handle, typed for the recovery dispatcher", async () => {
     // The dispatcher must relaunch fresh rather than retry, and cannot decide that from a
     // message string.
     const store = makeStore();
-    const binding = store.create({
+    const binding = await store.create({
       runId: RUN_ID,
       driverName: DRIVER_NAME,
       contractVersion: CONTRACT_VERSION,

@@ -5,10 +5,14 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { openDatabase } from "../../../session/migration-runner.js";
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { runGitWithExecFile, type GitRunner } from "../../process.js";
 import type { TurnSnapshotService } from "../service.js";
 import {
@@ -31,13 +35,17 @@ const SEEDED_AT = "2026-06-01T00:00:00.000Z";
 const SIBLING_RUN_ID = `${RUN_ID}b`;
 
 let fixture: TurnSnapshotFixture;
+let scratch: ScratchDatabase;
+// The test's own read-write connection, which seeds the rows the prune reads.
 let database: DatabaseType;
 
 // A real migrated database, because the prune reads `git_common_dir` from the run's execution
 // context and the schema's checks decide which companion rows a context legally has.
 beforeEach(async () => {
   fixture = await TurnSnapshotFixture.create();
-  database = openDatabase(join(fixture.fixtureRoot, "daemon.db"));
+  scratch = await openScratchDatabase();
+  database = new Database(scratch.databasePath);
+  database.pragma("foreign_keys = ON");
   database
     .prepare(
       `INSERT INTO repo_mounts (
@@ -60,11 +68,9 @@ beforeEach(async () => {
     });
 });
 
-afterEach(() => {
-  // Closed before the fixture root that holds the database file is removed.
-  if (database.open) {
-    database.close();
-  }
+afterEach(async () => {
+  database.close();
+  await scratch.close();
   fixture.remove();
 });
 
@@ -141,7 +147,12 @@ function insertBaseRunExecutionContext(): void {
 }
 
 function buildRetentionService(overrides: ServiceOverrides = {}): TurnSnapshotService {
-  return fixture.buildService({ database, now: (): string => SEEDED_AT, ...overrides });
+  // The prune reads through the daemon's read-only connection.
+  return fixture.buildService({
+    database: scratch.reader,
+    now: (): string => SEEDED_AT,
+    ...overrides,
+  });
 }
 
 describe("TurnSnapshotService retention prune", () => {

@@ -2,7 +2,6 @@
 // validates the probe channel, per-capability withdrawal, and the re-probe's change detection.
 // Probes are asserted at a recording transport double, since a probe that billed emits no event.
 
-import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -11,7 +10,10 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { openDatabase } from "../../../session/migration-runner.js";
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   RecordingCapabilityProbeTransport,
@@ -323,16 +325,14 @@ describe("a flag whose consumers call several wire names", () => {
   });
 });
 
-let db: DatabaseType;
+let scratch: ScratchDatabase;
 
-beforeEach(() => {
-  db = openDatabase(":memory:");
+beforeEach(async () => {
+  scratch = await openScratchDatabase();
 });
 
-afterEach(() => {
-  if (db.open) {
-    db.close();
-  }
+afterEach(async () => {
+  await scratch.close();
 });
 
 // The writer owns change detection; a re-probe only changes the snapshot it compares.
@@ -349,7 +349,7 @@ describe("a re-probe's change detection", () => {
   }
 
   it("reports a changed snapshot when a re-probe withdraws a flag", async () => {
-    const writer = new DriverCapabilitiesWriter(db, makeAdvancingClock());
+    const writer = new DriverCapabilitiesWriter(scratch, makeAdvancingClock());
     const probedFlag = withdrawalCanaryFor("codex");
     const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
     expect(CODEX_CAPABILITY_FLAGS[probedFlag]).toBe(true);

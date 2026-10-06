@@ -1,6 +1,7 @@
-// DriverCapabilitiesWriter: the three-table write and cold-start hydration, over a real SQLite
-// handle from `openDatabase(":memory:")` so the driver tables and their CHECK constraints fire.
+// DriverCapabilitiesWriter: the three-table write and cold-start hydration, over a real scratch
+// database opened as the daemon opens it, so the driver tables and their CHECK constraints fire.
 
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -9,7 +10,10 @@ import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver
 import { type ProviderToolMetadata } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { openDatabase } from "../../../session/migration-runner.js";
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   CLI_VERSION_REPORT,
@@ -32,20 +36,22 @@ const UPGRADED_CLI_VERSION_REPORT: DriverCliVersionReport = {
   parsedVersion: "2.9.1",
 };
 
+let scratch: ScratchDatabase;
+// The test's own connection, for reading rows back and for writing past the writer.
 let db: DatabaseType;
 
-beforeEach(() => {
-  db = openDatabase(":memory:");
+beforeEach(async () => {
+  scratch = await openScratchDatabase();
+  db = new Database(scratch.databasePath);
 });
 
-afterEach(() => {
-  if (db.open) {
-    db.close();
-  }
+afterEach(async () => {
+  db.close();
+  await scratch.close();
 });
 
 function makeWriter(now: () => string = makeAdvancingClock()): DriverCapabilitiesWriter {
-  return new DriverCapabilitiesWriter(db, now);
+  return new DriverCapabilitiesWriter(scratch, now);
 }
 
 // Direct table readers (raw rows).
@@ -131,6 +137,23 @@ describe("DriverCapabilitiesWriter — first declare", () => {
     expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
     expect(readToolNames(DRIVER_NAME)).toEqual(["search", "write_file"]);
     expect(countContractMetaRows(DRIVER_NAME)).toBe(1);
+  });
+});
+
+describe("DriverCapabilitiesWriter — declares of one driver at once", () => {
+  it("decides each from the snapshot the one before it wrote", async () => {
+    const writer = makeWriter();
+    const result: GetCapabilitiesResult = makeResult();
+
+    const outcomes = await Promise.all([
+      writer.declare({ driverName: DRIVER_NAME, result }),
+      writer.declare({ driverName: DRIVER_NAME, result }),
+    ]);
+
+    expect(outcomes).toEqual([
+      { snapshotChange: "created", cliVersionRefreshed: true },
+      { snapshotChange: "unchanged", cliVersionRefreshed: false },
+    ]);
   });
 });
 

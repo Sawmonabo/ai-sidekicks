@@ -1,6 +1,7 @@
 // SessionService over SQLite: rebuild order, restart durability, schema idempotency including a
 // concurrent-boot race across worker threads, the append guard and the read-side payload check.
-// Each test gets its own database file under os.tmpdir().
+// Each test gets its own database file under os.tmpdir(), opened as the daemon opens it: writes
+// through the database writer, reads on a read-only connection.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,12 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
+import {
+  closeDatabaseConnections,
+  openDatabaseConnections,
+  type DatabaseConnections,
+} from "../../database/connections.js";
+import { applyMigrations, applyPragmas } from "../migration-runner.js";
 import { SessionService } from "../service.js";
 import {
   insertStoredEvent,
@@ -55,7 +61,7 @@ function schemaObjectNames(db: DatabaseType): ReadonlyArray<string> {
 // ----------------------------------------------------------------------------
 
 interface TestContext {
-  db: DatabaseType;
+  connections: DatabaseConnections;
   service: SessionService;
   dbPath: string;
   tmpDir: string;
@@ -63,23 +69,34 @@ interface TestContext {
 
 let ctx: TestContext;
 
-beforeEach(() => {
+// The production opening, so the test reaches the database exactly as the daemon does.
+function openConnections(dbPath: string): Promise<DatabaseConnections> {
+  return openDatabaseConnections({ databasePath: dbPath, writeServiceLog: () => {} });
+}
+
+// Closing both connections stands in for the daemon process exiting; reopening the same file
+// proves on-disk durability backs what is read.
+async function reopenConnections(): Promise<DatabaseConnections> {
+  await closeDatabaseConnections(ctx.connections);
+  ctx.connections = await openConnections(ctx.dbPath);
+  ctx.service = new SessionService(ctx.connections.reader);
+  return ctx.connections;
+}
+
+beforeEach(async () => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-daemon-test-"));
   const dbPath: string = join(tmpDir, "test.db");
-  // The production factory, so the test opens the database exactly as the daemon does.
-  const db: DatabaseType = openDatabase(dbPath);
+  const connections = await openConnections(dbPath);
   ctx = {
-    db,
-    service: new SessionService(db),
+    connections,
+    service: new SessionService(connections.reader),
     dbPath,
     tmpDir,
   };
 });
 
-afterEach(() => {
-  if (ctx.db.open) {
-    ctx.db.close();
-  }
+afterEach(async () => {
+  await closeDatabaseConnections(ctx.connections);
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
@@ -91,16 +108,16 @@ describe("SessionService — rebuildSession reads events by sequence ASC", () =>
   it(
     "reproduces the snapshot deterministically when events are inserted in scrambled sequence " +
       "order",
-    () => {
+    async () => {
       // UNIQUE(session_id, sequence) tolerates any insert order; the read path's ORDER BY
       // sequence ASC establishes the order.
       const created: StoredEvent = makeCreatedEvent();
       const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
       const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
-      insertStoredEvent(ctx.db, secondRename);
-      insertStoredEvent(ctx.db, created);
-      insertStoredEvent(ctx.db, firstRename);
+      await insertStoredEvent(ctx.connections.writer, secondRename);
+      await insertStoredEvent(ctx.connections.writer, created);
+      await insertStoredEvent(ctx.connections.writer, firstRename);
 
       const events = ctx.service.readEvents(SESSION_ID);
       expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
@@ -118,16 +135,16 @@ describe("SessionService — rebuildSession reads events by sequence ASC", () =>
 // ----------------------------------------------------------------------------
 
 describe("SessionService — rebuildSession uses sequence not monotonic_ns", () => {
-  it("orders events by sequence even when monotonic_ns goes backwards across rows", () => {
+  it("orders events by sequence even when monotonic_ns goes backwards across rows", async () => {
     // monotonic_ns is in-daemon debug data; sequence is the order key, so clock skew in
     // monotonic_ns must not reorder the rebuild.
     const e0: StoredEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
     const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");
     const e2: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Side Room");
 
-    insertStoredEvent(ctx.db, e0);
-    insertStoredEvent(ctx.db, e1);
-    insertStoredEvent(ctx.db, e2);
+    await insertStoredEvent(ctx.connections.writer, e0);
+    await insertStoredEvent(ctx.connections.writer, e1);
+    await insertStoredEvent(ctx.connections.writer, e2);
 
     const events = ctx.service.readEvents(SESSION_ID);
     expect(events.map((e) => e.sequence)).toEqual([0, 1, 2]);
@@ -151,7 +168,7 @@ describe("SessionService — rebuildSession uses sequence not monotonic_ns", () 
   it(
     "round-trips a monotonic_ns value above Number.MAX_SAFE_INTEGER as bigint without " +
       "precision loss",
-    () => {
+    async () => {
       // The other fixtures sit below Number.MAX_SAFE_INTEGER, so a `Number(row.monotonic_ns)`
       // regression in `hydrateRow` would not show. 2^53 + 1 is the first value a double cannot
       // hold.
@@ -160,7 +177,7 @@ describe("SessionService — rebuildSession uses sequence not monotonic_ns", () 
         ...makeCreatedEvent(),
         monotonicNs: BIGINT_BOUNDARY,
       };
-      insertStoredEvent(ctx.db, created);
+      await insertStoredEvent(ctx.connections.writer, created);
 
       const events = ctx.service.readEvents(SESSION_ID);
       expect(events).toHaveLength(1);
@@ -181,32 +198,23 @@ describe("SessionService — rebuildSession uses sequence not monotonic_ns", () 
 // ----------------------------------------------------------------------------
 
 describe("SessionService — snapshot survives daemon restart", () => {
-  it("yields identical projection after closing and reopening the database file", () => {
+  it("yields identical projection after closing and reopening the database file", async () => {
     const created: StoredEvent = makeCreatedEvent();
     const firstRename: StoredEvent = makeRenamedEvent(1, 2_000_000_000n, "Design Review");
     const secondRename: StoredEvent = makeRenamedEvent(2, 3_000_000_000n, "Release Notes");
 
-    insertStoredEvent(ctx.db, created);
-    insertStoredEvent(ctx.db, firstRename);
-    insertStoredEvent(ctx.db, secondRename);
+    await insertStoredEvent(ctx.connections.writer, created);
+    await insertStoredEvent(ctx.connections.writer, firstRename);
+    await insertStoredEvent(ctx.connections.writer, secondRename);
 
     const beforeRestart = ctx.service.rebuildSession(SESSION_ID);
     expect(beforeRestart).not.toBeNull();
 
-    // Closing the handle stands in for the daemon process exiting.
-    ctx.db.close();
-    expect(ctx.db.open).toBe(false);
+    const closedReader: DatabaseType = ctx.connections.reader;
+    await reopenConnections();
+    expect(closedReader.open).toBe(false);
 
-    // Reopening the same file proves on-disk durability backs the projection. The reopened
-    // service has no append opt-in on purpose: it only rebuilds, which reads allow.
-    const reopenedDb: DatabaseType = openDatabase(ctx.dbPath);
-    const reopenedService: SessionService = new SessionService(reopenedDb);
-
-    // afterEach closes whichever handle `ctx` holds.
-    ctx.db = reopenedDb;
-    ctx.service = reopenedService;
-
-    const afterRestart = reopenedService.rebuildSession(SESSION_ID);
+    const afterRestart = ctx.service.rebuildSession(SESSION_ID);
     expect(afterRestart).not.toBeNull();
 
     expect(afterRestart).toEqual(beforeRestart);
@@ -216,13 +224,10 @@ describe("SessionService — snapshot survives daemon restart", () => {
     expect(afterRestart.asOfSequence).toBe(2);
   });
 
-  it("openDatabase is idempotent on reopen (does not re-create the schema)", () => {
-    const tablesBefore: ReadonlyArray<string> = schemaObjectNames(ctx.db);
-    ctx.db.close();
-    const reopened: DatabaseType = openDatabase(ctx.dbPath);
-    ctx.db = reopened;
-    ctx.service = new SessionService(reopened);
-    expect(schemaObjectNames(reopened)).toEqual(tablesBefore);
+  it("a reopen keeps the schema it finds (does not re-create it)", async () => {
+    const tablesBefore: ReadonlyArray<string> = schemaObjectNames(ctx.connections.reader);
+    const reopened: DatabaseConnections = await reopenConnections();
+    expect(schemaObjectNames(reopened.reader)).toEqual(tablesBefore);
   });
 });
 
@@ -503,27 +508,28 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 // accepts any string and the check must happen at hydration.
 
 describe("SessionService — read-side payload validation", () => {
-  function appendRaw(payloadText: string, sequence: number, id: string): void {
-    ctx.db
-      .prepare(
-        `INSERT INTO session_events (
-           id, session_id, sequence, occurred_at, monotonic_ns,
-           category, type, payload
-         ) VALUES (
-           @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
-           @category, @type, @payload
-         )`,
-      )
-      .run({
-        id,
-        session_id: SESSION_ID,
-        sequence,
-        occurred_at: "2026-04-27T12:00:00.000Z",
-        monotonic_ns: 1n,
-        category: "session_lifecycle",
-        type: "session.created",
-        payload: payloadText,
-      });
+  async function appendRaw(payloadText: string, sequence: number, id: string): Promise<void> {
+    await ctx.connections.writer.write([
+      {
+        sql: `INSERT INTO session_events (
+                id, session_id, sequence, occurred_at, monotonic_ns,
+                category, type, payload
+              ) VALUES (
+                @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
+                @category, @type, @payload
+              )`,
+        bindings: {
+          id,
+          session_id: SESSION_ID,
+          sequence,
+          occurred_at: "2026-04-27T12:00:00.000Z",
+          monotonic_ns: 1n,
+          category: "session_lifecycle",
+          type: "session.created",
+          payload: payloadText,
+        },
+      },
+    ]);
   }
 
   it.each([
@@ -535,8 +541,8 @@ describe("SessionService — read-side payload validation", () => {
       /payload must be a JSON object .* \(got string\)/,
     ],
     ["{not valid json", "01J0EV8884NN5J5J5J5J5J5J5J", /payload is not valid JSON/],
-  ])("throws a structured error for the stored payload %s", (payloadText, id, refusal) => {
-    appendRaw(payloadText, 0, id);
+  ])("throws a structured error for the stored payload %s", async (payloadText, id, refusal) => {
+    await appendRaw(payloadText, 0, id);
     expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(refusal);
   });
 });

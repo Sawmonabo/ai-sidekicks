@@ -9,14 +9,16 @@
 //   that a parse never stands without its printed version holds at the type level.
 // - `runId`, `id` and the content of `runtime_metadata` are daemon-controlled: no CHECK and no Zod
 //   guard. `driverName` is typed at the write and parsed as a provider name on every read.
-//   `update` runs IMMEDIATE (see the `#updateTxn` field).
+// - Reads run on the read-only connection; every write goes through the database writer.
 
 import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { Database, Statement, Transaction } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
+import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseWriter } from "../database/writer.js";
 import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { isPlainObject } from "./record-readers.js";
@@ -149,12 +151,6 @@ interface ParsedRuntimeBindingColumns {
   readonly spawnConfig: RuntimeBindingSpawnConfig;
 }
 
-/** `#updateTxn`'s result: the raw row plus the columns parsed inside the transaction. */
-interface UpdatedRuntimeBindingRow {
-  readonly row: RuntimeBindingRow;
-  readonly parsedColumns: ParsedRuntimeBindingColumns;
-}
-
 /**
  * The closed key set of `spawn_config`, each with a one-level check on its stored value (an
  * `executionPosture` of `{}` passes, so recovery must validate inner shapes). `satisfies` makes a
@@ -261,37 +257,50 @@ export function composeResumeSessionParams(
   };
 }
 
-/** Reads and writes `runtime_bindings`. Synchronous, like better-sqlite3. */
+const INSERT_BINDING_SQL = `
+  INSERT INTO runtime_bindings
+    (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+     resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+  VALUES
+    (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
+     @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`;
+
+// `created_at` and the spawn-scoped columns are never in the SET list, so they are preserved.
+const UPDATE_BINDING_SQL = `
+  UPDATE runtime_bindings
+     SET contract_version = CASE WHEN @sets_contract_version THEN @contract_version
+                                 ELSE contract_version END,
+         resume_handle    = CASE WHEN @sets_resume_handle THEN @resume_handle
+                                 ELSE resume_handle END,
+         runtime_metadata = CASE WHEN @sets_runtime_metadata THEN @runtime_metadata
+                                 ELSE runtime_metadata END,
+         updated_at       = @updated_at
+   WHERE id = @id AND driver_name = @driver_name AND spawn_config = @spawn_config
+  RETURNING id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+            resume_handle, spawn_config, runtime_metadata, created_at, updated_at`;
+
+const DELETE_BINDING_SQL = `DELETE FROM runtime_bindings WHERE id = ?`;
+
+/** Reads `runtime_bindings` synchronously and writes it through the database writer. */
 export class RuntimeBindingStore {
-  readonly #insertStmt: Statement;
   readonly #selectByIdStmt: Statement;
   readonly #selectByRunStmt: Statement;
   readonly #selectByRunsStmt: Statement;
   readonly #selectResumableStmt: Statement;
-  readonly #updateStmt: Statement;
-  readonly #deleteStmt: Statement;
-  // Runs IMMEDIATE: a DEFERRED read-then-write collides with a second connection (daemon restart
-  // overlap) as `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` cannot absorb; IMMEDIATE makes racers
-  // queue instead.
-  readonly #updateTxn: Transaction<
-    (id: string, patch: UpdateRuntimeBindingPatch) => UpdatedRuntimeBindingRow | undefined
-  >;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #now: () => string;
   readonly #newId: () => string;
 
-  constructor(db: Database, deps: { now?: () => string; newId?: () => string } = {}) {
+  constructor(
+    database: DatabaseConnections,
+    deps: { now?: () => string; newId?: () => string } = {},
+  ) {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     // UUIDv7 ids sort by mint order when a table is read back.
     this.#newId = deps.newId ?? mintUuidV7;
+    this.#writer = database.writer;
+    const db = database.reader;
 
-    this.#insertStmt = db.prepare(
-      `INSERT INTO runtime_bindings
-         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
-          resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
-       VALUES
-         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
-          @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
-    );
     this.#selectByIdStmt = db.prepare(
       `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
               resume_handle, spawn_config, runtime_metadata, created_at, updated_at
@@ -322,67 +331,13 @@ export class RuntimeBindingStore {
         WHERE resume_handle IS NOT NULL
         ORDER BY created_at, id`,
     );
-    // `created_at` is never in the SET list, so it is preserved.
-    this.#updateStmt = db.prepare(
-      `UPDATE runtime_bindings
-          SET contract_version = @contract_version,
-              resume_handle    = @resume_handle,
-              runtime_metadata = @runtime_metadata,
-              updated_at       = @updated_at
-        WHERE id = @id`,
-    );
-    this.#deleteStmt = db.prepare(`DELETE FROM runtime_bindings WHERE id = ?`);
-
-    // The stored-record parse runs inside because it reads the row selected here; a throw rolls
-    // back, so no patch lands on a record this store cannot read.
-    this.#updateTxn = db.transaction(
-      (id: string, patch: UpdateRuntimeBindingPatch): UpdatedRuntimeBindingRow | undefined => {
-        const existing = this.#selectByIdStmt.get(id) as RuntimeBindingRow | undefined;
-        if (existing === undefined) {
-          return undefined;
-        }
-        // Parse first: a patch committed onto an unreadable record would hide the corruption
-        // behind a fresh `updated_at`.
-        const parsedColumns: ParsedRuntimeBindingColumns = this.#parseStoredColumns(existing);
-        // An absent key keeps the existing value and `resumeHandle: null` clears it, which
-        // COALESCE cannot express.
-        const mergedContractVersion: string =
-          patch.contractVersion !== undefined ? patch.contractVersion : existing.contract_version;
-        const mergedResumeHandle: string | null =
-          patch.resumeHandle !== undefined ? patch.resumeHandle : existing.resume_handle;
-        const mergedRuntimeMetadata: string =
-          patch.runtimeMetadata !== undefined
-            ? JSON.stringify(patch.runtimeMetadata)
-            : existing.runtime_metadata;
-        const updatedAt: string = this.#now();
-
-        this.#updateStmt.run({
-          id,
-          contract_version: mergedContractVersion,
-          resume_handle: mergedResumeHandle,
-          runtime_metadata: mergedRuntimeMetadata,
-          updated_at: updatedAt,
-        });
-
-        return {
-          row: {
-            ...existing,
-            contract_version: mergedContractVersion,
-            resume_handle: mergedResumeHandle,
-            runtime_metadata: mergedRuntimeMetadata,
-            updated_at: updatedAt,
-          },
-          parsedColumns,
-        };
-      },
-    );
   }
 
   /**
    * Creates a binding, validating the provider-declared fields before the INSERT. Mints `id` and
-   * returns the binding built from the values just written.
+   * resolves, once committed, with the binding built from the values just written.
    */
-  create(input: CreateRuntimeBindingInput): RuntimeBinding {
+  async create(input: CreateRuntimeBindingInput): Promise<RuntimeBinding> {
     assertValidContractVersion(input.contractVersion);
     if (input.resumeHandle != null) {
       assertValidResumeHandle(input.resumeHandle);
@@ -411,19 +366,24 @@ export class RuntimeBindingStore {
     const runtimeMetadata: Record<string, unknown> = input.runtimeMetadata ?? {};
     const runtimeMetadataJson: string = JSON.stringify(runtimeMetadata);
 
-    this.#insertStmt.run({
-      id,
-      run_id: input.runId,
-      driver_name: input.driverName,
-      contract_version: input.contractVersion,
-      cli_version_raw: cliVersion === null ? null : cliVersion.rawVersion,
-      cli_version_semver: cliVersion?.parsedVersion ?? null,
-      resume_handle: resumeHandle,
-      spawn_config: spawnConfigJson,
-      runtime_metadata: runtimeMetadataJson,
-      created_at: timestamp,
-      updated_at: timestamp,
-    });
+    await this.#writer.write([
+      {
+        sql: INSERT_BINDING_SQL,
+        bindings: {
+          id,
+          run_id: input.runId,
+          driver_name: input.driverName,
+          contract_version: input.contractVersion,
+          cli_version_raw: cliVersion === null ? null : cliVersion.rawVersion,
+          cli_version_semver: cliVersion?.parsedVersion ?? null,
+          resume_handle: resumeHandle,
+          spawn_config: spawnConfigJson,
+          runtime_metadata: runtimeMetadataJson,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      },
+    ]);
 
     return {
       id,
@@ -468,11 +428,11 @@ export class RuntimeBindingStore {
   }
 
   /**
-   * Patches a binding's mutable columns and bumps `updated_at`; returns the updated binding, or
-   * `undefined` when `id` is absent. An invalid patch throws even for an absent id, and an
-   * unreadable stored row throws and rolls back.
+   * Patches a binding's mutable columns and bumps `updated_at`; resolves with the updated binding,
+   * or `undefined` when `id` is absent. An invalid patch throws even for an absent id, and an
+   * unreadable stored row throws before anything is written.
    */
-  update(id: string, patch: UpdateRuntimeBindingPatch): RuntimeBinding | undefined {
+  async update(id: string, patch: UpdateRuntimeBindingPatch): Promise<RuntimeBinding | undefined> {
     if (patch.contractVersion !== undefined) {
       assertValidContractVersion(patch.contractVersion);
     }
@@ -480,18 +440,51 @@ export class RuntimeBindingStore {
       assertValidResumeHandle(patch.resumeHandle);
     }
 
-    const updated = this.#updateTxn.immediate(id, patch);
-    if (updated === undefined) {
+    const existing = this.#selectByIdStmt.get(id) as RuntimeBindingRow | undefined;
+    if (existing === undefined) {
       return undefined;
     }
-    // Reuses the record the commit was gated on, so the result cannot disagree with it.
-    return this.#rowToDomain(updated.row, updated.parsedColumns);
+    // Parse first: a patch committed onto an unreadable record would hide the corruption behind a
+    // fresh `updated_at`.
+    const parsedColumns: ParsedRuntimeBindingColumns = this.#parseStoredColumns(existing);
+
+    // The merge runs in SQL, so a concurrent patch to another column is never overwritten with the
+    // value read above. An absent key keeps the stored value and `resumeHandle: null` clears it,
+    // which COALESCE cannot express. The parsed columns are part of the match, so the patch lands
+    // only on the record just parsed.
+    const [result] = await this.#writer.write([
+      {
+        sql: UPDATE_BINDING_SQL,
+        bindings: {
+          id,
+          driver_name: existing.driver_name,
+          spawn_config: existing.spawn_config,
+          sets_contract_version: patch.contractVersion === undefined ? 0 : 1,
+          contract_version: patch.contractVersion ?? null,
+          sets_resume_handle: patch.resumeHandle === undefined ? 0 : 1,
+          resume_handle: patch.resumeHandle ?? null,
+          sets_runtime_metadata: patch.runtimeMetadata === undefined ? 0 : 1,
+          runtime_metadata:
+            patch.runtimeMetadata === undefined ? null : JSON.stringify(patch.runtimeMetadata),
+          updated_at: this.#now(),
+        },
+      },
+    ]);
+    const updated = result?.rows[0] as RuntimeBindingRow | undefined;
+    if (updated === undefined) {
+      // The row was deleted after the read, or its driver or spawn columns, which the daemon never
+      // changes, were edited outside it. Reading again answers `undefined` for the first and parses
+      // the record as now stored for the second, refusing it if it no longer reads.
+      return this.update(id, patch);
+    }
+    // Reuses the columns the patch was gated on, so the result cannot disagree with them.
+    return this.#rowToDomain(updated, parsedColumns);
   }
 
-  /** Deletes a binding by primary key; returns whether a row was removed. */
-  delete(id: string): boolean {
-    const info = this.#deleteStmt.run(id);
-    return info.changes > 0;
+  /** Deletes a binding by primary key; resolves with whether a row was removed. */
+  async delete(id: string): Promise<boolean> {
+    const [result] = await this.#writer.write([{ sql: DELETE_BINDING_SQL, bindings: [id] }]);
+    return (result?.rowCount ?? 0) > 0;
   }
 
   /**
@@ -505,7 +498,7 @@ export class RuntimeBindingStore {
 
   /**
    * Maps a raw row to the public type; the CLI version folds from its printed column. `update()`
-   * passes the columns it parsed inside its transaction.
+   * passes the columns it parsed before its write.
    */
   #rowToDomain(
     row: RuntimeBindingRow,

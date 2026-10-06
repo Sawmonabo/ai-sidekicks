@@ -2,6 +2,7 @@
 // the head read boundary, the stored-variant parse and the terminal-run backstop, each asserted
 // on the stored rows.
 
+import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -12,26 +13,30 @@ import {
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
-import { openDatabase } from "../../session/migration-runner.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../log-service.js";
-import { withSessionAppendLock } from "../session/append-lock.js";
+import { sessionAppendLock } from "../session/append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
-let database: DatabaseType;
+let scratch: ScratchDatabase;
+// A second read-write connection, for the edits a file can carry that no daemon write makes.
+let tamper: DatabaseType;
 
-beforeEach(() => {
-  // The production migration runner, not hand-rolled DDL: the terminal-key triggers and the
+beforeEach(async () => {
+  // The production schema, not hand-rolled DDL: the terminal-key triggers and the
   // `UNIQUE(session_id, sequence)` key are part of what these tests assert.
-  database = openDatabase(":memory:");
+  scratch = await openScratchDatabase();
+  tamper = new Database(scratch.databasePath);
 });
 
-afterEach(() => {
-  database.close();
+afterEach(async () => {
+  tamper.close();
+  await scratch.close();
 });
 
 // ----------------------------------------------------------------------------
@@ -59,7 +64,7 @@ interface ServiceFixture {
 }
 
 function buildService(): ServiceFixture {
-  return { service: new EventLogService({ db: database }) };
+  return { service: new EventLogService({ writer: scratch.writer }) };
 }
 
 let envelopeCounter = 0;
@@ -94,7 +99,7 @@ interface RawEventRow {
 }
 
 function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
-  return database
+  return scratch.reader
     .prepare("SELECT * FROM session_events WHERE session_id = ? ORDER BY sequence ASC")
     .all(sessionId) as ReadonlyArray<RawEventRow>;
 }
@@ -130,8 +135,8 @@ describe("EventLogService — head read boundary", () => {
     await service.append(makeEnvelope());
     await service.append(makeEnvelope());
 
-    writeAcrossStrictTyping(database, "session_events", () => {
-      database
+    writeAcrossStrictTyping(tamper, "session_events", () => {
+      tamper
         .prepare("UPDATE session_events SET sequence = 'x' WHERE session_id = ? AND sequence = 0")
         .run(SESSION);
     });
@@ -183,10 +188,11 @@ describe("EventLogService — the plain branch parses what it stores", () => {
     await expect(service.append(rejected)).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
 
     expect(readRawRows(SESSION)).toHaveLength(0);
-    const readmitted = await service.append(
-      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
-    );
-    expect(readmitted.sequence).toBe(0);
+    await expect(
+      service.append(
+        makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
+      ),
+    ).resolves.toMatchObject({ sequence: 0 });
   });
 });
 
@@ -238,8 +244,8 @@ describe("EventLogService — the append lock", () => {
   it("serializes concurrent appends on one session into one gapless sequence", async () => {
     const { service } = buildService();
 
-    // Without the lock these interleave in the async compose step and two derive the same
-    // `sequence`, one losing to `UNIQUE(session_id, sequence)`.
+    // Offered at once, the appends share batches; each still takes the next sequence, where two
+    // deriving the same one would lose to `UNIQUE(session_id, sequence)`.
     await Promise.all(
       Array.from({ length: 16 }, (_unused, index) =>
         service.append(makeEnvelope({ payload: { index } })),
@@ -254,15 +260,15 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("reuses an existing hold rather than deadlocking on it (owner-scoped reentry)", async () => {
-    // Producers read and decide under the lock, then append inside the same hold; a non-reentrant
-    // mutex would deadlock here.
+    // A producer holding the session appends inside the same hold; a non-reentrant mutex would
+    // deadlock here.
     const { service } = buildService();
 
-    const receipt = await withSessionAppendLock(SESSION, async () => {
+    const receipt = await sessionAppendLock.run(SESSION, async () => {
       return service.append(makeEnvelope());
     });
 
-    expect(receipt.sequence).toBe(0);
+    expect(receipt).toMatchObject({ sequence: 0 });
   });
 
   it("does not let one session's hold block another session's append", async () => {
@@ -271,7 +277,7 @@ describe("EventLogService — the append lock", () => {
     const parked = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const holding = withSessionAppendLock(SESSION, async () => {
+    const holding = sessionAppendLock.run(SESSION, async () => {
       await parked;
     });
     await drainMicrotasks();
@@ -294,12 +300,12 @@ describe("EventLogService — the append lock", () => {
       releaseFirst = resolve;
     });
 
-    const first = withSessionAppendLock(SESSION, async () => {
+    const first = sessionAppendLock.run(SESSION, async () => {
       order.push("first-enter");
       await firstParked;
       order.push("first-exit");
     });
-    const second = withSessionAppendLock(SESSION, () => {
+    const second = sessionAppendLock.run(SESSION, () => {
       order.push("second-enter");
       return Promise.resolve();
     });
@@ -323,13 +329,16 @@ describe("EventLogService — the append lock", () => {
       failCriticalSection = reject;
     });
 
-    const rejecting = withSessionAppendLock(SESSION, () => criticalOutcome);
+    const rejecting = sessionAppendLock.run(SESSION, () => criticalOutcome);
     const queuedBehind = service.append(makeEnvelope());
     expect(await settlesWithin(queuedBehind, 2)).toBe(false);
 
     failCriticalSection(new Error("producer aborted"));
     await expect(rejecting).rejects.toThrow(/producer aborted/);
 
+    // Once past the lock the append is with the writer, and the flush commits it.
+    await drainMicrotasks();
+    await scratch.writer.flush();
     expect(await settlesWithin(queuedBehind, 4)).toBe(true);
     await expect(queuedBehind).resolves.toMatchObject({ sequence: 0 });
   });
@@ -342,13 +351,16 @@ describe("EventLogService — the append lock", () => {
     let innerRejectionCaught = false;
     let nestedCallProgressed = false;
 
-    const receipt = await withSessionAppendLock(SESSION, async () => {
+    const receipt = await sessionAppendLock.run(SESSION, async () => {
       try {
-        await withSessionAppendLock(SESSION, () => Promise.reject(new Error("inner leg failed")));
+        await sessionAppendLock.run(SESSION, () => Promise.reject(new Error("inner leg failed")));
       } catch {
         innerRejectionCaught = true;
       }
       const nested = service.append(makeEnvelope());
+      // A held append is with the writer at once, and the flush commits it.
+      await drainMicrotasks();
+      await scratch.writer.flush();
       nestedCallProgressed = await settlesWithin(nested, 4);
       // Abandon the nested call when it got no hold: awaiting it would hang the owner too and turn
       // a named failure into a suite-wide timeout.
@@ -357,29 +369,37 @@ describe("EventLogService — the append lock", () => {
 
     expect(innerRejectionCaught).toBe(true);
     expect(nestedCallProgressed).toBe(true);
-    expect(receipt?.sequence).toBe(0);
+    expect(receipt).toMatchObject({ sequence: 0 });
 
     // Released exactly once, on the owner's settle: a fresh acquisition now proceeds.
-    const afterOwnerSettled = withSessionAppendLock(SESSION, () => Promise.resolve("free"));
+    const afterOwnerSettled = sessionAppendLock.run(SESSION, () => Promise.resolve("free"));
     expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
 
-  it("rolls the transaction back when the prelude throws, consuming no sequence", async () => {
+  it("rolls the write back when a prelude statement is refused, consuming no sequence", async () => {
     const { service } = buildService();
-    database.exec("CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)");
+    await scratch.writer.write([
+      { sql: "CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)" },
+    ]);
     await service.append(makeEnvelope());
 
     await expect(
       service.append(makeEnvelope(), {
-        transactionalPrelude: () => {
-          database.prepare("INSERT INTO prelude_probe VALUES (?, ?)").run("doomed", 1);
-          throw new Error("producer detected divergent decision-time state");
-        },
+        transactionalPrelude: [
+          { sql: "INSERT INTO prelude_probe VALUES (?, ?)", bindings: ["doomed", 1] },
+          // The producer's decision-time state moved: its guard matches no row.
+          {
+            sql: "UPDATE prelude_probe SET seen_events = 2 WHERE seen_events = 0",
+            expectedRowCount: 1,
+          },
+        ],
       }),
-    ).rejects.toThrow(/divergent/);
+    ).rejects.toMatchObject({ statementIndex: 1, rowCount: 0 });
 
     // Neither half landed, and the next append re-derives its sequence from the durable head row.
-    expect(database.prepare("SELECT COUNT(*) AS c FROM prelude_probe").get()).toEqual({ c: 0 });
+    expect(scratch.reader.prepare("SELECT COUNT(*) AS c FROM prelude_probe").get()).toEqual({
+      c: 0,
+    });
     expect(readRawRows(SESSION)).toHaveLength(1);
     await expect(service.append(makeEnvelope())).resolves.toMatchObject({ sequence: 1 });
   });
@@ -492,7 +512,7 @@ describe("EventLogService — terminal-key backstop", () => {
     );
 
     expect(() =>
-      database
+      tamper
         .prepare("UPDATE session_events SET category = ?, type = ? WHERE id = ?")
         .run("run_lifecycle", "run.completed", receipt.id),
     ).toThrow(/cannot be promoted to terminal/);
@@ -506,12 +526,12 @@ describe("EventLogService — terminal-key backstop", () => {
     // the index stays satisfied while the record attributes the terminal event to another run.
     // Both halves of the pair are pinned because the guard compares them independently.
     expect(() =>
-      database
+      tamper
         .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
         .run(JSON.stringify({ runId: "run-2", runVersion: 1 }), receipt.id),
     ).toThrow(/must preserve runId/);
     expect(() =>
-      database
+      tamper
         .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
         .run(JSON.stringify({ runId: "run-1", runVersion: 2 }), receipt.id),
     ).toThrow(/must preserve runId/);
@@ -519,12 +539,12 @@ describe("EventLogService — terminal-key backstop", () => {
     // Moving a row out of the partial index's predicate frees its key for reuse. `category` and
     // `type` are independent disjuncts in the guard, so each needs its own case.
     expect(() =>
-      database
+      tamper
         .prepare("UPDATE session_events SET category = ? WHERE id = ?")
         .run("session_lifecycle", receipt.id),
     ).toThrow(/must preserve runId/);
     expect(() =>
-      database
+      tamper
         .prepare("UPDATE session_events SET type = ? WHERE id = ?")
         .run("run.running", receipt.id),
     ).toThrow(/must preserve runId/);
@@ -535,7 +555,7 @@ describe("EventLogService — terminal-key backstop", () => {
     for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { note: "rewritten" }]) {
       expect(
         () =>
-          database
+          tamper
             .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
             .run(JSON.stringify(droppedPayload), receipt.id),
         `payload ${JSON.stringify(droppedPayload)} must be refused`,

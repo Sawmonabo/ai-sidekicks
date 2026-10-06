@@ -2,13 +2,14 @@
 // poll it. A handle that cannot be stored exactly as issued leaves the column NULL (the call
 // stays halted after a restart, never run again), and no failure here ever fails a turn.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch.js";
 
 import {
   DRIVER_DIAGNOSTIC_COUNTER_NAMES,
@@ -22,7 +23,6 @@ import {
   MCP_TASK_ID_MAX_LENGTH,
   McpTaskHandleRecorder,
 } from "../task-handle-recorder.js";
-import { applyMigrations, applyPragmas } from "../../../session/migration-runner.js";
 
 // Built rather than typed: a raw U+0000 in source is invisible in editors and diffs.
 const NUL_CODE_UNIT = String.fromCharCode(0);
@@ -30,19 +30,20 @@ const NUL_CODE_UNIT = String.fromCharCode(0);
 const COMMAND_ID = "command-7";
 
 describe("McpTaskHandleRecorder", () => {
+  let scratch: ScratchDatabase;
+  // The test's own connection, for seeding and for writing past the recorder.
   let db: DatabaseType;
   let loggedRecords: DriverDiagnosticRecord[];
   let counterSink: InMemoryDriverDiagnosticCounterSink;
   let recorder: McpTaskHandleRecorder;
 
-  beforeEach(() => {
-    db = new Database(":memory:");
-    applyPragmas(db);
-    applyMigrations(db);
+  beforeEach(async () => {
+    scratch = await openScratchDatabase();
+    db = new Database(scratch.databasePath);
     insertReceipt(COMMAND_ID);
     loggedRecords = [];
     counterSink = new InMemoryDriverDiagnosticCounterSink();
-    recorder = new McpTaskHandleRecorder(db, {
+    recorder = new McpTaskHandleRecorder(scratch.writer, {
       provider: "codex",
       diagnostics: new DriverDiagnosticsEmitter({
         logSink: { record: (record) => loggedRecords.push(record) },
@@ -51,8 +52,9 @@ describe("McpTaskHandleRecorder", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     db.close();
+    await scratch.close();
   });
 
   // Names only the columns the schema requires; `mcp_task_id` starts NULL.
@@ -79,10 +81,10 @@ describe("McpTaskHandleRecorder", () => {
   }
 
   describe("the active state", () => {
-    it("leaves NULL when the acceptance never arrived — the crash case", () => {
+    it("leaves NULL when the acceptance never arrived — the crash case", async () => {
       // A crash before the acceptance is stored leaves no `CreateTaskResult` to parse, so nothing
       // reaches the recorder and the call stays halted, never run again.
-      observeMcpTaskAcceptance(
+      await observeMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
         undefined,
@@ -92,8 +94,8 @@ describe("McpTaskHandleRecorder", () => {
       expect(loggedRecords).toEqual([]);
     });
 
-    it("carries a handle from the observation seam through to the column", () => {
-      observeMcpTaskAcceptance(
+    it("carries a handle from the observation seam through to the column", async () => {
+      await observeMcpTaskAcceptance(
         recorder.asSink(),
         { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
         { task: { taskId: "task-observed" } },
@@ -104,10 +106,10 @@ describe("McpTaskHandleRecorder", () => {
   });
 
   describe("re-observation and conflict", () => {
-    it("refuses a DIFFERENT handle and keeps the first, never overwriting", () => {
-      recorder.record(observation("task-first"));
+    it("refuses a DIFFERENT handle and keeps the first, never overwriting", async () => {
+      await recorder.record(observation("task-first"));
 
-      expect(recorder.record(observation("task-second"))).toEqual({
+      expect(await recorder.record(observation("task-second"))).toEqual({
         status: "refused",
         reason: "handle_conflict",
       });
@@ -121,9 +123,9 @@ describe("McpTaskHandleRecorder", () => {
   });
 
   describe("the bound, mirrored from the column", () => {
-    it("never carries the refused handle into the diagnostic, only a bounded measurement", () => {
+    it("never carries the refused handle into the diagnostic, only a bounded measurement", async () => {
       const overlongHandle = "a".repeat(MCP_TASK_ID_MAX_LENGTH + 44);
-      recorder.record(observation(overlongHandle));
+      await recorder.record(observation(overlongHandle));
 
       const details = loggedRecords[0]?.details ?? {};
       // The scan stops at the cap, so the diagnostic reports MCP_TASK_ID_MAX_LENGTH + 1 ("at
@@ -164,8 +166,8 @@ describe("McpTaskHandleRecorder", () => {
       ["a lone HIGH surrogate", LONE_HIGH_SURROGATE],
       ["a lone LOW surrogate", LONE_LOW_SURROGATE],
       ["a trailing unpaired high surrogate", "task-9\uD83D"],
-    ])("refuses %s and leaves the column NULL", (_label, handle) => {
-      expect(recorder.record(observation(handle))).toEqual({
+    ])("refuses %s and leaves the column NULL", async (_label, handle) => {
+      expect(await recorder.record(observation(handle))).toEqual({
         status: "refused",
         reason: "handle_not_well_formed",
       });
@@ -194,62 +196,50 @@ describe("storage-failure containment", () => {
   // The handle was storable but the database failed: nothing propagates and the failure is
   // diagnosed, because the caller sees the same `void` either way.
 
-  let temporaryDirectory: string;
+  let scratch: ScratchDatabase;
   let loggedRecords: DriverDiagnosticRecord[];
   let counterSink: InMemoryDriverDiagnosticCounterSink;
 
-  beforeEach(() => {
-    temporaryDirectory = mkdtempSync(join(tmpdir(), "mcp-task-handle-"));
+  beforeEach(async () => {
+    scratch = await openScratchDatabase();
     loggedRecords = [];
     counterSink = new InMemoryDriverDiagnosticCounterSink();
   });
 
-  afterEach(() => {
-    rmSync(temporaryDirectory, { recursive: true, force: true });
+  afterEach(async () => {
+    await scratch.close();
   });
-
-  function buildRecorder(database: DatabaseType): McpTaskHandleRecorder {
-    return new McpTaskHandleRecorder(database, {
-      provider: "claude",
-      diagnostics: new DriverDiagnosticsEmitter({
-        logSink: { record: (record) => loggedRecords.push(record) },
-        counterSink,
-      }),
-    });
-  }
-
-  function migratedFileDatabase(): string {
-    const databasePath = join(temporaryDirectory, "daemon.sqlite");
-    const writable = new Database(databasePath);
-    applyPragmas(writable);
-    applyMigrations(writable);
-    writable
-      .prepare(
-        `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run("receipt-ro", COMMAND_ID, "run-1", "accepted", "2026-08-31T00:00:00.000Z");
-    writable.close();
-    return databasePath;
-  }
 
   function failureCount(): number {
     return counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.mcp_task_handle_write_failed);
   }
 
-  it("does not throw through asSink() when the database is READ-ONLY, and diagnoses it", () => {
-    const readOnlyDatabase = new Database(migratedFileDatabase(), { readonly: true });
-    // `prepare` succeeds on a read-only handle, so the failure lands at the write, inside a turn.
-    const sink = buildRecorder(readOnlyDatabase).asSink();
+  it("does not reject through asSink() when the database is READ-ONLY, and diagnoses it", async () => {
+    await scratch.writer.write([
+      {
+        sql: `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
+              VALUES (?, ?, ?, ?, ?)`,
+        bindings: ["receipt-ro", COMMAND_ID, "run-1", "accepted", "2026-08-31T00:00:00.000Z"],
+      },
+      // From here the writer's connection refuses every write, so the failure lands at the claim.
+      { sql: "PRAGMA query_only = ON" },
+    ]);
+    const sink = new McpTaskHandleRecorder(scratch.writer, {
+      provider: "claude",
+      diagnostics: new DriverDiagnosticsEmitter({
+        logSink: { record: (record) => loggedRecords.push(record) },
+        counterSink,
+      }),
+    }).asSink();
 
-    expect(() => {
+    await expect(
       sink({
         commandId: COMMAND_ID,
         serverName: "filesystem",
         toolName: "read_file",
         mcpTaskId: "task-42",
-      });
-    }).not.toThrow();
+      }),
+    ).resolves.toBeUndefined();
 
     expect(loggedRecords).toHaveLength(1);
     expect(loggedRecords[0]?.kind).toBe("mcp_task_handle_write_failed");
@@ -258,15 +248,11 @@ describe("storage-failure containment", () => {
     expect(loggedRecords[0]?.dispositionReason).toMatch(/^SQLITE_READONLY/);
     expect(failureCount()).toBe(1);
 
-    readOnlyDatabase.close();
-
     // The receipt stayed NULL, so recovery is not pointed at a handle that was never stored.
-    const verifier = new Database(join(temporaryDirectory, "daemon.sqlite"), { readonly: true });
     expect(
-      verifier
+      scratch.reader
         .prepare("SELECT mcp_task_id FROM command_receipts WHERE command_id = ?")
         .get(COMMAND_ID),
     ).toEqual({ mcp_task_id: null });
-    verifier.close();
   });
 });
