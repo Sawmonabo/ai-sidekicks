@@ -4,11 +4,11 @@
 import "./TryAgainButton.css";
 
 /** The words a try-again reads, as the line it ends names it. */
-export type TryAgainWord = "Try again" | "Retry" | "Check again";
+export type TryAgainWord = "Try again" | "Retry" | "Check again" | "Sign in again";
 
 /** Props for `TryAgainButton`. */
 export interface TryAgainButtonProps {
-  /** `Try again` unless the line's own words say `Retry` or `Check again`. */
+  /** `Try again` unless the line's own words name another. */
   readonly word?: TryAgainWord;
   readonly onPress: () => void;
 }

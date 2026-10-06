@@ -259,7 +259,7 @@ describe("the workflows screen — the runs table's filters", () => {
       expect(screen.getByRole("columnheader", { name: "Started by" })).toBeTruthy();
       expect(
         document.querySelector(".meridian-workflows-runs .meridian-refusal")?.textContent,
-      ).toContain("What was saved here could not be read");
+      ).toContain("Could not read what you last set here, so this view starts from its defaults.");
     });
 
     await act(async () => {

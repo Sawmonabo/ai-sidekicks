@@ -24,11 +24,8 @@ afterEach(cleanup);
 
 const LINK_FAILED: DaemonSubscriptionEnd = { reason: "failed", message: "the link went away" };
 
-/** What the strip reads while the stream is down and a re-open threw. */
-const REOPEN_REFUSED_DETAIL = "Live updates stopped and could not start again; still trying.";
-
-/** What the strip reads while the stream's first open threw. */
-const FIRST_OPEN_REFUSED_DETAIL = "Live updates could not start; still trying.";
+/** What the strip reads while a first open or a re-open of the stream threw. */
+const LIVE_UPDATES_PAUSED = "Live updates paused · Reconnecting…";
 
 /** The waiting run as the daemon holds it once it finished in the gap. */
 function finished(run: WorkflowRunSummary): WorkflowRunSummary {
@@ -121,7 +118,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
       workflowStreamEnds[0]?.(LINK_FAILED);
       await crossMacrotaskBoundary();
     });
-    expect(screen.getByText(REOPEN_REFUSED_DETAIL)).not.toBeNull();
+    expect(screen.getByText(LIVE_UPDATES_PAUSED)).not.toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByText("live through one subscription")).toBeNull();
 
@@ -131,7 +128,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
         screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
       ).not.toBe("true");
     });
-    expect(screen.queryByText(REOPEN_REFUSED_DETAIL)).toBeNull();
+    expect(screen.queryByText(LIVE_UPDATES_PAUSED)).toBeNull();
     expect(screen.getByText("live through one subscription")).not.toBeNull();
     mounted.unmount();
   });
@@ -148,7 +145,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
       },
     });
     await act(crossMacrotaskBoundary);
-    expect(screen.getByText(FIRST_OPEN_REFUSED_DETAIL)).not.toBeNull();
+    expect(screen.getByText(LIVE_UPDATES_PAUSED)).not.toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
 
     isRefusing = false;
@@ -157,7 +154,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
         screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
       ).not.toBe("true");
     });
-    expect(screen.queryByText(FIRST_OPEN_REFUSED_DETAIL)).toBeNull();
+    expect(screen.queryByText(LIVE_UPDATES_PAUSED)).toBeNull();
     mounted.unmount();
   });
 });

@@ -46,7 +46,7 @@ export function ServerRow(props: {
         ) : (
           <>
             <span className="meridian-settings-page__aside">
-              {binding.scope === "plugin" ? "plugin ·" : "Declared at"}
+              {binding.scope === "plugin" ? "Declared by plugin" : "Declared at"}
             </span>
             <WireFigure value={binding.scopeRef} />
           </>

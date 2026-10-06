@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDuration } from "#renderer/lib/wire/figures.js";
 import { useOpenSignInPage } from "../hooks/useOpenSignInPage.js";
@@ -11,7 +12,8 @@ import type { ProviderSignInFlowState } from "../provider-sign-in-flow.js";
 
 /**
  * What a person needs to finish the provider's own sign-in: the code, the line under it saying how
- * long it has left, `Open the sign-in page` with the address beside it in a read-only field, and
+ * long it has left, or once it has expired `Sign in again`, which starts the same account's
+ * sign-in afresh, `Open the sign-in page` with the address beside it in a read-only field, and
  * `Cancel`; or, where it did not finish,
  * that line with the provider's own reason, the row's `Sign in` still there to start again.
  *
@@ -21,8 +23,9 @@ import type { ProviderSignInFlowState } from "../provider-sign-in-flow.js";
 export function ProviderSignInCard(props: {
   readonly flow: ProviderSignInFlowState;
   readonly onCancel: () => void;
+  readonly onSignInAgain: () => void;
 }): ReactNode {
-  const { flow, onCancel } = props;
+  const { flow, onCancel, onSignInAgain } = props;
   if (flow.kind === "idle" || flow.kind === "starting") {
     return null;
   }
@@ -46,6 +49,7 @@ export function ProviderSignInCard(props: {
       attempt={flow.attempt}
       isCanceling={flow.kind === "canceling"}
       onCancel={onCancel}
+      onSignInAgain={onSignInAgain}
     />
   );
 }
@@ -55,8 +59,9 @@ function SignInInProgress(props: {
   readonly attempt: ProviderAccountLoginResponse;
   readonly isCanceling: boolean;
   readonly onCancel: () => void;
+  readonly onSignInAgain: () => void;
 }): ReactNode {
-  const { attempt, isCanceling, onCancel } = props;
+  const { attempt, isCanceling, onCancel, onSignInAgain } = props;
   const timeLeftMilliseconds = useSignInTimeLeft(attempt.expiresAt);
   const { refusal, openSignInPage } = useOpenSignInPage();
   return (
@@ -73,7 +78,9 @@ function SignInInProgress(props: {
               This code expires in <DerivedFigure text={formatDuration(timeLeftMilliseconds)} />.
             </>
           ) : (
-            "This code has expired."
+            <>
+              Code expired · <TryAgainButton word="Sign in again" onPress={onSignInAgain} />
+            </>
           )}
         </p>
       )}

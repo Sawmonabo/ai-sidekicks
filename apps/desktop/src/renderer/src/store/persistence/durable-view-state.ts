@@ -218,7 +218,7 @@ export class DurableViewState<TValue extends PersistedValue> {
 /** What a view says when its saved record could not be read. */
 const UNREADABLE_RECORD_REFUSAL = refusePersistence(
   "adapter-unavailable",
-  "What was saved here could not be read, so this view starts from its defaults.",
+  "Could not read what you last set here, so this view starts from its defaults.",
 );
 
 /**

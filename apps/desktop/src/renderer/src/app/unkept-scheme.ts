@@ -15,6 +15,5 @@ export function discloseUnkeptScheme(asked: Promise<void>, frameStore: WindowSto
 const UNKEPT_SCHEME = refuse(
   "appearance",
   "scheme-not-kept",
-  "The color scheme was not changed, because it could not be saved. The window keeps the " +
-    "scheme it had.",
+  "Could not save the color scheme, so it did not change.",
 );

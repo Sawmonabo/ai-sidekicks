@@ -189,29 +189,22 @@ export class ProviderSignInFlowTracker {
    * end the flow and free the key.
    */
   public cancel(): void {
+    this.#cancelThen(() => undefined);
+  }
+
+  /**
+   * End the live flow and start the same account's sign-in again, as an expired code asks. The
+   * new start waits for the daemon to end the old flow, since it holds one at a time; a refused
+   * cancel leaves the old flow running and starts nothing.
+   */
+  public signInAgain(): void {
     const { flow } = this.#snapshot;
-    if (this.#isDisposed || flow.kind !== "live") {
-      return;
+    if (flow.kind === "live") {
+      const { accountId } = flow;
+      this.#cancelThen(() => {
+        this.start(accountId);
+      });
     }
-    const { accountId, attempt } = flow;
-    const round = this.#flows.currentClaim(this, PROVIDER_SIGN_IN_FLOW_KEY);
-    this.#publish({ flow: { kind: "canceling", accountId, attempt } });
-    this.#cancelProviderSignIn(attempt).then(
-      () => {
-        round.settle(() => {
-          this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
-          this.#settleEndedFlow(IDLE_PROVIDER_SIGN_IN_FLOW);
-        });
-      },
-      (error: unknown) => {
-        round.settle(() => {
-          this.#publish({
-            flow: { kind: "live", accountId, attempt },
-            refusalByAccountId: this.#refusalsWith(accountId, refusalOfCall(error)),
-          });
-        });
-      },
-    );
   }
 
   /**
@@ -238,6 +231,37 @@ export class ProviderSignInFlowTracker {
   public dispose(): void {
     this.#isDisposed = true;
     this.#flows.supersedeAll();
+  }
+
+  /**
+   * Cancel the live flow, then run `afterEnded` once the daemon says it holds none of this
+   * window's. Nothing runs while no flow is live.
+   */
+  #cancelThen(afterEnded: () => void): void {
+    const { flow } = this.#snapshot;
+    if (this.#isDisposed || flow.kind !== "live") {
+      return;
+    }
+    const { accountId, attempt } = flow;
+    const round = this.#flows.currentClaim(this, PROVIDER_SIGN_IN_FLOW_KEY);
+    this.#publish({ flow: { kind: "canceling", accountId, attempt } });
+    this.#cancelProviderSignIn(attempt).then(
+      () => {
+        round.settle(() => {
+          this.#flows.supersede(this, PROVIDER_SIGN_IN_FLOW_KEY);
+          this.#settleEndedFlow(IDLE_PROVIDER_SIGN_IN_FLOW);
+          afterEnded();
+        });
+      },
+      (error: unknown) => {
+        round.settle(() => {
+          this.#publish({
+            flow: { kind: "live", accountId, attempt },
+            refusalByAccountId: this.#refusalsWith(accountId, refusalOfCall(error)),
+          });
+        });
+      },
+    );
   }
 
   /**

@@ -68,6 +68,34 @@ describe("AccountsFixtureBody", () => {
       expect(control.disabled).toBe(false);
     }
   });
+
+  // An expired code is a dead end unless the card offers the way back: ending the old flow and
+  // starting the same account's sign-in again, in that order, since the daemon holds one flow.
+  it("says an expired code expired and signs the same account in again on Sign in again", async () => {
+    const operations = accountPlaneCalls({
+      login: { ...PROVIDER_SIGN_IN_ATTEMPT, expiresAt: "2000-01-01T00:00:00.000Z" },
+      cancel: { status: "canceled" },
+    });
+    const { container } = mountAccountsPage({ registry: ACCOUNT_REGISTRY, operations });
+    await act(async () => {
+      pressFirstStartControl(container);
+      await crossMacrotaskBoundary();
+    });
+    expect(container.textContent).toContain("Code expired · Sign in again");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Sign in again" }));
+      await crossMacrotaskBoundary();
+    });
+
+    expect(operations.cancelLogin).toHaveBeenCalledWith({
+      attemptId: PROVIDER_SIGN_IN_ATTEMPT.attemptId,
+    });
+    // The first `Sign in` is the Claude default's; both starts are for that one account.
+    const [firstStart, secondStart] = operations.login.mock.calls.map(([request]) => request);
+    expect(operations.login).toHaveBeenCalledTimes(2);
+    expect(secondStart).toStrictEqual(firstStart);
+  });
 });
 
 /** The registry with its Claude default read as a token account whose login expired. */

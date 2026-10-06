@@ -101,9 +101,7 @@ describe("a stream kept open", () => {
 
     stream.deliverAndEnd();
     expect(refusals).toStrictEqual([
-      expect.objectContaining({
-        detail: "Live updates stopped and could not start again; still trying.",
-      }),
+      expect.objectContaining({ detail: "Live updates paused · Reconnecting…" }),
     ]);
     // Tried again at the next wait, and refused again.
     clock.advance(REOPEN_WAITS_MS[1]!);
@@ -134,7 +132,7 @@ describe("a stream kept open", () => {
       clock,
     });
     expect(refusals).toStrictEqual([
-      expect.objectContaining({ detail: "Live updates could not start; still trying." }),
+      expect.objectContaining({ detail: "Live updates paused · Reconnecting…" }),
     ]);
 
     clock.advance(REOPEN_WAITS_MS[1]!);

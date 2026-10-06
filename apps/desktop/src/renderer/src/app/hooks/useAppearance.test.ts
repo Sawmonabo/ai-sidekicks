@@ -112,7 +112,12 @@ describe("the app's appearance", () => {
     });
 
     await vi.waitFor(() => {
-      expect(frameStore.getState().banners).toMatchObject([{ code: "scheme-not-kept" }]);
+      expect(frameStore.getState().banners).toMatchObject([
+        {
+          code: "scheme-not-kept",
+          detail: "Could not save the color scheme, so it did not change.",
+        },
+      ]);
     });
     expect(first.getAttribute(SCHEME_ATTRIBUTE)).toBe("dark");
   });

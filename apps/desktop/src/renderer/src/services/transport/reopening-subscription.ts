@@ -64,6 +64,9 @@ export function openReopeningSubscription<Payload = unknown>(
   };
 }
 
+/** What an open that throws says, first open or re-open alike, while it is tried again. */
+const LIVE_UPDATES_PAUSED = "Live updates paused · Reconnecting…";
+
 /** The subsystem a failed re-open's refusal names. */
 const REOPEN_REFUSAL_ORIGIN = "subscription-reopen";
 
@@ -77,8 +80,6 @@ class ReopeningSubscription<Payload> {
   #stopWaitingForEdge: Unsubscribe | undefined;
   #isReleased = false;
   #isRefused = false;
-  /** Whether an open has worked yet, which decides whether a refused one stopped live updates. */
-  #hasOpened = false;
 
   public constructor(options: ReopeningSubscriptionOptions<Payload>) {
     this.#options = options;
@@ -140,7 +141,6 @@ class ReopeningSubscription<Payload> {
         },
       ),
     );
-    this.#hasOpened = true;
     if (!hasEnded) {
       this.#release = handle;
     }
@@ -172,9 +172,7 @@ class ReopeningSubscription<Payload> {
     this.#refuse(
       normalizeWireRejection(REOPEN_REFUSAL_ORIGIN, openFailure, {
         code: "subscription-reopen-failed",
-        detail: this.#hasOpened
-          ? "Live updates stopped and could not start again; still trying."
-          : "Live updates could not start; still trying.",
+        detail: LIVE_UPDATES_PAUSED,
       }),
     );
     // Never at once: an open that just threw is tried again after a wait.

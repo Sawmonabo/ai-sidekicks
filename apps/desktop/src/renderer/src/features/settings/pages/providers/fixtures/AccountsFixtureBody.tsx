@@ -182,6 +182,9 @@ export function AccountsFixtureBody(props: {
           onCancel={() => {
             providerSignInFlowTracker.cancel();
           }}
+          onSignInAgain={() => {
+            providerSignInFlowTracker.signInAgain();
+          }}
         />
       </section>
 
@@ -240,7 +243,7 @@ export function AccountsFixtureBody(props: {
 
           <section className="meridian-settings-page__block">
             <h3 className="meridian-settings-page__block-title">
-              Quota — {BILLING_MODE_WORDS[selected.billingMode]}
+              Usage — {BILLING_MODE_WORDS[selected.billingMode]}
             </h3>
             <QuotaTable rows={accountQuotaRowsFrom(registry, selected)} />
           </section>
