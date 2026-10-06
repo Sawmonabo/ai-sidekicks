@@ -63,7 +63,7 @@ This file is the **design surface** for cross-cutting payload contracts — bran
 Package-local typed surfaces are **canonical in code**, not in this file. Examples (non-exhaustive):
 
 - `MethodRegistry` interface — `packages/contracts/src/jsonrpc/registry.ts`
-- `LocalSubscriptionProducer<T>` streaming primitive — `packages/contracts/src/jsonrpc/streaming.ts` (the client-side consumer shape is `LocalSubscriptionConsumer<T>` at `packages/client-sdk/src/transport/json-rpc.ts`)
+- `LocalSubscriptionProducer<T>` streaming primitive — `packages/contracts/src/jsonrpc/streaming.ts` (the client-side consumer shape is `LocalSubscriptionConsumer<T>` at `packages/client-sdk/src/transport/subscription-consumer.ts`)
 - `SecureDefaults` config + effective-settings — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`
 - LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `packages/contracts/src/jsonrpc/streaming.ts`
 - `SessionEvent` discriminated-union schema — `packages/contracts/src/event/session.ts`

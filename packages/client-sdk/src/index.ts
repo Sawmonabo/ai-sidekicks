@@ -20,9 +20,11 @@ export {
   JsonRpcTransportClosedError,
   type ClientTransport,
   type JsonRpcClientOptions,
+} from "./transport/json-rpc.js";
+export {
   type LocalSubscriptionConsumer,
   type SubscribeAcknowledgment,
-} from "./transport/json-rpc.js";
+} from "./transport/subscription-consumer.js";
 export {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
