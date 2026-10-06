@@ -138,6 +138,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       },
       // A fixture runs no main to ask for a window; the harness opens every one itself.
       subscribeToReopenRequest: (): Unsubscribe => () => undefined,
+      // A fixture runs no main and no View menu, so no pick goes unkept.
+      subscribeToUnkeptScheme: (): Unsubscribe => () => undefined,
     },
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),

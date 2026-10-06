@@ -2,13 +2,14 @@
 // accelerators. The View menu carries the color-scheme choice with the one in force ticked, so the
 // template is rebuilt whenever the kept scheme changes, and again when a pick is not kept: Electron
 // ticks a radio row as it is clicked, and the tick goes back to the scheme in force while main's
-// diagnostic log says why.
+// diagnostic log says why and the window used last says so on its banner.
 
 import { Menu, type MenuItemConstructorOptions } from "electron";
 
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appearance.js";
 
 import type { KeptAppearance } from "./appearance/kept-record.js";
+import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
 import { describeFailure } from "./services/failure-message.js";
 
@@ -24,11 +25,13 @@ const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly lab
 /**
  * Builds and installs the application menu, and rebuilds it when the kept scheme changes. Call
  * once, inside `app.whenReady()`, after the renderer protocol is installed, so no accelerator can
- * fire against an uninstalled scheme. A pick that is not kept is written to `log`.
+ * fire against an uninstalled scheme. A pick that is not kept is written to `log` and announced
+ * through `openWindows` to the console document.
  */
 export function installApplicationMenu(
   appearance: Pick<KeptAppearance, "scheme" | "chooseScheme" | "subscribe">,
   log: Pick<MainDiagnosticLog, "write">,
+  openWindows: Pick<OpenWindows, "announceUnkeptScheme">,
 ): void {
   let tickedScheme = appearance.scheme;
   const install = (): void => {
@@ -44,6 +47,7 @@ export function installApplicationMenu(
           `the View menu's ${scheme} color scheme was not kept, so ${appearance.scheme} stays: ` +
           describeFailure(failure),
       });
+      openWindows.announceUnkeptScheme();
       install();
     });
   };

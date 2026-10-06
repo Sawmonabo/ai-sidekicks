@@ -7,6 +7,7 @@ import {
   APPEARANCE_VALUE_CHANNEL,
   BRIDGE_CHANNELS,
   REOPEN_WINDOW_CHANNEL,
+  UNKEPT_SCHEME_CHANNEL,
 } from "#shared/bridge-channels.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
@@ -27,6 +28,10 @@ export function createWindowBridge(
   const reopenRequests = new MainPushes<string>();
   ipc.on(REOPEN_WINDOW_CHANNEL, (_event, windowId) => {
     reopenRequests.deliver(windowId as string);
+  });
+  const unkeptSchemes = new MainPushes<undefined>();
+  ipc.on(UNKEPT_SCHEME_CHANNEL, () => {
+    unkeptSchemes.deliver(undefined);
   });
   return {
     lastUsedWindowId,
@@ -51,5 +56,6 @@ export function createWindowBridge(
       await ipc.invoke(BRIDGE_CHANNELS.endSafeStart);
     },
     subscribeToReopenRequest: (handler) => reopenRequests.subscribe(handler),
+    subscribeToUnkeptScheme: (handler) => unkeptSchemes.subscribe(handler),
   };
 }

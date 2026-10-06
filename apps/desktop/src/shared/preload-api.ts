@@ -484,6 +484,11 @@ export interface PreloadApi {
      * or a second launch.
      */
     subscribeToReopenRequest(handler: (windowId: string) => void): Unsubscribe;
+    /**
+     * Main's word that a color scheme picked from the View menu could not be saved, so the scheme
+     * in force stays.
+     */
+    subscribeToUnkeptScheme(handler: () => void): Unsubscribe;
   };
 
   readonly app: AppFacts;
@@ -552,6 +557,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
       endSafeStart: () => stubThrow("window.endSafeStart"),
       subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
+      subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
     },
     app,
   };

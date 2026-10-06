@@ -2,8 +2,8 @@
 // its structured cloning) to main's answers: a chosen appearance is kept and comes back as the
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
 // naming one window acts on that window alone, and brings it forward through main's reveal path;
-// the end of a safe start reaches main's registry;
-// main's ask to reopen a window reaches the page; and every member answers the console document
+// the end of a safe start reaches main's registry; main's ask to reopen a window and its word
+// that a menu scheme was not kept reach the page; and every member answers the console document
 // alone.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -13,7 +13,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
-import { BRIDGE_CHANNELS, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
+import {
+  BRIDGE_CHANNELS,
+  REOPEN_WINDOW_CHANNEL,
+  UNKEPT_SCHEME_CHANNEL,
+} from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 
 const electronMock = createElectronMock();
@@ -167,20 +171,28 @@ describe("the window members", () => {
     expect(revealCalls).toStrictEqual(["restore", "show", "focus"]);
   });
 
-  it("end a safe start, and hand the page main's ask to reopen a window", async () => {
+  it("end a safe start, and hand the page main's ask to reopen a window and its unkept scheme", async () => {
     const windowBridge = await connectWindowBridge();
     const reopened: string[] = [];
     const stopHearing = windowBridge.subscribeToReopenRequest((windowId) =>
       reopened.push(windowId),
     );
+    let unkeptSchemes = 0;
+    const stopHearingUnkept = windowBridge.subscribeToUnkeptScheme(() => {
+      unkeptSchemes += 1;
+    });
 
     await windowBridge.endSafeStart();
     pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, OPEN_WINDOW_ID);
+    pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
     stopHearing();
+    stopHearingUnkept();
     pushListeners.get(REOPEN_WINDOW_CHANNEL)?.({}, "window/w-9");
+    pushListeners.get(UNKEPT_SCHEME_CHANNEL)?.({}, undefined);
 
     expect(safeStartEnds).toBe(1);
     expect(reopened).toStrictEqual([OPEN_WINDOW_ID]);
+    expect(unkeptSchemes).toBe(1);
   });
 
   it("answer no document but the console's, on every member", async () => {

@@ -26,6 +26,7 @@ import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
 import { useWindowStores } from "./hooks/useWindowStores.js";
 import { AppWindow, type AppStores } from "./AppWindow.js";
+import { discloseUnkeptMenuSchemes } from "./unkept-scheme.js";
 
 /** What the bootstrap hands the app once the bridge has resolved. */
 export interface AppWindowsProps {
@@ -79,6 +80,11 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   // Each window's frame store, kept here so the app's commands act on the window used last.
   const { windowStores, windows } = useWindowStores(openWindows, bridge);
   const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
+  // A View-menu scheme main could not save is told on the window used last.
+  useEffect(
+    () => discloseUnkeptMenuSchemes(bridge.window, windowStoreUsedLast),
+    [bridge, windowStoreUsedLast],
+  );
   const documentUsedLast = useCallback(
     (): Document | undefined => openWindows.list()[0]?.window.document,
     [openWindows],

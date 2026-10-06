@@ -25,7 +25,11 @@ import type {
 } from "electron";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
-import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
+import {
+  APPEARANCE_VALUE_CHANNEL,
+  REOPEN_WINDOW_CHANNEL,
+  UNKEPT_SCHEME_CHANNEL,
+} from "#shared/bridge-channels.js";
 import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { WindowDefaultSizes } from "#shared/window/size.js";
@@ -212,6 +216,14 @@ export class OpenWindows {
    */
   public setDefaultSizes(sizes: WindowDefaultSizes): void {
     this.#defaultSizes = sizes;
+  }
+
+  /**
+   * Tells the console document that a color scheme picked from the View menu was not saved, so
+   * the window used last says so on its banner.
+   */
+  public announceUnkeptScheme(): void {
+    this.#sendToConsoleDocument(UNKEPT_SCHEME_CHANNEL, undefined);
   }
 
   /** Whether `webContents` is the console document, the one document that holds the bridge. */

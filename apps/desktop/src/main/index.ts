@@ -187,7 +187,7 @@ function startApplication(): void {
         },
         log,
       );
-      installApplicationMenu(appearance, log);
+      installApplicationMenu(appearance, log, openWindows);
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,

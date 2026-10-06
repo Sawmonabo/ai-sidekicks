@@ -1,7 +1,8 @@
 // The View menu's color scheme against main's appearance record: the tick follows the record, a
-// pick moves it once written, a pick that is not kept puts the tick back on the scheme in force and
-// is written to main's diagnostic log, and a change that keeps the scheme rebuilds nothing. `electron` is mocked; the kept appearance is real, over
-// a file whose writes the case settles.
+// pick moves it once written, a pick that is not kept puts the tick back on the scheme in force, is
+// written to main's diagnostic log and is announced to the console document, and a change that
+// keeps the scheme rebuilds nothing. `electron` is mocked; the kept appearance is real, over a file
+// whose writes the case settles.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,7 +45,7 @@ function clickScheme(label: string): void {
 }
 
 describe("the View menu's color scheme", () => {
-  it("moves its tick once a pick is written, and puts it back, logged, when one is not", async () => {
+  it("moves its tick once a pick is written, and puts it back, logged and announced, when one is not", async () => {
     const { KeptAppearance } = await import("./appearance/kept-record.js");
     const { installApplicationMenu } = await import("./menu.js");
     const writes: { land: () => void; fail: (failure: Error) => void }[] = [];
@@ -59,7 +60,12 @@ describe("the View menu's color scheme", () => {
       nativeTheme: electronMock.nativeTheme as never,
     });
     const logged: MainDiagnosticEntry[] = [];
-    installApplicationMenu(appearance, { write: (entry) => logged.push(entry) });
+    const announceUnkeptScheme = vi.fn();
+    installApplicationMenu(
+      appearance,
+      { write: (entry) => logged.push(entry) },
+      { announceUnkeptScheme },
+    );
     expect(tickedScheme()).toBe("System");
 
     clickScheme("Dark");
@@ -67,6 +73,7 @@ describe("the View menu's color scheme", () => {
     await vi.waitFor(() => {
       expect(tickedScheme()).toBe("Dark");
     });
+    expect(announceUnkeptScheme).not.toHaveBeenCalled();
 
     const installedBefore = electronMock.installedMenuTemplates.length;
     clickScheme("Light");
@@ -80,6 +87,7 @@ describe("the View menu's color scheme", () => {
     expect(logged).toMatchObject([
       { level: "error", source: "main/menu", message: expect.stringContaining("no space left") },
     ]);
+    expect(announceUnkeptScheme).toHaveBeenCalledOnce();
 
     const installedBeforeTextSize = electronMock.installedMenuTemplates.length;
     const textSizeKept = appearance.choose(

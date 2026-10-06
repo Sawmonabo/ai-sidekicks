@@ -61,6 +61,9 @@ export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
 /** The channel main asks the console document on to open a window again, carrying its id. */
 export const REOPEN_WINDOW_CHANNEL = "window.reopen";
 
+/** The channel main tells the console document on that a View-menu scheme pick was not saved. */
+export const UNKEPT_SCHEME_CHANNEL = "window.unkeptScheme";
+
 /** The channel main pushes each updater state on, to the console document. */
 export const UPDATE_STATE_CHANNEL = "update.state";
 
@@ -122,4 +125,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.endSafeStart": [BRIDGE_CHANNELS.endSafeStart],
   // Pushed by main alone, on `REOPEN_WINDOW_CHANNEL`: the page asks nothing.
   "window.subscribeToReopenRequest": [],
+  // Pushed by main alone, on `UNKEPT_SCHEME_CHANNEL`: the page asks nothing.
+  "window.subscribeToUnkeptScheme": [],
 };

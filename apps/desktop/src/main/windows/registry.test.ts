@@ -23,7 +23,11 @@ import {
   MERIDIAN_GROUNDS,
   type AppearanceRecord,
 } from "#shared/appearance.js";
-import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
+import {
+  APPEARANCE_VALUE_CHANNEL,
+  REOPEN_WINDOW_CHANNEL,
+  UNKEPT_SCHEME_CHANNEL,
+} from "#shared/bridge-channels.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
 import {
@@ -204,6 +208,15 @@ function loseTheRenderer(): void {
 }
 
 describe("the hidden window", () => {
+  it("is told when a View-menu scheme pick was not kept", async () => {
+    const openWindows = await createOpenWindows("darwin");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+
+    openWindows.announceUnkeptScheme();
+
+    expect(sentToConsoleDocument()).toEqual([{ channel: UNKEPT_SCHEME_CHANNEL, value: undefined }]);
+  });
+
   it("is built hidden at start, its document handed the window used last", async () => {
     const openWindows = await createOpenWindows("darwin");
 
