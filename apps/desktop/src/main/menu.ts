@@ -16,11 +16,8 @@ import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 
-/**
- * The app icon the About panel shows off macOS, where the bundle supplies none. A file path, not
- * an image: Linux's dialog reads it with the desktop's own image loader.
- */
-const ABOUT_ICON_PATH = path.join(import.meta.dirname, "../../resources/icon.png");
+/** The About panel's icon. Windows and Linux take it from a file on disk; macOS from the bundle. */
+const ABOUT_ICON_FILE = "icon.png";
 
 /** The View menu's scheme rows, in the order the Appearance page lists them. */
 const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly label: string }[] = [
@@ -41,10 +38,11 @@ export function installApplicationMenu(
   openWindows: Pick<OpenWindows, "announceUnkeptScheme">,
 ): void {
   const isMacOS = process.platform === "darwin";
+  // macOS shows `version` in parentheses; unset, a development build would show Electron's own.
   app.setAboutPanelOptions({
     applicationName: app.getName(),
     applicationVersion: app.getVersion(),
-    ...(isMacOS ? {} : { iconPath: ABOUT_ICON_PATH }),
+    ...(isMacOS ? { version: app.getVersion() } : { iconPath: aboutIconPath() }),
   });
   let tickedScheme = appearance.scheme;
   const install = (): void => {
@@ -73,6 +71,13 @@ export function installApplicationMenu(
       install();
     }
   });
+}
+
+// An installed app carries the icon beside its archive, since Linux's dialog cannot read inside it.
+function aboutIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, ABOUT_ICON_FILE)
+    : path.join(import.meta.dirname, "../../resources", ABOUT_ICON_FILE);
 }
 
 function applicationMenuTemplate(
@@ -122,7 +127,7 @@ function applicationMenuTemplate(
     { role: "windowMenu" },
   );
 
-  // Electron's About row reads a bare "About" on Linux, so the label names the app on both.
+  // On Windows and Linux the row names the app, since Electron's own reads a bare "About" on Linux.
   if (!isMacOS) {
     template.push({
       role: "help",

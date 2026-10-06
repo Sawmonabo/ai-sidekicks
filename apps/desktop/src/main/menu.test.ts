@@ -7,6 +7,7 @@
 // settles.
 
 import { existsSync } from "node:fs";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -109,15 +110,29 @@ describe("the View menu's color scheme", () => {
 });
 
 describe("About", () => {
+  /** An installed app's resources folder, on no machine, so only a path built from it matches. */
+  const installedResourcesFolder = "/sidekicks-installed-resources";
+
   afterEach(async () => {
     const { app } = await import("electron");
     vi.mocked(app.getName).mockReset();
     vi.mocked(app.getVersion).mockReset();
+    Reflect.deleteProperty(process, "resourcesPath");
   });
 
-  /** Installs the menu on `platform`, the app reporting a name and version no literal matches. */
-  async function installOn(platform: NodeJS.Platform) {
+  /**
+   * Installs the menu on `platform`, from a development checkout unless `isPackaged`, the app
+   * reporting a name and version no literal matches.
+   */
+  async function installOn(platform: NodeJS.Platform, isPackaged = false) {
     Object.defineProperty(process, "platform", { value: platform });
+    electronMock.setPackaged(isPackaged);
+    if (isPackaged) {
+      Object.defineProperty(process, "resourcesPath", {
+        value: installedResourcesFolder,
+        configurable: true,
+      });
+    }
     const { app, Menu } = await import("electron");
     vi.mocked(app.getName).mockReturnValue("Sidekicks under test");
     vi.mocked(app.getVersion).mockReturnValue("9.9.9-test");
@@ -154,11 +169,12 @@ describe("About", () => {
     expect(panel).toEqual({
       applicationName: "Sidekicks under test",
       applicationVersion: "9.9.9-test",
+      version: "9.9.9-test",
     });
   });
 
   it.each(["win32", "linux"] as const)(
-    "on %s ends with Help's one About row, the panel showing the app icon",
+    "on %s ends with Help's one About row, the panel showing the checkout's app icon",
     async (platform) => {
       const { panel, template } = await installOn(platform);
 
@@ -175,4 +191,10 @@ describe("About", () => {
       expect(existsSync(panel?.iconPath ?? "")).toBe(true);
     },
   );
+
+  it("in an installed app takes the icon from beside its archive", async () => {
+    const { panel } = await installOn("linux", true);
+
+    expect(panel?.iconPath).toBe(path.join(installedResourcesFolder, "icon.png"));
+  });
 });
