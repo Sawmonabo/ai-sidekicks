@@ -17,7 +17,9 @@
 //
 // `daemon.status` is main's own topic on the same channel: it delivers the link's state, the
 // current one first, while no service answers too, and ends only when the page closes it or goes.
-// A daemon subscription that ends while the page still holds it is told to the page as an end.
+// A daemon subscription whose reply carries more than its id, as a list subscription's carries the
+// list, hands that reply whole to the page as its first value, ahead of every push. One that ends
+// while the page still holds it is told to the page as an end.
 
 import { JsonRpcRemoteError, type LocalSubscriptionConsumer } from "@ai-sidekicks/client-sdk";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
@@ -355,8 +357,9 @@ export class DaemonForwarding {
   }
 
   /**
-   * Push each value to the page while it holds the subscription, then tell it how the subscription
-   * ended, unless the page closed it first. A failure also goes to main's log.
+   * Push the reply's opening value, when it has one, and then each value to the page while it holds
+   * the subscription, then tell it how the subscription ended, unless the page closed it first. A
+   * failure also goes to main's log.
    */
   async #deliver(
     page: DaemonSubscriber,
@@ -369,6 +372,14 @@ export class DaemonForwarding {
       this.#subscriptionsByPage.get(page.id)?.get(subscriptionId) === entry;
     let end: DaemonSubscriptionEnd = { reason: "completed" };
     try {
+      // The values that arrive meanwhile wait in the consumer, so the opening value goes first.
+      const openingValue = await consumer.readOpeningValue();
+      if (openingValue !== undefined) {
+        if (!isHeld()) {
+          return;
+        }
+        page.send(DAEMON_SUBSCRIPTION_VALUE_CHANNEL, subscriptionId, openingValue);
+      }
       for await (const value of consumer) {
         if (!isHeld()) {
           return;

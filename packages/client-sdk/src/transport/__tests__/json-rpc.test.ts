@@ -187,6 +187,52 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
   );
 });
 
+// The subscribe reply's opening value
+//
+// A reply that carries more than its id, such as the list a list subscription opens with, is handed
+// on whole ahead of the stream's values; a reply with the id alone hands on nothing.
+
+describe("the subscribe reply's opening value", () => {
+  const subscriptionId = "22222222-2222-4222-8222-222222222222";
+  const valueSchema = z.object({ kind: z.literal("upsert"), name: z.string() });
+
+  /** Opens a subscription and answers it with `result` and one value, in one read. */
+  function openAnsweredWith(result: Record<string, unknown>) {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
+    const subscription = client.subscribe(
+      "session.list",
+      { topic: "x" },
+      TOPIC_PARAMS_SCHEMA,
+      valueSchema,
+    );
+    const sentEnvelope = transport.sentEnvelopes[0];
+    if (sentEnvelope === undefined || !("id" in sentEnvelope)) {
+      throw new Error("unreachable — subscribe init emits a request envelope");
+    }
+    transport.deliverInbound({ jsonrpc: JSONRPC_VERSION, id: sentEnvelope.id, result });
+    transport.deliverInbound(
+      buildSubscriptionNotify(subscriptionId, { kind: "upsert", name: "Fix login" }),
+    );
+    return subscription;
+  }
+
+  it("is the whole reply when it carries a list, and the stream's values follow", async () => {
+    const reply = { subscriptionId, sessions: [{ name: "Refresh-token expiry" }] };
+    const subscription = openAnsweredWith(reply);
+
+    await expect(subscription.readOpeningValue()).resolves.toStrictEqual(reply);
+    await expect(subscription.next()).resolves.toStrictEqual({ kind: "upsert", name: "Fix login" });
+  });
+
+  it("is nothing when the reply carries the id alone", async () => {
+    const subscription = openAnsweredWith({ subscriptionId });
+
+    await expect(subscription.readOpeningValue()).resolves.toBeUndefined();
+    await expect(subscription.next()).resolves.toStrictEqual({ kind: "upsert", name: "Fix login" });
+  });
+});
+
 // A malformed subscriptionId is rejected at the SDK boundary
 //
 // The registration gate and the result schema both require a UUID, so a non-UUID id neither

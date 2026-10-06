@@ -1,7 +1,8 @@
 // A daemon call goes from the page's bridge, through main, to the daemon client main holds, and
 // back; a refusal comes back as one the renderer reads, with nothing of main's connection in it.
-// A page's subscriptions are canceled on the daemon when it loads a new document or goes, and one
-// that ends while the page holds it is told to the page. The status topic speaks with no service
+// A subscription whose reply carries more than its id hands that reply to the page first. A page's
+// subscriptions are canceled on the daemon when it loads a new document or goes, and one that ends
+// while the page holds it is told to the page. The status topic speaks with no service
 // linked. A call that ends work goes only over a link that reads connected with a compatible
 // handshake, and nothing mutating goes over a refused one. A failure the operating system raised
 // crosses by its code, with no path in it. A picked folder's token is swapped for its path on the
@@ -434,6 +435,45 @@ describe("a refused handshake", () => {
       "presence.read",
       "daemon.machineSettingsRead",
     ]);
+  });
+});
+
+describe("a subscription's opening value", () => {
+  it("hands the page a reply that carries a list as its first value, ahead of every push", async () => {
+    const subscriptionId = randomUUID();
+    const reply = { subscriptionId, sessions: [{ sessionId: SESSION_ID, name: "Fix login" }] };
+    const connection: ScriptedConnection = scriptedConnection(() => {
+      // Pushed on the turn after the reply lands, before main has handed anything on.
+      queueMicrotask(() => {
+        queueMicrotask(() => {
+          connection.notify(subscriptionId, { kind: "remove", sessionId: SESSION_ID });
+        });
+      });
+      return { result: reply };
+    });
+    const bridge = await bridgeOver(connection);
+    const values: unknown[] = [];
+
+    bridge.daemon.subscribe("session.list", {} as never, (value) => values.push(value));
+    await setImmediate();
+
+    expect(values).toStrictEqual([reply, { kind: "remove", sessionId: SESSION_ID }]);
+  });
+
+  it("hands the page nothing for a reply that carries the id alone", async () => {
+    const subscriptionId = randomUUID();
+    const connection = scriptedConnection(() => ({ result: { subscriptionId } }));
+    const bridge = await bridgeOver(connection);
+    const values: unknown[] = [];
+
+    bridge.daemon.subscribe("session.subscribe", { sessionId: SESSION_ID } as never, (value) =>
+      values.push(value),
+    );
+    await setImmediate();
+    connection.notify(subscriptionId, { sequence: 1 });
+    await setImmediate();
+
+    expect(values).toStrictEqual([{ sequence: 1 }]);
   });
 });
 

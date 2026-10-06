@@ -77,6 +77,15 @@ export interface ClientTransport {
 }
 
 /**
+ * A subscribe reply: the daemon-issued `subscriptionId`, and any members the method's contract adds
+ * to its acknowledgment, kept as the daemon sent them.
+ */
+export interface SubscribeAcknowledgment {
+  readonly subscriptionId: SubscriptionId;
+  readonly [member: string]: unknown;
+}
+
+/**
  * The handle `JsonRpcClient.subscribe` returns synchronously; distinct from the daemon-side
  * `LocalSubscriptionProducer<T>` in `@ai-sidekicks/contracts/jsonrpc/streaming`, which a handler
  * emits values into. Each validated
@@ -96,6 +105,13 @@ export interface LocalSubscriptionConsumer<T> {
    * `@ai-sidekicks/contracts/jsonrpc/streaming` to get the branded type.
    */
   readonly subscriptionId: string;
+
+  /**
+   * The subscribe reply whole when it carries more than `subscriptionId`, such as the list a list
+   * subscription opens with, for a caller to hand on ahead of the first value; `undefined` for a
+   * reply that carries the id alone. Rejects as `next()` does when the subscribe itself failed.
+   */
+  readOpeningValue(): Promise<SubscribeAcknowledgment | undefined>;
 
   /**
    * Pull the next value: resolves with it, with `undefined` once the stream completes, or rejects
@@ -252,14 +268,28 @@ interface SubscriptionState<T> {
 class LocalSubscriptionHandle<T> implements LocalSubscriptionConsumer<T> {
   readonly #state: SubscriptionState<T>;
   readonly #cancel: () => Promise<void>;
+  readonly #initAck: Promise<SubscribeAcknowledgment>;
 
-  public constructor(state: SubscriptionState<T>, cancelFn: () => Promise<void>) {
+  public constructor(
+    state: SubscriptionState<T>,
+    cancelFn: () => Promise<void>,
+    initAck: Promise<SubscribeAcknowledgment>,
+  ) {
     this.#state = state;
     this.#cancel = cancelFn;
+    this.#initAck = initAck;
   }
 
   public get subscriptionId(): string {
     return this.#state.subscriptionId;
+  }
+
+  public readOpeningValue(): Promise<SubscribeAcknowledgment | undefined> {
+    return this.#initAck.then((acknowledgment) =>
+      Object.keys(acknowledgment).some((member) => member !== "subscriptionId")
+        ? acknowledgment
+        : undefined,
+    );
   }
 
   public next(): Promise<T | undefined> {
@@ -549,7 +579,11 @@ export class JsonRpcClient {
       completeSubscriptionWithError(state, asError(err));
     });
 
-    return new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state, initAck));
+    return new LocalSubscriptionHandle<T>(
+      state,
+      () => this.#cancelSubscription(state, initAck),
+      initAck,
+    );
   }
 
   // Internals
@@ -734,7 +768,7 @@ export class JsonRpcClient {
    */
   async #cancelSubscription<T>(
     state: SubscriptionState<T>,
-    initAck: Promise<{ subscriptionId: SubscriptionId }>,
+    initAck: Promise<SubscribeAcknowledgment>,
   ): Promise<void> {
     if (state.status === "completed" || state.status === "errored") {
       return;
@@ -867,11 +901,11 @@ function asError(value: unknown): Error {
 const passthroughSchema: ZodType<unknown> = z.unknown();
 
 /**
- * Subscribe-init response: at least `{ subscriptionId }` as a UUID. `.loose()` lets a handler add
- * fields (such as a cursor) that the typed wrappers read. `#handleResponse` uses this same schema,
- * so registration and validation cannot disagree.
+ * Subscribe-init response: at least `{ subscriptionId }` as a UUID. `.loose()` keeps the members a
+ * handler adds (such as the list a list subscription opens with), which `readOpeningValue` hands
+ * on. `#handleResponse` uses this same schema, so registration and validation cannot disagree.
  */
-const subscribeInitResultSchema: ZodType<{ subscriptionId: SubscriptionId }> = z
+const subscribeInitResultSchema: ZodType<SubscribeAcknowledgment> = z
   .object({
     subscriptionId: SubscriptionIdSchema,
   })

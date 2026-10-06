@@ -21,6 +21,7 @@ export {
   type ClientTransport,
   type JsonRpcClientOptions,
   type LocalSubscriptionConsumer,
+  type SubscribeAcknowledgment,
 } from "./transport/json-rpc.js";
 export {
   JsonRpcTransportPeerClosedError,
