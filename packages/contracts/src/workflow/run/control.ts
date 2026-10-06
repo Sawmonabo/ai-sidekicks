@@ -5,6 +5,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
+import { ProjectIdSchema, type ProjectId } from "../../project.js";
 import { SessionIdSchema, type SessionId } from "../../session/session.js";
 import {
   WorkflowDefinitionIdSchema,
@@ -39,12 +40,14 @@ type RequestableRunMode = Exclude<WorkflowRunMode, "retry" | "sub-workflow">;
 
 /**
  * The `workflow.runStart` input: the version to run, taken verbatim from a definition
- * or version read, the items it starts on where the workflow declares inputs, and how
- * the start was made.
+ * or version read, the repository it works in, the items it starts on where the workflow
+ * declares inputs, and how the start was made. A run started in a session works in that
+ * session's folder, so `projectId` is refused beside `sessionId`.
  */
 export interface WorkflowRunStartRequest {
   workflowVersionId: string;
   sessionId?: SessionId | undefined;
+  projectId?: ProjectId | undefined;
   input?: WorkflowItem[] | undefined;
   mode?: RequestableRunMode | undefined;
 }
@@ -58,10 +61,16 @@ export const WorkflowRunStartRequestSchema: z.ZodType<
     // Present only on a start made from a chat, naming that chat's session. When it is
     // absent, the run lives in the workflow's own session.
     sessionId: SessionIdSchema.optional(),
+    // The project the Run now panel's `Repository` names, worked in at that project's own
+    // folder. Absent for `None`: the run gets no checkout.
+    projectId: ProjectIdSchema.optional(),
     input: z.array(WorkflowItemSchema).optional(),
     mode: z.enum(WORKFLOW_RUN_MODES).exclude(["retry", "sub-workflow"]).optional(),
   })
-  .strict();
+  .strict()
+  .refine((request) => request.sessionId === undefined || request.projectId === undefined, {
+    message: "A run started in a session works in that session's folder, so it names no project.",
+  });
 
 /**
  * The `workflow.runStart` result. A start can only leave the run admitted but not yet

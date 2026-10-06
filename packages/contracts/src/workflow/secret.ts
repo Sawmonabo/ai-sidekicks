@@ -11,7 +11,8 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { FILE_PATH_MAX_LEN, wireUncappedFreeFormString } from "../session/session.js";
+import { ProjectIdSchema, type ProjectId } from "../project.js";
+import { wireUncappedFreeFormString } from "../session/session.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };
@@ -20,8 +21,8 @@ export const WorkflowSecretIdSchema: z.ZodType<WorkflowSecretId, WorkflowSecretI
   brandedUuidIdSchema<WorkflowSecretId>("WorkflowSecretId");
 
 /**
- * Where a secret is visible: one project's workflows, or every workflow on this machine.
- * Never a session.
+ * Where a secret is visible: the runs that work in one project, or every run on this
+ * machine. Never a session.
  */
 export type WorkflowSecretScope = "project" | "shared";
 
@@ -41,15 +42,13 @@ export function isWorkflowSecretName(name: string): boolean {
 }
 
 /**
- * A secret's place: `project` with `scopeRef`, the project's identity as a
- * project-scoped workflow definition names it, or `shared` with none.
+ * A secret's place: `project` with `scopeRef`, the project record's id, or `shared` with
+ * none. A `project/` reference resolves in the project the run works in, so a run with no
+ * repository resolves only shared ones.
  */
-export type WorkflowSecretPlace = { scope: "project"; scopeRef: string } | { scope: "shared" };
+export type WorkflowSecretPlace = { scope: "project"; scopeRef: ProjectId } | { scope: "shared" };
 
-const projectPlaceShape = {
-  scope: z.literal("project"),
-  scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN),
-};
+const projectPlaceShape = { scope: z.literal("project"), scopeRef: ProjectIdSchema };
 const sharedPlaceShape = { scope: z.literal("shared") };
 
 /** One secret as the chooser lists it: its place and name, and never its value. */
@@ -161,18 +160,17 @@ export const WorkflowSecretActResponseSchema: z.ZodType<WorkflowSecretActRespons
   .strict();
 
 /**
- * The `workflow.secretList` input. With `scopeRef` it lists that project's secrets and
- * the shared ones; without it, the shared ones only, which is what a shared workflow's
- * step may use.
+ * The `workflow.secretList` input. With `scopeRef`, a project record's id, it lists that
+ * project's secrets and the shared ones; without it, the shared ones only.
  */
 export interface WorkflowSecretListRequest {
-  scopeRef?: string | undefined;
+  scopeRef?: ProjectId | undefined;
 }
 /** Wire schema for {@link WorkflowSecretListRequest}. */
 export const WorkflowSecretListRequestSchema: z.ZodType<
   WorkflowSecretListRequest,
   WorkflowSecretListRequest
-> = z.object({ scopeRef: z.string().min(1).max(FILE_PATH_MAX_LEN).optional() }).strict();
+> = z.object({ scopeRef: ProjectIdSchema.optional() }).strict();
 
 /** The `workflow.secretList` result: records by name, and no member carries a value. */
 export interface WorkflowSecretListResponse {

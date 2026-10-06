@@ -7941,14 +7941,14 @@ type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" }; // a 
 // A secret's place: `project` with `scopeRef`, the project record's id, or `shared` with none. A
 // `project/` reference resolves in the project the run works in, so a run with no repository resolves
 // only shared ones.
-type WorkflowSecretPlace = { scope: "project"; scopeRef: string } | { scope: "shared" };
+type WorkflowSecretPlace = { scope: "project"; scopeRef: ProjectId } | { scope: "shared" };
 // One secret as the chooser lists it: its place and name, and never its value.
 type WorkflowSecretSummary = { secretId: WorkflowSecretId; name: string } & WorkflowSecretPlace;
 
 // WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: a project's
 // and the shared ones, by name. Metadata only.
 interface WorkflowSecretListRequest {
-  scopeRef?: string; // the project whose secrets join the shared ones; omit for the shared ones alone
+  scopeRef?: ProjectId; // the project whose secrets join the shared ones; omit for the shared ones alone
 }
 interface WorkflowSecretListResponse {
   secrets: WorkflowSecretSummary[];

@@ -8,24 +8,16 @@ import { z } from "zod";
 import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  FILE_PATH_MAX_LEN,
-} from "../../session/session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../session/session.js";
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
-  WorkflowDefinitionScopeRefSchema,
-  WorkflowDefinitionScopeSchema,
   WorkflowDocumentSchema,
   WorkflowEdgeSchema,
   WorkflowNodeKindIdSchema,
   WorkflowNodeSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
-  type WorkflowDefinitionScope,
   type WorkflowDocument,
   type WorkflowEdge,
   type WorkflowNode,
@@ -89,37 +81,19 @@ export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unkno
 // workflow.definitionCreate
 
 /**
- * The `workflow.definitionCreate` input. Saving a new workflow, duplicating one,
- * importing a file and moving one to `shared` all send this one shape. Authorization
- * keys on `scope`, never on which act composed the request, so the request has no act
- * field. The name is the document's own.
+ * The `workflow.definitionCreate` input. Saving a new workflow, duplicating one and
+ * importing a file all send this one shape. The name is the document's own and is used
+ * once across the library: a name another workflow holds is refused with
+ * `workflow.definition_refused`, finding `name_taken`.
  */
 export interface WorkflowDefinitionCreateRequest {
-  scope: WorkflowDefinitionScope;
-  scopeRef?: string | undefined;
-  parentContentHash?: string | undefined;
   document: WorkflowDocument;
 }
 /** Wire schema for {@link WorkflowDefinitionCreateRequest}. */
 export const WorkflowDefinitionCreateRequestSchema: z.ZodType<
   WorkflowDefinitionCreateRequest,
   WorkflowDefinitionCreateRequest
-> = z
-  .object({
-    // The scope is the caller's: a `shared` target is never quietly narrowed to a smaller
-    // one.
-    scope: WorkflowDefinitionScopeSchema,
-    // Omitted at `shared`, it is the empty string. The request carries no session, so
-    // `session` and `project` have nothing to derive it from: the daemon's check refuses its
-    // absence there with `workflow.definition_refused`, finding `scope_ref_invalid`.
-    scopeRef: WorkflowDefinitionScopeRefSchema.optional(),
-    // The hash of the `shared` definition this one was branched from when an author
-    // edited it. Provenance only: it is outside the hashed body, so a branched definition
-    // and one written from scratch with the same body hash alike.
-    parentContentHash: WorkflowContentHashSchema.optional(),
-    document: WorkflowDocumentSchema,
-  })
-  .strict();
+> = z.object({ document: WorkflowDocumentSchema }).strict();
 
 /**
  * The `workflow.definitionCreate` result: the new definition and its first version,
@@ -181,8 +155,6 @@ export type WorkflowWebhookFireOutcome = (typeof WORKFLOW_WEBHOOK_FIRE_OUTCOMES)
 export interface WorkflowDefinitionReadResponse {
   id: WorkflowDefinitionId;
   name: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef: string;
   versionNumber: number;
   workflowVersionId: string;
   contentHash: string;
@@ -197,8 +169,6 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
   .object({
     id: WorkflowDefinitionIdSchema,
     name: z.string().min(1),
-    scope: WorkflowDefinitionScopeSchema,
-    scopeRef: WorkflowDefinitionScopeRefSchema,
     versionNumber: z.number().int().positive(),
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
@@ -221,13 +191,11 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
 // workflow.definitionList
 
 /**
- * The `workflow.definitionList` input. Without `scope` it answers every visible scope
- * together. Without `sessionId` the list is not resolved from any one session, so no
- * entry carries `resolvesAtThisContext`.
+ * The `workflow.definitionList` input: one page of every saved workflow on this machine. The
+ * `workflow_list` agent tool takes it as its input, so each member's description is text a model
+ * reads.
  */
 export interface WorkflowDefinitionListRequest {
-  sessionId?: SessionId | undefined;
-  scope?: WorkflowDefinitionScope | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
 }
@@ -237,10 +205,12 @@ export const WorkflowDefinitionListRequestSchema: z.ZodType<
   WorkflowDefinitionListRequest
 > = z
   .object({
-    sessionId: SessionIdSchema.optional(),
-    scope: WorkflowDefinitionScopeSchema.optional(),
-    limit: z.number().int().positive().optional(),
-    cursor: z.string().min(1).optional(),
+    limit: z.number().int().positive().optional().describe("The most workflows to return."),
+    cursor: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("The cursor a previous call returned, to read the next page."),
   })
   .strict();
 
@@ -253,12 +223,9 @@ export const WorkflowDefinitionListRequestSchema: z.ZodType<
 export interface WorkflowDefinitionSummary {
   id: WorkflowDefinitionId;
   name: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef: string;
   latestVersionNumber: number;
   latestWorkflowVersionId: string;
   contentHash: string;
-  resolvesAtThisContext?: boolean | undefined;
   triggerKind: WorkflowNodeKindId;
   schedule?: { expression: string; timeZone: string; nextFireAt?: string | undefined } | undefined;
   enabled: boolean;
@@ -272,15 +239,9 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
   .object({
     id: WorkflowDefinitionIdSchema,
     name: z.string().min(1),
-    scope: WorkflowDefinitionScopeSchema,
-    scopeRef: WorkflowDefinitionScopeRefSchema,
     latestVersionNumber: z.number().int().positive(),
     latestWorkflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
-    // Present only when the request named a session: true for the one entry per name
-    // that resolving most specific first would pick there, so a picker shows which
-    // definition a run would use instead of working out the order itself.
-    resolvesAtThisContext: z.boolean().optional(),
     triggerKind: WorkflowNodeKindIdSchema,
     // Absent where the definition declares no schedule. The next fire is computed in
     // the schedule trigger's own timezone, and absent while the workflow is off.
@@ -467,18 +428,12 @@ export const WorkflowDefinitionUpdateRequestSchema: z.ZodType<
   })
   .strict();
 
-/**
- * The `workflow.definitionUpdate` result. An edit to a `shared` definition leaves it
- * untouched and branches a new definition carrying the original's hash as its parent,
- * so `definitionId` can name a different definition from the request's, and
- * `branchedFromContentHash` is present exactly then.
- */
+/** The `workflow.definitionUpdate` result: the new version of the requested definition. */
 export interface WorkflowDefinitionUpdateResponse {
   definitionId: WorkflowDefinitionId;
   versionNumber: number;
   workflowVersionId: string;
   contentHash: string;
-  branchedFromContentHash?: string | undefined;
   createdAt: string;
 }
 /** Wire schema for {@link WorkflowDefinitionUpdateResponse}. */
@@ -488,7 +443,6 @@ export const WorkflowDefinitionUpdateResponseSchema: z.ZodType<WorkflowDefinitio
     versionNumber: z.number().int().positive(),
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
-    branchedFromContentHash: WorkflowContentHashSchema.optional(),
     createdAt: isoDateTimeSchema,
   })
   .strict();
@@ -567,26 +521,18 @@ export const WorkflowDefinitionExportResponseSchema: z.ZodType<WorkflowDefinitio
 
 /**
  * The `workflow.definitionImport` input. The daemon reads the file the person picked and
- * creates the definition through the create path with its whole check, all or nothing;
- * the file carries no scope, so the caller names where it lands. `filePath` is the path
- * main forwards in place of the token the platform's open chooser returned.
+ * creates the definition through the create path with its whole check, all or nothing.
+ * `filePath` is the path main forwards in place of the token the platform's open chooser
+ * returned.
  */
 export interface WorkflowDefinitionImportRequest {
   filePath: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef?: string | undefined;
 }
 /** Wire schema for {@link WorkflowDefinitionImportRequest}. */
 export const WorkflowDefinitionImportRequestSchema: z.ZodType<
   WorkflowDefinitionImportRequest,
   WorkflowDefinitionImportRequest
-> = z
-  .object({
-    filePath: filePathSchema,
-    scope: WorkflowDefinitionScopeSchema,
-    scopeRef: WorkflowDefinitionScopeRefSchema.optional(),
-  })
-  .strict();
+> = z.object({ filePath: filePathSchema }).strict();
 
 // workflow.versionDiffRead
 

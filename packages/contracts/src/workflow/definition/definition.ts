@@ -1,9 +1,8 @@
-// Workflow definitions: the node-graph document an author writes, the ids and scopes
-// that address a definition and its versions, and the refusal a save answers with when
-// the document breaks a rule. The methods are in `workflow/definition/methods.ts`; the
-// state kept beside a version (the enabled switch, layout, pinned data, the builder's
-// draft, the expression preview and the webhook address) is in
-// `workflow/definition/builder.ts`.
+// Workflow definitions: the node-graph document an author writes, the ids that address a
+// definition and its versions, and the refusal a save answers with when the document
+// breaks a rule. The methods are in `workflow/definition/methods.ts`; the state kept beside
+// a version (the enabled switch, layout, pinned data, the builder's draft, the expression
+// preview and the webhook address) is in `workflow/definition/builder.ts`.
 //
 // A definition has one form, the document below, on the wire and in the store. Its
 // content hash covers only the hashed members (`WORKFLOW_DOCUMENT_HASHED_MEMBERS`);
@@ -22,7 +21,6 @@ import { z } from "zod";
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/driver.js";
 import { FILE_PATH_MAX_LEN } from "../../session/session.js";
-import { uuidTextFormSchema } from "../../internal/branded.js";
 import { countSchema } from "../../internal/wire-scalars.js";
 
 /** A workflow definition's id. The daemon mints it; a client passes it through unparsed. */
@@ -72,30 +70,6 @@ export const WorkflowNodeKindIdSchema: z.ZodType<WorkflowNodeKindId, WorkflowNod
   .string()
   .min(1)
   .describe("The node kind's key as workflow.kindList lists it, such as files.read.");
-
-const WORKFLOW_DEFINITION_SCOPES = ["session", "project", "shared"] as const;
-
-/**
- * Where a definition is visible, most specific first, which is also the order a name
- * resolves in. `session` binds it to the session that wrote it, `project` spans one
- * project's sessions, and `shared` is reusable by every project on this machine.
- * `shared` widens reuse only: nothing is distributed or synced.
- */
-export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number];
-/** Wire schema for {@link WorkflowDefinitionScope}. */
-export const WorkflowDefinitionScopeSchema: z.ZodType<
-  WorkflowDefinitionScope,
-  WorkflowDefinitionScope
-> = z.enum(WORKFLOW_DEFINITION_SCOPES);
-
-/**
- * A scope's identity: the authoring session's id at `session`, the project record's id at
- * `project`, and the empty string at `shared`, which refers to nothing narrower.
- */
-export const WorkflowDefinitionScopeRefSchema: z.ZodType<string, string> = z.union([
-  z.literal(""),
-  uuidTextFormSchema,
-]);
 
 // The document
 
@@ -461,7 +435,7 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "expression_regex_unsupported",
   "tool_edge_without_tool_input",
   "handle_type_unknown",
-  "scope_ref_invalid",
+  "name_taken",
   "unknown_key",
   "secret_outside_sensitive_field",
   "code_packages_unresolved",

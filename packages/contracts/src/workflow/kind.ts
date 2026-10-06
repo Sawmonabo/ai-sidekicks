@@ -67,7 +67,9 @@ const WORKFLOW_PARAM_TYPES = [
   "secret",
   "agent",
   "mcp-tool",
+  "callback-tool",
   "session",
+  "project",
 ] as const;
 
 /** The type of one leaf parameter, which picks the field the inspector draws. */

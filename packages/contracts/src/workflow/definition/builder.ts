@@ -153,21 +153,12 @@ export const WorkflowPinDataSetResponseSchema: z.ZodType<WorkflowPinDataSetRespo
 
 // The builder's draft
 
-/** The builder's draft id, minted by the daemon on the first save and carried in the address. */
-export type WorkflowDraftId = string & { readonly __brand: "WorkflowDraftId" };
-/** Wire schema for {@link WorkflowDraftId}. */
-export const WorkflowDraftIdSchema: z.ZodType<WorkflowDraftId, WorkflowDraftId> = z
-  .string()
-  .min(1)
-  .brand<"WorkflowDraftId">() as unknown as z.ZodType<WorkflowDraftId, WorkflowDraftId>;
-
 /**
  * The `workflow.draftUpdate` input: the builder's whole unsaved document, which replaces
- * the one held. The first save omits `workflowDraftId` and the reply mints it. A draft
- * of a saved workflow names the definition and the version it was opened from.
+ * the one held. The daemon holds one draft per saved workflow, named by `definitionId`
+ * with the version it was opened from, and one for a new workflow, which omits both.
  */
 export interface WorkflowDraftUpdateRequest {
-  workflowDraftId?: WorkflowDraftId | undefined;
   definitionId?: WorkflowDefinitionId | undefined;
   basedOnVersionNumber?: number | undefined;
   document: WorkflowDraftDocument;
@@ -178,7 +169,6 @@ export const WorkflowDraftUpdateRequestSchema: z.ZodType<
   WorkflowDraftUpdateRequest
 > = z
   .object({
-    workflowDraftId: WorkflowDraftIdSchema.optional(),
     definitionId: WorkflowDefinitionIdSchema.optional(),
     basedOnVersionNumber: z.number().int().positive().optional(),
     document: WorkflowDraftDocumentSchema,
@@ -192,29 +182,30 @@ export const WorkflowDraftUpdateRequestSchema: z.ZodType<
     },
   );
 
-/** When the daemon stored the draft, under the id the builder's address carries. */
+/** When the daemon stored the draft. */
 export interface WorkflowDraftUpdateResponse {
-  workflowDraftId: WorkflowDraftId;
   updatedAt: string;
 }
 /** Wire schema for {@link WorkflowDraftUpdateResponse}. */
 export const WorkflowDraftUpdateResponseSchema: z.ZodType<WorkflowDraftUpdateResponse> = z
-  .object({ workflowDraftId: WorkflowDraftIdSchema, updatedAt: isoDateTimeSchema })
+  .object({ updatedAt: isoDateTimeSchema })
   .strict();
 
-/** The `workflow.draftRead` input: the draft the builder's address names. */
+/**
+ * The `workflow.draftRead` input: the draft of the workflow the builder's address names,
+ * or, with no `definitionId`, the new workflow's draft. A reload reads it back this way.
+ */
 export interface WorkflowDraftReadRequest {
-  workflowDraftId: WorkflowDraftId;
+  definitionId?: WorkflowDefinitionId | undefined;
 }
 /** Wire schema for {@link WorkflowDraftReadRequest}. */
 export const WorkflowDraftReadRequestSchema: z.ZodType<
   WorkflowDraftReadRequest,
   WorkflowDraftReadRequest
-> = z.object({ workflowDraftId: WorkflowDraftIdSchema }).strict();
+> = z.object({ definitionId: WorkflowDefinitionIdSchema.optional() }).strict();
 
 /** One held draft. */
 export interface WorkflowDraft {
-  workflowDraftId: WorkflowDraftId;
   definitionId?: WorkflowDefinitionId | undefined;
   basedOnVersionNumber?: number | undefined;
   document: WorkflowDraftDocument;
@@ -230,7 +221,6 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
   .object({
     draft: z
       .object({
-        workflowDraftId: WorkflowDraftIdSchema,
         definitionId: WorkflowDefinitionIdSchema.optional(),
         basedOnVersionNumber: z.number().int().positive().optional(),
         document: WorkflowDraftDocumentSchema,
@@ -244,13 +234,13 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
 // workflow.expressionPreview
 
 /**
- * The `workflow.expressionPreview` input: one expression of one node, of a saved
- * workflow or of the builder's draft, evaluated in the daemon against an item of the
- * last run. It never resolves a secret: a sensitive field previews the secret's name.
+ * The `workflow.expressionPreview` input: one expression of one node, evaluated in the
+ * daemon against an item of the last run. The node is read from the workflow's held draft,
+ * else its latest saved version; with no `definitionId`, from the new workflow's draft. It
+ * never resolves a secret: a sensitive field previews the secret's name.
  */
 export interface WorkflowExpressionPreviewRequest {
   definitionId?: WorkflowDefinitionId | undefined;
-  workflowDraftId?: WorkflowDraftId | undefined;
   nodeId: WorkflowNodeId;
   expression: string;
   itemIndex?: number | undefined;
@@ -262,18 +252,11 @@ export const WorkflowExpressionPreviewRequestSchema: z.ZodType<
 > = z
   .object({
     definitionId: WorkflowDefinitionIdSchema.optional(),
-    workflowDraftId: WorkflowDraftIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
     expression: z.string().min(1),
     itemIndex: countSchema.optional(),
   })
-  .strict()
-  .refine(
-    (request) => (request.definitionId === undefined) !== (request.workflowDraftId === undefined),
-    {
-      message: "A preview names exactly one of a definition or a draft.",
-    },
-  );
+  .strict();
 
 /**
  * The `workflow.expressionPreview` result: the value, or why the expression does not
