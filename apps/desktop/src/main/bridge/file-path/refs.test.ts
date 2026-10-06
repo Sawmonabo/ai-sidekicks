@@ -1,5 +1,5 @@
 // A token opens its path only for the page it was minted for, only for the purpose it was minted
-// for, and only while that page's document is loaded.
+// for, and only while that page's document is loaded and the page has not gone.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,10 +26,21 @@ describe("a file token", () => {
 
     page.navigate();
 
-    expect(refs.pathOf(page, before)).toBeUndefined();
+    expect(() => refs.requirePath(page, before, "open")).toThrow(TypeError);
     const after = refs.mint(page, "open", PICKED_PATH);
     expect(after).not.toBe(before);
     expect(refs.requirePath(page, after, "open")).toBe(PICKED_PATH);
+  });
+
+  it("is never taken from another page, and is dropped when its page goes", () => {
+    const refs = new FilePathRefs();
+    const page = pageOwner(1);
+    const imported = refs.mint(page, "import", PICKED_PATH);
+
+    expect(() => refs.requirePath(pageOwner(2), imported, "import")).toThrow(TypeError);
+    page.destroy();
+
+    expect(() => refs.requirePath(page, imported, "import")).toThrow(TypeError);
   });
 
   it("is never minted for a page that has gone, which would never drop it", () => {

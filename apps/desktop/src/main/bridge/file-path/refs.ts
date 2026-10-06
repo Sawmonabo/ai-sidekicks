@@ -50,11 +50,6 @@ export class FilePathRefs {
     return ref;
   }
 
-  /** The path a token stands for, while the document it was minted for is loaded. */
-  public pathOf(owner: FilePathRefOwner, ref: FilePathRef): string | undefined {
-    return this.#pagesById.get(owner.id)?.mintsByRef.get(ref)?.path;
-  }
-
   /**
    * The path behind a token the page sent for `purpose`. Throws a `TypeError` for anything that is
    * not a token this page holds for that purpose, so a page can never name a path, reach another

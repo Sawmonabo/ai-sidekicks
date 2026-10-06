@@ -50,7 +50,7 @@ describe("the open dialog", () => {
     expect(file?.name).toBe("notes.md");
     expect(file?.sizeBytes).toBe(12);
     expect(JSON.stringify(result)).not.toContain(folder);
-    expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
+    expect(refs.requirePath(owner, file?.ref, "attach")).toBe(picked);
   });
 
   it("answers a picked folder as one token and its name, its path kept in main, or null on cancel", async () => {
@@ -63,7 +63,7 @@ describe("the open dialog", () => {
 
     expect(picked?.name).toBe(path.basename(folder));
     expect(picked?.ref).not.toContain(folder);
-    expect(picked === null ? undefined : refs.pathOf(owner, picked.ref)).toBe(folder);
+    expect(refs.requirePath(owner, picked?.ref, "folder")).toBe(folder);
 
     const canceled: OpenDialogHost = {
       showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),
@@ -79,22 +79,5 @@ describe("the open dialog", () => {
       showOpenDialog(host, new FilePathRefs(), pageOwner(1), { purpose: "openFolder" }),
     ).rejects.toThrow(TypeError);
     expect(host.showOpenDialog).not.toHaveBeenCalled();
-  });
-
-  it("forgets a page's tokens when it goes, and never answers one page another's", async () => {
-    const picked = path.join(folder, "a.txt");
-    await writeFile(picked, "a", "utf8");
-    const refs = new FilePathRefs();
-    const owner = pageOwner(1);
-    const [file] = (
-      await showFileDialog(dialogPicking([picked]), refs, owner, { purpose: "importFile" })
-    ).refs;
-    if (file === undefined) {
-      throw new Error("the dialog picked nothing");
-    }
-
-    expect(refs.pathOf(pageOwner(2), file.ref)).toBeUndefined();
-    owner.destroy();
-    expect(refs.pathOf(owner, file.ref)).toBeUndefined();
   });
 });

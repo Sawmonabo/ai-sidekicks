@@ -70,8 +70,13 @@ function openDialogPurpose(options: unknown): OpenDialogPurpose {
     typeof options === "object" && options !== null && "purpose" in options
       ? options.purpose
       : undefined;
-  if (purpose !== "attachFiles" && purpose !== "importFile" && purpose !== "pickFolder") {
-    throw new TypeError("An open dialog is asked for `attachFiles`, `importFile` or `pickFolder`.");
+  if (!isOpenDialogPurpose(purpose)) {
+    const purposes = Object.keys(OPEN_DIALOG_PROPERTIES).join(", ");
+    throw new TypeError(`An open dialog is asked for one of its purposes: ${purposes}.`);
   }
   return purpose;
+}
+
+function isOpenDialogPurpose(value: unknown): value is OpenDialogPurpose {
+  return typeof value === "string" && Object.hasOwn(OPEN_DIALOG_PROPERTIES, value);
 }
