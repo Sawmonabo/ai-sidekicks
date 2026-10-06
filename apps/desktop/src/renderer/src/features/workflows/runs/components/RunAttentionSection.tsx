@@ -82,7 +82,7 @@ function AttentionLine(props: {
         ? AWAITING_RESUME_WORDS
         : `Resumes ${formatDayClock(entry.resumeAt, props.nowMs)}.`;
     return (
-      <span>{`${parked} is spent — one entry, ${affectedRunWords(entry.affectedRunCount)}. ${resumes}`}</span>
+      <span>{`${parked}, which is spent — one entry, ${affectedRunWords(entry.affectedRunCount)}. ${resumes}`}</span>
     );
   }
   return (

@@ -78,10 +78,10 @@ describe("the attention list", () => {
 
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);
     expect(lines).toStrictEqual([
-      "1 run is parked on the Claude Code account Personal is spent — " +
+      "1 run is parked on the Claude Code account Personal, which is spent — " +
         "one entry, 1 affected run. " +
         "Awaiting resume — no instant is armed.",
-      "3 runs are parked on the Codex account Work is spent — one entry, 3 affected runs. " +
+      "3 runs are parked on the Codex account Work, which is spent — one entry, 3 affected runs. " +
         `Resumes ${formatDayClock(RESUME_AT, NOW_MS)}.`,
       `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
       "Weekly notes · waiting on Write the notes · since 8:30 AM",

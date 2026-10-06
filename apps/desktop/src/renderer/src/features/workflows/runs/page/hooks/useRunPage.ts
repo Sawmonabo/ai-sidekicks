@@ -88,7 +88,7 @@ export function useRunPage(options: {
     {
       unavailable: () =>
         run === undefined
-          ? "Still reading what is waiting."
+          ? "Still reading this run."
           : answerNode === undefined || answerNode.cause === "chain"
             ? "This run is not waiting on you."
             : undefined,
