@@ -14,7 +14,7 @@ Diagnose and contain driver-level provider failures that affect run execution or
 ## Detection
 
 - Read the failure category the affected run's state-transition events carry, and run `sidekicks daemon status` on the machine.
-- Read the provider's line on Settings › Providers, which says one of three things: installed and signed in with its version, `Not installed on this machine.`, or `Cannot tell right now.` `Check again` reads it again, and a provider re-reads what it can do when its command path changes, when a provider process starts, and when its model catalog goes stale.
+- Read the provider's line on Settings › Providers, which says one of three things: installed and signed in with its version, `Not installed.`, or `Cannot tell right now.` `Check again` reads it again, and a provider re-reads what it can do when its command path changes, when a provider process starts, and when its model catalog goes stale.
 - Compare canonical failure events with driver logs for startup failure, transport failure, capability refresh failure, or resume failure.
 
 ## Preconditions
