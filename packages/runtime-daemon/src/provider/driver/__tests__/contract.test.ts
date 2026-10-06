@@ -4,16 +4,14 @@
 // `.safeParse()`; type guards by `@ts-expect-error`, which fails as unused (TS2578) if the guarded
 // shape loosens.
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
+import type { ProviderUsageLimitCause } from "@ai-sidekicks/contracts/provider/driver/usage-limit";
 import { describe, expect, it } from "vitest";
 
 import {
   DriverResumeResultSchema,
   McpServerStatusEmissionSchema,
   type DriverResumeResult,
-  type ProviderUsageLimitSignal,
 } from "../contract.js";
-
-type ProviderUsageLimitCause = ProviderUsageLimitSignal["cause"];
 
 // `DriverResumeResult` is a `status`-discriminated union. `failed` carries the recovery condition
 // and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and

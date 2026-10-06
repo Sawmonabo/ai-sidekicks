@@ -388,51 +388,6 @@ export function boundFailureDetail(detail: string, emptyFallback: string): strin
     : trimmed;
 }
 
-// ---- Provider usage-limit signal ----
-
-// A driver emits a usage-limit signal only when a structured provider event it can name says the
-// allowance is spent. Prose, an exit code or a bare HTTP status are never inputs, since the
-// provider may reword or reuse them; an unrecognized shape emits nothing, which reads "not known
-// to be limited". There is no capability flag: recognition is required of every driver, like
-// `probeAuth`.
-
-/**
- * Why a provider refused for spend, on an axis separate from `RecoveryCondition`: every recovery
- * condition needs a human, while a spent usage allowance clears when the provider's window turns
- * over. One member on purpose: only `plan-allowance-exhausted`, the subscription allowance for a
- * rolling window, clears on its own. Excluded because a human must act or the state is not a
- * refused turn: a depleted credit balance (restored by a purchase), a payment fault, and a
- * spend-control ceiling (an administrative budget state on a snapshot). A turn refused for any of
- * them settles on the driver's ordinary turn-failure path. Widen the union deliberately; never
- * with a free string.
- */
-type ProviderUsageLimitCause = "plan-allowance-exhausted";
-
-/** The instant the provider named for the spent window to reset. */
-interface ProviderUsageLimitResetBoundary {
-  // RFC 3339 UTC.
-  resetsAt: string;
-}
-
-/**
- * A recognized provider usage-limit refusal. The cause is required and the boundary optional: a
- * recognized refusal parks the run whether or not a window was reported, and a missing boundary
- * only means no resume is scheduled. Absent means no reset instant is known from what was
- * observed, not that the provider publishes none.
- */
-export interface ProviderUsageLimitSignal {
-  cause: ProviderUsageLimitCause;
-  resetBoundary?: ProviderUsageLimitResetBoundary | undefined;
-}
-
-/**
- * A turn that ended because the provider's own retries ran out: the provider did not answer. It
- * is not a usage limit, since nothing clears on its own, so no reset boundary rides it.
- */
-export interface ProviderSpentRetriesSignal {
-  cause: "retries-exhausted";
-}
-
 // ---- Conversation fork ----
 
 /**

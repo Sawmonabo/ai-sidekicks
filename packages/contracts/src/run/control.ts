@@ -27,6 +27,12 @@ import {
 } from "../provider/driver/methods.js";
 import { RecoveryConditionSchema, type RecoveryCondition } from "../provider/driver/recovery.js";
 import {
+  ProviderUsageLimitCauseSchema,
+  ProviderUsageLimitResetBoundarySchema,
+  type ProviderSpentRetriesSignal,
+  type ProviderUsageLimitSignal,
+} from "../provider/driver/usage-limit.js";
+import {
   ChildInterruptRequestSchema,
   ChildInterruptResponseSchema,
   ChildPauseSetRequestSchema,
@@ -328,6 +334,27 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   .strict();
 
 /**
+ * Why a run failed, on `run.failed`: the refusal, the provider's usage limit with the reset
+ * boundary its driver held when the turn failed, or the provider's spent retries. A reload redraws
+ * the run's last row from this cause alone.
+ */
+export type RunFailureCause =
+  | RunRefusedCause
+  | (ProviderUsageLimitSignal & { origin: "provider" })
+  | (ProviderSpentRetriesSignal & { origin: "provider" });
+const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
+  RunRefusedCauseSchema,
+  z
+    .object({
+      cause: ProviderUsageLimitCauseSchema,
+      origin: z.literal("provider"),
+      resetBoundary: ProviderUsageLimitResetBoundarySchema.optional(),
+    })
+    .strict(),
+  z.object({ cause: z.literal("retries-exhausted"), origin: z.literal("provider") }).strict(),
+]);
+
+/**
  * How a process that ended on its own exited: exactly one of its exit code and the signal that
  * ended it, and the last lines it printed. `run.failed` carries a provider process's under the
  * turn, and a failed workflow step the process it ran. A process the daemon closed itself, or a
@@ -363,7 +390,7 @@ export interface RunStateChangeEvent {
   previousState: RunState;
   newState: RunState;
   failureCategory?: RunFailureCategory | undefined;
-  failureCause?: RunRefusedCause | undefined;
+  failureCause?: RunFailureCause | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
   // Two producers, one field: free-form prose on a failed resume, and a fixed
   // `<registered code> origin=<arm>` form from the outbound-frame neutralization tripwire. Read
@@ -389,7 +416,7 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     previousState: RunStateSchema,
     newState: RunStateSchema,
     failureCategory: RunFailureCategorySchema.optional(),
-    failureCause: RunRefusedCauseSchema.optional(),
+    failureCause: RunFailureCauseSchema.optional(),
     recoveryCondition: RecoveryConditionSchema.optional(),
     providerFailureDetail: wireFreeFormString(
       DRIVER_FAILURE_DETAIL_MAX_LEN,

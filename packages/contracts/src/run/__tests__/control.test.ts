@@ -185,6 +185,25 @@ describe("RunStateChangeEvent", () => {
     });
   });
 
+  it("keeps a usage limit with its reset instant and spent retries, both as the provider's", () => {
+    const usageLimit = {
+      cause: "plan-allowance-exhausted",
+      origin: "provider",
+      resetBoundary: { resetsAt: "2026-10-06T17:00:00Z" },
+    };
+    const spentRetries = { cause: "retries-exhausted", origin: "provider" };
+    for (const failureCause of [usageLimit, spentRetries]) {
+      const failed = { ...minimalRunStateChange, newState: "failed", failureCause };
+      expect(RunStateChangeEventSchema.parse(failed)).toEqual(failed);
+      expect(
+        RunStateChangeEventSchema.safeParse({
+          ...failed,
+          failureCause: { ...failureCause, origin: "daemon" },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   it("carries a provider process's own exit only on the transition into failed", () => {
     const processExit = { signal: "SIGKILL", outputTail: "Killed" };
     const failed = { ...minimalRunStateChange, newState: "failed", processExit };

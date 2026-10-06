@@ -3,8 +3,9 @@
  * usage-limit signal with the reset boundary the provider reported.
  */
 
+import type { ProviderUsageLimitSignal } from "@ai-sidekicks/contracts/provider/driver/usage-limit";
+
 import { isPlainObject } from "../../record-readers.js";
-import type { ProviderUsageLimitSignal } from "../contract.js";
 
 /**
  * The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply).
