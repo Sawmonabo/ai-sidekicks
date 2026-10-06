@@ -15,11 +15,9 @@ import type { FilePathRef } from "#shared/preload-api.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { WORKFLOW_READ_LATENCY_MS } from "#fixtures/data/workflow/replies.js";
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
 import { DRAFT_SAVE_REST_MS, useStepForm, type StepFormHold } from "./useStepForm.js";
-
-/** How long the fixture daemon takes to read a form. */
-const FORM_READ_DELAY_MS = 120;
 
 function waitingFormStep(): WorkflowStepKey {
   const run = WORKFLOW_RUN_RECORDS.find(
@@ -91,7 +89,7 @@ describe("a step's form drafts", () => {
       calls.filter((call) => call.method === "workflow.humanFormDraftSave");
 
     const form = mountForm();
-    await settle(FORM_READ_DELAY_MS);
+    await settle(WORKFLOW_READ_LATENCY_MS);
     expect(form.current.read.kind).toBe("read");
 
     await type(form, "2.0");
@@ -124,7 +122,7 @@ describe("a step's form drafts", () => {
     }
 
     const reloaded = mountForm();
-    await settle(FORM_READ_DELAY_MS);
+    await settle(WORKFLOW_READ_LATENCY_MS);
     expect(reloaded.current.answers).toMatchObject({ version: "2.2" });
     expect(reloaded.current.answers).not.toHaveProperty("token", "hunter2");
     reloaded.unmount();
@@ -159,7 +157,7 @@ describe("a step's form submit", () => {
       wrapper: bridgeWrapper(bridge, engine.clock),
     });
     await act(async () => {
-      engine.advance(FORM_READ_DELAY_MS);
+      engine.advance(WORKFLOW_READ_LATENCY_MS);
       await crossMacrotaskBoundary();
     });
     expect(result.current.read.kind).toBe("read");

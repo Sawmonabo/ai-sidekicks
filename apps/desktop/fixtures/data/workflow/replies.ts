@@ -78,6 +78,9 @@ const WORKFLOW_STREAM: typeof WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
 /** How many starts wait behind the hold while it is on. */
 const STARTS_WAITING_WHILE_PAUSED = 3;
 
+/** How long the fixture daemon takes to read a run list, a run or a step's form. */
+export const WORKFLOW_READ_LATENCY_MS = 120;
+
 /** Every call the workflows screens make, and what each is answered with. */
 export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
   { call: "workflow.definitionList", result: definitionList() },
@@ -85,13 +88,13 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
   { call: "workflow.versionRead", resultFor: answerVersionRead },
   {
     call: "workflow.runList",
-    afterMs: 120,
+    afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunList(request, { answered, readStamp }),
   },
   {
     call: "workflow.runRead",
-    afterMs: 120,
+    afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerRunRead(request, { answered, readStamp }),
   },
@@ -107,7 +110,7 @@ export const WORKFLOW_REPLIES: readonly ScenarioReply[] = [
   },
   {
     call: "workflow.humanFormRead",
-    afterMs: 120,
+    afterMs: WORKFLOW_READ_LATENCY_MS,
     resultFor: (request, _at, _ordinal, answered, readStamp) =>
       answerFormRead(request, { answered, readStamp }),
   },
