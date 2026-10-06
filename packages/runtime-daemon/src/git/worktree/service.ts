@@ -25,7 +25,7 @@ import {
 } from "./errors.js";
 import type { WorktreeEventEmitter } from "./event-emitter.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
-import { DEFAULT_WORKTREE_FILESYSTEM, type WorktreeFilesystem } from "./filesystem.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../filesystem.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
@@ -67,7 +67,7 @@ export interface WorktreeServiceDeps {
   /** Git process seam; defaults to `execFile` against `git`. */
   readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
-  readonly filesystem?: WorktreeFilesystem;
+  readonly filesystem?: GitFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at` / `cleaned_at`. Injectable for tests. */
@@ -163,7 +163,7 @@ interface CreatingRowAttempt {
 
 /**
  * What a failed `create` disposes of. Both paths are absolute; transposing them would aim
- * `removeDirectory` at the user's repository root.
+ * `removePath` at the user's repository root.
  */
 interface CreateFailureRecovery {
   readonly worktreeId: string;
@@ -190,7 +190,7 @@ export class WorktreeService {
   readonly #events: WorktreeEventEmitter;
   readonly #executionRootsDirectory: string;
   readonly #runGit: GitCommand;
-  readonly #filesystem: WorktreeFilesystem;
+  readonly #filesystem: GitFilesystem;
   readonly #now: () => string;
   readonly #newWorktreeId: () => string;
 
@@ -209,7 +209,7 @@ export class WorktreeService {
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;
     this.#executionRootsDirectory = deps.executionRootsDirectory;
-    this.#filesystem = deps.filesystem ?? DEFAULT_WORKTREE_FILESYSTEM;
+    this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
     this.#runGit = createHookNeutralizedGitCommand({
       git: deps.git ?? runGitWithExecFile,
       createDirectory: (path) => this.#filesystem.createDirectory(path),
@@ -480,7 +480,7 @@ export class WorktreeService {
         continue;
       }
       this.#requireMintedWorktreeRoot(row);
-      await this.#filesystem.removeDirectory(row.fs_root);
+      await this.#filesystem.removePath(row.fs_root);
       // After the removal: `worktree prune` only drops entries whose directory is missing.
       await this.#pruneWorktreeAdministrativeEntries(row.canonical_root);
       this.#stampCleanedStmt.run({ worktree_id: row.id, now: this.#now() });
@@ -594,7 +594,7 @@ export class WorktreeService {
     // the caller re-raises.
     this.#markFailedStmt.run({ worktree_id: recovery.worktreeId, now: this.#now() });
     try {
-      await this.#filesystem.removeDirectory(recovery.fsRoot);
+      await this.#filesystem.removePath(recovery.fsRoot);
       await this.#pruneWorktreeAdministrativeEntries(recovery.canonicalRoot);
     } catch {
       // Swallowed only here: the caller is already throwing the creation failure. A `failed` row is

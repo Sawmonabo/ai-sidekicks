@@ -23,7 +23,7 @@ import type { WorktreeCreateFailureReason } from "../errors.js";
 import { WorktreeService } from "../service.js";
 import { deriveWorktreeBranchName } from "../branch-name.js";
 import type { CreateWorktreeInput, CreatedWorktree, WorktreeServiceDeps } from "../service.js";
-import type { WorktreeFilesystem } from "../filesystem.js";
+import type { GitFilesystem } from "../../filesystem.js";
 import type { GitInvocationResult, GitRunner } from "../../process.js";
 
 // ----------------------------------------------------------------------------
@@ -518,12 +518,12 @@ describe("WorktreeService.cleanupPass", () => {
       [second.fsRoot, first.fsRoot],
     ]);
     let holdTaken = false;
-    const raceInjectingFilesystem: WorktreeFilesystem = {
+    const raceInjectingFilesystem: GitFilesystem = {
       createDirectory: (path: string): Promise<void> => {
         mkdirSync(path, { recursive: true });
         return Promise.resolve();
       },
-      removeDirectory: (path: string): Promise<void> => {
+      removePath: (path: string): Promise<void> => {
         const otherRoot = otherRootOf.get(path);
         if (!holdTaken && otherRoot !== undefined) {
           insertWorkspace({ state: "busy", fsRoot: otherRoot });
@@ -563,12 +563,12 @@ describe("WorktreeService.cleanupPass", () => {
       .prepare(`UPDATE worktrees SET fs_root = ? WHERE id = ?`)
       .run(ctx.hookNeutralizationDirectory, created.worktreeId);
     const removedPaths: string[] = [];
-    const recordingFilesystem: WorktreeFilesystem = {
+    const recordingFilesystem: GitFilesystem = {
       createDirectory: (path: string): Promise<void> => {
         mkdirSync(path, { recursive: true });
         return Promise.resolve();
       },
-      removeDirectory: (path: string): Promise<void> => {
+      removePath: (path: string): Promise<void> => {
         removedPaths.push(path);
         return Promise.resolve();
       },

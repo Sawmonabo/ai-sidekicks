@@ -16,7 +16,7 @@ import {
   type TurnSnapshotRetentionSkipReason,
   warnDiagnostic,
 } from "./diagnostics.js";
-import { DEFAULT_TURN_SNAPSHOT_FILESYSTEM, type TurnSnapshotFilesystem } from "./filesystem.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../filesystem.js";
 import {
   isPathProvablyAbsent,
   parseSnapshotRefListing,
@@ -61,7 +61,7 @@ export interface TurnSnapshotServiceDeps {
    */
   readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
-  readonly filesystem?: TurnSnapshotFilesystem;
+  readonly filesystem?: GitFilesystem;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /**
@@ -148,7 +148,7 @@ export interface TurnSnapshotRetentionPruneResult {
 export class TurnSnapshotService {
   readonly #snapshotIndexDirectory: string;
   readonly #runGit: GitCommand;
-  readonly #filesystem: TurnSnapshotFilesystem;
+  readonly #filesystem: GitFilesystem;
   readonly #now: () => string;
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
   // `null` without a `database` (capture-only wiring); prepared here so a schema mismatch fails
@@ -158,7 +158,7 @@ export class TurnSnapshotService {
 
   constructor(deps: TurnSnapshotServiceDeps) {
     this.#snapshotIndexDirectory = join(deps.executionRootsDirectory, SNAPSHOT_INDEX_SEGMENT);
-    this.#filesystem = deps.filesystem ?? DEFAULT_TURN_SNAPSHOT_FILESYSTEM;
+    this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
     this.#runGit = createHookNeutralizedGitCommand({
       git: deps.git ?? runGitWithExecFile,
       createDirectory: (path) => this.#filesystem.createDirectory(path),

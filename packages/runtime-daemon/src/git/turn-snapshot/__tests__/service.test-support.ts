@@ -26,7 +26,7 @@ import { runGitWithExecFile, type GitRunner } from "../../process.js";
 import { TurnSnapshotService } from "../service.js";
 import type { TurnSnapshotCaptureResult, TurnSnapshotCaptured } from "../service.js";
 import type { TurnSnapshotDiagnostic } from "../diagnostics.js";
-import type { TurnSnapshotFilesystem } from "../filesystem.js";
+import type { GitFilesystem } from "../../filesystem.js";
 
 /** The run every case captures for; a UUID, which the ref-component validator admits. */
 export const RUN_ID = "0192b3c0-1111-7c4a-9b1c-1b7c5b3e8f00";
@@ -155,7 +155,7 @@ export class FixtureRepository {
 /** Seams a case replaces; everything unset stays at the production default. */
 export interface ServiceOverrides {
   readonly git?: GitRunner;
-  readonly filesystem?: TurnSnapshotFilesystem;
+  readonly filesystem?: GitFilesystem;
   readonly now?: () => string;
   readonly emitDiagnostic?: (diagnostic: TurnSnapshotDiagnostic) => void;
   /** The prune only; the capture cases construct without one. */
