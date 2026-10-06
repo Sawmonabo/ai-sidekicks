@@ -7,7 +7,7 @@ import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/ope
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { SessionStore } from "#renderer/store/session/session-store.js";
-import { ArtifactListReader } from "./artifact-list-reader.js";
+import { ArtifactListReader } from "./list-reader.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,

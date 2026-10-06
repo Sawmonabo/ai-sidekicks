@@ -23,7 +23,7 @@ import type {
   ArtifactOperations,
   ReadArtifact,
 } from "#renderer/features/inspector/artifacts/services/artifact-reads.js";
-import { ArtifactListReader } from "#renderer/features/inspector/artifacts/artifact-list-reader.js";
+import { ArtifactListReader } from "#renderer/features/inspector/artifacts/list-reader.js";
 
 /** The one session every case here reads, named once so a store and a row agree. */
 export const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";

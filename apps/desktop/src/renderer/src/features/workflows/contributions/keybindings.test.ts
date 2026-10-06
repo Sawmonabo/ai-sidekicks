@@ -5,7 +5,7 @@
 // read submits it once it has been read.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -46,16 +46,16 @@ async function pressChordOf(commandId: string, target: EventTarget): Promise<voi
 
 /**
  * Register the workflows screen's commands under its real chords on `document`, pressing the acts
- * the mounted screen offers.
+ * the mounted screen offers, until the test finishes, whether it passed or not.
  */
-function installWorkflowChords(commandTargets: WorkflowCommandTargets): () => void {
+function installWorkflowChords(commandTargets: WorkflowCommandTargets): void {
   const registry = new CommandRegistry();
   for (const command of createWorkflowCommands(commandTargets)) {
     registry.register(command);
   }
   const table = new KeybindingTable({ registry, readContext: () => ({ onWorkflows: true }) });
   table.setBindings(WORKFLOW_KEY_BINDINGS);
-  return table.install(document);
+  onTestFinished(table.install(document));
 }
 
 afterEach(cleanup);
@@ -67,7 +67,8 @@ describe("the workflows screen's chords", () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingApproval),
     });
-    const dispose = installWorkflowChords(mounted.commandTargets);
+    onTestFinished(mounted.unmount);
+    installWorkflowChords(mounted.commandTargets);
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("button", { name: "Approve" })).toBeDefined();
     });
@@ -93,15 +94,14 @@ describe("the workflows screen's chords", () => {
       expect(screen.getByText(/^Approved at /u)).toBeDefined();
     });
     expect(approvals()).toBe(1);
-    dispose();
-    mounted.unmount();
   });
 
   it("submits a form pressed while it is still being read once it has been read", async () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingForm),
     });
-    const dispose = installWorkflowChords(mounted.commandTargets);
+    onTestFinished(mounted.unmount);
+    installWorkflowChords(mounted.commandTargets);
     await advanceScenarioUntil(mounted.engine, () => {
       expect(mounted.calls.some((call) => call.method === "workflow.humanFormRead")).toBe(true);
     });
@@ -112,7 +112,5 @@ describe("the workflows screen's chords", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getAllByText("This field is required.").length).toBeGreaterThan(0);
     });
-    dispose();
-    mounted.unmount();
   });
 });

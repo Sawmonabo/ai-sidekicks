@@ -59,7 +59,7 @@ function renderReading(
     );
   }
   return (
-    <ul className="meridian-workflow-start__candidate-list" aria-label="Workflow definitions">
+    <ul className="meridian-workflow-start__candidate-list" aria-label="Workflows">
       {candidates.map((definition) => (
         <li key={definition.id} className="meridian-workflow-start__candidate">
           <button

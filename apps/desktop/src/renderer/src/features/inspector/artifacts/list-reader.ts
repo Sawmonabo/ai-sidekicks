@@ -1,26 +1,23 @@
 // The `Artifacts` section's reading of a session's artifacts, and who is told when it changes.
 //
 // The list read and the two act reads are calls the caller supplies (`ArtifactOperations`); a
-// rejected call propagates to whoever awaited it. Scheduling lives in `artifact-read-schedule.ts`
-// and the acts in `artifact-row-actions.ts`.
+// rejected call propagates to whoever awaited it. Scheduling lives in `read-schedule.ts`
+// and the acts in `row-actions.ts`.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type Clock } from "#renderer/lib/clock.js";
-import { ArtifactRowActions } from "./artifact-row-actions.js";
-import { type ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
+import { ArtifactRowActions } from "./row-actions.js";
+import { type ArtifactListReadingPublisher } from "./list-reading-publisher.js";
 import {
   NOTHING_READ_YET,
   type ArtifactListReading,
   type ArtifactRowActOutcome,
-} from "./artifact-list-reading.js";
+} from "./list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
-import {
-  ArtifactReadSchedule,
-  type ArtifactReadScheduleOptions,
-} from "./artifact-read-schedule.js";
+import { ArtifactReadSchedule, type ArtifactReadScheduleOptions } from "./read-schedule.js";
 import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
 
 /** What the reader needs: the schedule's options plus the act call. */

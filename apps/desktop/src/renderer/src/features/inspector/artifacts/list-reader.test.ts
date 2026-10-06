@@ -11,7 +11,7 @@ import { SessionStore } from "#renderer/store/session/session-store.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 import { handAnsweredCall } from "#test/helpers/held-calls.js";
-import { ArtifactListReader } from "./artifact-list-reader.js";
+import { ArtifactListReader } from "./list-reader.js";
 import {
   SERVED_SUMMARY,
   SESSION_ID,

@@ -2,21 +2,21 @@
 // leaves standing on the reading.
 //
 // A re-read is single-flight per row and superseded by a refresh, which is already re-reading
-// the same row. The payload fetch lives in `artifact-payload-fetch.ts`; both meet the reader
+// the same row. The payload fetch lives in `payload-fetch.ts`; both meet the reader
 // at `ArtifactListReadingPublisher`.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
 
 import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./model.js";
-import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
-import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
+import type { ArtifactListReadingPublisher } from "./list-reading-publisher.js";
+import { ArtifactPayloadFetches } from "./payload-fetch.js";
 import {
   withArtifactActInFlight,
   withReplacedRow,
   withoutArtifactActInFlight,
   type ArtifactRowActOutcome,
-} from "./artifact-list-reading.js";
+} from "./list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
 
@@ -40,7 +40,7 @@ export class ArtifactRowActions {
     this.#payloadFetches = new ArtifactPayloadFetches(options);
   }
 
-  /** Fetch one artifact's bytes; the single-flight rule is `artifact-payload-fetch.ts`'s. */
+  /** Fetch one artifact's bytes; the single-flight rule is `payload-fetch.ts`'s. */
   public async fetchPayload(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     return this.#payloadFetches.fetch(artifactId);
   }

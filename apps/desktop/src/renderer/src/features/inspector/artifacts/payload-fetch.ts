@@ -12,8 +12,8 @@ import { RefusalError } from "#renderer/lib/refusal/refusal.js";
 import { readArtifactPayload } from "#renderer/services/artifacts/artifact-payload-read.js";
 import { abandonedReadRefusal } from "#renderer/services/daemon/daemon-reply.js";
 import { artifactManifestRowFrom } from "./model.js";
-import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
-import { withReplacedRow } from "./artifact-list-reading.js";
+import type { ArtifactListReadingPublisher } from "./list-reading-publisher.js";
+import { withReplacedRow } from "./list-reading.js";
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import {
   artifactPayloadReadingFrom,

@@ -1,6 +1,6 @@
 // The app's wrapper over `@xterm/xterm`: one terminal, composed from `addons.ts`
 // (addons and renderer choice), `links.ts` (both link paths, through `link-guard.ts`)
-// and `xterm-mount-binding.ts` (size seam and write gate).
+// and `mount-binding.ts` (size seam and write gate).
 //
 // This class owns the emulator's life: built on first attach, kept across a detach, disposed
 // once. It never decides who may write; the pane hands it the lease's answer.
@@ -17,7 +17,7 @@ import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../caps.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./addons.js";
-import { XtermMountBinding } from "./xterm-mount-binding.js";
+import { XtermMountBinding } from "./mount-binding.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./links.js";
 import { applyDeclaredMonospaceFamily } from "./typeface.js";
 

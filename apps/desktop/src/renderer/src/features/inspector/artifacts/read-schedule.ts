@@ -20,7 +20,7 @@ import {
 import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
 import { type SessionStore } from "#renderer/store/session/session-store.js";
-import { settledReadReading, type ArtifactListReading } from "./artifact-list-reading.js";
+import { settledReadReading, type ArtifactListReading } from "./list-reading.js";
 import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
 
 /** The namespace every frame about an artifact is registered under. */

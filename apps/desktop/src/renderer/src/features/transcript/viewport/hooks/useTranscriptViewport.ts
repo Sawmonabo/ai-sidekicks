@@ -21,6 +21,7 @@ import { TRANSCRIPT_OVERSCAN_ROWS } from "../constants.js";
 import { ViewportController } from "../viewport-controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";
+import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
 export interface TranscriptViewportBinding {
@@ -98,6 +99,7 @@ export function useTranscriptViewport(
       controller.dispose();
     };
   }, [controller, clock]);
+  useObserveDisplaySettings(controller);
 
   const snapshot = useSyncExternalStore(
     useCallback((onChange: () => void) => controller.subscribe(onChange), [controller]),

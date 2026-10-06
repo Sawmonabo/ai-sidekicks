@@ -1,6 +1,6 @@
 // What the `Artifacts` section renders from, and the pure reductions over it.
 //
-// `artifact-list-reader.ts` owns the calls and scheduling; this file owns the immutable value
+// `list-reader.ts` owns the calls and scheduling; this file owns the immutable value
 // and the total functions over it, so a reduction is testable with no bridge, clock or reader.
 
 import type { ArtifactManifestRow, ArtifactsSectionState } from "./model.js";
