@@ -32,7 +32,7 @@ export type DriverStrategy = "cd-prefix" | "cwd-env";
  *
  * Defaults to `windows-cmd` on Windows and `posix` elsewhere.
  */
-export type WrappingShell = "posix" | "windows-cmd";
+type WrappingShell = "posix" | "windows-cmd";
 
 /** Input to `translateSpawnCwd`. */
 export interface TranslateSpawnCwdInput {

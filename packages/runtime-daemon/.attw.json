@@ -1,3 +1,4 @@
 {
-  "profile": "esm-only"
+  "profile": "esm-only",
+  "excludeEntrypoints": ["./typescript-source-loader"]
 }

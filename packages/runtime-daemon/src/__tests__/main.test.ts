@@ -41,7 +41,8 @@ import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/mac
 import { connect } from "../ipc/__fixtures__/local-socket-client.js";
 
 const ENTRY_POINT = fileURLToPath(new URL("../main.ts", import.meta.url));
-const SOURCE_LOADER = new URL("./typescript-source-loader.mjs", import.meta.url).href;
+const SOURCE_LOADER = new URL("../../tests/helpers/typescript-source-loader.mjs", import.meta.url)
+  .href;
 // The start runs the login shell under its own 5 s deadline, so readiness is bounded above that.
 const READY_TIMEOUT_MS = 15_000;
 

@@ -41,7 +41,7 @@ export function rebuildSession(events: ReadonlyArray<StoredEvent>): DaemonSessio
  * Every type except `session.created` only advances `asOfSequence`; a `session.created` here
  * throws.
  */
-export function projectEvent(record: DaemonSessionRecord, event: StoredEvent): DaemonSessionRecord {
+function projectEvent(record: DaemonSessionRecord, event: StoredEvent): DaemonSessionRecord {
   switch (event.type) {
     case "session.created":
       // A second `session.created` would replace the session's state mid-stream or duplicate

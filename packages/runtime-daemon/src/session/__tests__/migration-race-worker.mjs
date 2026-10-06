@@ -64,7 +64,7 @@ import Database from "better-sqlite3";
 // `import("../migration-runner.js")` would succeed but its transitive
 // `import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js"` would fail to
 // resolve under vanilla Node.
-register("../../__tests__/typescript-source-loader.mjs", import.meta.url);
+register("../../../tests/helpers/typescript-source-loader.mjs", import.meta.url);
 
 /**
  * @typedef {object} WorkerInput
