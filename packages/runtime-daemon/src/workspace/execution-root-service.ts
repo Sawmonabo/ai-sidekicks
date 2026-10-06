@@ -26,6 +26,7 @@ import {
 } from "../git/worktree/errors.js";
 import { deriveWorktreeBranchName } from "../git/worktree/branch-name.js";
 import { type CreateWorktreeInput, type CreatedWorktree } from "../git/worktree/service.js";
+import type { GitFilesystem } from "../git/filesystem.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
@@ -46,11 +47,6 @@ const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
 
 /** Exit status of `symbolic-ref --quiet` on a detached HEAD; any other non-zero one is a fault. */
 const DETACHED_HEAD_EXIT_CODE = 1;
-
-/** The filesystem seam. One verb: create leading directories, tolerate existing. */
-interface ExecutionRootFilesystem {
-  createDirectory(path: string): Promise<void>;
-}
 
 /** The worktree service narrowed to the calls this module makes; data types stay shared. */
 export interface ExecutionRootWorktreeProvisioner {
@@ -95,8 +91,8 @@ export interface ExecutionRootServiceDeps {
   readonly executionRootsDirectory: string;
   /** Git process seam; required, so the composition root names the runner. */
   readonly git: GitRunner;
-  /** Filesystem seam. Required, like `git`. */
-  readonly filesystem: ExecutionRootFilesystem;
+  /** The git seam's directory verb, for the hook-neutralizing folder. Required, like `git`. */
+  readonly filesystem: Pick<GitFilesystem, "createDirectory">;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at`. Injectable for tests. */
