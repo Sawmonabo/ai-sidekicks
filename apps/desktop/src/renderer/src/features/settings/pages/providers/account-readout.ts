@@ -25,12 +25,12 @@ export const NO_READINESS: readonly ProviderReadiness[] = Object.freeze([]);
 /** What the account plane answered, and why it did not where it did not. */
 export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireReadState {
   /**
-   * Every account the registry carries, `accountId` to `displayLabel`.
+   * Every account the registry carries that something names, `accountId` to its label.
    *
    * Folded from the same read and tail as the quota rows, so a view naming a paying account
    * needs no second fetch. Empty until the read has served: a missing entry means "not
-   * read", not "no such account", and a consumer renders nothing for one rather than
-   * falling back to the handle.
+   * read" or "not named yet", not "no such account", and a consumer renders nothing for one
+   * rather than falling back to the handle.
    */
   readonly accountLabels: ReadonlyMap<string, string>;
   /**

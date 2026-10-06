@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -133,11 +134,13 @@ export function AccountsFixtureBody(props: {
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
   const holdingAccountId = findRunningProviderSignInAccountId(signIn);
-  const holdingAccountLabel =
+  const holdingAccount =
     holdingAccountId === undefined
       ? undefined
-      : (registry.accounts.find((account) => account.accountId === holdingAccountId)
-          ?.displayLabel ?? holdingAccountId);
+      : registry.accounts.find((account) => account.accountId === holdingAccountId);
+  const holdingAccountLabel =
+    holdingAccount === undefined ? undefined : accountLabel(holdingAccount);
+  const selectedLabel = selected === undefined ? undefined : accountLabel(selected);
 
   return (
     <>
@@ -215,7 +218,9 @@ export function AccountsFixtureBody(props: {
       {selected === undefined ? null : (
         <>
           <section className="meridian-settings-page__block">
-            <h3 className="meridian-settings-page__block-title">{selected.displayLabel}</h3>
+            {selectedLabel === undefined ? null : (
+              <h3 className="meridian-settings-page__block-title">{selectedLabel}</h3>
+            )}
             <AccountDetail account={selected} />
             <AccountDefaultControl
               account={selected}

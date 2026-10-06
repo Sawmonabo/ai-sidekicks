@@ -1,5 +1,6 @@
 // The account axis's reset control drops the entry rather than pinning the definition's
-// account. Driven through the real component over a typed registry reading.
+// account, and the field names an account by its label, never by its id. Driven through the
+// real component over a typed registry reading.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -12,17 +13,17 @@ import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField
  * readiness entry resolves `acct-personal`, so cases are about the entry, not the flag.
  */
 const REGISTRY_ACCOUNTS = [
-  account({ accountId: registryAccountId("acct-team"), displayLabel: "Team", isDefault: true }),
+  account({ accountId: registryAccountId("acct-team"), isDefault: true }),
   account({
     accountId: registryAccountId("acct-personal"),
-    displayLabel: "Personal",
+    observedAccountEmail: "sam@example.org",
     isDefault: false,
     healthState: "reauth_required",
   }),
   account({
     accountId: registryAccountId("acct-codex"),
     provider: "codex",
-    displayLabel: "Codex",
+    observedAccountEmail: "sam@example.net",
     isDefault: true,
   }),
 ];
@@ -70,5 +71,25 @@ describe("the account axis — what its reset control promises", () => {
     // `undefined`, never the definition's account: sending the inherited value would be an
     // explicit override.
     expect(dropped).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe("the account axis — how it names an account", () => {
+  it("names the pinned account by its reported identity and a missing one by no id", () => {
+    const pinned = renderedAxis({
+      value: "acct-personal",
+      inheritedValue: undefined,
+      isOverridden: true,
+    });
+    expect(pinned.textContent).toContain("sam@example.org");
+    expect(pinned.textContent).not.toContain("acct-personal");
+
+    const missing = renderedAxis({
+      value: "acct-removed",
+      inheritedValue: undefined,
+      isOverridden: true,
+    });
+    expect(missing.textContent).toContain("registry does not carry that account");
+    expect(missing.textContent).not.toContain("acct-removed");
   });
 });

@@ -6,6 +6,7 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
@@ -59,10 +60,11 @@ export interface WorkflowsScreenHold {
   readonly definitions: readonly WorkflowDefinitionSummary[];
   /**
    * Why the saved workflows or the accounts could not be read, where one could not: the filter
-   * then offers no workflow and a cost names its account by id.
+   * then offers no workflow and a cost names no account.
    */
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
+  /** What an account is named by, while the accounts are read and one names it. */
   readonly accountLabel: (providerAccountId: string) => string | undefined;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
@@ -183,12 +185,16 @@ export function useWorkflowsScreen(
     [feed, countAnswered],
   );
 
-  const accountLabel = useCallback(
-    (providerAccountId: string) =>
-      accountsState.kind === "loaded"
-        ? accountsState.value.accounts.find((account) => account.accountId === providerAccountId)
-            ?.displayLabel
-        : undefined,
+  const payerLabel = useCallback(
+    (providerAccountId: string) => {
+      if (accountsState.kind !== "loaded") {
+        return undefined;
+      }
+      const payer = accountsState.value.accounts.find(
+        (account) => account.accountId === providerAccountId,
+      );
+      return payer === undefined ? undefined : accountLabel(payer);
+    },
     [accountsState],
   );
   const definitions = useMemo(
@@ -299,7 +305,7 @@ export function useWorkflowsScreen(
           ? accountsState.refusal
           : undefined,
     filters,
-    accountLabel,
+    accountLabel: payerLabel,
     definitionNameFor,
     nextWaiting,
     pauseAct: pause.state,

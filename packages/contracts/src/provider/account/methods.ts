@@ -88,6 +88,7 @@ export const PROVIDER_WAKE_HELPER_REASON_MAX_LEN = 1024;
  */
 export interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
+  /** Renames an account added from a pasted token or API key; no other account carries a name. */
   displayLabel?: string | undefined;
   /** How `unknown` is resolved to a declared mode. */
   billingMode?: BillingMode | undefined;

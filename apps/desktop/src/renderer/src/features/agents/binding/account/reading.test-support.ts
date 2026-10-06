@@ -25,7 +25,8 @@ export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccou
   return {
     accountId: registryAccountId("acct-team"),
     provider: "claude",
-    displayLabel: "Team",
+    observedAccountEmail: "sam@example.com",
+    observedAccountPlan: "team",
     credentialGeneration: 1,
     billingMode: "subscription",
     isDefault: true,

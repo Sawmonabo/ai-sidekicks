@@ -13,7 +13,6 @@ export function validProviderAccount(
   return {
     accountId: ACCOUNT_ID,
     provider: "claude",
-    displayLabel: "Personal",
     credentialGeneration: 1,
     billingMode: "subscription",
     isDefault: true,

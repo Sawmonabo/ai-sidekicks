@@ -6,7 +6,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 
 import { OverlayComboboxPopup } from "#renderer/features/agents/components/OverlayComboboxPopup/OverlayComboboxPopup.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the account picker reads, and the id of the label that names its trigger. */
@@ -23,10 +22,10 @@ export interface AccountChoiceListProps {
 export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Element {
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
-  // An id the registry does not carry falls back to itself, so a held value never renders as
-  // a blank trigger, which would read as "no account pinned".
+  // Never the id: an account the registry does not carry, or one nothing names yet, reads blank,
+  // and the field's advisory says the registry does not carry a pinned one.
   const labelFor = (accountId: string): string =>
-    reading.choices.find((choice) => choice.accountId === accountId)?.displayLabel ?? accountId;
+    reading.choices.find((choice) => choice.accountId === accountId)?.label ?? "";
   return (
     <Combobox.Root
       items={accountIds}
@@ -61,10 +60,9 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
               className="meridian-axis-field__option"
             >
               <span className="meridian-axis-field__option-label">
-                {choice.displayLabel}
+                {choice.label}
                 {choice.isProviderDefault ? " · default" : ""}
               </span>
-              <WireFigure value={choice.accountId} />
             </Combobox.Item>
           ))}
         </Combobox.List>

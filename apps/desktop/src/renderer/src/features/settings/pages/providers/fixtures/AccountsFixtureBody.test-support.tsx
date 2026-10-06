@@ -31,8 +31,9 @@ const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;
 const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
   provider: "claude",
-  displayLabel: "Claude — work",
   credentialGeneration: 3,
+  observedAccountEmail: "sam@example.com",
+  observedAccountPlan: "max",
   billingMode: "subscription",
   isDefault: true,
   healthState: "authenticated",
@@ -51,8 +52,9 @@ const WORK_ACCOUNT: ProviderAccount = {
 const PERSONAL_ACCOUNT: ProviderAccount = {
   accountId: PERSONAL_ACCOUNT_ID,
   provider: "codex",
-  displayLabel: "Codex — personal",
   credentialGeneration: 1,
+  observedAccountEmail: "sam@example.org",
+  observedAccountPlan: "plus",
   billingMode: "metered",
   isDefault: true,
   healthState: "home_missing",
@@ -71,7 +73,7 @@ const PERSONAL_ACCOUNT: ProviderAccount = {
 const BATCH_ACCOUNT: ProviderAccount = {
   ...WORK_ACCOUNT,
   accountId: BATCH_ACCOUNT_ID,
-  displayLabel: "Claude — batch runs",
+  observedAccountEmail: "batch@example.com",
   credentialGeneration: 5,
   billingMode: "metered",
   isDefault: false,

@@ -15,16 +15,13 @@ export function costFigure(cost: WorkflowCost | undefined): string {
 }
 
 /**
- * The cost and the account that paid, `$7.30 · Work account`. An account the registry no
- * longer lists is named by its id, since a cost with no payer would read as free.
+ * The cost and the account that paid, `$7.30 · sam@example.com · Max`. An account the registry
+ * does not name reads as the cost alone, never as its id.
  */
 export function costWithPayer(
   cost: WorkflowCost | undefined,
   accountLabel: (providerAccountId: string) => string | undefined,
 ): string {
-  if (cost === undefined) {
-    return costFigure(undefined);
-  }
-  const payer = accountLabel(cost.providerAccountId) ?? cost.providerAccountId;
-  return `${costFigure(cost)} · ${payer}`;
+  const payer = cost === undefined ? undefined : accountLabel(cost.providerAccountId);
+  return payer === undefined ? costFigure(cost) : `${costFigure(cost)} · ${payer}`;
 }

@@ -81,7 +81,6 @@ describe("request/response pairs", () => {
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
-        displayLabel: "Personal",
         billingMode: "subscription",
         credentialGeneration: 7,
       }).success,

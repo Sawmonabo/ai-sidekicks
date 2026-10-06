@@ -410,7 +410,10 @@ CREATE TABLE provider_accounts (
   account_id                TEXT NOT NULL PRIMARY KEY,
   provider                  TEXT NOT NULL
                             CHECK(provider IN ('claude', 'codex')),
-  display_label             TEXT NOT NULL,      -- the user's label; treated as personal data
+  -- The name the person typed for an account added from a pasted token or API
+  -- key, which its provider names nowhere; NULL on every other account, which its
+  -- provider-reported identity names. Personal data.
+  display_label             TEXT,
   -- The daemon builds each spawn environment from this path and never inherits
   -- ambient provider credentials.
   credential_home_path      TEXT NOT NULL,
@@ -498,6 +501,13 @@ CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
 -- share credentials and spend.
 CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
+
+-- One typed name per provider, compared ignoring case and surrounding spaces,
+-- where a name is present: a second account of one provider with the same name
+-- is refused.
+CREATE UNIQUE INDEX provider_accounts_unique_display_label
+  ON provider_accounts(provider, lower(trim(display_label)))
+  WHERE display_label IS NOT NULL;
 
 -- The newest quota reading per account and limit. Keyed by limit, not window
 -- length: one provider publishes several limits that share a window length.

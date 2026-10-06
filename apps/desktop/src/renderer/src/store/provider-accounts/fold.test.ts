@@ -23,7 +23,8 @@ function account(overrides: Partial<ProviderAccount> = {}): ProviderAccount {
   return {
     accountId: ACCOUNT_ID,
     provider: "claude",
-    displayLabel: "Team",
+    observedAccountEmail: "sam@example.com",
+    observedAccountPlan: "team",
     credentialGeneration: 1,
     billingMode: "subscription",
     isDefault: true,

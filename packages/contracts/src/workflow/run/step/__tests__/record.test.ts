@@ -1,10 +1,16 @@
 // A run's steps cross from the daemon to the run page, the runs table and the live stream. These
 // tests hold the step record's own rules: only a waiting step names its cause, only an account
-// wait names its spent account and resumes itself, only a wait on a person has a deadline, only a
-// reply wait holds a question and only an answered step its answer, an inline payload stays under
-// its cap, and only a failed step says how its process exited.
+// wait names its spent account, by a label as long as a reported identity, and resumes itself,
+// only a wait on a person has a deadline, only a reply wait holds a question and only an answered
+// step its answer, an inline payload stays under its cap, and only a failed step says how its
+// process exited.
 import { describe, expect, it } from "vitest";
 
+import {
+  PROVIDER_ACCOUNT_EMAIL_MAX_LEN,
+  PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN,
+  PROVIDER_ACCOUNT_PLAN_MAX_LEN,
+} from "../../../../provider/account/record.js";
 import {
   WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
   WorkflowPayloadRefSchema,
@@ -40,6 +46,23 @@ describe("WorkflowStepSchema", () => {
       waitCause: "account",
       waitAccount: SPENT_ACCOUNT,
       resumeAt: "2026-09-29T19:00:00Z",
+    };
+    expect(WorkflowStepSchema.safeParse(parked).success).toBe(true);
+  });
+
+  it("carries a spent account named by its longest reported identity", () => {
+    // An email, a plan and an organization at their caps, joined as every surface joins them:
+    // a label sized for a typed name alone would refuse the run read that carries it.
+    const label = [
+      "e".repeat(PROVIDER_ACCOUNT_EMAIL_MAX_LEN),
+      "p".repeat(PROVIDER_ACCOUNT_PLAN_MAX_LEN),
+      "o".repeat(PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN),
+    ].join(" · ");
+    const parked = {
+      ...STEP,
+      status: "waiting",
+      waitCause: "account",
+      waitAccount: { ...SPENT_ACCOUNT, label },
     };
     expect(WorkflowStepSchema.safeParse(parked).success).toBe(true);
   });

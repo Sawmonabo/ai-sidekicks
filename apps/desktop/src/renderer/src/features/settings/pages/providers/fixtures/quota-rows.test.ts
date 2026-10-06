@@ -28,7 +28,8 @@ function accountAtGeneration(credentialGeneration: number): ProviderAccount {
   return {
     accountId: ACCOUNT_ID,
     provider: "claude",
-    displayLabel: "Work",
+    observedAccountEmail: "sam@example.com",
+    observedAccountPlan: "max",
     credentialGeneration,
     billingMode: "subscription",
     isDefault: true,

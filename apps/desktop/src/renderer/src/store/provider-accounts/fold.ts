@@ -19,6 +19,7 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
+import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 
@@ -26,8 +27,8 @@ import { structuralKey } from "#renderer/lib/structural-key.js";
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
-  /** The label the person chose for the account. */
-  readonly accountLabel: string;
+  /** What the account is named by; `undefined` where its provider has reported nothing yet. */
+  readonly accountLabel: string | undefined;
   /**
    * The window's own label where the provider publishes one, and its `limitId` verbatim where
    * it does not, since inventing a name would put a word on screen no provider used.
@@ -199,14 +200,18 @@ export class ProviderAccountFold {
    * Every account the registry carries, by the id the daemon minted for it.
    *
    * Off the same held accounts as the readings, so a view naming a paying account joins
-   * `accountId` to `displayLabel` here instead of taking its own `providerAccount.list`, which
+   * `accountId` to its label here instead of taking its own `providerAccount.list`, which
    * would be a second reading of one registry. Separate from {@link readings} because an
-   * account with no observed window still has a label to render.
+   * account with no observed window still has a label to render. An account nothing names yet
+   * has no entry.
    */
   public accountLabels(): ReadonlyMap<string, string> {
     const labels = new Map<string, string>();
     for (const account of this.#accountsById.values()) {
-      labels.set(account.accountId, account.displayLabel);
+      const label = accountLabel(account);
+      if (label !== undefined) {
+        labels.set(account.accountId, label);
+      }
     }
     return labels;
   }
@@ -220,7 +225,7 @@ function readingFor(
   return {
     accountId: usageWindow.accountId,
     limitId: usageWindow.limitId,
-    accountLabel: account.displayLabel,
+    accountLabel: accountLabel(account),
     limitLabel: usageWindow.label ?? usageWindow.limitId,
     usedPercent: usageWindow.usedPercent,
     resetsAt: usageWindow.resetsAt,
@@ -243,6 +248,6 @@ function quotaKey(accountId: string, limitId: string): string {
  * urgency: a chip that moves when its number moves is hard to re-find when it matters.
  */
 function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
-  const byAccount = left.accountLabel.localeCompare(right.accountLabel);
+  const byAccount = (left.accountLabel ?? "").localeCompare(right.accountLabel ?? "");
   return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
 }

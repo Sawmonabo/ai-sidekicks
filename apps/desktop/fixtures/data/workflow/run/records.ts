@@ -73,7 +73,7 @@ export const WORKFLOW_PAYING_ACCOUNT: ProviderAccountId = WORK_ACCOUNT.accountId
 export const WORKFLOW_SPENT_ACCOUNT: WorkflowSpentAccount = {
   providerAccountId: WORK_ACCOUNT.accountId,
   provider: WORK_ACCOUNT.provider,
-  label: WORK_ACCOUNT.displayLabel,
+  label: "sam@example.com · Max",
 };
 
 /** One run as the fixture daemon holds it: its read and its definition's name. */

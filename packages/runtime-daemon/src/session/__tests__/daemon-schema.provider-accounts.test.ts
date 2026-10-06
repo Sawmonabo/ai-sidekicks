@@ -1,7 +1,8 @@
 // The provider-account tables on the schema the real migration runner builds. Every member of the
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
 // generation below the floor is refused, a provider holds one default account at most, a
-// credential home belongs to one account, a quota reading is keyed by account and limit alone,
+// credential home belongs to one account, a typed name is optional and unique per provider
+// ignoring case and surrounding spaces, a quota reading is keyed by account and limit alone,
 // and a memory-import outcome whose count and time disagree with it is refused. The member lists
 // are `Record<Union, true>` maps, so a member added to the contract is a type error here until
 // its case exists, and that case then fails until the CHECK admits it.
@@ -39,6 +40,7 @@ const HEALTH_STATE_MEMBERS: Record<ProviderAccountHealthState, true> = {
 
 interface AccountColumns {
   readonly provider: string;
+  readonly displayLabel: string | null;
   readonly billingMode: string;
   readonly healthState: string | null;
   readonly credentialGeneration: number;
@@ -51,6 +53,7 @@ interface AccountColumns {
 
 const VALID_ACCOUNT: AccountColumns = {
   provider: "claude",
+  displayLabel: null,
   billingMode: "subscription",
   healthState: null,
   credentialGeneration: CREDENTIAL_GENERATION_MIN,
@@ -88,10 +91,11 @@ describe("provider-account schema", () => {
          credential_generation, billing_mode, health_state, health_observed_at,
          memory_import_outcome, memory_import_count, memory_imported_at, is_default, created_at,
          updated_at)
-       VALUES (?, ?, 'Work', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       accountId,
       account.provider,
+      account.displayLabel,
       account.credentialHomePath ?? `/homes/${accountId}`,
       account.credentialGeneration,
       account.billingMode,
@@ -162,6 +166,22 @@ describe("provider-account schema", () => {
     expect(() => insertAccount({ provider: "codex", credentialHomePath: "/homes/shared" })).toThrow(
       /UNIQUE constraint failed/,
     );
+  });
+
+  it("stores an account with no typed name and reads it back as none", () => {
+    const accountId = insertAccount({ displayLabel: null });
+    expect(
+      db.prepare("SELECT display_label FROM provider_accounts WHERE account_id = ?").get(accountId),
+    ).toEqual({ display_label: null });
+  });
+
+  it("refuses a provider's second account with the same typed name, ignoring case and spaces", () => {
+    insertAccount({ provider: "claude", displayLabel: "Work" });
+    expect(() => insertAccount({ provider: "claude", displayLabel: " work " })).toThrow(
+      /UNIQUE constraint failed/,
+    );
+    expect(() => insertAccount({ provider: "codex", displayLabel: "work" })).not.toThrow();
+    expect(() => insertAccount({ provider: "claude", displayLabel: "Personal" })).not.toThrow();
   });
 
   it("keys a quota reading on (account_id, limit_id), with window_mins an attribute", () => {

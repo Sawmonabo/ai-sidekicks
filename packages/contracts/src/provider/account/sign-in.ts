@@ -36,7 +36,12 @@ export const PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN = 8192;
 /** Registers an account, or re-supplies the token of an existing one. */
 export interface ProviderAccountRegisterRequest {
   provider: ProviderName;
-  displayLabel: string;
+  /**
+   * The name the person gives an account its provider names nowhere: required on a new
+   * registration that carries `nonInteractiveToken`, and refused on one without it, which the
+   * provider-reported identity names.
+   */
+  displayLabel?: string | undefined;
   billingMode: BillingMode;
   makeDefault?: boolean | undefined;
   /**
@@ -66,7 +71,7 @@ export interface ProviderAccountRegisterRequest {
 
 /**
  * Parses a {@link ProviderAccountRegisterRequest}; `accountId` without `nonInteractiveToken` is
- * refused.
+ * refused, as is a new token registration without `displayLabel` and a sign-in one with it.
  */
 export const ProviderAccountRegisterRequestSchema: z.ZodType<
   ProviderAccountRegisterRequest,
@@ -77,7 +82,7 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
     displayLabel: wireFreeFormString(
       PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
       "ProviderAccountRegisterRequest.displayLabel",
-    ),
+    ).optional(),
     billingMode: BillingModeSchema,
     makeDefault: z.boolean().optional(),
     accountId: ProviderAccountIdSchema.optional(),
@@ -90,8 +95,8 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
     ).optional(),
   })
   .strict()
-  // Only the combination is constrained, so the rule lives here rather than on either member. The
-  // issue is reported on `nonInteractiveToken`, the member the caller must add.
+  // Only combinations are constrained, so the rules live here rather than on any one member. Each
+  // issue is reported on the member the caller must add or drop.
   .superRefine((request, context) => {
     if (request.accountId !== undefined && request.nonInteractiveToken === undefined) {
       context.addIssue({
@@ -101,6 +106,30 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
           "accountId selects an account whose sealed token is to be " +
           "replaced, so a request carrying it must also carry nonInteractiveToken; " +
           "omit accountId to register a new account instead.",
+      });
+    }
+    // A pasted token or API key carries no identity its provider reports, so the person names
+    // the account; any other account is named by what its provider reports and carries no name.
+    if (request.nonInteractiveToken === undefined && request.displayLabel !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["displayLabel"],
+        message:
+          "only an account added from a pasted token or API key carries displayLabel; " +
+          "a signed-in account is named by the identity its provider reports.",
+      });
+    }
+    if (
+      request.nonInteractiveToken !== undefined &&
+      request.accountId === undefined &&
+      request.displayLabel === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["displayLabel"],
+        message:
+          "an account added from a pasted token or API key must carry displayLabel, since " +
+          "its provider names it nowhere.",
       });
     }
   });

@@ -222,7 +222,7 @@ export function readRegistrationFields(
   const isTaken = accounts.some(
     (account) =>
       account.provider === typed.provider &&
-      account.displayLabel.trim().toLowerCase() === comparedName,
+      account.displayLabel?.trim().toLowerCase() === comparedName,
   );
   if (isTaken) {
     return {

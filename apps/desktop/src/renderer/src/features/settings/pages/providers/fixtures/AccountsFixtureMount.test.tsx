@@ -45,9 +45,9 @@ describe("AccountsFixtureMount", () => {
     const { container, fixture } = await mountProvidersPage();
     const accountRows = container.querySelectorAll(".meridian-accounts__rows > li");
     expect([...accountRows].map((row) => row.textContent)).toStrictEqual([
-      expect.stringContaining("Claude — work"),
-      expect.stringContaining("Claude — token"),
-      expect.stringContaining("Codex — personal"),
+      expect.stringContaining("sam@example.com · Max"),
+      expect.stringContaining("Personal · Claude Code token"),
+      expect.stringContaining("sam@example.org · Business · Example Inc"),
     ]);
 
     pressFirstStartControl(container);
@@ -157,15 +157,15 @@ describe("AccountsFixtureMount", () => {
     };
 
     // The signed-in account takes the mark, which the re-read registry shows.
-    await pressAccountRow("Claude — work");
+    await pressAccountRow("sam@example.com · Max");
     const workRow = [...container.querySelectorAll(".meridian-accounts__rows > li")].find((row) =>
-      row.textContent.includes("Claude — work"),
+      row.textContent.includes("sam@example.com · Max"),
     );
     expect(workRow?.textContent).toContain("Default");
 
     // The token account's login is gone, so the move is refused with its own way back, the
     // remedy the refusal carried rather than one guessed from the code.
-    await pressAccountRow("Claude — token");
+    await pressAccountRow("Personal · Claude Code token");
     const handoff = container.querySelector(".meridian-account-handoff__sentence");
     expect(handoff?.textContent).toBe(
       "This account cannot refresh itself. When the token stops working, mint a new one and " +

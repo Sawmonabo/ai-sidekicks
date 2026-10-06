@@ -9,6 +9,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
+import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
 import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -26,8 +27,8 @@ export interface AccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AccountChoice {
   readonly accountId: string;
-  /** Chosen by the person. What a person recognizes the account by. */
-  readonly displayLabel: string;
+  /** What the account is named by; `undefined` where its provider has reported nothing yet. */
+  readonly label: string | undefined;
   readonly isProviderDefault: boolean;
   readonly healthState: ProviderAccount["healthState"];
   /** `null` where no observation has ever been recorded for this account. */
@@ -152,7 +153,7 @@ function accountChoiceFor(
 ): AccountChoice {
   return {
     accountId: account.accountId,
-    displayLabel: account.displayLabel,
+    label: accountLabel(account),
     isProviderDefault: account.isDefault,
     healthState: account.healthState,
     healthObservedAt: account.healthObservedAt,
