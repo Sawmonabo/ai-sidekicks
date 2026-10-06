@@ -116,7 +116,7 @@ export interface RateLimiter {
 }
 ```
 
-- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, will ship in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node.ts` wire-shape convention.
+- `RateLimiter` and its check types live in the control plane's package: only the relay's control plane and the self-host relay node check a limit, and the daemon never does ([Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope)). The `RateLimitResponse` envelope, which devices read, will ship in `packages/contracts/src/rate-limiter.ts` as interface + Zod schema per the `runtime-node/registration.ts` wire-shape convention.
 
 ### Admission pipeline (D-018-1)
 
