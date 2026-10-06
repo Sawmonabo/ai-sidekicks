@@ -6,6 +6,7 @@ import type {
   MachineSettingsChange,
   MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
+import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -33,9 +34,6 @@ const MACHINE_SETTINGS_WRITE_ORIGIN = "machine-settings-write";
 
 /** The code a rejected write that carried none of its own is reported under. */
 const MACHINE_SETTINGS_WRITE_FAILED = "machine-settings-write-failed";
-
-/** The feed's name in the diagnostic records of its ends. */
-const MACHINE_SETTINGS_FEED_SUBJECT = "daemon.machineSettingsSubscribe";
 
 /** What the store asks of the bridge's `machineSettings`: the write and the feed. */
 export type MachineSettingsService = Pick<PlatformBridge["machineSettings"], "write" | "subscribe">;
@@ -88,7 +86,7 @@ export class MachineSettingsStore {
     // The feed's first delivery is the file as it stands, so a re-open needs no read of its own.
     this.#unsubscribe = openReopeningSubscription({
       signal: this.#transportReconnect,
-      subject: MACHINE_SETTINGS_FEED_SUBJECT,
+      subject: MACHINE_SETTINGS_STREAM,
       open: (deliver, onEnded) => this.#machineSettings.subscribe(deliver, onEnded),
       onFrame: (reading: MachineSettingsReading) => {
         this.#install(reading);

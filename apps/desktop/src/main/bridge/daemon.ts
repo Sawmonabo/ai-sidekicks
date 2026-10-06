@@ -2,7 +2,9 @@
 // renderer is untrusted, so a call is checked here, where it enters main: only a method the app
 // calls goes, its params checked against the method's contract before anything is sent and its
 // reply after, with each file token the method takes put back as its path and a token minted for
-// each path the reply offers to open (`file-path/relay.ts`). A subscription's params go to the
+// each path the reply offers to open (`file-path/relay.ts`). A subscription opens only under a
+// stream name the app opens (`#shared/daemon/daemon-streams.ts`): the daemon runs whatever method a
+// subscription names, so any other name would reach a method `call()` refuses. Its params go to the
 // daemon, which checks them, except for the one main types itself, the machine's settings, which
 // is checked against its contract on both sides. Nothing main holds for its own connection crosses
 // back: a refusal carries only the wire
@@ -26,6 +28,7 @@ import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor
 import { z, type ZodType } from "zod";
 
 import { daemonMethodBindingFor } from "#shared/daemon/daemon-method-bindings.js";
+import { isDaemonStream, MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
 import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
@@ -96,10 +99,7 @@ const statusRequestSchema = z.strictObject({});
 
 /** The daemon subscriptions main checks against their contract in both directions. */
 const DESCRIBED_SUBSCRIPTIONS: ReadonlyMap<string, DescribedSubscription> = new Map([
-  [
-    MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsSubscribe"].method,
-    MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsSubscribe"],
-  ],
+  [MACHINE_SETTINGS_STREAM, MACHINE_SETTINGS_METHOD_DESCRIPTORS[MACHINE_SETTINGS_STREAM]],
 ]);
 
 /** A subscription's request and value schemas. */
@@ -220,7 +220,8 @@ export class DaemonForwarding {
   /**
    * Open one subscription for a page and push its values to it until it is closed, ends, or the
    * page goes. Answers synchronously: opened, or why not. The status topic opens with no service
-   * linked; a daemon subscription needs one.
+   * linked; a daemon subscription needs one, and a name that is not a stream the app opens is
+   * refused before anything is sent.
    */
   public open(page: DaemonSubscriber, request: unknown): DaemonSubscriptionOpening {
     const parsed = daemonSubscriptionRequestSchema.safeParse(request);
@@ -240,6 +241,9 @@ export class DaemonForwarding {
           page.send(DAEMON_SUBSCRIPTION_VALUE_CHANNEL, subscriptionId, state);
         }),
       );
+    }
+    if (!isDaemonStream(event)) {
+      return { outcome: "failed", message: `The app does not subscribe to ${event}.` };
     }
     const described = DESCRIBED_SUBSCRIPTIONS.get(event);
     if (described !== undefined && !described.requestSchema.safeParse(params).success) {

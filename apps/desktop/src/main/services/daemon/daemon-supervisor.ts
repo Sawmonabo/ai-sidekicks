@@ -120,6 +120,7 @@ type SupervisorPhase =
   | "linked"
   | "degraded"
   | "stopped"
+  | "quitting"
   | "disposed";
 
 /** One link that is up: its connection, its watch, and the service process it reaches. */
@@ -177,13 +178,16 @@ export class DaemonSupervisor {
    * a start is running or a link is up.
    */
   public requestStart(): void {
-    if (this.#phase === "starting" || this.#phase === "linked" || this.#phase === "disposed") {
+    if (this.#phase === "starting" || this.#phase === "linked" || this.#isLettingGo()) {
       return;
     }
     this.#clearRetry();
     this.#consecutiveFailedStarts = 0;
     this.#startWaitsInARow = 0;
     this.#isStopRequested = false;
+    // A fresh start reads as one, not as the return of a link lost before it.
+    this.#isBringingBack = false;
+    this.#isLossUnrecognized = false;
     void this.#attemptStart();
   }
 
@@ -192,9 +196,10 @@ export class DaemonSupervisor {
    * ask, then end the service if it still runs once its drain bound has passed since the request
    * went out, whether this app started it or found it running. After a stop the loss that follows
    * reads as stopped and nothing starts the service again until `requestStart`; after a restart
-   * the loss is brought back once the old service has exited. Rejects with the service's refusal,
-   * when no link is up, and when the request goes unanswered, in which case the service is still
-   * ended as one that stopped answering.
+   * the loss is brought back once the old service has exited. A refused flush is an answer, as at
+   * a quit. Rejects with the service's refusal of the request, when no link is up, and when the
+   * request goes unanswered, in which case the service is still ended as one that stopped
+   * answering.
    */
   public async endService(method: ServiceEndingMethod): Promise<DaemonLifecycleAccepted> {
     const current = this.#current;
@@ -205,11 +210,7 @@ export class DaemonSupervisor {
     // Set before anything is sent, so a loss that lands before an answer reads as the stop.
     this.#isStopRequested = method === "daemon.stop";
     try {
-      const flush = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"];
-      const flushOutcome = await settleWithin(
-        client.call(flush.method, {}, flush.requestSchema, flush.responseSchema),
-        SERVICE_FLUSH_WAIT_MS,
-      );
+      const flushOutcome = await settleWithin(flushService(client), SERVICE_FLUSH_WAIT_MS);
       if (!flushOutcome.isSettled) {
         this.#record(
           "warning",
@@ -251,20 +252,16 @@ export class DaemonSupervisor {
   /**
    * The quit: send `daemon.flush` alone and wait for its answer, and for a service a `Stop` or
    * `Restart` is still ending to exit, then let the service go as `dispose` does. A refusal is an
-   * answer; with no link up there is nothing to flush. The quit's own wait bounds both.
+   * answer; with no link up there is nothing to flush. The quit's own wait bounds both. Nothing
+   * starts once the quit begins, so a `Restart` the quit interrupts leaves no new service.
    */
   public async flushAtQuit(): Promise<void> {
+    this.#phase = "quitting";
+    this.#clearRetry();
     const client = this.#current?.connection.client;
     try {
       if (client !== undefined) {
-        const flush = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"];
-        await client
-          .call(flush.method, {}, flush.requestSchema, flush.responseSchema)
-          .catch((failure: unknown) => {
-            if (!(failure instanceof JsonRpcRemoteError)) {
-              throw failure;
-            }
-          });
+        await flushService(client);
       }
       // The ending's signals are due while main runs; a quit before them would leave a hung
       // service running.
@@ -307,7 +304,7 @@ export class DaemonSupervisor {
         );
       }
       this.#endingService = undefined;
-      if (this.#isDisposed()) {
+      if (this.#isLettingGo()) {
         return;
       }
     }
@@ -328,6 +325,10 @@ export class DaemonSupervisor {
         this.#startFailed(probeFailure);
         return;
       }
+      // A quit that began while the probe ran starts nothing.
+      if (this.#isLettingGo()) {
+        return;
+      }
       try {
         opened = await this.#startAndConnect(lifetime);
         startedByApp = true;
@@ -338,13 +339,33 @@ export class DaemonSupervisor {
     }
     let service: ServiceProcess | undefined;
     try {
-      service = await this.#linkedServiceProcess(opened, startedByApp);
+      // Bounded like the handshake: until the read answers, no silence watch runs on the link.
+      const linked = await settleWithin(
+        this.#linkedServiceProcess(opened, startedByApp),
+        SERVICE_HELLO_WAIT_MS,
+      );
+      if (!linked.isSettled) {
+        await opened.close();
+        // It answered the handshake and then nothing: one this app started is ended, so the
+        // next start does not meet it on the socket again.
+        if (startedByApp) {
+          this.#endServiceProcess(this.#startedService, { cause: "unanswered" });
+        }
+        this.#startFailed(
+          new Error(
+            `The background service did not answer daemon.status.read within ` +
+              `${String(SERVICE_HELLO_WAIT_MS / 1000)} seconds`,
+          ),
+        );
+        return;
+      }
+      service = linked.value;
     } catch (readFailure) {
       await opened.close();
       this.#startFailed(readFailure);
       return;
     }
-    if (this.#isDisposed()) {
+    if (this.#isLettingGo()) {
       await opened.close();
       return;
     }
@@ -407,8 +428,11 @@ export class DaemonSupervisor {
 
   /**
    * Connect and handshake within the hello wait. A just-started service is tried again, at
-   * growing pauses, while its socket is not bound or its token not yet written; a found one gets
-   * one connect. The wait ends early, with the exit's reason, when the started service exits.
+   * growing pauses, while its socket is not bound or its token not yet written; a found one is
+   * tried again only while its token is not written yet, since a socket nothing answers means
+   * there is none to find. The wait ends early, with the exit's reason, when the started service
+   * exits. A service this app started that is still running when the wait runs out is ended as
+   * one that never answered, since it would hold the socket against every later start.
    */
   async #connectWithin(
     lifetime: LinkLifetime,
@@ -439,32 +463,42 @@ export class DaemonSupervisor {
     });
     // An exit after the link is up is the link's loss, which its watch reports.
     exitedFirst.catch(() => undefined);
+    let connecting: Promise<DaemonClientConnection> | undefined;
+    let isLinked = false;
     try {
       let pauseMs = SOCKET_WAIT_FIRST_PAUSE_MS;
       for (;;) {
-        const connecting = this.#connect(lifetime);
-        // A handshake that answers after the wait has lost: its connection is closed unused. Its
-        // failure is the race's below, so this branch only keeps a late one from going unhandled.
-        connecting.then(
-          (late) => {
-            if (hasTimedOut) {
-              void late.close();
-            }
-          },
-          () => undefined,
-        );
+        connecting = this.#connect(lifetime);
         try {
-          return await Promise.race([connecting, deadline, exitedFirst]);
+          const opened = await Promise.race([connecting, deadline, exitedFirst]);
+          isLinked = true;
+          return opened;
         } catch (failure) {
-          if (!isServiceStarting || !isServiceNotReadyYet(failure)) {
+          // No socket at a found service's place means none is running, so one is started; a
+          // found one still writing its token is waited for, as a started one is.
+          const isNoSocket = failure instanceof JsonRpcTransportUnavailableError;
+          if (!isServiceNotReadyYet(failure) || (isNoSocket && !isServiceStarting)) {
             throw failure;
           }
         }
         await Promise.race([pause(pauseMs), deadline, exitedFirst]);
         pauseMs = Math.min(pauseMs * 2, SOCKET_WAIT_LONGEST_PAUSE_MS);
       }
+    } catch (failure) {
+      if (hasTimedOut) {
+        this.#endServiceProcess(this.#startedService, { cause: "unanswered" });
+      }
+      throw failure;
     } finally {
       clearTimeout(deadlineTimer);
+      if (!isLinked) {
+        // A handshake that answers after the wait ended without it has lost, to the deadline or
+        // to the service's exit: its connection is closed unused. Its failure was the race's.
+        void connecting?.then(
+          (late) => late.close(),
+          () => undefined,
+        );
+      }
     }
   }
 
@@ -510,18 +544,19 @@ export class DaemonSupervisor {
     const lost = this.#current;
     this.#current = undefined;
     this.#record("warning", `The link to the background service was lost (${cause.kind}).`);
-    if (this.#isDisposed() || cause.kind === "closedByMain") {
+    if (this.#isLettingGo() || cause.kind === "closedByMain") {
       return;
+    }
+    if (cause.kind === "silence") {
+      // A service that stopped answering cannot be asked to stop, so SIGTERM asks it, whether this
+      // app started it or found it, and the next start can take its place. A stop under way
+      // ends it too: its own request may never have been sent.
+      this.#endServiceProcess(lost?.service, { cause: "unanswered" });
     }
     if (this.#isStopRequested) {
       this.#phase = "stopped";
       this.#link.detach(this.#unlinkedState({ kind: "stopped" }));
       return;
-    }
-    if (cause.kind === "silence") {
-      // A service that stopped answering cannot be asked to stop, so SIGTERM asks it, whether this
-      // app started it or found it, and the next start can take its place.
-      this.#endServiceProcess(lost?.service, { cause: "unanswered" });
     }
     this.#isBringingBack = true;
     this.#isLossUnrecognized = cause.kind === "unrecognized";
@@ -542,7 +577,7 @@ export class DaemonSupervisor {
   }
 
   #startFailed(failure: unknown): void {
-    if (this.#isDisposed()) {
+    if (this.#isLettingGo()) {
       return;
     }
     this.#consecutiveFailedStarts += 1;
@@ -616,9 +651,10 @@ export class DaemonSupervisor {
     }
   }
 
-  // A method rather than a field read, so the narrowing an await crossed does not stick.
-  #isDisposed(): boolean {
-    return this.#phase === "disposed";
+  // Whether the quit has begun letting the service go. A method rather than a field read, so the
+  // narrowing an await crossed does not stick.
+  #isLettingGo(): boolean {
+    return this.#phase === "quitting" || this.#phase === "disposed";
   }
 
   #record(level: "error" | "warning" | "notice", message: string): void {
@@ -669,6 +705,21 @@ async function settleWithin<T>(
     ]);
   } finally {
     clearTimeout(waitTimer);
+  }
+}
+
+/**
+ * Send `daemon.flush` and settle once it is answered; a refusal is an answer. Rejects when the
+ * link fails under it.
+ */
+async function flushService(client: DaemonClientConnection["client"]): Promise<void> {
+  const flush = DAEMON_LIFECYCLE_METHOD_DESCRIPTORS["daemon.flush"];
+  try {
+    await client.call(flush.method, {}, flush.requestSchema, flush.responseSchema);
+  } catch (failure) {
+    if (!(failure instanceof JsonRpcRemoteError)) {
+      throw failure;
+    }
   }
 }
 

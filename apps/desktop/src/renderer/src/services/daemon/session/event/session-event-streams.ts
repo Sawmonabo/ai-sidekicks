@@ -1,7 +1,7 @@
-// The closed set of `daemon.subscribe` stream names and the routing every subscription goes
-// through. `daemon.subscribe` names either a registered stream, which delivers a projection of many
-// kinds, or a single event type, which delivers only itself. The app's subscribers take their
-// stream names from here and `scenario/subscriptions.fixture.ts` routes by this table, so the
+// The routing every `daemon.subscribe` stream goes through. The closed set of stream names is
+// `#shared/daemon/daemon-streams.ts`, which main opens subscriptions under and refuses every other
+// name by; this table says what each of the renderer's streams carries. The app's subscribers take
+// their stream names from here and `scenario/subscriptions.fixture.ts` routes by this table, so the
 // fixture answers as the daemon would; a second copy would let them drift and deliver nothing to a
 // subscriber, indistinguishable from a quiet session.
 //
@@ -9,32 +9,33 @@
 // `session.subscribe` (the whole session log), `run.subscribeState` and `run.subscribeQueue`
 // (narrowed projections), `presence.subscribe` (the connected devices), and `mcp.subscribe`,
 // `providerAccount.subscribe` and `workflow.subscribe` (the machine's notices). The last four are
-// not session-event streams, but still `daemon.subscribe` names. The table and each row are frozen
-// because a mutation would re-route every subscription in the renderer.
+// not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
+// row: the settings page reads it through the bridge's own `machineSettings` member. The table and
+// each row are frozen because a mutation would re-route every subscription in the renderer.
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
+import {
+  MCP_NOTICE_STREAM,
+  PRESENCE_EVENT_STREAM,
+  PROVIDER_ACCOUNT_NOTICE_STREAM,
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+  SESSION_EVENT_STREAM,
+  WORKFLOW_NOTICE_STREAM,
+  type DaemonStream,
+  type MACHINE_SETTINGS_STREAM,
+} from "#shared/daemon/daemon-streams.js";
 import { RUN_QUEUE_STREAM_CARRIED_KINDS, RUN_STATE_STREAM_CARRIED_KINDS } from "./stream-kinds.js";
 
-/** The subscription name for a session's whole event stream. */
-export const SESSION_EVENT_STREAM = "session.subscribe";
-
-/** The registered subscription name for a run's state-transition stream. */
-export const RUN_STATE_EVENT_STREAM = "run.subscribeState";
-
-/** The registered subscription name for a session's queue-projection stream. */
-export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
-
-/** The subscription name for the devices connected to this machine; it belongs to the machine. */
-export const PRESENCE_EVENT_STREAM = "presence.subscribe";
-
-/** The subscription name for the machine's MCP binding edits and governance events. */
-export const MCP_NOTICE_STREAM = "mcp.subscribe";
-
-/** The subscription name for the machine's provider-account registry changes. */
-export const PROVIDER_ACCOUNT_NOTICE_STREAM = "providerAccount.subscribe";
-
-/** The subscription name for the machine's workflow runs, steps, schedules and start hold. */
-export const WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
+export {
+  MCP_NOTICE_STREAM,
+  PRESENCE_EVENT_STREAM,
+  PROVIDER_ACCOUNT_NOTICE_STREAM,
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+  SESSION_EVENT_STREAM,
+  WORKFLOW_NOTICE_STREAM,
+};
 
 /**
  * A stream that carries a session's whole event log. It lists no kinds because the entire census
@@ -78,19 +79,14 @@ export type SessionEventStream =
   | MachinePresenceStream
   | MachineNoticeStream;
 
-/** A stream that delivers the machine's notices, named from the constants below. */
+/** A stream that delivers the machine's notices. */
 export type MachineNoticeStreamName =
   | typeof MCP_NOTICE_STREAM
   | typeof PROVIDER_ACCOUNT_NOTICE_STREAM
   | typeof WORKFLOW_NOTICE_STREAM;
 
-/** One registered stream name, taken from the constants above so the strings are not repeated. */
-export type SessionEventStreamName =
-  | typeof SESSION_EVENT_STREAM
-  | typeof RUN_STATE_EVENT_STREAM
-  | typeof RUN_QUEUE_EVENT_STREAM
-  | typeof PRESENCE_EVENT_STREAM
-  | MachineNoticeStreamName;
+/** One stream this table routes: every daemon stream the app opens but the settings feed. */
+export type SessionEventStreamName = Exclude<DaemonStream, typeof MACHINE_SETTINGS_STREAM>;
 
 /**
  * Every stream the app can subscribe to; the one authority on which name routes where. Keyed

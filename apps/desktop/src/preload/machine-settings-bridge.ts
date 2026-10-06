@@ -4,20 +4,13 @@
 
 import type {
   MachineSettings,
-  MachineSettingsMethodDescriptors,
   MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
+import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { settleDaemonCall, type DaemonSubscriptions, type DaemonWireIpc } from "./daemon-wire.js";
-
-/**
- * The service's settings feed. Typed by the contract, so a renamed method fails the build, and
- * written out so the sandboxed preload loads none of the contract's schemas.
- */
-const MACHINE_SETTINGS_FEED: MachineSettingsMethodDescriptors["daemon.machineSettingsSubscribe"]["method"] =
-  "daemon.machineSettingsSubscribe";
 
 /** The `machineSettings` member the preload exposes, carried over `ipc`. */
 export function createMachineSettingsBridge(
@@ -32,6 +25,6 @@ export function createMachineSettingsBridge(
       settleDaemonCall(await ipc.invoke(BRIDGE_CHANNELS.writeMachineSettings, change))
         .value as MachineSettings,
     subscribe: (handler, onEnded) =>
-      subscriptions.open(MACHINE_SETTINGS_FEED, {}, handler as (value: unknown) => void, onEnded),
+      subscriptions.open(MACHINE_SETTINGS_STREAM, {}, handler as (value: unknown) => void, onEnded),
   };
 }
