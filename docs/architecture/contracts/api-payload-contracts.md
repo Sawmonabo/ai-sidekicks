@@ -2149,13 +2149,12 @@ type ProviderUsageLimitCause = "plan-allowance-exhausted";
 // Codex leg stamps provider-stated off the published rate-limit shapes — the
 // `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
 // reference family's codex file records (Generated schema, Verified at the version that file
-// names), consumed by the shipped codex event-normalizer's push row. The Claude leg stamps
-// runtime-derived because no Claude surface states a reset instant: the arithmetic is
-// observation time plus the `api_retry` frame's own `retry_delay_ms`, emitted only on the
-// final announced retry beside the typed `rate_limit` error member — the mid-session retry
-// taxonomy the provider-wire claude file records (Binary probe, Verified at Claude Code
-// 2.1.245). The sibling-axis rule and typed-only recognition are `Spec-004 §Fallback
-// Behavior`'s.
+// names), consumed by the shipped codex event-normalizer's push row. The Claude leg emits no
+// usage-limit signal: Claude Code retries no plan limit, so its final announced `api_retry`
+// of a `rate_limit` or `overloaded` error is the spent-retries cause, `retries-exhausted`,
+// with no reset boundary — the mid-session retry taxonomy the provider-wire claude file
+// records (Binary probe, Verified at Claude Code 2.1.245). The sibling-axis rule and
+// typed-only recognition are `Spec-004 §Fallback Behavior`'s.
 type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
 
 interface ProviderUsageLimitResetBoundary {
