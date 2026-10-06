@@ -1,13 +1,15 @@
 // Document seams for "did this element move": motion-start events, running animations and the
 // composed position observer. A ResizeObserver says nothing about a box carried at constant
-// size, so motion is its own seam, caught at the document because `transitionrun` and
-// `animationstart` bubble upward and an ancestor's motion would go unheard on the element.
+// size, so motion is its own seam, caught at the document because `transitionrun`,
+// `animationstart` and the scripted-motion announcement bubble upward and an ancestor's motion
+// would go unheard on the element.
 
 import { isNode } from "@floating-ui/utils/dom";
 
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
+import { SCRIPTED_MOTION_EVENT } from "#renderer/lib/scripted-motion.js";
 import { couldAnimationMove } from "./animation-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
 import {
@@ -20,9 +22,15 @@ import {
 
 /**
  * The events that announce motion starting. `transitionrun` fires at the start of the delay
- * phase, so a delayed transition is not missed; motion stops are read off the animations.
+ * phase, so a delayed transition is not missed; the scripted-motion announcement covers an
+ * inline `transform` write and `element.animate()`, which fire neither (a dragged pane is moved
+ * both ways). Motion stops are read off the animations.
  */
-const MOTION_START_EVENT_NAMES = ["transitionrun", "animationstart"] as const;
+const MOTION_START_EVENT_NAMES = [
+  "transitionrun",
+  "animationstart",
+  SCRIPTED_MOTION_EVENT,
+] as const;
 
 /** What `observeElementPosition` watches and where it reports. */
 export interface ElementPositionObserverOptions {

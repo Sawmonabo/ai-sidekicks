@@ -24,6 +24,7 @@ import { PageTabStrip } from "./PageTab/PageTabStrip.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { type Refusal } from "#renderer/lib/refusal/refusal.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
@@ -47,7 +48,8 @@ export interface PreviewChromeActs {
   readonly stopLoading: () => void;
   readonly selectPage: (pageId: PreviewPageId) => void;
   readonly closePage: (pageId: PreviewPageId) => void;
-  readonly reorderPage: (pageId: PreviewPageId, toIndex: number) => void;
+  /** Moves a page within the strip; answers the refusal when the move was refused. */
+  readonly reorderPage: (pageId: PreviewPageId, toIndex: number) => Promise<Refusal | undefined>;
 }
 
 /** What the pane's content draws from, beside the pane layout's context. */

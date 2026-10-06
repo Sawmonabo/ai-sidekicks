@@ -17,6 +17,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { isEditableTarget } from "#renderer/lib/editable-target.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
@@ -58,7 +59,8 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     },
     [layout, announce],
   );
-  const paneDrag = useReorderDrag("horizontal", paneIds, onPaneDrop);
+  const clock = useClock();
+  const paneDrag = useReorderDrag("horizontal", paneIds, onPaneDrop, clock);
 
   // The five acts, built once per (layout, announcer) pair and shared by this component's key
   // handler and the palette rows in `contributions/commands.ts`, so a chord and a row cannot

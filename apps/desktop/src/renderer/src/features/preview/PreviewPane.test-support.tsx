@@ -80,7 +80,7 @@ export function recordingActs(navigations: string[] = []): PreviewChromeActs {
     stopLoading: nothing,
     selectPage: nothing,
     closePage: nothing,
-    reorderPage: nothing,
+    reorderPage: async () => undefined,
   };
 }
 

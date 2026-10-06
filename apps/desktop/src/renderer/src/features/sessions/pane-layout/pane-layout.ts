@@ -1,6 +1,6 @@
 // The pane shape, the state shape, and the arithmetic that keeps a row of panes summing to a
 // whole layout. Stateless, pure and free of React. Imports run one way:
-// `pane-layout-store` → `pane-layout-snapshot` → `pane-layout`.
+// `pane-layout-store` → `snapshot` → `pane-layout`.
 
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { PaneKind } from "#renderer/routing/panes/pane-kinds.js";

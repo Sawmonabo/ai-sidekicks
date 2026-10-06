@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
+import { announceScriptedMotion } from "#renderer/lib/scripted-motion.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
 import { observeElementPosition } from "./element-motion.js";
 import {
@@ -197,6 +198,28 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
 });
 
 describe("observeElementPosition — the sources that reach it", () => {
+  it("samples a pane moved by script, whose inline transform fires no CSS motion event", () => {
+    // The pane drag writes `transform` on each pointer move and glides with `element.animate()`;
+    // only its announcement says the pane holding the page is moving.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(clock.pendingFrameCount).toBe(0);
+
+    announceScriptedMotion(ancestor);
+    expect(clock.pendingFrameCount).toBe(1);
+    clock.runFrame();
+    expect(onMove).toHaveBeenCalledTimes(1);
+    // Nothing is animating, so the frame that read the move is the last.
+    expect(clock.pendingFrameCount).toBe(0);
+    detach();
+  });
+
   it("reports a sibling's relayout, which the platform reports on the ancestor", () => {
     // A shrinking sibling resizes neither this element nor, to a naive observer, anything else;
     // what changes is the ancestor's content box, which is why ancestors are observed.

@@ -4,17 +4,24 @@
 // that document never paints: its `requestAnimationFrame` never fires and listeners on its
 // `document` hear nothing from another window. So every listener here is bound to the pressed
 // item's own document, every animation runs on the item itself, and the reduced-motion setting is
-// read from the item's own window. No frame loop is used: the item's `transform` is written in the
-// `pointermove` handler, so it is drawn in the frame the pointer moved in.
+// read from the item's own window. The item's `transform` is written in the `pointermove`
+// handler, so it is drawn in the frame the pointer moved in; the one frame loop is the edge
+// scroll's, on frames from the item's own window, and it runs only while the pointer holds near
+// an end of a list that scrolls.
 //
 // A press becomes a drag once the pointer travels past a small distance, and only then is pointer
 // capture taken, so a click on a control inside the grip still reaches that control. The lifted
 // item follows the pointer by `transform`; its neighbors glide aside, each from where it is drawn
 // to where it makes room. The order commits once, on release, and the drawn positions are held
 // until the caller hands back the new order; then every item glides from where it is drawn to its
-// new place (FLIP). Escape, a cancelled pointer and lost capture glide everything back.
+// new place (FLIP). Escape, a canceled pointer and lost capture glide everything back. Every
+// move it draws is announced as scripted motion, since an inline `transform` and
+// `element.animate()` fire no event that says something moved.
 
+import { type Clock, type ScheduledHandle } from "./clock.js";
 import { prefersReducedMotion } from "./reduced-motion.js";
+import { announceScriptedMotion } from "./scripted-motion.js";
+import { scrollForReorderDrag } from "./scroll/chokepoint.js";
 
 /** Which way the items run: a row (`horizontal`) or a stack (`vertical`). */
 export type ReorderAxis = "horizontal" | "vertical";
@@ -26,6 +33,8 @@ export interface ReorderDragOptions<Key extends string> {
   readonly glideMs: number;
   /** The glide's easing, as a Web Animations `easing` string. */
   readonly glideEasing: string;
+  /** Where the edge scroll's frames come from; paced by the pressed item's own window. */
+  readonly clock: Clock;
   /**
    * Commits a move: the item under `key` goes to `toIndex` in the order with it taken out. Called
    * once per drag, on release, and only when the index changed.
@@ -37,7 +46,8 @@ export interface ReorderDragOptions<Key extends string> {
  * One list's pointer reorder. Items register through `itemRef`; an item whose drag starts only
  * from part of it (a pane's header) registers that part through `handleRef`. The caller hands the
  * order it draws to `setOrder` after every render. While lifted, an item carries
- * `data-reorder-lifted` and a `z-index`, so it must be a flex or grid item or positioned.
+ * `data-reorder-lifted` and a `z-index`, so it must be a flex or grid item or positioned. Held
+ * near an end of the nearest ancestor that scrolls along the axis, the drag scrolls it.
  */
 export class ReorderDrag<Key extends string> {
   readonly #options: ReorderDragOptions<Key>;
@@ -50,9 +60,7 @@ export class ReorderDrag<Key extends string> {
   #order: readonly Key[] = [];
   #gesture: Gesture<Key> | undefined;
   /** The committed drag's order and where each item rested in it, until the new order arrives. */
-  #awaitedCommit:
-    | { readonly keys: readonly Key[]; readonly slots: readonly Slot<Key>[] }
-    | undefined;
+  #awaitedCommit: AwaitedCommit<Key> | undefined;
 
   readonly #onPointerMove = (event: PointerEvent): void => {
     const gesture = this.#gesture;
@@ -67,11 +75,11 @@ export class ReorderDrag<Key extends string> {
       }
       const travel = Math.hypot(event.clientX - gesture.pressX, event.clientY - gesture.pressY);
       if (travel >= DRAG_START_DISTANCE_PX) {
-        this.#follow(this.#lift(gesture), event);
+        this.#follow(this.#lift(gesture), event.clientX, event.clientY);
       }
       return;
     }
-    this.#follow(gesture, event);
+    this.#follow(gesture, event.clientX, event.clientY);
   };
 
   readonly #onPointerUp = (event: PointerEvent): void => {
@@ -93,8 +101,12 @@ export class ReorderDrag<Key extends string> {
     // Where the item's start lands once it takes the target's place in the order.
     const landing =
       gesture.to > gesture.from ? target.start + target.size - home.size : target.start;
-    this.#glide(home, this.#drawnOffset(home), landing - home.start, gesture.glideMs);
-    this.#awaitedCommit = { keys: gesture.slots.map((slot) => slot.key), slots: gesture.slots };
+    this.#glide(home, this.#drawnOffset(gesture, home), landing - home.start, gesture.glideMs);
+    this.#awaitedCommit = {
+      keys: gesture.slots.map((slot) => slot.key),
+      slots: gesture.slots,
+      scroller: gesture.scroller,
+    };
     this.#options.onReorder(home.key, gesture.to);
   };
 
@@ -118,7 +130,10 @@ export class ReorderDrag<Key extends string> {
     this.#options = options;
   }
 
-  /** A stable ref callback registering the element that moves for `key`. */
+  /**
+   * A ref callback registering the element that moves for `key`, the same function for as long
+   * as `key` stays in the order, so a render never re-binds the element.
+   */
   public itemRef(key: Key): (element: HTMLElement | null) => void {
     let ref = this.#itemRefs.get(key);
     if (ref === undefined) {
@@ -130,14 +145,16 @@ export class ReorderDrag<Key extends string> {
     return ref;
   }
 
-  /** A stable ref callback narrowing where `key`'s drag may start to `element`. */
+  /**
+   * A ref callback narrowing where `key`'s drag may start to `element`, stable on the same terms
+   * as `itemRef`.
+   */
   public handleRef(key: Key): (element: HTMLElement | null) => void {
     let ref = this.#handleRefs.get(key);
     if (ref === undefined) {
       ref = (element) => {
         if (element === null) {
           this.#handles.delete(key);
-          this.#handleRefs.delete(key);
         } else {
           this.#handles.set(key, element);
         }
@@ -148,22 +165,31 @@ export class ReorderDrag<Key extends string> {
   }
 
   /**
-   * Takes the order the caller draws. A change while an item is lifted cancels the drag; the
-   * first change after a commit glides every item into its new place.
+   * Takes the order the caller draws. A change while an item is lifted cancels the drag, as does
+   * a press whose item left the order; the first change after a commit glides every item into
+   * its new place.
    */
   public setOrder(keys: readonly Key[]): void {
     if (sameOrder(keys, this.#order)) {
       return;
     }
     this.#order = [...keys];
-    if (this.#gesture?.phase === "lifted") {
+    for (const refs of [this.#itemRefs, this.#handleRefs]) {
+      for (const key of refs.keys()) {
+        if (!keys.includes(key)) {
+          refs.delete(key);
+        }
+      }
+    }
+    const gesture = this.#gesture;
+    if (gesture?.phase === "lifted" || (gesture !== undefined && !keys.includes(gesture.key))) {
       this.cancel();
       return;
     }
     const awaited = this.#awaitedCommit;
     if (awaited !== undefined && !sameOrder(keys, awaited.keys)) {
       this.#awaitedCommit = undefined;
-      this.#settle(awaited.slots);
+      this.#settle(awaited);
     }
   }
 
@@ -190,12 +216,18 @@ export class ReorderDrag<Key extends string> {
 
   #registerItem(key: Key, element: HTMLElement | null): void {
     const registered = this.#items.get(key);
+    if (registered?.element === element) {
+      return;
+    }
+    if (this.#gesture?.key === key) {
+      // The pressed element went away or was replaced, so the gesture has nothing to move.
+      this.cancel();
+    }
     if (registered !== undefined) {
       registered.element.removeEventListener("pointerdown", registered.onPointerDown);
       this.#items.delete(key);
     }
     if (element === null) {
-      this.#itemRefs.delete(key);
       this.#glides.get(key)?.cancel();
       this.#glides.delete(key);
       return;
@@ -259,37 +291,153 @@ export class ReorderDrag<Key extends string> {
       const item = this.#items.get(key);
       return item === undefined ? [] : [this.#slotOf(key, item.element)];
     });
+    // The press is ended whenever its item leaves the order or its element changes, so it is here.
     const from = slots.findIndex((slot) => slot.key === gesture.key);
     const home = slotAt(slots, from);
     gesture.element.setPointerCapture(gesture.pointerId);
     gesture.element.setAttribute(LIFTED_ATTRIBUTE, "");
     gesture.element.style.zIndex = "1";
+    const step = home.size + gapBeside(slots, from);
     const lifted: LiftedGesture<Key> = {
       ...gesture,
       phase: "lifted",
       slots,
       from,
       to: from,
-      step: home.size + gapBeside(slots, from),
+      step,
       shifts: new Map(),
       glideMs: prefersReducedMotion(gesture.ownerWindow) ? 0 : this.#options.glideMs,
+      scroller: this.#scrollerOf(gesture.element),
+      frameClock: this.#options.clock.withFrames(gesture.ownerWindow),
+      pointerX: gesture.pressX,
+      pointerY: gesture.pressY,
+      edgeScroll: undefined,
     };
     this.#gesture = lifted;
+    announceScriptedMotion(gesture.element);
     return lifted;
   }
 
-  #follow(gesture: LiftedGesture<Key>, event: PointerEvent): void {
-    const offset =
-      this.#options.axis === "horizontal"
-        ? event.clientX - gesture.pressX
-        : event.clientY - gesture.pressY;
+  #follow(gesture: LiftedGesture<Key>, pointerX: number, pointerY: number): void {
+    gesture.pointerX = pointerX;
+    gesture.pointerY = pointerY;
+    const travel =
+      this.#options.axis === "horizontal" ? pointerX - gesture.pressX : pointerY - gesture.pressY;
+    // The layout moves back by what the list scrolled, so the item adds it to stay on the pointer.
+    const offset = travel + this.#scrolledBy(gesture.scroller);
     gesture.element.style.transform = this.#translate(offset);
+    announceScriptedMotion(gesture.element);
     const home = slotAt(gesture.slots, gesture.from);
     const to = nearestSlot(gesture.slots, home.start + home.size / 2 + offset);
     if (to !== gesture.to) {
       gesture.to = to;
       this.#makeRoom(gesture);
     }
+    this.#armEdgeScroll(gesture);
+  }
+
+  /** Arms one edge-scroll frame while the pointer holds inside an end of the scrolling list. */
+  #armEdgeScroll(gesture: LiftedGesture<Key>): void {
+    if (gesture.edgeScroll !== undefined || this.#edgeSpeed(gesture) === 0) {
+      return;
+    }
+    gesture.edgeScroll = {
+      armedAt: gesture.frameClock.now(),
+      frame: gesture.frameClock.scheduleFrame(() => {
+        this.#scrollAtEdge(gesture);
+      }),
+    };
+  }
+
+  #scrollAtEdge(gesture: LiftedGesture<Key>): void {
+    const armed = gesture.edgeScroll;
+    gesture.edgeScroll = undefined;
+    const scroller = gesture.scroller;
+    if (this.#gesture !== gesture || armed === undefined || scroller === undefined) {
+      return;
+    }
+    const elapsedMs = gesture.frameClock.now() - armed.armedAt;
+    const current = this.#scrollOffsetOf(scroller.element);
+    const target = Math.min(
+      Math.max(0, current + this.#edgeSpeed(gesture) * elapsedMs),
+      scroller.maximumOffset,
+    );
+    scrollForReorderDrag(scroller.element, this.#options.axis, target);
+    // Re-places the item over the scrolled list and arms the next frame while still at the edge.
+    this.#follow(gesture, gesture.pointerX, gesture.pointerY);
+  }
+
+  /**
+   * How fast the list scrolls, in CSS pixels per millisecond, signed along the axis: zero away
+   * from its ends, rising to `EDGE_SCROLL_STEPS_PER_SECOND` steps a second at the very edge, and
+   * zero once the list can scroll no further that way.
+   */
+  #edgeSpeed(gesture: LiftedGesture<Key>): number {
+    const scroller = gesture.scroller;
+    if (scroller === undefined) {
+      return 0;
+    }
+    const rect = scroller.element.getBoundingClientRect();
+    const horizontal = this.#options.axis === "horizontal";
+    const [low, high] = horizontal ? [rect.left, rect.right] : [rect.top, rect.bottom];
+    const pointer = horizontal ? gesture.pointerX : gesture.pointerY;
+    // The edge band is half the lifted item, and never more than a quarter of the visible list.
+    const band = Math.min(gesture.step / 2, (high - low) / 4);
+    if (band <= 0) {
+      return 0;
+    }
+    const current = this.#scrollOffsetOf(scroller.element);
+    const fullSpeed = (gesture.step * EDGE_SCROLL_STEPS_PER_SECOND) / MILLISECONDS_PER_SECOND;
+    if (pointer < low + band && current > 0) {
+      return -fullSpeed * Math.min(1, (low + band - pointer) / band);
+    }
+    if (pointer > high - band && current < scroller.maximumOffset) {
+      return fullSpeed * Math.min(1, (pointer - (high - band)) / band);
+    }
+    return 0;
+  }
+
+  /** The nearest ancestor that scrolls along the axis and has somewhere to scroll. */
+  #scrollerOf(element: HTMLElement): Scroller | undefined {
+    const ownerWindow = element.ownerDocument.defaultView;
+    if (ownerWindow === null) {
+      return undefined;
+    }
+    const horizontal = this.#options.axis === "horizontal";
+    for (
+      let ancestor = element.parentElement;
+      ancestor !== null;
+      ancestor = ancestor.parentElement
+    ) {
+      const style = ownerWindow.getComputedStyle(ancestor);
+      const overflow = horizontal ? style.overflowX : style.overflowY;
+      if (overflow !== "auto" && overflow !== "scroll") {
+        continue;
+      }
+      // The extent at lift: a lifted item carried past the end must not grow what can scroll.
+      const maximumOffset = horizontal
+        ? ancestor.scrollWidth - ancestor.clientWidth
+        : ancestor.scrollHeight - ancestor.clientHeight;
+      if (maximumOffset > 0) {
+        return {
+          element: ancestor,
+          startOffset: this.#scrollOffsetOf(ancestor),
+          maximumOffset,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /** How far `scroller` has scrolled along the axis since the drag lifted. */
+  #scrolledBy(scroller: Scroller | undefined): number {
+    return scroller === undefined
+      ? 0
+      : this.#scrollOffsetOf(scroller.element) - scroller.startOffset;
+  }
+
+  #scrollOffsetOf(element: Element): number {
+    return this.#options.axis === "horizontal" ? element.scrollLeft : element.scrollTop;
   }
 
   /** Glides each neighbor between the lifted item's home and its target aside by one step. */
@@ -308,16 +456,17 @@ export class ReorderDrag<Key extends string> {
         return;
       }
       gesture.shifts.set(slot.key, shift);
-      this.#glide(slot, this.#drawnOffset(slot), shift, gesture.glideMs);
+      this.#glide(slot, this.#drawnOffset(gesture, slot), shift, gesture.glideMs);
     });
   }
 
   /**
    * Clears every transform this controller set and glides each item from where it is drawn to its
-   * layout. `restingSlots` are where the items sat before a committed reorder moved their elements;
-   * from them the drawn position is recovered once the new order is laid out.
+   * layout. `resting` is where the items sat before a committed reorder moved their elements, and
+   * the list that scrolled under them; from it the drawn position is recovered once the new order
+   * is laid out.
    */
-  #settle(restingSlots: readonly Slot<Key>[] | undefined): void {
+  #settle(resting: AwaitedCommit<Key> | undefined): void {
     const items = [...this.#items];
     const drawnStarts = items.map(([, item]) => this.#startOf(item.element));
     for (const [key, item] of items) {
@@ -328,17 +477,23 @@ export class ReorderDrag<Key extends string> {
     }
     this.#glides.clear();
     const layoutStarts = items.map(([, item]) => this.#startOf(item.element));
+    const scrolled = this.#scrolledBy(resting?.scroller);
     items.forEach(([key, item], index) => {
+      announceScriptedMotion(item.element);
       const ownerWindow = item.element.ownerDocument.defaultView;
       if (ownerWindow === null || prefersReducedMotion(ownerWindow)) {
         return;
       }
       const drawn = drawnStarts[index] ?? 0;
       const layout = layoutStarts[index] ?? 0;
-      const resting = restingSlots?.find((slot) => slot.key === key);
+      const restingSlot = resting?.slots.find((slot) => slot.key === key);
       // After a reorder the element sits in its new place still wearing its old offset, so the
-      // spot it is drawn at is its old resting start plus that offset.
-      const from = resting === undefined ? drawn - layout : resting.start + drawn - 2 * layout;
+      // spot it is drawn at is its old resting start, moved by what the list scrolled since, plus
+      // that offset.
+      const from =
+        restingSlot === undefined
+          ? drawn - layout
+          : restingSlot.start - scrolled + drawn - 2 * layout;
       if (Math.abs(from) >= SETTLED_PX) {
         this.#glide({ key, element: item.element }, from, 0, this.#options.glideMs, false);
       }
@@ -363,19 +518,24 @@ export class ReorderDrag<Key extends string> {
       },
     );
     this.#glides.set(target.key, glide);
+    announceScriptedMotion(target.element);
   }
 
   #endGesture(gesture: Gesture<Key>): void {
     gesture.listeners.abort();
+    if (gesture.phase === "lifted" && gesture.edgeScroll !== undefined) {
+      gesture.frameClock.cancel(gesture.edgeScroll.frame);
+      gesture.edgeScroll = undefined;
+    }
     if (gesture.element.hasPointerCapture(gesture.pointerId)) {
       gesture.element.releasePointerCapture(gesture.pointerId);
     }
     this.#gesture = undefined;
   }
 
-  /** How far `slot`'s element is drawn from where it sat when the drag began. */
-  #drawnOffset(slot: Slot<Key>): number {
-    return this.#startOf(slot.element) - slot.start;
+  /** How far `slot`'s element is drawn from where it sat when the drag began, scroll aside. */
+  #drawnOffset(gesture: LiftedGesture<Key>, slot: Slot<Key>): number {
+    return this.#startOf(slot.element) + this.#scrolledBy(gesture.scroller) - slot.start;
   }
 
   #startOf(element: HTMLElement): number {
@@ -412,6 +572,29 @@ const SETTLED_PX = 0.5;
 /** The primary button's bit in `PointerEvent.buttons`. */
 const PRIMARY_BUTTON = 1;
 
+/**
+ * How many item steps a second the list scrolls with the pointer at its very edge: a tab strip
+ * of 150-pixel tabs moves 600 pixels a second, a gentle scroll that still crosses a long list.
+ */
+const EDGE_SCROLL_STEPS_PER_SECOND = 4;
+
+const MILLISECONDS_PER_SECOND = 1000;
+
+/** The list a drag scrolls, and where it stood when the drag lifted. */
+interface Scroller {
+  readonly element: Element;
+  readonly startOffset: number;
+  /** How far it could scroll at lift, in CSS pixels. */
+  readonly maximumOffset: number;
+}
+
+/** A committed drag's order, where each item rested in it, and the list that scrolled under it. */
+interface AwaitedCommit<Key extends string> {
+  readonly keys: readonly Key[];
+  readonly slots: readonly Slot<Key>[];
+  readonly scroller: Scroller | undefined;
+}
+
 /** An item's element and the press listener bound to it. */
 interface RegisteredItem {
   readonly element: HTMLElement;
@@ -426,7 +609,7 @@ interface Slot<Key extends string> {
   readonly size: number;
 }
 
-/** A press that has not yet travelled far enough to be a drag. */
+/** A press that has not yet traveled far enough to be a drag. */
 interface PressedGesture<Key extends string> {
   readonly phase: "pressed";
   readonly key: Key;
@@ -451,6 +634,14 @@ interface LiftedGesture<Key extends string> extends Omit<PressedGesture<Key>, "p
   /** Each neighbor's current offset, so a glide starts only on a change. */
   readonly shifts: Map<Key, number>;
   readonly glideMs: number;
+  readonly scroller: Scroller | undefined;
+  /** The item's own window's frames, for the edge scroll. */
+  readonly frameClock: Clock;
+  /** Where the pointer last was, so an edge-scroll frame can re-place the item under it. */
+  pointerX: number;
+  pointerY: number;
+  /** The armed edge-scroll frame and when it was armed, or `undefined` while none is. */
+  edgeScroll: { readonly armedAt: number; readonly frame: ScheduledHandle } | undefined;
 }
 
 type Gesture<Key extends string> = PressedGesture<Key> | LiftedGesture<Key>;

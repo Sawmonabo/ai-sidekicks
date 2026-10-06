@@ -267,3 +267,23 @@ export class ScrollController {
     }
   }
 }
+
+/**
+ * Scrolls `container` along `axis` to `offset` CSS pixels, clamped to its content, and answers
+ * the offset it reached. The reorder drag's edge scroll is its one caller: a drag carries the
+ * list it moves in near an edge and holds no `ScrollController` for that list.
+ */
+export function scrollForReorderDrag(
+  container: Element,
+  axis: "horizontal" | "vertical",
+  offset: number,
+): number {
+  if (axis === "horizontal") {
+    const maximum = Math.max(0, container.scrollWidth - container.clientWidth);
+    container.scrollLeft = Math.min(Math.max(0, offset), maximum);
+    return container.scrollLeft;
+  }
+  const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
+  container.scrollTop = Math.min(Math.max(0, offset), maximum);
+  return container.scrollTop;
+}
