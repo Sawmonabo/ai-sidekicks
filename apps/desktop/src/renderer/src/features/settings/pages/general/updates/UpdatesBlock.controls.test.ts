@@ -1,6 +1,6 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
-// offered before the download finishes and needs no confirmation, and the automatic-check
-// switch. The doubles are in `updates-block.test-support.tsx`.
+// offered before the download finishes and needs no confirmation, a refused control is drawn
+// under them, and the automatic-check switch. The doubles are in `updates-block.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -46,6 +46,31 @@ describe("the updates block — nothing restarts without a press", () => {
     expect(requestRestart).not.toHaveBeenCalled();
     await pressControl(container, "Restart to apply");
     expect(requestRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the updates block — a refused control is drawn, never dropped", () => {
+  it("draws the rejection of a control main does not answer under the controls", async () => {
+    // Electron rejects a call on a channel main has no handler for; the press must show it.
+    const requestCheck = vi.fn(() =>
+      Promise.reject(
+        new Error(
+          "Error invoking remote method 'update.requestCheck': " +
+            "Error: No handler registered for 'update.requestCheck'",
+        ),
+      ),
+    );
+    const { block } = await renderSettled(updaterReporting({ status: "idle" }, { requestCheck }));
+    expect(block.querySelector("[data-refusal-code]")).toBeNull();
+
+    await pressControl(block, "Check now");
+
+    expect(requestCheck).toHaveBeenCalledTimes(1);
+    const refusal = block.querySelector("[data-refusal-code]");
+    expect(refusal?.getAttribute("data-refusal-code")).toBe("updater-control-failed");
+    expect(refusal?.textContent).toContain("No handler registered");
+    const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
+    expect(labels).toContain("Check now");
   });
 });
 

@@ -19,6 +19,7 @@ import {
   BRIDGE_CHANNELS,
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
   type InvokedBridgeChannel,
+  type UpdaterBridgeChannel,
 } from "#shared/bridge-channels.js";
 import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
@@ -105,8 +106,11 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     }
     event.returnValue = opening;
   });
-  // Keyed by every channel main invokes on, so a channel with no answer fails the build.
-  const answers: Readonly<Record<InvokedBridgeChannel, ChannelAnswer>> = {
+  // Keyed by every channel the preload invokes but the updater's, so any other channel with no
+  // answer fails the build.
+  const answers: Readonly<
+    Record<Exclude<InvokedBridgeChannel, UpdaterBridgeChannel>, ChannelAnswer>
+  > = {
     [BRIDGE_CHANNELS.daemonCall]: (event, request) => daemonForwarding.call(event.sender, request),
     [BRIDGE_CHANNELS.closeDaemonSubscription]: (event, subscriptionId) => {
       daemonForwarding.close(event.sender, subscriptionId);

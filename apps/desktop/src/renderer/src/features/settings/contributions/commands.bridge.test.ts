@@ -1,6 +1,5 @@
 // The palette's bridge-backed commands. A refused act is rendered, not dropped; the cases run
-// against the fixture bridge, whose `native.copyToClipboard` resolves, with that member made to
-// reject or throw where a case needs the failure.
+// against the fixture bridge, whose `native.copyToClipboard` resolves.
 
 import { describe, expect, it } from "vitest";
 import type { ClipboardContent } from "#shared/preload-api.js";
@@ -24,49 +23,57 @@ function commandById(commands: readonly CommandDefinition[], commandId: string):
 }
 
 describe("palette bridge commands — a refused act is rendered, never dropped", () => {
-  it("routes a bridge rejection to the refusal sink", async () => {
-    // The palette drops the promise `invoke` returns, so a `run` that let this reject would show
-    // the person nothing.
+  it("routes a bridge rejection to the refusal sink, in its own words", async () => {
+    // Main has no handler for `update.requestCheck`, and Electron rejects the call. The palette
+    // drops the promise `run` returns, so a `run` that let this reject would show the person
+    // nothing; the refusal says its own sentence, never the message that crossed IPC.
     const bridge = fixtureBridge();
-    const rejecting: PlatformBridge = {
+    const unanswered: PlatformBridge = {
       ...bridge,
-      native: {
-        ...bridge.native,
-        copyToClipboard: () => Promise.reject(new Error("the clipboard is unreachable")),
+      update: {
+        ...bridge.update,
+        requestCheck: () =>
+          Promise.reject(
+            new Error(
+              "Error invoking remote method 'update.requestCheck': " +
+                "Error: No handler registered for 'update.requestCheck'",
+            ),
+          ),
       },
     };
     const refusals: Refusal[] = [];
-    const commands = buildBridgeCommands(rejecting, (refusal) => refusals.push(refusal));
+    const commands = buildBridgeCommands(unanswered, (refusal) => refusals.push(refusal));
 
-    await commandById(commands, "bridge.copyBuildDetails").run();
+    await commandById(commands, "bridge.checkForUpdates").run();
 
     expect(refusals).toHaveLength(1);
-    expect(refusals[0]?.code).toBe("clipboard-unavailable");
+    expect(refusals[0]?.code).toBe("update-check-unavailable");
     expect(refusals[0]?.origin).toBe("palette-bridge-command");
-    expect(refusals[0]?.detail).toContain("build details could not be copied");
+    expect(refusals[0]?.detail).toContain("update check could not start");
+    expect(refusals[0]?.detail).not.toContain("No handler");
   });
 
   it("routes a bridge that THROWS to the same sink as one that rejects", async () => {
-    // A member that throws synchronously must land on the same sink as one that rejects.
-    // Negative control for a boundary attached to the returned promise, which the throw would
-    // escape.
+    // A member that throws before it returns a promise must land on the same sink as one that
+    // rejects. Negative control for a boundary attached to the returned promise, which the
+    // throw would escape.
     const bridge = fixtureBridge();
     const throwing: PlatformBridge = {
       ...bridge,
-      native: {
-        ...bridge.native,
-        copyToClipboard: () => {
-          throw new Error("the clipboard is unreachable");
+      update: {
+        ...bridge.update,
+        requestCheck: () => {
+          throw new Error("update.requestCheck is not implemented");
         },
       },
     };
     const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(throwing, (refusal) => refusals.push(refusal));
 
-    await expect(commandById(commands, "bridge.copyBuildDetails").run()).resolves.toBeUndefined();
+    await expect(commandById(commands, "bridge.checkForUpdates").run()).resolves.toBeUndefined();
 
     expect(refusals).toHaveLength(1);
-    expect(refusals[0]?.code).toBe("clipboard-unavailable");
+    expect(refusals[0]?.code).toBe("update-check-unavailable");
   });
 
   it("negative control: an act the bridge serves reports no refusal", async () => {

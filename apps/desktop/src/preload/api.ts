@@ -1,5 +1,6 @@
-// The object the preload exposes: the stub bridge, with every member main answers carried over
-// IPC.
+// The object the preload exposes: the stub bridge, with every member carried over IPC. Main
+// does not answer the updater's channels yet, so an updater call rejects with Electron's own
+// no-handler error.
 
 import { ipcRenderer, webUtils } from "electron";
 
@@ -20,6 +21,7 @@ import {
 } from "#shared/preload-api.js";
 import { createDaemonWire, DaemonSubscriptions } from "./daemon-wire.js";
 import { createMachineSettingsBridge } from "./machine-settings-bridge.js";
+import { createUpdateBridge } from "./update-bridge.js";
 import { createWindowBridge } from "./window-bridge.js";
 
 /** The bridge object `index.ts` exposes on `window.desktopBridge`. */
@@ -67,6 +69,7 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.revealInFileExplorer, ref);
       },
     },
+    update: createUpdateBridge(ipcRenderer),
     keyboardMap: {
       read: async (): Promise<KeyboardMapReading> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.readKeyboardMap)) as KeyboardMapReading,

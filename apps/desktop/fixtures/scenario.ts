@@ -7,6 +7,8 @@
 // `services/daemon/engine.fixture.ts` plays a scenario, and
 // `services/daemon/scenario/scenario-reply.fixture.ts` owns how one reply settles.
 
+import type { UpdateState } from "#shared/preload-api.js";
+
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import type {
   ScenarioOpeningNotice,
@@ -31,6 +33,14 @@ export interface Scenario {
   readonly replies: readonly ScenarioReply[];
   /** The frames machine streams open with, where the daemon sends one first. */
   readonly openingNotices?: readonly ScenarioOpeningNotice[];
+  /**
+   * What the main process's updater reports, when the scenario states one.
+   *
+   * The default is a bare `idle` with no `lastCheckedAt`, the state of a fresh install. It
+   * is a scenario member rather than a `replies` row because the reply table is keyed by
+   * daemon method name, and `update.getState` is not one.
+   */
+  readonly updaterState?: UpdateState;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
 }

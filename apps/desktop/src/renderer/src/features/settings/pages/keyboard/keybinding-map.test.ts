@@ -39,7 +39,7 @@ describe("composing rows", () => {
   const commands = [
     command("frame.goToWorkflows", "Workflows"),
     command("frame.goToSessions", "Sessions"),
-    command("settings.cycleColorScheme", "Color scheme", "Help"),
+    command("bridge.checkForUpdates", "Check for updates", "Help"),
   ];
   const bindings: readonly Keybinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions" },
@@ -55,13 +55,11 @@ describe("composing rows", () => {
     });
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workflows?.chord).toBe("$mod+2");
-    expect(
-      rows.find((row) => row.commandId === "settings.cycleColorScheme")?.chord,
-    ).toBeUndefined();
+    expect(rows.find((row) => row.commandId === "bridge.checkForUpdates")?.chord).toBeUndefined();
     // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
     // the first.
     expect(
-      rows.find((row) => row.commandId === "settings.cycleColorScheme")?.shippedChord,
+      rows.find((row) => row.commandId === "bridge.checkForUpdates")?.shippedChord,
     ).toBeUndefined();
   });
 
@@ -86,12 +84,12 @@ describe("composing rows", () => {
       commands,
       bindings,
       shippedBindings: bindings,
-      overrides: { "frame.goToSessions": "$mod+1", "settings.cycleColorScheme": null },
+      overrides: { "frame.goToSessions": "$mod+1", "bridge.checkForUpdates": null },
       platform: "darwin",
     });
     const changed = rows.filter((row) => row.overridden).map((row) => row.commandId);
     // In the page's order: by group, so `App` before `Help`.
-    expect(changed).toStrictEqual(["frame.goToSessions", "settings.cycleColorScheme"]);
+    expect(changed).toStrictEqual(["frame.goToSessions", "bridge.checkForUpdates"]);
   });
 
   it("carries the chord the app ships, so a reset can name what it restores", () => {
@@ -215,7 +213,7 @@ describe("filtering rows", () => {
   const rows = composeKeybindingRows({
     commands: [
       command("frame.goToSessions", "Sessions"),
-      command("settings.cycleColorScheme", "Color scheme", "Help"),
+      command("bridge.checkForUpdates", "Check for updates", "Help"),
     ],
     bindings,
     shippedBindings: bindings,

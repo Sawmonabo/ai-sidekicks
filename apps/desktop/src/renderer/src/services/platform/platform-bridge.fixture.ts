@@ -10,7 +10,12 @@
 
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
-import type { KeyboardMap, KeyboardMapReading, Unsubscribe } from "#shared/preload-api.js";
+import type {
+  KeyboardMap,
+  KeyboardMapReading,
+  Unsubscribe,
+  UpdateState,
+} from "#shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 import {
   FixtureBridgeError,
@@ -52,6 +57,7 @@ export interface FixtureBridge {
 /** Builds the fixture bridge for one scenario, with the engine that plays it. */
 export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
+  const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
   let keyboardMap: KeyboardMap = {};
   let appearanceRecord: AppearanceRecord = DEFAULT_APPEARANCE_RECORD;
   const appearanceHandlers = new Set<(record: AppearanceRecord) => void>();
@@ -73,6 +79,18 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // affordance untestable.
       },
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
+    },
+    update: {
+      // The scenario's declaration, or a bare `idle`. The default omits the optional
+      // `lastCheckedAt` so the never-checked arm stays reachable.
+      getState: async (): Promise<UpdateState> => updaterState,
+      subscribe: (handler): Unsubscribe => {
+        handler(updaterState);
+        return () => undefined;
+      },
+      requestCheck: () => refuseAbsentCapability("update.requestCheck"),
+      requestDownload: () => refuseAbsentCapability("update.requestDownload"),
+      requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
     machineSettings: {
       read: () => refuseAbsentCapability("machineSettings.read"),

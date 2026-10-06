@@ -23,32 +23,32 @@ registerNavigationKeybindings(commandContributionRegistry);
 describe("keyboard page — what it changes", () => {
   it("records a chord onto the frame's own seam and prints it back", async () => {
     const { container } = renderKeyboardPage();
-    await recordChordOnto(container, "Color scheme", RECORDED_PRESS);
+    await recordChordOnto(container, "Check for updates", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(keybindingOverrides.overrides["settings.cycleColorScheme"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBe("Alt+KeyJ");
     });
     // The seam the frame installs from, not a copy the page keeps.
     expect(
       keybindingOverrides.snapshot.bindings.find(
-        (binding) => binding.commandId === "settings.cycleColorScheme",
+        (binding) => binding.commandId === "bridge.checkForUpdates",
       )?.chord,
     ).toBe("Alt+KeyJ");
-    expect(rowOf(container, "Color scheme").textContent ?? "").toContain("Reset");
+    expect(rowOf(container, "Check for updates").textContent ?? "").toContain("Reset");
   });
 
   it("refuses a chord another command holds, naming that command on the row", async () => {
     const { container } = renderKeyboardPage();
-    await recordChordOnto(container, "Color scheme", RECORDED_PRESS);
+    await recordChordOnto(container, "Check for updates", RECORDED_PRESS);
     await waitFor(() => {
-      expect(keybindingOverrides.overrides["settings.cycleColorScheme"]).toBe("Alt+KeyJ");
+      expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBe("Alt+KeyJ");
     });
 
     await recordChordOnto(container, "Sessions", RECORDED_PRESS);
 
     await waitFor(() => {
       expect(rowOf(container, "Sessions").textContent ?? "").toContain(
-        "already opens Color scheme.",
+        "already opens Check for updates.",
       );
     });
     // Refused before anything moved.
@@ -80,15 +80,15 @@ describe("keyboard page — what it changes", () => {
   it("negative control: a modifier held on its own does not complete a recording", async () => {
     // Guards against the recorder settling on ⌥ on the way to ⌥J.
     const { container } = renderKeyboardPage();
-    await recordChordOnto(container, "Color scheme", {
+    await recordChordOnto(container, "Check for updates", {
       key: "Alt",
       code: "AltLeft",
       altKey: true,
     });
 
-    expect(keybindingOverrides.overrides["settings.cycleColorScheme"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBeUndefined();
     // Still armed, so the next press is the chord.
-    expect(recorderOf(container, "Color scheme").getAttribute("aria-pressed")).toBe("true");
+    expect(recorderOf(container, "Check for updates").getAttribute("aria-pressed")).toBe("true");
     expect(politeText(container)).toBe("");
   });
 });

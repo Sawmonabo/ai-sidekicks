@@ -7,7 +7,8 @@
 //
 // `close()` is not terminal: StrictMode runs an effect's cleanup between two setups and a changed
 // updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
-// later `open()` restarts. The holder takes the updater's calls, not the whole bridge.
+// later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
+import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type { Unsubscribe, UpdateState } from "#shared/preload-api.js";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -15,17 +16,8 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
 
-/**
- * The updater's calls: the state read, its subscription, and its controls. The bridge carries
- * none of them until main's updater handler is built, so the block is mounted nowhere yet.
- */
-export interface UpdaterCalls {
-  getState(): Promise<UpdateState>;
-  subscribe(handler: (state: UpdateState) => void): Unsubscribe;
-  requestCheck(): Promise<void>;
-  requestDownload(): Promise<void>;
-  requestRestart(): Promise<void>;
-}
+/** The updater's calls: the state read, its subscription, and its controls. */
+export type UpdaterCalls = PlatformBridge["update"];
 
 /**
  * What the block knows about the updater: nothing read yet, the state it reported, or the

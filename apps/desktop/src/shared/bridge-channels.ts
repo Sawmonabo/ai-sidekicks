@@ -1,9 +1,9 @@
-// The IPC channel each bridge member main answers is carried on. The preload invokes a channel
-// and main handles it, so the name is written here once, with the channels each member rides.
+// The IPC channel each bridge member is carried on. The preload invokes a channel and main
+// handles it, so the name is written here once, with the channels each member rides.
 
 import type { PreloadApi } from "./preload-api.js";
 
-/** The channels main answers through `ipcMain.handle`, by bridge member. */
+/** The channels the preload invokes and main answers through `ipcMain.handle`, by bridge member. */
 export const BRIDGE_CHANNELS = {
   daemonCall: "daemon.call",
   closeDaemonSubscription: "daemon.unsubscribe",
@@ -26,10 +26,20 @@ export const BRIDGE_CHANNELS = {
   setMinimumSize: "window.setMinimumSize",
   setDefaultSizes: "window.setDefaultSizes",
   endSafeStart: "window.endSafeStart",
+  readUpdateState: "update.getState",
+  requestUpdateCheck: "update.requestCheck",
+  requestUpdateDownload: "update.requestDownload",
+  requestUpdateRestart: "update.requestRestart",
 } as const;
 
-/** A channel main answers through `ipcMain.handle`. */
+/** A channel the preload invokes. */
 export type InvokedBridgeChannel = (typeof BRIDGE_CHANNELS)[keyof typeof BRIDGE_CHANNELS];
+
+/**
+ * The updater's channels. Main has no updater yet, so nothing answers them and a call on one
+ * rejects with Electron's own no-handler error.
+ */
+export type UpdaterBridgeChannel = Extract<InvokedBridgeChannel, `update.${string}`>;
 
 /**
  * The channel a daemon subscription opens on. Synchronous, because `daemon.subscribe` answers its
@@ -50,6 +60,9 @@ export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
 /** The channel main asks the console document on to open a window again, carrying its id. */
 export const REOPEN_WINDOW_CHANNEL = "window.reopen";
 
+/** The channel main pushes each updater state on, to the console document. */
+export const UPDATE_STATE_CHANNEL = "update.state";
+
 /**
  * Every bridge member a page calls, as `namespace.member`. The build facts and the window used
  * last are values the preload read at start, not calls.
@@ -64,15 +77,21 @@ type BridgeMember = Exclude<
   "window.lastUsedWindowId"
 >;
 
+/** The updater's members, carried on `UpdaterBridgeChannel`s, which main does not answer. */
+type UpdaterMember = Extract<BridgeMember, `update.${string}`>;
+
 /**
  * The channels main answers for each bridge member: the one it invokes, and for a subscription
  * the one it opens on and the ones its first value is read from or it is closed on. Keyed by every
- * member, so a member added to `PreloadApi` fails the build until it names the
- * channels main answers it on; main's installer is keyed by every channel, so each one fails the
- * build until it has an answer.
+ * member but the updater's, so a member added to `PreloadApi` fails the build until it names the
+ * channels main answers it on; main's installer is keyed by every channel but the updater's, so
+ * each one fails the build until it has an answer.
  */
 export const BRIDGE_MEMBER_CHANNELS: Readonly<
-  Record<BridgeMember, readonly (InvokedBridgeChannel | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL)[]>
+  Record<
+    Exclude<BridgeMember, UpdaterMember>,
+    readonly (InvokedBridgeChannel | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL)[]
+  >
 > = {
   "daemon.call": [BRIDGE_CHANNELS.daemonCall],
   "daemon.subscribe": [OPEN_DAEMON_SUBSCRIPTION_CHANNEL, BRIDGE_CHANNELS.closeDaemonSubscription],
