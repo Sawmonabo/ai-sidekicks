@@ -15,7 +15,7 @@ import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubj
 import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
 import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import {
   DaemonStatusRead,
   type DaemonOperations,

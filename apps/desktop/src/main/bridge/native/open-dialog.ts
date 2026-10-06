@@ -6,11 +6,7 @@ import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 
 import type { OpenDialogPurpose, OpenDialogResults, PickedFile } from "#shared/preload-api.js";
-import type {
-  FilePathPurpose,
-  FilePathRefOwner,
-  FilePathRefs,
-} from "../file-path/file-path-refs.js";
+import type { FilePathPurpose, FilePathRefOwner, FilePathRefs } from "../file-path/refs.js";
 
 /** The part of Electron's `dialog` the open dialog uses. */
 export interface OpenDialogHost {

@@ -21,7 +21,7 @@ import path from "node:path";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 import { devServerUrl, installNavigationPolicy, type ChildWindowOpener } from "./navigation.js";
-import { loadDocument } from "./window-load-failure.js";
+import { loadDocument } from "./load-failure/recovery.js";
 import { applyRevealPreferences, revealWindow, type RevealState } from "./reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");

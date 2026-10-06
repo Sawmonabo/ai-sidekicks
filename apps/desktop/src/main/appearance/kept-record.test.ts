@@ -19,7 +19,7 @@ import {
 } from "#shared/appearance.js";
 import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
 
-import { KeptAppearance } from "./kept-appearance.js";
+import { KeptAppearance } from "./kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./record-file.js";
 import { stampRootElement } from "../services/root-stamp.js";
 

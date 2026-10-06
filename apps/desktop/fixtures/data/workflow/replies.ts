@@ -10,7 +10,7 @@
 // its current state. Each act pushes a run change on `workflow.subscribe`, as the daemon's
 // projector does.
 
-import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
+import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import type {
   WorkflowNodeId,
   WorkflowPinnedItem,

@@ -2,7 +2,7 @@
 //
 // `contextBridge.exposeInMainWorld` is the only renderer-visible API: no `ipcRenderer`, no
 // `require`, no `process`, no Node built-in. The preload runs sandboxed (`sandbox: true` in
-// `src/main/windows/window.ts`), and `src/shared/preload-api.test-d.ts` keeps auth material
+// `src/main/windows/factory.ts`), and `src/shared/preload-api.test-d.ts` keeps auth material
 // out of the bridge's type.
 
 import { contextBridge } from "electron";

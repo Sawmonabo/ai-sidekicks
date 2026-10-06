@@ -27,7 +27,7 @@ vi.mock("electron", () => electronMock.moduleExports);
 
 // The supervisor reaches the person's real background service, and starts one when none
 // answers; here it only records when the composition starts it and flushes it at quit.
-vi.mock("./services/daemon/daemon-supervisor.js", () => ({
+vi.mock("./services/daemon/supervisor.js", () => ({
   connectMainToDaemon: vi.fn(),
   DaemonSupervisor: class {
     public start(): void {
@@ -55,8 +55,8 @@ let isHiddenWindowFailing = false;
 
 const openHiddenWindow = vi.fn();
 
-vi.mock("./windows/window.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./windows/window.js")>();
+vi.mock("./windows/factory.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./windows/factory.js")>();
   openHiddenWindow.mockImplementation(
     (...options: Parameters<typeof original.openHiddenWindow>) => {
       if (isHiddenWindowFailing) {

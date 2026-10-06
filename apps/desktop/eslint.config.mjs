@@ -212,7 +212,7 @@ const CONTRACTS_SCHEMA_IMPORT = {
 /** The daemon method table, which hands out each method's schemas: the same claim again. */
 const DAEMON_METHOD_BINDINGS_IMPORT = {
   // A regex, because `group` takes gitignore syntax, where a leading `#` starts a comment.
-  regex: "^#shared/daemon/daemon-method-bindings\\.js$",
+  regex: "^#shared/daemon/method-bindings\\.js$",
   message:
     "The daemon method table binds each method to its schemas, which are parsers. " +
     "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`.",
@@ -461,7 +461,7 @@ const desktopConfig = defineConfig(
   //
   // Every daemon reply the renderer reads is parsed in one module,
   // `services/daemon/daemon-reply.ts`, against the schemas
-  // `src/shared/daemon/daemon-method-bindings.ts` binds to each method. A surface that could reach
+  // `src/shared/daemon/method-bindings.ts` binds to each method. A surface that could reach
   // the validator directly could parse a second time, differently, or skip the parse and keep the
   // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
   //
@@ -558,7 +558,7 @@ const desktopConfig = defineConfig(
   },
   {
     // The window factory is where windows are built; its settings stay held to their literals.
-    files: ["src/main/windows/window.ts"],
+    files: ["src/main/windows/factory.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",

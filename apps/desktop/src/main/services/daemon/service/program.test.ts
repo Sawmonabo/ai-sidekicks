@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 
 import { PACKAGE_ROOT } from "#test/helpers/fixture/bundle.js";
 
-import { resolveServiceProgram } from "./service-program.js";
+import { resolveServiceProgram } from "./program.js";
 
 it("starts the workspace daemon's built entry from main's built entry in a checkout", () => {
   const program = resolveServiceProgram({

@@ -4,7 +4,7 @@
 
 import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 
-import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
 
 /** Told of each new state, the current one first. */
 export type DaemonLinkListener = (state: MainProcessState) => void;

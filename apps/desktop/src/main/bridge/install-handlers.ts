@@ -24,12 +24,12 @@ import {
 import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
-import type { DaemonLink } from "../services/daemon/daemon-link.js";
-import type { DaemonSupervisor } from "../services/daemon/daemon-supervisor.js";
+import type { DaemonLink } from "../services/daemon/link/status.js";
+import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
 import type { DaemonForwarding } from "./daemon.js";
-import type { FilePathRefs } from "./file-path/file-path-refs.js";
+import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
 import { copyToClipboard } from "./native/clipboard.js";
 import { listEditors } from "./native/editors/installed-editors.js";
@@ -45,7 +45,7 @@ import { PastedImages, refForDroppedFile } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
 import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
-import { windowAnswers, type WindowHandlerContext } from "./window-handlers.js";
+import { windowAnswers, type WindowHandlerContext } from "./window.js";
 
 /** One channel's answer, given the asking event and the one request it carried. */
 type ChannelAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;

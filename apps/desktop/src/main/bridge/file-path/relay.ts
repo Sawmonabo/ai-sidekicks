@@ -13,7 +13,7 @@ import nodePath from "node:path";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 
-import type { FilePathPurpose, FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
+import type { FilePathPurpose, FilePathRefOwner, FilePathRefs } from "./refs.js";
 
 /** Where one path sits in a request or a reply: keys from the root, `*` for each list element. */
 type PathLocation = readonly string[];

@@ -21,11 +21,11 @@ import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
-import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
-import { unlinkedState } from "../services/daemon/daemon-link.js";
+import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
+import { unlinkedState } from "../services/daemon/link/status.js";
 import type { DaemonSubscriber } from "./daemon.js";
-import { FilePathRefs } from "./file-path/file-path-refs.js";
-import { pageOwner } from "./file-path/file-path-refs.test-support.js";
+import { FilePathRefs } from "./file-path/refs.js";
+import { pageOwner } from "./file-path/refs.test-support.js";
 import {
   bridgeOver,
   bridgeOverLink,
@@ -406,7 +406,7 @@ describe("how a subscription ends, and the status topic", () => {
   });
 
   it("delivers the link's state from before any service answers, the current one first", async () => {
-    const { DaemonLink } = await import("../services/daemon/daemon-link.js");
+    const { DaemonLink } = await import("../services/daemon/link/status.js");
     const link = new DaemonLink();
     const bridge = await bridgeOverLink(link);
     const delivered: MainProcessState[] = [];

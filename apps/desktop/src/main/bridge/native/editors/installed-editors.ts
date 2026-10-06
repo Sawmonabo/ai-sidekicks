@@ -5,7 +5,7 @@
 // has no command path of the person's to search.
 
 import type { EditorEntry } from "#shared/preload-api.js";
-import { EDITOR_CATALOG, type EditorDefinition } from "./editor-catalog.js";
+import { EDITOR_CATALOG, type EditorDefinition } from "./catalog.js";
 
 /** Where each installed editor lives, by editor id; an editor this machine lacks is absent. */
 export type InstalledEditorLocations = ReadonlyMap<string, string>;

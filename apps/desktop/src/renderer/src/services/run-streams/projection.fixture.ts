@@ -41,7 +41,7 @@ import {
   unprojectableFor,
 } from "./shapes.js";
 import type { RunStreamProjection } from "./shapes.js";
-import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/daemon-streams.js";
+import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import { runStateForTransitionKind } from "#renderer/store/session-events/run/state-kinds.js";
 import {
   runQueueStreamStateFor,

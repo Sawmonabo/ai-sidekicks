@@ -22,11 +22,11 @@ import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/st
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { expect, vi } from "vitest";
 
-import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import { DaemonLink } from "./daemon-link.js";
-import { DaemonSupervisor } from "./daemon-supervisor.js";
-import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/service-process.js";
+import { DaemonLink } from "./link/status.js";
+import { DaemonSupervisor } from "./supervisor.js";
+import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
 
 /** The process id of the service the supervisor finds running. */
 export const FOUND_SERVICE_PROCESS_ID = 3000;

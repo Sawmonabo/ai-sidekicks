@@ -17,7 +17,7 @@ import type {
 import type { Clock } from "#renderer/lib/clock.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
-import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
+import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";

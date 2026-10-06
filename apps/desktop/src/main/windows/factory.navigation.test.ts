@@ -22,11 +22,11 @@ const electronMock = createElectronMock();
 
 vi.mock("electron", () => electronMock.moduleExports);
 
-type WindowModule = typeof import("./window.js");
+type WindowModule = typeof import("./factory.js");
 
 async function loadWindowModule(): Promise<WindowModule> {
   vi.resetModules();
-  return import("./window.js");
+  return import("./factory.js");
 }
 
 /** The two seams that can change a live window's document, by event name. */

@@ -64,7 +64,7 @@ export const RENDERER_DEV_SERVER_PORT = 5173;
  * match `ws:` from an `http:` document, so the additions are redundant on a conforming engine,
  * but they prevent an HMR socket refused by our own header. Both loopback spellings are named
  * because Electron reaches the dev server by whichever `ELECTRON_RENDERER_URL` carries. Dev
- * only: `window.ts` takes the dev branch only when the app is unpackaged and
+ * only: `factory.ts` takes the dev branch only when the app is unpackaged and
  * `ELECTRON_RENDERER_URL` is set.
  */
 export const RENDERER_DEV_CONTENT_SECURITY_POLICY: string = composePolicy(

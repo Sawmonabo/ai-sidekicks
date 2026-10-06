@@ -4,7 +4,7 @@
 import { BRIDGE_CHANNELS, UPDATE_STATE_CHANNEL } from "#shared/bridge-channels.js";
 import type { PreloadApi, UpdateState } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
-import type { PreloadIpc } from "./preload-ipc.js";
+import type { PreloadIpc } from "./ipc.js";
 
 /** The `update` member the preload exposes to the console document, carried over `ipc`. */
 export function createUpdateBridge(ipc: Pick<PreloadIpc, "invoke" | "on">): PreloadApi["update"] {

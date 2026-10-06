@@ -5,7 +5,7 @@
 //
 // The set is closed at compile time. The table is built from `REGISTERED_DAEMON_METHODS` alone,
 // each entry looked up in its namespace's descriptor table, so a name no table holds is a type
-// error. Subscriptions are not in it: a stream has no reply to bind, and `daemon-streams.ts` names
+// error. Subscriptions are not in it: a stream has no reply to bind, and `streams.ts` names
 // the ones the app opens.
 
 import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";

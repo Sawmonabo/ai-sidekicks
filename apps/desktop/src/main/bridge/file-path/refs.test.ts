@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { FilePathRefs } from "./file-path-refs.js";
-import { pageOwner } from "./file-path-refs.test-support.js";
+import { FilePathRefs } from "./refs.js";
+import { pageOwner } from "./refs.test-support.js";
 
 const PICKED_PATH = "/Users/person/Documents/brief.pdf";
 

@@ -17,12 +17,12 @@ const electronMock = createElectronMock();
 
 vi.mock("electron", () => electronMock.moduleExports);
 
-type WindowModule = typeof import("./window.js");
-type LoadFailureModule = typeof import("./window-load-failure.js");
+type WindowModule = typeof import("../factory.js");
+type LoadFailureModule = typeof import("./recovery.js");
 
 async function loadWindowModule(): Promise<WindowModule> {
   vi.resetModules();
-  return import("./window.js");
+  return import("../factory.js");
 }
 
 /** Both modules from one reset, so the exit code read is the one that was used. */
@@ -32,8 +32,8 @@ async function loadWindowAndFailureModules(): Promise<{
 }> {
   vi.resetModules();
   return {
-    windowModule: await import("./window.js"),
-    loadFailureModule: await import("./window-load-failure.js"),
+    windowModule: await import("../factory.js"),
+    loadFailureModule: await import("./recovery.js"),
   };
 }
 

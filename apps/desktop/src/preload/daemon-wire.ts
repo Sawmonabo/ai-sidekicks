@@ -19,7 +19,7 @@ import type {
   DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
 import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
-import type { PreloadIpc } from "./preload-ipc.js";
+import type { PreloadIpc } from "./ipc.js";
 
 /**
  * The `daemon` member the preload exposes, carried over `ipc`, its subscriptions opened through

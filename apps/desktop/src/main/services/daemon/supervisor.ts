@@ -40,12 +40,12 @@ import type {
   DaemonConnection,
   MainProcessNegotiation,
   MainProcessState,
-} from "#shared/daemon/daemon-status-topic.js";
+} from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "../failure-message.js";
-import { unlinkedState, type DaemonLink } from "./daemon-link.js";
-import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link-lifetime.js";
-import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/service-process.js";
+import { unlinkedState, type DaemonLink } from "./link/status.js";
+import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
+import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
 
 /**
  * The waits before each start after a loss or a failed start. Their count is the number of failed

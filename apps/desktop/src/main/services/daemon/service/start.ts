@@ -5,8 +5,8 @@
 
 import { spawn } from "node:child_process";
 
-import { serviceProcessOf, type ServiceExit, type ServiceProcess } from "./service-process.js";
-import type { ServiceProgram } from "./service-program.js";
+import { serviceProcessOf, type ServiceExit, type ServiceProcess } from "./process.js";
+import type { ServiceProgram } from "./program.js";
 
 /**
  * Start the service program detached and resolve once the process exists. Rejects with the

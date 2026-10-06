@@ -7,7 +7,7 @@ import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
 import { z } from "zod";
 
-import { findEditor } from "./editor-catalog.js";
+import { findEditor } from "./catalog.js";
 import type { InstalledEditors } from "./installed-editors.js";
 import type { ProgramRunner } from "./program-runner.js";
 

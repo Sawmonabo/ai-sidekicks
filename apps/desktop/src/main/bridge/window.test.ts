@@ -45,8 +45,8 @@ async function connectWindowBridge() {
     ipcRenderer: Parameters<typeof import("#preload/window-bridge.js").createWindowBridge>[0];
     nativeTheme: never;
   };
-  const { windowAnswers } = await import("./window-handlers.js");
-  const { KeptAppearance } = await import("../appearance/kept-appearance.js");
+  const { windowAnswers } = await import("./window.js");
+  const { KeptAppearance } = await import("../appearance/kept-record.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
   const { createWindowBridge } = await import("#preload/window-bridge.js");
   const appearance = new KeptAppearance({

@@ -135,7 +135,7 @@ export function bringWindowForward(
 
 /**
  * Keeps a window's renderer un-throttled when it will stay hidden or be revealed inactive.
- * Called from `./window.ts` right after construction, before the load. The release arm touches
+ * Called from `./factory.ts` right after construction, before the load. The release arm touches
  * nothing, so an ordinary window keeps Chromium's default throttling.
  */
 export function applyRevealPreferences(

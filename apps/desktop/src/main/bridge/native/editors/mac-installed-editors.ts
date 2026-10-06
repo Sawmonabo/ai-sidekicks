@@ -8,7 +8,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { isMissingPath } from "#main/services/missing-path.js";
-import type { EditorDefinition, MacLineLaunch } from "./editor-catalog.js";
+import type { EditorDefinition, MacLineLaunch } from "./catalog.js";
 import type {
   EditorLaunch,
   InstalledEditorLocations,

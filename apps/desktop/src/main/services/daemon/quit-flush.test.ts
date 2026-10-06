@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 
-import { SERVICE_FLUSH_WAIT_MS } from "./daemon-supervisor.js";
+import { SERVICE_FLUSH_WAIT_MS } from "./supervisor.js";
 import { installQuitFlush } from "./quit-flush.js";
 
 /** An Electron `App` stand-in: `quit` re-emits `before-quit` at once, as Electron does. */

@@ -40,7 +40,7 @@ import {
   scriptedConnection,
   type ScriptedConnection,
 } from "./daemon.test-support.js";
-import type { WindowHandlerContext } from "./window-handlers.js";
+import type { WindowHandlerContext } from "./window.js";
 
 const electronMock = createElectronMock();
 

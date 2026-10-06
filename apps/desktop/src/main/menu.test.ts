@@ -44,7 +44,7 @@ function clickScheme(label: string): void {
 
 describe("the View menu's color scheme", () => {
   it("moves its tick once a pick is written, and puts it back, logged, when one is not", async () => {
-    const { KeptAppearance } = await import("./appearance/kept-appearance.js");
+    const { KeptAppearance } = await import("./appearance/kept-record.js");
     const { installApplicationMenu } = await import("./menu.js");
     const writes: { land: () => void; fail: (failure: Error) => void }[] = [];
     const appearance = new KeptAppearance({

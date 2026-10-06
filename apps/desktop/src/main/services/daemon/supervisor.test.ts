@@ -18,10 +18,10 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import type { DaemonLink } from "./daemon-link.js";
-import { SERVICE_HELLO_WAIT_MS, type DaemonSupervisor } from "./daemon-supervisor.js";
+import type { DaemonLink } from "./link/status.js";
+import { SERVICE_HELLO_WAIT_MS, type DaemonSupervisor } from "./supervisor.js";
 import {
   COMPATIBLE_HELLO,
   FOUND_SERVICE_PROCESS_ID,
@@ -30,7 +30,7 @@ import {
   supervisorOverScriptedService,
   type ScriptedService,
   type SupervisorUnderTest,
-} from "./daemon-supervisor.test-support.js";
+} from "./supervisor.test-support.js";
 
 let under: SupervisorUnderTest;
 let service: ScriptedService;

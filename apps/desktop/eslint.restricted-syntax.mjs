@@ -317,7 +317,7 @@ export const WINDOW_CONSTRUCTION_OUTSIDE_FACTORY = {
     `NewExpression:matches([callee.name=${WINDOW_CLASS_NAME}], ` +
     `[callee.property.name=${WINDOW_CLASS_NAME}])`,
   message:
-    "Every window and web view is built by the window factory in `src/main/windows/window.ts`, " +
+    "Every window and web view is built by the window factory in `src/main/windows/factory.ts`, " +
     "which holds the one locked `webPreferences` block. Build it there.",
 };
 

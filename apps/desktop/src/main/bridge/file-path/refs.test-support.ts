@@ -1,6 +1,6 @@
 // A page that owns file tokens in a test, and can be told it loaded a new document or has gone.
 
-import type { FilePathRefOwner } from "./file-path-refs.js";
+import type { FilePathRefOwner } from "./refs.js";
 
 /** A token owner with the id given, whose `navigate` and `destroy` run the listeners left. */
 export function pageOwner(id: number): FilePathRefOwner & {

@@ -19,10 +19,10 @@ import { vi } from "vitest";
 import { appFactsSwitches } from "#shared/app-facts.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
-import type { DaemonConnection } from "#shared/daemon/daemon-status-topic.js";
+import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { PreloadApi } from "#shared/preload-api.js";
-import { unlinkedState, type DaemonLink } from "../services/daemon/daemon-link.js";
-import type { WindowHandlerContext } from "./window-handlers.js";
+import { unlinkedState, type DaemonLink } from "../services/daemon/link/status.js";
+import type { WindowHandlerContext } from "./window.js";
 
 /** An in-memory daemon connection: it answers each request from a script, and can be closed. */
 export interface ScriptedConnection extends ClientTransport {
@@ -89,7 +89,7 @@ export async function linkOver(
   linkConnection: DaemonConnection = { kind: "connected" },
 ): Promise<DaemonLink> {
   const { JsonRpcClient } = await import("@ai-sidekicks/client-sdk");
-  const { DaemonLink } = await import("../services/daemon/daemon-link.js");
+  const { DaemonLink } = await import("../services/daemon/link/status.js");
   const link = new DaemonLink();
   link.attach(
     new JsonRpcClient(connection, {
@@ -133,7 +133,7 @@ export async function bridgeOverLink(
   const { DaemonForwarding } = await import("./daemon.js");
   const { installBridgeHandlers } = await import("./install-handlers.js");
   const { createPreloadApi } = await import("#preload/api.js");
-  const { FilePathRefs } = await import("./file-path/file-path-refs.js");
+  const { FilePathRefs } = await import("./file-path/refs.js");
 
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();

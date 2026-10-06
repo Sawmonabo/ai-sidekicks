@@ -11,7 +11,7 @@ import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "#fixtures/data/workfl
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import {
   PersistenceAdapterError,
   type StoredRecord,

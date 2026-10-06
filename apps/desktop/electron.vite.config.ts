@@ -10,7 +10,7 @@
 //   • main: `format: "es"` (`index.js`). The package is `"type": "module"` and Electron runs an
 //     ESM main process.
 //   • preload: `format: "cjs"` (`index.cjs`). The sandboxed preload (`sandbox: true` in
-//     `src/main/windows/window.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
+//     `src/main/windows/factory.ts`) loads only CommonJS; an ESM preload fails with "Cannot use
 //     import statement outside a module". The `.cjs` extension is what lets Node load it as CJS
 //     under `"type": "module"`, and `PRELOAD_PATH` in that file names it.
 //   • renderer: browser ESM, loaded through `<script type="module">`.

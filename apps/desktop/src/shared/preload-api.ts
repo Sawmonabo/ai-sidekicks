@@ -4,10 +4,10 @@
 // `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
 // `preload-api.test-d.ts` fails the typecheck when a property name the page can reach, daemon
 // results and delivered values included, matches /token|dpop|secret/i and is not a credential-free
-// name, a question's masked-answer flag, or one of the two credentials the design shows the person
-// once, each allowed only where it is sent. Paths reach the renderer only as opaque `FilePathRef`
-// values, which main mints and dereferences. Raw
-// `ipcRenderer`, `require`, `process` and Node built-ins never appear.
+// name, a question's masked-answer flag, or one of the two credentials shown to the person once,
+// each allowed only where it is sent. Paths reach the renderer only as opaque `FilePathRef` values,
+// which main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
+// never appear.
 //
 // The daemon's calls and subscriptions are typed by the daemon's method map in
 // `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
@@ -44,8 +44,8 @@ import type {
   DaemonStatusRequest,
   DaemonStatusTopic,
   MainProcessState,
-} from "./daemon/daemon-status-topic.js";
-import type { WindowDefaultSizes, WindowSize } from "./window/window-size.js";
+} from "./daemon/status-topic.js";
+import type { WindowDefaultSizes, WindowSize } from "./window/size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;

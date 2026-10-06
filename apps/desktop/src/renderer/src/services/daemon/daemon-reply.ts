@@ -22,7 +22,7 @@ import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,
-} from "#shared/daemon/daemon-method-bindings.js";
+} from "#shared/daemon/method-bindings.js";
 import { recordRefusedMemberPaths } from "#renderer/lib/diagnostic-capture/refused-member-record.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";

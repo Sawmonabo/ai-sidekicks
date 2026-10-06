@@ -8,7 +8,7 @@ import {
   buildLoadFailureUrl,
   matchLoadFailureRequest,
   renderLoadFailureDocument,
-} from "./load-failure-document.js";
+} from "./document.js";
 
 // One unpaired high surrogate: the only input on which `encodeURIComponent` throws `URIError`.
 const LONE_HIGH_SURROGATE = "\uD800";

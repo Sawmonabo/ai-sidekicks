@@ -13,7 +13,7 @@ import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { ModalDialogClaims } from "./modal-dialog-claims.js";
 import { PaneOpenRequests } from "./pane-open-requests.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE, mainProcessReportsAreEqual } from "./main-process-state.js";
 import { DEFAULT_ROUTE, parseRoute, type AppRoute } from "#renderer/routing/routes.js";
 import { routeSessionId, routesAreEqual } from "#renderer/routing/readers.js";

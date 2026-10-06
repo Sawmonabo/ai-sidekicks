@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
-import { attachToServiceProcess } from "./service-process.js";
+import { attachToServiceProcess } from "./process.js";
 
 const SERVICE: ProcessIdentity = {
   processId: 3000,

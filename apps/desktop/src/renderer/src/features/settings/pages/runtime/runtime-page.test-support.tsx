@@ -15,7 +15,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "#test/helpers/settle.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
 import { settingsPageContextWith } from "#test/helpers/settings-page-mount.js";
 import { DaemonOperationsBlocks } from "./DaemonOperationsBlocks.js";

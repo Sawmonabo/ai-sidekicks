@@ -15,7 +15,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { AppFacts } from "#shared/app-facts.js";
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { createStubBridge, type PreloadApi } from "#shared/preload-api.js";
 import { withLaunchedApp } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";

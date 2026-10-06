@@ -11,9 +11,9 @@ import * as z from "zod/mini";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
-import type { WindowDefaultSizes, WindowSize } from "#shared/window/window-size.js";
+import type { WindowDefaultSizes, WindowSize } from "#shared/window/size.js";
 
-import type { KeptAppearance } from "../appearance/kept-appearance.js";
+import type { KeptAppearance } from "../appearance/kept-record.js";
 import { appearanceChoiceSchema, appearanceGroundsSchema } from "../appearance/record-file.js";
 import type { OpenWindows } from "../windows/registry.js";
 

@@ -12,7 +12,7 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status"
 import { WORKFLOW_RUN_RECORDS, summaryOfRun } from "#fixtures/data/workflow/run/records.js";
 import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
+import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
 
 /** The runs list's daemon: its rows, the call arm and stream arm it answers through. */
 export class RunListDaemon {

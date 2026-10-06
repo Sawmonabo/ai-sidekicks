@@ -1,11 +1,9 @@
-// Where a window with no kept place opens. Its size is taken from the display's own work area: a
-// window of session views fills it but for one cascade step on every side, and a pane's own window
-// is as wide as the renderer says that pane opens and as tall as the work area. The first one
-// opens centered on the display; every further one cascades off the window used before it, a step
-// down and to the right, past any open window whose corner it would share, so a new window never
-// lands exactly over another: it gives up what would pass the work area's far edges, and only when
-// no room is left is it moved back onto the work area. The step and the shared-corner check follow
-// the cascade VS Code applies to a new window (`windowsStateHandler.ts`).
+// Where a window with no kept place opens. A window of session views fills the display's work area
+// but for one cascade step on every side; a pane's own window is as wide as the renderer says that
+// pane opens and as tall as the work area. The first window opens centered; each further one
+// cascades a step down and to the right of the window used before it, past any open window whose
+// corner it would share, so a new window never lands exactly over another. Only when no room is
+// left is it moved back onto the work area.
 
 import type { Rectangle } from "electron";
 

@@ -27,7 +27,7 @@ vi.mock("electron", () => ({
   net: { fetch: electronMock.netFetch },
 }));
 
-import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failure-document.js";
+import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../../windows/load-failure/document.js";
 import { stampRootElement } from "../root-stamp.js";
 import { handleRendererRequest, RendererSchemeRegistration } from "./protocol.js";
 import { RENDERER_CONTENT_SECURITY_POLICY } from "./scheme.js";

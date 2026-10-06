@@ -14,7 +14,7 @@ import type {
   DaemonResult,
 } from "@ai-sidekicks/contracts/daemon/methods";
 
-import type { MainProcessState } from "./daemon/daemon-status-topic.js";
+import type { MainProcessState } from "./daemon/status-topic.js";
 import type { DaemonWire, PreloadApi, ServedDaemonCall, Unsubscribe } from "./preload-api.js";
 
 /**
@@ -115,8 +115,8 @@ type CredentialFreeKeys =
 type Offenders<T> = Exclude<ContainsForbidden<AllKeys<T>>, CredentialFreeKeys>;
 
 /**
- * The methods that answer one of the two credentials the design shows the person once, to copy
- * into the receiver or caller they authenticate: the notification web address's signing secret,
+ * The methods that answer one of the two credentials shown to the person once, to copy into the
+ * receiver or caller they authenticate: the notification web address's signing secret,
  * and a workflow webhook's token. Each is allowed only on these methods' results.
  */
 type ShownOnceMethod =

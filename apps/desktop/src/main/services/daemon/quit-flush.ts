@@ -11,7 +11,7 @@ import type { App } from "electron";
 
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
 import { describeFailure } from "../failure-message.js";
-import { SERVICE_FLUSH_WAIT_MS } from "./daemon-supervisor.js";
+import { SERVICE_FLUSH_WAIT_MS } from "./supervisor.js";
 
 /** Where a flush that failed or ran out of time is recorded. */
 export interface QuitFlushOptions {

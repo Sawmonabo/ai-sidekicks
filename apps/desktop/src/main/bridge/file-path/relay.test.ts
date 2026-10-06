@@ -6,8 +6,8 @@ import { SessionMemoryReadResponseSchema } from "@ai-sidekicks/contracts/session
 import { describe, expect, it } from "vitest";
 
 import { mintTokensForPaths } from "./relay.js";
-import { FilePathRefs } from "./file-path-refs.js";
-import { pageOwner } from "./file-path-refs.test-support.js";
+import { FilePathRefs } from "./refs.js";
+import { pageOwner } from "./refs.test-support.js";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000001";
 

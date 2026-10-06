@@ -29,8 +29,8 @@ beforeEach(async () => {
   vi.resetModules();
   const { installBridgeHandlers } = await import("./install-handlers.js");
   const { DaemonForwarding } = await import("./daemon.js");
-  const { DaemonLink } = await import("../services/daemon/daemon-link.js");
-  const { FilePathRefs } = await import("./file-path/file-path-refs.js");
+  const { DaemonLink } = await import("../services/daemon/link/status.js");
+  const { FilePathRefs } = await import("./file-path/refs.js");
   const link = new DaemonLink();
   log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();

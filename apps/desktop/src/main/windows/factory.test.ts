@@ -6,7 +6,7 @@
 // rather than two facts; the hidden window stays unshown and unthrottled, and a window a person
 // sees is revealed as it is built; the window takes its document's title; and the window and its
 // document close together, from either side.
-// `./window.navigation.test.ts` and `./window-load-failure.test.ts` own the rest. `electron` is
+// `./factory.navigation.test.ts` and `./load-failure/recovery.test.ts` own the rest. `electron` is
 // mocked because a real `BaseWindow` needs a running Electron process.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,12 +26,12 @@ const electronMock = createElectronMock({ recordOrder: true });
 
 vi.mock("electron", () => electronMock.moduleExports);
 
-type WindowModule = typeof import("./window.js");
+type WindowModule = typeof import("./factory.js");
 
-/** Re-imports `window.ts` so each case observes a clean construction log. */
+/** Re-imports `factory.ts` so each case observes a clean construction log. */
 async function loadWindowModule(): Promise<WindowModule> {
   vi.resetModules();
-  return import("./window.js");
+  return import("./factory.js");
 }
 
 /** Opens the hidden window with the test frame and no switches. */
@@ -156,7 +156,7 @@ describe("the window factory", () => {
     // Its document draws every window a person sees, so its timers never slow.
     expect(hiddenWindow.document.setBackgroundThrottling).toHaveBeenCalledWith(false);
 
-    const { adoptRendererChild } = await import("./window.js");
+    const { adoptRendererChild } = await import("./factory.js");
     const child = adoptRendererChild(testWindowFrame(), handedDocument() as never);
     expect(asMockWindow(child).baseWindow.showCount).toBe(1);
   });

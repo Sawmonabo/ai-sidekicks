@@ -8,7 +8,7 @@ import { Menu, type MenuItemConstructorOptions } from "electron";
 
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appearance.js";
 
-import type { KeptAppearance } from "./appearance/kept-appearance.js";
+import type { KeptAppearance } from "./appearance/kept-record.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
 import { describeFailure } from "./services/failure-message.js";
 

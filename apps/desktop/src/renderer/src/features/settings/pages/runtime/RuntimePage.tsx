@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import {
   UNREPORTED_DAEMON_NOTICE,
   describeDaemonConnection,

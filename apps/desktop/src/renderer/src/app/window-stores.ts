@@ -3,7 +3,7 @@
 // window opens, on the address the window opened on, so it never publishes its default route over
 // that address; it goes when its window closes.
 
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { parseRoute } from "#renderer/routing/routes.js";
 import type { OpenWindow, OpenWindows } from "#renderer/services/window/open-windows.js";

@@ -1,5 +1,5 @@
 // The routing every `daemon.subscribe` stream goes through. The closed set of stream names is
-// `#shared/daemon/daemon-streams.ts`, which main opens subscriptions under and refuses every other
+// `#shared/daemon/streams.ts`, which main opens subscriptions under and refuses every other
 // name by; this table says what each of the renderer's streams carries. The app's subscribers take
 // their stream names from that module and `scenario/subscriptions.fixture.ts` routes by this table, so the
 // fixture answers as the daemon would; a second copy would let them drift and deliver nothing to a
@@ -24,7 +24,7 @@ import {
   WORKFLOW_NOTICE_STREAM,
   type DaemonStream,
   type MACHINE_SETTINGS_STREAM,
-} from "#shared/daemon/daemon-streams.js";
+} from "#shared/daemon/streams.js";
 import { RUN_QUEUE_STREAM_CARRIED_KINDS, RUN_STATE_STREAM_CARRIED_KINDS } from "./stream-kinds.js";
 
 /**

@@ -4,7 +4,7 @@
 import { JsonRpcTransportPeerClosedError } from "@ai-sidekicks/client-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LINK_DEAD_MS, LinkLifetime } from "./link-lifetime.js";
+import { LINK_DEAD_MS, LinkLifetime } from "./lifetime.js";
 
 let reported: string[];
 let lifetime: LinkLifetime;

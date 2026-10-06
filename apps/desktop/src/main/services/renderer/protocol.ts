@@ -2,7 +2,7 @@
 // decides the response policy (status codes, empty refusal bodies, locked headers). Its
 // inputs live in modules that do not import `electron`: `./scheme.ts` (identity and
 // CSP), `./assets.ts` (containment and resolution) and
-// `../../windows/load-failure-document.ts` (the generated failure document).
+// `../../windows/load-failure/document.ts` (the generated failure document).
 //
 // Two entry points, so the startup order is assertable (`index.test.ts`): the scheme's one
 // registration (`RendererSchemeRegistration`, held by `main/index.ts`) at module top level, ahead
@@ -24,7 +24,7 @@ import { pathToFileURL } from "node:url";
 import {
   matchLoadFailureRequest,
   renderLoadFailureDocument,
-} from "../../windows/load-failure-document.js";
+} from "../../windows/load-failure/document.js";
 import { resolveRendererAsset } from "./assets.js";
 import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_INDEX_URL, RENDERER_SCHEME } from "./scheme.js";
 import { isMissingPath } from "../missing-path.js";

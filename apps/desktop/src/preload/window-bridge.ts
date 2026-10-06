@@ -10,7 +10,7 @@ import {
 } from "#shared/bridge-channels.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
-import type { PreloadIpc } from "./preload-ipc.js";
+import type { PreloadIpc } from "./ipc.js";
 
 /**
  * The `window` member the preload exposes to the console document, over `ipc`, which main

@@ -15,17 +15,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
-import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
+import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
-import { DaemonLink } from "../daemon-link.js";
-import { connectMainToDaemon, DaemonSupervisor } from "../daemon-supervisor.js";
-import { LINK_QUIET_MS } from "../link-lifetime.js";
+import { DaemonLink } from "../link/status.js";
+import { connectMainToDaemon, DaemonSupervisor } from "../supervisor.js";
+import { LINK_QUIET_MS } from "../link/lifetime.js";
 import {
   attachToServiceProcess,
   createSystemProcessIdentityReader,
   type ServiceProcess,
-} from "./service-process.js";
+} from "./process.js";
 import { startServiceDetached } from "./start.js";
 
 const DAEMON_ENTRY = fileURLToPath(import.meta.resolve("@ai-sidekicks/runtime-daemon/main"));

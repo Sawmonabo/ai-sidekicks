@@ -3,7 +3,7 @@
 // calls goes, its params checked against the method's contract before anything is sent and its
 // reply after, with each file token the method takes put back as its path and a token minted for
 // each path the reply offers to open (`file-path/relay.ts`). A subscription opens only under a
-// stream name the app opens (`#shared/daemon/daemon-streams.ts`): the daemon runs whatever method a
+// stream name the app opens (`#shared/daemon/streams.ts`): the daemon runs whatever method a
 // subscription names, so any other name would reach a method `call()` refuses. Its params go to the
 // daemon, which checks them, except for the one main types itself, the machine's settings, which
 // is checked against its contract on both sides. Nothing main holds for its own connection crosses
@@ -27,8 +27,8 @@ import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mac
 import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import { z, type ZodType } from "zod";
 
-import { daemonMethodBindingFor } from "#shared/daemon/daemon-method-bindings.js";
-import { isDaemonStream, MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
+import { daemonMethodBindingFor } from "#shared/daemon/method-bindings.js";
+import { isDaemonStream, MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import {
   DAEMON_SUBSCRIPTION_END_CHANNEL,
   DAEMON_SUBSCRIPTION_VALUE_CHANNEL,
@@ -38,16 +38,13 @@ import type {
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
 } from "#shared/daemon/forwarding.js";
-import { DAEMON_STATUS_TOPIC } from "#shared/daemon/daemon-status-topic.js";
-import type { DaemonLink } from "../services/daemon/daemon-link.js";
-import type {
-  DaemonSupervisor,
-  ServiceEndingMethod,
-} from "../services/daemon/daemon-supervisor.js";
+import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
+import type { DaemonLink } from "../services/daemon/link/status.js";
+import type { DaemonSupervisor, ServiceEndingMethod } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
 import { mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
-import type { FilePathRefOwner, FilePathRefs } from "./file-path/file-path-refs.js";
+import type { FilePathRefOwner, FilePathRefs } from "./file-path/refs.js";
 import { pageSafeMessage } from "./page-safe-message.js";
 
 /**

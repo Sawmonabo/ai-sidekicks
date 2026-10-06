@@ -14,8 +14,8 @@ import {
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DaemonLink } from "./daemon-link.js";
-import { SERVICE_FLUSH_WAIT_MS, type DaemonSupervisor } from "./daemon-supervisor.js";
+import type { DaemonLink } from "./link/status.js";
+import { SERVICE_FLUSH_WAIT_MS, type DaemonSupervisor } from "./supervisor.js";
 import {
   COMPATIBLE_HELLO,
   FOUND_SERVICE_PROCESS_ID,
@@ -24,7 +24,7 @@ import {
   supervisorOverScriptedService,
   type ScriptedService,
   type SupervisorUnderTest,
-} from "./daemon-supervisor.test-support.js";
+} from "./supervisor.test-support.js";
 
 let under: SupervisorUnderTest;
 let service: ScriptedService;

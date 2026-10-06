@@ -12,7 +12,7 @@ import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagno
 import { isRefusal } from "#renderer/lib/refusal/refusal.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
-import { DAEMON_METHOD_BINDINGS } from "#shared/daemon/daemon-method-bindings.js";
+import { DAEMON_METHOD_BINDINGS } from "#shared/daemon/method-bindings.js";
 import { refusalOf } from "./daemon-reply.test-support.js";
 import { bridgeAnswering, createFixture } from "#test/helpers/fixture/bridge.js";
 

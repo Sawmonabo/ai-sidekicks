@@ -13,7 +13,7 @@ import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButt
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
+import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import { ProviderAccountDeliveries } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
 import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";

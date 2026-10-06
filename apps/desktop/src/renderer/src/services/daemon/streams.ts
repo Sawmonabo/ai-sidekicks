@@ -8,10 +8,7 @@ import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { DaemonWireRequest, Unsubscribe } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
-import type {
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-} from "#shared/daemon/daemon-streams.js";
+import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 
 /**
  * One daemon subscription: the stream's method name and the registered request that scopes it.

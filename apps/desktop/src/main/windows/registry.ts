@@ -28,13 +28,13 @@ import type { AppearanceRecord } from "#shared/appearance.js";
 import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
 import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
-import type { WindowDefaultSizes } from "#shared/window/window-size.js";
+import type { WindowDefaultSizes } from "#shared/window/size.js";
 
-import type { KeptAppearance } from "../appearance/kept-appearance.js";
+import type { KeptAppearance } from "../appearance/kept-record.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./frame-name.js";
-import { newWindowBounds } from "./places/new-window-bounds.js";
+import { newWindowBounds } from "./places/new-bounds.js";
 import type { WindowPlace, WindowPlaceFile } from "./places/file.js";
 import { fitOnScreen } from "./places/screen-fit.js";
 import { RendererCrashes, type RendererReload } from "./renderer-crashes.js";
@@ -44,7 +44,7 @@ import {
   type HiddenWindowOptions,
   type RendererWindow,
   type WindowFrame,
-} from "./window.js";
+} from "./factory.js";
 import { bringWindowForward } from "./reveal.js";
 
 /** What the registry is built over. */

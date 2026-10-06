@@ -5,9 +5,9 @@
 
 import { app, type BaseWindow, type WebContents } from "electron";
 
-import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { describeFailure } from "../services/failure-message.js";
-import { buildLoadFailureUrl } from "./load-failure-document.js";
+import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
+import { describeFailure } from "../../services/failure-message.js";
+import { buildLoadFailureUrl } from "./document.js";
 
 /** Main's log, drained before an exit so the reason is on disk when the process ends. */
 type LoadFailureLog = Pick<MainDiagnosticLog, "write" | "drain">;
@@ -30,7 +30,7 @@ export function describeLoadFailure(error: unknown): string {
 
 /**
  * Starts the load, and gives a rejected load a visible outcome instead of an unseen failure. On
- * rejection the window loads the generated failure document (`./load-failure-document.ts`),
+ * rejection the window loads the generated failure document (`./document.ts`),
  * which is servable because it is not read from the tree that just failed, and `revealFailure`
  * puts the window on screen once it has. If that load also rejects, the window is destroyed and
  * the process exits non-zero once the reason is in the log; the failure document's own catch does

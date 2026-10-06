@@ -6,7 +6,7 @@ import type {
   MachineSettingsChange,
   MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
-import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
+import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/streams.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "#renderer/lib/emitter.js";
