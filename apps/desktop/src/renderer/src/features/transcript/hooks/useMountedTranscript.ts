@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 
 import {
   forwardActs,

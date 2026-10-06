@@ -6,7 +6,7 @@
 import { getWindow } from "@floating-ui/utils/dom";
 import { useEffect } from "react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { ViewportController } from "../controller.js";
 
 /** Tell `controller` the display its window draws on now, and again each time it changes. */

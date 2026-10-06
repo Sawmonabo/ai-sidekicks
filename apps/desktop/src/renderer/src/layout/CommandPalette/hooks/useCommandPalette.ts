@@ -5,7 +5,7 @@
 import type { Combobox } from "@base-ui/react/combobox";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "#renderer/lib/chord-format.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";

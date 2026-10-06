@@ -7,7 +7,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRef, type ReactNode } from "react";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "#renderer/lib/chord-format.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";

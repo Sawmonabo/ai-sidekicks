@@ -9,7 +9,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 
 import { useModalOverlayAirspace } from "#renderer/hooks/useModalOverlayAirspace.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayDialogPopup`. */

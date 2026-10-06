@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "r
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/publisher.js";
 import type { PageHost } from "../geometry/page-host.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
 import { type AirspaceRegistry } from "#renderer/lib/airspace.js";

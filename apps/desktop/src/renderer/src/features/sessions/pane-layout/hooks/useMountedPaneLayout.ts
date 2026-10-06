@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 
 import type { PaneLayoutActs } from "../acts.js";
 import { mountedPaneLayouts, type MountedPaneLayouts } from "../mounted.js";

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 
 import type {
   WorkflowCommandOffer,

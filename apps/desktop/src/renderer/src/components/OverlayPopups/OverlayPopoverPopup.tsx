@@ -5,7 +5,7 @@
 import { Popover } from "@base-ui/react/popover";
 
 import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayPopoverPopup`. */

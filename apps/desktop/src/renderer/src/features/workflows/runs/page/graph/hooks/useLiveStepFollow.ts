@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReactFlow, useStore, type OnMoveStart } from "@xyflow/react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import { MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import type { CanvasPoint } from "../layout.js";

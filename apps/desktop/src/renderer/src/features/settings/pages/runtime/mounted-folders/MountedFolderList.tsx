@@ -2,7 +2,7 @@ import "./MountedFolderList.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";

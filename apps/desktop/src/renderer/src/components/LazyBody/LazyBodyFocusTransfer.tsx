@@ -8,7 +8,7 @@
 
 import { useLayoutEffect } from "react";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 
 import { type RevealFocusTransfer } from "./reveal-focus-transfer.js";
 

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { APPROVAL_CATEGORY_LABELS } from "#renderer/lib/approval-vocabulary.js";
 
 import { findApprovalCardAction } from "../components/ApprovalCard.js";

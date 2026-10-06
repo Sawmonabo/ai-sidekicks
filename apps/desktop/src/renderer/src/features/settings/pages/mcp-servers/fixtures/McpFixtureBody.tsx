@@ -27,7 +27,7 @@ import { structuralKey } from "#renderer/lib/structural-key.js";
 import { relativeTimeChangesAt } from "#renderer/lib/wire/figures.js";
 import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";

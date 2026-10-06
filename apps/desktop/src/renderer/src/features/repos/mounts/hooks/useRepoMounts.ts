@@ -5,7 +5,7 @@
 import { useCallback, useMemo } from "react";
 
 import { useStoreBoundReader } from "#renderer/hooks/subject-scoped/useStoreBoundReader.js";
-import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
