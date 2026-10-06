@@ -8,7 +8,14 @@ import { z } from "zod";
 import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
+import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../session/session.js";
+import {
+  WorkflowRunIdSchema,
+  WorkflowRunStatusSchema,
+  type WorkflowRunId,
+  type WorkflowRunStatus,
+} from "../run/run.js";
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
@@ -147,8 +154,9 @@ const WORKFLOW_WEBHOOK_FIRE_OUTCOMES = ["started", "skipped", "waiting", "token_
 export type WorkflowWebhookFireOutcome = (typeof WORKFLOW_WEBHOOK_FIRE_OUTCOMES)[number];
 
 /**
- * The `workflow.definitionRead` result. The webhook token is never read back, only
- * its hash is kept, so the reply carries the token's dates and the last fire's outcome
+ * The `workflow.definitionRead` result. `permissionLevel` is the workflow's own level, which
+ * every run of it uses and the builder's level pill reads. The webhook token is never read back,
+ * only its hash is kept, so the reply carries the token's dates and the last fire's outcome
  * instead: `webhookTokenCreatedAt` is absent while the workflow has no token, and
  * `webhookTokenLastUsedAt` until a call presents it.
  */
@@ -159,6 +167,7 @@ export interface WorkflowDefinitionReadResponse {
   workflowVersionId: string;
   contentHash: string;
   document: WorkflowDocument;
+  permissionLevel: PermissionLevel;
   createdAt: string;
   webhookTokenCreatedAt?: string | undefined;
   webhookTokenLastUsedAt?: string | undefined;
@@ -173,6 +182,7 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
     workflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
     document: WorkflowDocumentSchema,
+    permissionLevel: PermissionLevelSchema,
     createdAt: isoDateTimeSchema,
     webhookTokenCreatedAt: isoDateTimeSchema.optional(),
     webhookTokenLastUsedAt: isoDateTimeSchema.optional(),
@@ -218,7 +228,11 @@ export const WorkflowDefinitionListRequestSchema: z.ZodType<
  * One definition in a list, with what a catalog row shows beside the name, so the table
  * needs no second read per row. `latestWorkflowVersionId` is what a run start takes;
  * `latestVersionNumber` sits beside it because a version read addresses a version by
- * number. A client passes both through and derives neither from the other.
+ * number. A client passes both through and derives neither from the other. `lastRun` is the
+ * row's last run status and its time, absent where the workflow has never run, which is not a
+ * failed run. `lastSkippedFire` is the last fire the trigger's overlap choice skipped because a
+ * run was still going, with that run's start, so the row says which run it was; a skipped fire is
+ * never a run.
  */
 export interface WorkflowDefinitionSummary {
   id: WorkflowDefinitionId;
@@ -227,7 +241,11 @@ export interface WorkflowDefinitionSummary {
   latestWorkflowVersionId: string;
   contentHash: string;
   triggerKind: WorkflowNodeKindId;
+  lastRun?:
+    | { workflowRunId: WorkflowRunId; status: WorkflowRunStatus; startedAt: string }
+    | undefined;
   schedule?: { expression: string; timeZone: string; nextFireAt?: string | undefined } | undefined;
+  lastSkippedFire?: { scheduledAt: string; runningSince: string } | undefined;
   enabled: boolean;
   tags: string[];
   runCount: number;
@@ -243,6 +261,14 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
     latestWorkflowVersionId: WorkflowVersionIdSchema,
     contentHash: WorkflowContentHashSchema,
     triggerKind: WorkflowNodeKindIdSchema,
+    lastRun: z
+      .object({
+        workflowRunId: WorkflowRunIdSchema,
+        status: WorkflowRunStatusSchema,
+        startedAt: isoDateTimeSchema,
+      })
+      .strict()
+      .optional(),
     // Absent where the definition declares no schedule. The next fire is computed in
     // the schedule trigger's own timezone, and absent while the workflow is off.
     schedule: z
@@ -251,6 +277,10 @@ export const WorkflowDefinitionSummarySchema: z.ZodType<WorkflowDefinitionSummar
         timeZone: z.string().min(1),
         nextFireAt: isoDateTimeSchema.optional(),
       })
+      .strict()
+      .optional(),
+    lastSkippedFire: z
+      .object({ scheduledAt: isoDateTimeSchema, runningSince: isoDateTimeSchema })
       .strict()
       .optional(),
     // Whether the workflow's triggers are armed: the toggle's own truth, so the row

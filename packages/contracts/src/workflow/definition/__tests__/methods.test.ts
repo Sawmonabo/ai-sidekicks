@@ -65,6 +65,7 @@ describe("workflow.definitionRead", () => {
       workflowVersionId: "ver-3",
       contentHash: "b3:0123abcd",
       document: DOCUMENT,
+      permissionLevel: "yolo",
       createdAt: NOW,
       webhookTokenCreatedAt: NOW,
       webhookTokenLastUsedAt: NOW,

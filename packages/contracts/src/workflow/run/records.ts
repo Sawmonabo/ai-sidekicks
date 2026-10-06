@@ -153,9 +153,10 @@ const WorkflowRunReviewSchema: z.ZodType<WorkflowRunReview> = z.discriminatedUni
  * The `workflow.runRead` result: the run's header facts and every step. The page draws
  * its graph and its step panel from `steps`.
  *
- * `executionContextCaptured` is true when the run recorded its checkout and snapshot
- * points, which is what lets `Open in Review` open the run's changes; a run in a chat
- * session records none. `keep` is the Keep mark, which `Delete runs older than…` leaves.
+ * `executionContextCaptured` is true for a run that works in a project's repository, which
+ * records its checkout and snapshot points and so lets `Open in Review` open the run's changes;
+ * it is false for a chat's run in the chat's own folder and a `None` run, which record none.
+ * `keep` is the Keep mark, which `Delete runs older than…` leaves.
  * `endedAt` is present exactly once the run has ended: a `failed` run parked on its failed step
  * has not ended and carries none, so `Cancel` and `Resume` still act on it.
  * `fixSessionId` names the session a failed step was opened in to be fixed, linked for
