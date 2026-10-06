@@ -287,7 +287,7 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
         });
       }
     }
-  }) as unknown as z.ZodType<SessionCreateRequest, SessionCreateRequest>;
+  });
 
 /**
  * What `session.create` answers. `resolvedConfiguration` is present exactly when the request

@@ -121,9 +121,7 @@ export type SessionStreamFrame<Event> = StreamFrame<SessionStreamChange<Event>, 
 export function SessionStreamFrameSchema<Event>(
   eventSchema: z.ZodType<Event>,
 ): z.ZodType<SessionStreamFrame<Event>> {
-  const changeSchema = z
-    .object({ cursor: EventCursorSchema, event: eventSchema })
-    .strict() as unknown as z.ZodType<SessionStreamChange<Event>>;
+  const changeSchema = z.object({ cursor: EventCursorSchema, event: eventSchema }).strict();
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
 

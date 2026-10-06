@@ -110,7 +110,7 @@ export function SubscriptionNotifyParamsSchema<T>(
       subscriptionId: SubscriptionIdSchema,
       value: valueSchema,
     })
-    .strict() as unknown as z.ZodType<SubscriptionNotifyParams<T>>;
+    .strict();
 }
 
 /**
@@ -175,7 +175,7 @@ export const SubscriptionCancelParamsSchema: z.ZodType<SubscriptionCancelParams>
   .object({
     subscriptionId: SubscriptionIdSchema,
   })
-  .strict() as unknown as z.ZodType<SubscriptionCancelParams>;
+  .strict();
 
 /**
  * The result of a cancel call. `canceled` is false when the id is unknown or owned by another
@@ -191,7 +191,7 @@ export const SubscriptionCancelResultSchema: z.ZodType<SubscriptionCancelResult>
   .object({
     canceled: z.boolean(),
   })
-  .strict() as unknown as z.ZodType<SubscriptionCancelResult>;
+  .strict();
 
 /**
  * The server-side handle a handler emits through, created per subscription and owned by one
