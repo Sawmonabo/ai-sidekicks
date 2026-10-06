@@ -3,10 +3,11 @@
 // In the sequence, two orderings are load-bearing beyond the rest:
 // `protocol.registerSchemesAsPrivileged` before `app.whenReady()` (Electron refuses it after
 // ready, and a non-`standard` scheme has no origin, so no IndexedDB or `localStorage`), and
-// `protocol.handle` before the first window (or a window loads against an unhandled scheme). The
-// crash reporter starts before the single-instance lock, so a crash anywhere later in startup is
-// kept, and the second-launch listener is in place before ready, so a launch arriving while the
-// app starts is heard.
+// `protocol.handle` before the first window (or a window loads against an unhandled scheme). Main's
+// log is opened before the crash reporter, which records in it, and the crash reporter starts
+// before the single-instance lock, so a crash anywhere later in startup is kept, and the
+// second-launch listener is in place before ready, so a launch arriving while the app starts is
+// heard.
 //
 // A failed startup exits even when its own record fails first. The records (stderr, the JSONL
 // log) are best-effort and the exit is the contract: the handler is last on the chain, so a
@@ -15,7 +16,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
-import { handedDocument, windowOpenHandlerOf } from "#test/helpers/window-harness.js";
+import { handedDocument, windowOpenHandlerOf } from "#test/helpers/electron/mock/readers.js";
 import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
 
 // The mock's `app.whenReady()` is a deferred the test releases by hand: awaiting the dynamic
@@ -90,6 +91,7 @@ vi.mock("./services/diagnostic-log.js", async (importOriginal) => ({
 /** The steps the sequence is asserted over; the bridge's handlers read as one step. */
 const STARTUP_OPERATIONS: readonly string[] = [
   "protocol.registerSchemesAsPrivileged",
+  "app.getPath:logs",
   "crashReporter.start",
   "app.requestSingleInstanceLock",
   "app.on:second-instance",
@@ -166,10 +168,11 @@ describe("main-process startup composition", () => {
   it("runs every startup step in its order, the scheme before ready", async () => {
     await import("./index.js");
 
-    // Ready is not released yet, so only module-evaluation calls are recorded. A
-    // The scheme's registration moved inside `whenReady()` would drop the first entry.
+    // Ready is not released yet, so only module-evaluation calls are recorded. A scheme
+    // registration moved inside `whenReady()` would drop the first entry.
     expect(startupSequence()).toEqual([
       "protocol.registerSchemesAsPrivileged",
+      "app.getPath:logs",
       "crashReporter.start",
       "app.requestSingleInstanceLock",
       "app.on:second-instance",

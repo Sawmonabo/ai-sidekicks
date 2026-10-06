@@ -1,12 +1,12 @@
-// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts` asserts its
-// Electron calls: the renderer scheme's registration at module top level, before `app.ready`, then
-// the profile keyed to the install, main's log, the crash reporter and the single-instance lock,
-// then the kept appearance, the registry of windows and its lifecycle, so a second launch during
-// start is heard; inside `whenReady()`, in order, `installRendererProtocol`,
-// `installApplicationMenu`, the bridge handlers, the hidden window, whose console document opens
-// every window a person sees, and the background service's start and watch. Electron refuses a
-// scheme registered after ready, and a window created before the handler is installed loads against
-// an unhandled scheme.
+// Electron main-process entrypoint. Startup order is load-bearing: the renderer scheme's
+// registration at module top level, before `app.ready`, then the profile keyed to the install,
+// main's log, the crash reporter and the single-instance lock, then the kept appearance, the
+// registry of windows and its lifecycle, so a second launch during start is heard; inside
+// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
+// handlers, the hidden window, whose console document opens every window a person sees, and the
+// background service's start and watch. `index.test.ts` asserts the order of these Electron calls,
+// all but the profile's, which a packaged build skips. Electron refuses a scheme registered after
+// ready, and a window created before the handler is installed loads against an unhandled scheme.
 
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
@@ -19,6 +19,7 @@ import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-
 import { DaemonForwarding } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/refs.js";
 import { installBridgeHandlers } from "./bridge/install-handlers.js";
+import { PASTED_IMAGES_FOLDER_NAME, PastedImages } from "./bridge/native/file-intake.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { installApplicationMenu } from "./menu.js";
 import { firstWindowContents } from "./probes/first-window-contents.js";
@@ -38,10 +39,7 @@ import {
 } from "./services/diagnostic-log.js";
 import { keyProfileToInstall } from "./services/install-profile.js";
 import { describeFailure } from "./services/failure-message.js";
-import {
-  installRendererProtocol,
-  RendererSchemeRegistration,
-} from "./services/renderer/protocol.js";
+import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
 import { installActivationPolicy } from "./windows/reveal.js";
@@ -59,7 +57,7 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
 // which hold the app's UI state.
-new RendererSchemeRegistration().register();
+registerRendererScheme();
 
 // The lock, the crash reports and the logs all live under the profile folder, so it is keyed to
 // the install first: a development build and a shipped one never share a lock or a profile.
@@ -127,11 +125,6 @@ function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure
   }
 }
 
-// The probes live in `./probes/`. Both are gated twice: the compile-time
-// `__SMOKE_BUILD__` (a release bundle references nothing there, so Rollup drops the
-// modules) and a per-run env var, so even a smoke bundle never auto-runs one. A release binary
-// must not embed a path such as `executeJavaScript` against the renderer, which is untrusted.
-
 /**
  * Start the application once Electron is ready. A failed start is recorded and exits with 1;
  * the record is best-effort and the exit is the contract.
@@ -153,7 +146,6 @@ function startApplication(): void {
       file: new AppearanceRecordFile({
         filePath: path.join(app.getPath("userData"), APPEARANCE_FILE_NAME),
         log,
-        now: () => new Date(),
       }),
       nativeTheme,
     });
@@ -177,22 +169,25 @@ function startApplication(): void {
       // Test builds only, and only when the harness asked: the macOS accessory activation
       // policy must be in place before the first reveal could activate the application.
       installActivationPolicy(app);
-      // Before any window: a window constructed ahead of the handler could load against an
-      // unhandled scheme.
-      // Read at each serve: the record as it stands, the scheme the platform draws in, and whether
+      // Before any window, which could otherwise load against an unhandled scheme. The stamp is
+      // read at each serve: the record as it stands, the scheme the platform draws in, and whether
       // this load is a safe start.
-      installRendererProtocol(RENDERER_ROOT, {
-        get record() {
-          return appearance.record;
+      installRendererProtocol(
+        RENDERER_ROOT,
+        {
+          get record() {
+            return appearance.record;
+          },
+          get platformScheme() {
+            return appearance.resolvedScheme;
+          },
+          get isSafeStart() {
+            return openWindows.isSafeStart;
+          },
         },
-        get platformScheme() {
-          return appearance.resolvedScheme;
-        },
-        get isSafeStart() {
-          return openWindows.isSafeStart;
-        },
-      });
-      installApplicationMenu(appearance, { log, now: () => new Date() });
+        log,
+      );
+      installApplicationMenu(appearance, log);
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
@@ -208,21 +203,28 @@ function startApplication(): void {
           ),
         attachServiceProcess: attachToServiceProcess,
         log,
-        now: () => new Date(),
       });
       // One table of the file tokens handed to the pages: the native members mint them and the
       // daemon relay swaps them for paths.
       const filePathRefs = new FilePathRefs();
+      // The pictures pasted into the composer: the native member writes them, and the daemon
+      // relay removes each once the service has copied it.
+      const pastedImages = new PastedImages({
+        folder: path.join(app.getPath("userData"), PASTED_IMAGES_FOLDER_NAME),
+        filePathRefs,
+        log,
+      });
       installBridgeHandlers({
         userData: app.getPath("userData"),
         daemonForwarding: new DaemonForwarding({
           link: daemonLink,
           filePathRefs,
+          pastedImages,
           supervisor,
           log,
-          now: () => new Date(),
         }),
         filePathRefs,
+        pastedImages,
         supervisor,
         daemonLink,
         log,
@@ -239,7 +241,10 @@ function startApplication(): void {
         physicalMemoryBytes: totalmem(),
       });
 
-      // Both conditions must hold: the compile-time smoke flag and the runtime opt-in.
+      // The probes in `./probes/` are gated twice: the compile-time `__SMOKE_BUILD__` (a release
+      // bundle references nothing there, so Rollup drops the modules) and a per-run env var, so
+      // even a smoke bundle never auto-runs one. A release binary must not embed a path such as
+      // `executeJavaScript` against the renderer, which is untrusted.
       const smokeProbeRequested = __SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
 
       // Sampled before the hidden window, which starts the load being timed.
@@ -275,7 +280,12 @@ function startApplication(): void {
       // shell running.
       if (fixtureLaunch === undefined) {
         supervisor.start();
-        installQuitFlush(app, () => supervisor.flushAtQuit(), { log, now: () => new Date() });
+        installQuitFlush(app, () => supervisor.flushAtQuit(), {
+          log,
+          reportUnwrittenLog: (message) => {
+            console.error(message);
+          },
+        });
       }
 
       // The GC probe registers its own listener and defers itself, so nothing scheduled here
@@ -296,7 +306,6 @@ function startApplication(): void {
             ? mainLogOpening.log
             : createMainDiagnosticLog(app.getPath("logs"));
         startupLog.write({
-          at: new Date().toISOString(),
           level: "error",
           source: "main/index",
           message: `startup failed: ${describeFailure(startupFailure)}`,
