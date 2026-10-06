@@ -121,6 +121,8 @@ describe("one provider's import", () => {
 
     await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 128 });
     expect(rowText()).toContain("Importing from Claude Code… 128 read.");
+    // The bar measures nothing: the stream sent no total to measure against.
+    expect(screen.getByRole("progressbar").hasAttribute("value")).toBe(false);
 
     act(() => {
       screen.getByRole("button", { name: "Stop" }).click();
@@ -130,6 +132,7 @@ describe("one provider's import", () => {
 
     await emit(stream, settledMessage("claude", { outcome: "stopped" }));
     expect(rowText()).toBe("Import stopped. The sessions already read are in the sessions list.");
+    expect(screen.queryByRole("progressbar")).toBeNull();
     // The import can be started again.
     expect(importAction("Import sessions from Claude Code").disabled).toBe(false);
   });

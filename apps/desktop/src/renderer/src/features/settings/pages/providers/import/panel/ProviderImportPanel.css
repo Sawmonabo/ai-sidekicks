@@ -51,6 +51,35 @@
   align-items: baseline;
 }
 
+/* The bar under a running import, on a line of its own. It sweeps rather than fills, since the
+   stream sends no total; the global reduced-motion rule stops the sweep like every animation. */
+.meridian-provider-import__bar {
+  flex-basis: 100%;
+  block-size: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  appearance: none;
+  background-color: var(--meridian-surface-sunken);
+  background-image: linear-gradient(90deg, transparent, var(--meridian-accent), transparent);
+  background-repeat: no-repeat;
+  background-size: 50% 100%;
+  animation: meridian-provider-import-sweep var(--meridian-motion-breath) linear infinite;
+}
+
+.meridian-provider-import__bar::-webkit-progress-bar {
+  background: transparent;
+}
+
+@keyframes meridian-provider-import-sweep {
+  from {
+    background-position: -100% 0;
+  }
+
+  to {
+    background-position: 200% 0;
+  }
+}
+
 /* What a settled row unfolds: each failure with its reason, and each file that could not be
    read. */
 .meridian-provider-import__unfolded {

@@ -1,9 +1,10 @@
 // The one progress row a provider's import reports into, in the service's own counts.
 //
-// While an import runs the row counts what it has read and carries `Stop`; once it ends the row
-// says how it ended, and where conversations failed or files could not be read, pressing the
-// row unfolds them. Nothing is computed from the messages: the counts and the refusal are the
-// service's own, and a percentage would invent a denominator nobody sent.
+// While an import runs the row counts what it has read and carries `Stop`, over a bar that moves
+// but measures nothing; once it ends the row says how it ended, and where conversations failed
+// or files could not be read, pressing the row unfolds them. Nothing is computed from the
+// messages: the counts and the refusal are the service's own, and a filled bar or percentage
+// would invent a denominator nobody sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 
@@ -61,6 +62,11 @@ export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.El
             Stop
           </button>
         ) : null}
+        {/* No value: the stream sends no total, so the bar is indeterminate. */}
+        <progress
+          className="meridian-provider-import__bar"
+          aria-label={`Importing from ${providerLabel}`}
+        />
         {model.stopRefusal === undefined ? null : (
           <InlineRefusal code={model.stopRefusal.code} detail={model.stopRefusal.detail} />
         )}
