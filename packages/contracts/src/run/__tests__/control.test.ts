@@ -194,6 +194,17 @@ describe("RunStateChangeEvent", () => {
     ).toBe(false);
   });
 
+  it("names exactly one of a process's exit code and the signal that ended it", () => {
+    const failed = { ...minimalRunStateChange, newState: "failed" };
+    const exited = { exitCode: 1, outputTail: "2 tests failed" };
+    expect(RunStateChangeEventSchema.safeParse({ ...failed, processExit: exited }).success).toBe(
+      true,
+    );
+    for (const processExit of [{ outputTail: "Killed" }, { ...exited, signal: "SIGKILL" }]) {
+      expect(RunStateChangeEventSchema.safeParse({ ...failed, processExit }).success).toBe(false);
+    }
+  });
+
   describe("the executionPosture member", () => {
     const base = { writableRoots: ["/workspace"], credentialPolicyRef: "policy://default" };
 

@@ -11,7 +11,10 @@ export const CONTENT_LENGTH_HEADER = "Content-Length";
 /** Ends the header section (CRLFCRLF, as in LSP framing). */
 export const HEADER_BODY_SEPARATOR = "\r\n\r\n";
 
-const SEPARATOR_BYTES: Uint8Array = new TextEncoder().encode(HEADER_BODY_SEPARATOR);
+// Encoding keeps no state between calls, so every frame shares one encoder.
+const UTF8_ENCODER = new TextEncoder();
+
+const SEPARATOR_BYTES: Uint8Array = UTF8_ENCODER.encode(HEADER_BODY_SEPARATOR);
 
 /**
  * Largest accepted header section, in bytes before the separator. Without it a peer that never
@@ -111,7 +114,7 @@ export function parseFrame(bytes: Uint8Array, maxBodyBytes: number): ParseFrameR
  * fails at its sender with provenance instead of tripping the peer's inbound check.
  */
 export function encodeFrame(envelope: JsonRpcMessage): Uint8Array {
-  const bodyBytes = new TextEncoder().encode(JSON.stringify(envelope));
+  const bodyBytes = UTF8_ENCODER.encode(JSON.stringify(envelope));
   const declaredLength = bodyBytes.byteLength;
 
   if (declaredLength > MAX_MESSAGE_BYTES) {
@@ -122,7 +125,7 @@ export function encodeFrame(envelope: JsonRpcMessage): Uint8Array {
     );
   }
 
-  const headerBytes = new TextEncoder().encode(
+  const headerBytes = UTF8_ENCODER.encode(
     `${CONTENT_LENGTH_HEADER}: ${declaredLength}${HEADER_BODY_SEPARATOR}`,
   );
   const frame = new Uint8Array(headerBytes.byteLength + declaredLength);

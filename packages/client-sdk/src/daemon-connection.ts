@@ -67,9 +67,10 @@ export interface DaemonConnection {
 
 /**
  * Connects to the daemon and completes `daemon.hello` with its session token. Throws
- * `JsonRpcTransportUnavailableError` when nothing answers on the socket, and `JsonRpcRemoteError`
- * with `auth.token_invalid` when the daemon refuses the token and the token file still holds the
- * one presented; any failure after a connect closes that connection.
+ * `JsonRpcTransportUnavailableError` when nothing answers on the socket; the token file's read
+ * error, `code` `ENOENT` when a daemon has bound its socket and not yet written its token; and
+ * `JsonRpcRemoteError` with `auth.token_invalid` when the daemon refuses the token and the token
+ * file still holds the one presented. Any failure after a connect closes that connection.
  */
 export async function connectToDaemon(options: DaemonConnectionOptions): Promise<DaemonConnection> {
   const runFolder = options.runFolder ?? defaultDaemonRunFolder();
@@ -107,14 +108,16 @@ async function openDaemonConnection(
     options.observer === undefined
       ? socketTransport
       : observedTransport(socketTransport, options.observer);
+  // The client takes the transport's close before anything can fail, so the observer hears the
+  // close of a connection whose token could not be read. Each envelope carries this build's
+  // protocol version, whose form the daemon checks.
+  const client = new JsonRpcClient(transport, {
+    protocolVersion: CURRENT_PROTOCOL_VERSION,
+    maxQueuedValuesPerSubscription: options.maxQueuedValuesPerSubscription,
+  });
   try {
     const sessionToken = await readSessionToken();
-    // The hello offers every version this build speaks and settles which one both sides use; each
-    // envelope carries this build's own, whose form the daemon checks.
-    const client = new JsonRpcClient(transport, {
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
-      maxQueuedValuesPerSubscription: options.maxQueuedValuesPerSubscription,
-    });
+    // The hello offers every version this build speaks and settles which one both sides use.
     const helloParams: DaemonHello = {
       protocolVersion: CURRENT_PROTOCOL_VERSION,
       supportedProtocols: SUPPORTED_PROTOCOL_VERSIONS,

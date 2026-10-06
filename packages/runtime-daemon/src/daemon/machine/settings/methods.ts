@@ -2,14 +2,14 @@
 // the main process and every other device go through, and the live read every
 // console window listens on.
 import {
-  BRANCH_PATTERN_REFUSAL_WORDS,
   DAEMON_BRANCH_PATTERN_REFUSED_CODE,
   DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
-  ENVIRONMENT_NAME_REFUSAL_WORDS,
   MACHINE_SETTINGS_METHOD_DESCRIPTORS,
   environmentNameRefusal,
   type BranchPatternRefusalReason,
+  type DaemonBranchPatternRefusedDetails,
   type DaemonEnvironmentNameRefusedDetails,
+  type EnvironmentNameRefusalReason,
   type MachineSettingsChange,
   type MachineSettingsReading,
   type MachineSettingsSubscribeRequest,
@@ -39,6 +39,24 @@ export interface MachineSettingsMethodsDeps {
   ) => Promise<BranchPatternRefusalReason | null>;
 }
 
+// What the page says under a refused row, for each reason.
+const ENVIRONMENT_NAME_REFUSAL_WORDS: Readonly<Record<EnvironmentNameRefusalReason, string>> =
+  Object.freeze({
+    not_a_name: "A name is letters, digits and underscores, and never starts with a digit.",
+    credential_shaped:
+      "Credentials are not set here. Sign in to a provider on Providers, or add a workflow " +
+      "step's token in its Credential field.",
+    set_by_app: "The app sets this.",
+  });
+
+// What the page says under a refused pattern, for each reason.
+const BRANCH_PATTERN_REFUSAL_WORDS: Readonly<Record<BranchPatternRefusalReason, string>> =
+  Object.freeze({
+    title_not_once: "Put {title} in the name once.",
+    session_not_once: "A branch-name pattern holds {session} at most once.",
+    not_a_branch_name: "Git does not accept this as a branch name.",
+  });
+
 // A row whose name the app sets, that looks like a credential, or that is not a
 // name at all is refused before anything is written, naming the row.
 function refuseEnvironmentNames(change: MachineSettingsChange): void {
@@ -64,10 +82,11 @@ async function refuseBranchPattern(
   }
   const reason = await deps.findBranchPatternRefusal(change.branchNamePattern);
   if (reason !== null) {
+    const detail: DaemonBranchPatternRefusedDetails = { reason };
     throw new DaemonDomainError(BRANCH_PATTERN_REFUSAL_WORDS[reason], {
       code: DAEMON_BRANCH_PATTERN_REFUSED_CODE,
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      detail: { reason },
+      detail: { ...detail },
     });
   }
 }

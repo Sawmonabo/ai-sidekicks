@@ -40,9 +40,13 @@ type RequestableRunMode = Exclude<WorkflowRunMode, "retry" | "sub-workflow">;
 
 /**
  * The `workflow.runStart` input: the version to run, taken verbatim from a definition
- * or version read, the repository it works in, the items it starts on where the workflow
- * declares inputs, and how the start was made. A run started in a session works in that
- * session's folder, so `projectId` is refused beside `sessionId`.
+ * or version read, the session it is started in, the repository it works in, the items it starts
+ * on where the workflow declares inputs, and how the start was made. A run started in a project
+ * session works in that session's repository; one started in a chat works in the chat's own
+ * folder, or in the named project's folder when one is named; one started in no session works in
+ * the named project's folder, or with none named in its own. The schema cannot tell a chat from a
+ * project session, so the daemon refuses a project named on a project session's run with
+ * {@link WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE}.
  */
 export interface WorkflowRunStartRequest {
   workflowVersionId: string;
@@ -58,20 +62,18 @@ export const WorkflowRunStartRequestSchema: z.ZodType<
 > = z
   .object({
     workflowVersionId: WorkflowVersionIdSchema,
-    // Present only on a start made from a chat, naming that chat's session. When it is
-    // absent, the run lives in the workflow's own session.
+    // Present on a start made in a session, naming it. When it is absent, the run lives in the
+    // workflow's own session.
     sessionId: SessionIdSchema.optional(),
-    // The project the Run now panel's `Repository` names, worked in at that project's own
-    // folder. Absent for `None`: the run gets no checkout and works in its own empty folder, and
-    // a version holding a Git, Read a repo diff or Run tests step is refused.
+    // The project whose folder the run works in: the Run now panel's `Repository`, or the one a
+    // chat's start names. Absent on a start in no session for `None`: the run gets no checkout and
+    // works in its own empty folder, and a version holding a Git, Read a repo diff or Run tests
+    // step is refused.
     projectId: ProjectIdSchema.optional(),
     input: z.array(WorkflowItemSchema).optional(),
     mode: z.enum(WORKFLOW_RUN_MODES).exclude(["retry", "sub-workflow"]).optional(),
   })
-  .strict()
-  .refine((request) => request.sessionId === undefined || request.projectId === undefined, {
-    message: "A run started in a session works in that session's folder, so it names no project.",
-  });
+  .strict();
 
 /**
  * The `workflow.runStart` result. A start can only leave the run admitted but not yet
@@ -319,6 +321,15 @@ export const WorkflowResultsPostResponseSchema: z.ZodType<WorkflowResultsPostRes
  * @consumedBy the handler that returns the `workflow.start_denied` error
  */
 export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
+
+/**
+ * A start in a project session that names a project: the run works in that session's repository,
+ * so it names no other. Nothing runs.
+ *
+ * @consumedBy the start handler that refuses a project on a project session's run
+ */
+export const WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE =
+  "workflow.project_on_project_session" as const;
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume

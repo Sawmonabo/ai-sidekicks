@@ -21,7 +21,6 @@ export {
   type JsonRpcClientOptions,
 } from "./transport/json-rpc-client.js";
 export {
-  connectLocalSocket,
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
 } from "./transport/local-socket-transport.js";

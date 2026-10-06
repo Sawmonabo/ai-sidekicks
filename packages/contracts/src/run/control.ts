@@ -334,9 +334,10 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
   .strict();
 
 /**
- * How a process that ended on its own exited: its exit code or the signal that ended it, and the
- * last lines it printed. `run.failed` carries a provider process's under the turn, and a failed
- * workflow step the process it ran. A process the daemon closed itself, or a sleep, records none.
+ * How a process that ended on its own exited: exactly one of its exit code and the signal that
+ * ended it, and the last lines it printed. `run.failed` carries a provider process's under the
+ * turn, and a failed workflow step the process it ran. A process the daemon closed itself, or a
+ * sleep, records none.
  */
 export interface ProcessExit {
   exitCode?: number | undefined;
@@ -350,7 +351,10 @@ export const ProcessExitSchema: z.ZodType<ProcessExit> = z
     signal: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ProcessExit.signal").optional(),
     outputTail: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "ProcessExit.outputTail"),
   })
-  .strict();
+  .strict()
+  .refine((exit) => (exit.exitCode === undefined) !== (exit.signal === undefined), {
+    message: "A process exits with a code or is ended by a signal, exactly one.",
+  });
 
 /**
  * One run state transition as `run.subscribeState` delivers it, with its new run version.

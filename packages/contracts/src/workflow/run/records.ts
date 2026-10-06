@@ -226,8 +226,7 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
   )
   .refine(
     (run) =>
-      run.review === undefined ||
-      (run.executionContextCaptured && !GOING_RUN_STATUSES.includes(run.state)),
+      run.review === undefined || (run.executionContextCaptured && run.endedAt !== undefined),
     { path: ["review"], message: "Only a finished run with a captured checkout is reviewed." },
   )
   .refine((run) => run.chainQuestion === undefined || run.chainRoot.runId === run.workflowRunId, {

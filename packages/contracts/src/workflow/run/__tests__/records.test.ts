@@ -76,6 +76,10 @@ describe("workflow.runRead", () => {
     expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "running" }).success).toBe(
       false,
     );
+    // A failed run parked on its step has not ended, so it is not reviewed yet.
+    expect(WorkflowRunReadResponseSchema.safeParse({ ...going, state: "failed" }).success).toBe(
+      false,
+    );
     const liveStep = { index: 2, total: 3, nodeName: "Summarize" };
     expect(WorkflowRunReadResponseSchema.safeParse({ ...run, liveStep }).success).toBe(false);
     const chainQuestion = { state: "open" };

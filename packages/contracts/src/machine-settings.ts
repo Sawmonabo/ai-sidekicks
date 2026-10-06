@@ -107,17 +107,6 @@ export function environmentNameRefusal(name: string): EnvironmentNameRefusalReas
   return null;
 }
 
-/** What the page says under a refused row, for each reason. */
-export const ENVIRONMENT_NAME_REFUSAL_WORDS: Readonly<
-  Record<EnvironmentNameRefusalReason, string>
-> = Object.freeze({
-  not_a_name: "A name is letters, digits and underscores, and never starts with a digit.",
-  credential_shaped:
-    "Credentials are not set here. Sign in to a provider on Providers, or add a workflow " +
-    "step's token in its Credential field.",
-  set_by_app: "The app sets this.",
-});
-
 /** A row's name refused at save; nothing is written and the rows stay as they were. */
 export type DaemonEnvironmentNameRefusedCode = "daemon.environment_name_refused";
 /** The error code the service answers with when a row's name is refused. */
@@ -285,14 +274,6 @@ export type BranchPatternRefusalReason =
   | "session_not_once"
   | "not_a_branch_name";
 
-/** What the page says under a refused pattern, for each reason. */
-export const BRANCH_PATTERN_REFUSAL_WORDS: Readonly<Record<BranchPatternRefusalReason, string>> =
-  Object.freeze({
-    title_not_once: "Put {title} in the name once.",
-    session_not_once: "A branch-name pattern holds {session} at most once.",
-    not_a_branch_name: "Git does not accept this as a branch name.",
-  });
-
 /**
  * A pattern refused at save, from `Every project`'s `Branch names` or one project's own pattern;
  * nothing is written.
@@ -302,8 +283,16 @@ export type DaemonBranchPatternRefusedCode = "daemon.branch_pattern_refused";
 export const DAEMON_BRANCH_PATTERN_REFUSED_CODE: DaemonBranchPatternRefusedCode =
   "daemon.branch_pattern_refused";
 
+/** Why the pattern was refused, so the page says which rule it broke. */
+export interface DaemonBranchPatternRefusedDetails {
+  reason: BranchPatternRefusalReason;
+}
+
 /** Why a pattern's placeholders are refused, before git sees the name it fills in. */
-export type BranchPatternPlaceholderRefusalReason = "title_not_once" | "session_not_once";
+export type BranchPatternPlaceholderRefusalReason = Exclude<
+  BranchPatternRefusalReason,
+  "not_a_branch_name"
+>;
 
 /**
  * `title_not_once` when the pattern does not hold `{title}` exactly once, `session_not_once` when
@@ -355,7 +344,7 @@ export const BranchNamePatternSchema: z.ZodType<string, string> =
   BranchNamePatternChangeSchema.superRefine((pattern, context) => {
     const reason = branchPatternPlaceholderRefusal(pattern);
     if (reason !== null) {
-      context.addIssue({ code: "custom", message: BRANCH_PATTERN_REFUSAL_WORDS[reason] });
+      context.addIssue({ code: "custom", message: reason });
     }
   });
 

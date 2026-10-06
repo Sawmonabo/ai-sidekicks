@@ -5,10 +5,11 @@
 // request schemas (`workflow.kindList`, `workflow.definitionList`, `workflow.definitionCreate`,
 // `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.
 //
-// No tool takes a session id or a repository: the session is the one whose turn made the call,
-// and a run an agent starts works in that session's folder, so an agent cannot reach another
-// session or another repository. The JSON Schema a provider receives is generated from these
-// schemas, so each member's description is the text the model reads.
+// No tool takes a session id: the session is the one whose turn made the call, so an agent cannot
+// reach another session. Only `workflow_run` takes a repository, a project's, for a workflow that
+// needs one; without it the run works in that session's folder. The JSON Schema a provider
+// receives is generated from these schemas, so each member's description is the text the model
+// reads.
 import {
   WorkflowDefinitionIdSchema,
   WorkflowDraftDocumentSchema,

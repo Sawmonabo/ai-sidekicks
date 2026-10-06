@@ -1,7 +1,7 @@
 // The leaf of the session-event contracts: the envelope-version brand and the shared per-field
 // length cap. `event/envelope.ts` re-exports all of it.
 //
-// This module must never import an `event*.js` module, directly or through what it imports:
+// This module must never import an `event/*.js` module, directly or through what it imports:
 // every schema here is an eager module-scope initializer, and a cycle among those throws at import.
 import { z } from "zod";
 

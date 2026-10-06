@@ -1,7 +1,7 @@
 // Workspace contracts: the `repo.*` pairs that bind a session's workspace to a mount and read
 // what it can do (`repo.workspaceBind`, `repo.executionModeCapabilitiesRead` and
 // `repo.workspaceList`). The ids and enums they compose live in repo/repo.ts, and the mount pairs
-// in repo-folders.ts.
+// in repo/folders.ts.
 //
 // This module imports nothing from `./event/session-event.js` and nothing whose import closure
 // reaches it, for the module-cycle reason in the header of `repo/repo.ts`.

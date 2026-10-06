@@ -1,7 +1,8 @@
 // Skills: the list of every skill folder, file reads and saves, the name a typed skill would be
-// called by, availability per provider, the scan a widening runs, and the refusals of those verbs. A skill is its whole folder. The daemon
-// parses every `SKILL.md` itself because a provider can load a broken one without a word, so a
-// provider's own skill enumeration is evidence of what it loaded, never a second registry.
+// called by, availability per provider, the scan a widening runs, and the refusals of those verbs.
+// A skill is its whole folder. The daemon parses every `SKILL.md` itself because a provider can
+// load a broken one without a word, so a provider's own skill enumeration is evidence of what it
+// loaded, never a second registry.
 // Skills are node-local configuration: no verb here appends an event.
 import { z } from "zod";
 

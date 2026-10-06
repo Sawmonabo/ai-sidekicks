@@ -29,8 +29,7 @@ export interface DaemonRunFolder {
 /**
  * Resolves the run folder: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session provides one, and
  * otherwise `<temporary folder>/ai-sidekicks-<uid>`, kept per person because a temporary folder can
- * be shared. Throws on Windows, where clients reach the service through its per-user named pipe and
- * token file, which the service's Windows half serves and writes.
+ * be shared. Throws on Windows, which has no such folder.
  */
 export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFolder {
   if (facts.platform === "win32") {
