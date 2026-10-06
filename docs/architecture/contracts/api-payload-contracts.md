@@ -339,6 +339,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `daemon.backupStart`; events `backup.completed`, `backup.failed` and `backup.restored` on the daemon's sentinel session | `Back up now`, and the daily backup | [Spec-013 §Backup Policy](../../specs/013-persistence-and-recovery.md#backup-policy) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-13 |
 | `daemon.configRead` | Read the machine-wide service settings: listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns`, 25, 100, 500 or 2,000 runs or `null` for `Never ask`, `Max steps per turn`, `Spend limit`, `Tokens per run`, tool memory cap, the package cache limit, traces, raw provider messages | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-10 |
 | `daemon.configUpdate` | Change one of those settings | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) Phase R1 T-005r-1-10 |
+| `daemon.crashList` → `reports`, newest first | Read the crash reports this machine keeps, for `sidekicks crash list` and a linked device | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-14 |
 | `daemon.dataErase {}` | `Erase all data`: remove everything the app keeps on this machine, and the app's credential-store items | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-019](../../plans/019-data-retention-and-gdpr.md) T22.2.2 |
 | `daemon.dataExport {destination}` → `{jobId}`; `daemon.dataExportSubscribe {jobId}`, acknowledged with the subscription and emitting `DataExportProgress` (`running {sessionsExported, sessionsTotal}` \| `completed {path, totalBytes}` \| `failed {message}`) | `Export all data`: everything this machine keeps for the person, as a readable folder | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-019](../../plans/019-data-retention-and-gdpr.md) T22.2.1 |
 | `daemon.machineSettingsRead` | Read the machine's settings file; `machineSettings.read()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-2-8, [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) T-005r-1-11 |
@@ -366,6 +367,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `driver.listModes` | The levels and modes a session can run | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.1, T4.2, T4.3 |
+| `driver.subscribeEvents {runId}` | Follow one run's driver activity as a stream of driver events | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.1, T4.4 |
 
 ### `git.*`
 
@@ -529,6 +531,12 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | the session's own question card, `question.asked` carrying the wait's `waitId`, answered by `question.resolve` | Wait-for-chat-reply: the person's answer resumes the step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T3.3 |
 | `question.resolve` | Answer an agent's question | [Spec-011](../../specs/011-transcript-and-reasoning.md) | [Plan-010](../../plans/010-transcript-and-reasoning.md) T3.10 |
+
+### `relay.*`
+
+| Method and members | What it serves | Spec | Plan |
+| --- | --- | --- | --- |
+| `relay.repin {spkiHash}` | `sidekicks relay repin --force`: accept the relay's new key after a refused pin; refused, changing nothing, when the hash does not match the key the relay presents | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-025](../../plans/025-remote-control.md) Phase 3 |
 
 ### `repo.*`
 
@@ -4159,11 +4167,13 @@ interface ApprovalResolveRequest {
   // cover more than the words the person pressed.
   rememberedScope?: RememberedScope;
   // What the person typed on `Decline`'s one optional line, sent to the agent through the provider's own
-  // refusal field; absent sends a bare decline. Only on a `rejected` decision.
-  declineText?: string;
+  // refusal field; absent sends a bare decline. Only on a `rejected` decision (schema-refined).
+  declineReason?: string;
   // The command or path as the person edited it on the card before answering; it is what goes back with
-  // the answer and what the row then records as having run. Absent when the shown text was answered as it stood.
-  editedInput?: string;
+  // the answer and what the row then records as having run. Absent when the shown text was answered as
+  // it stood. Only on an `approved` decision (schema-refined).
+  editedAction?: string;
+  auditMetadata?: Record<string, unknown>;
   // Minted by the answering client and echoed on the `approval.approved` / `approval.rejected` event, so
   // the device whose answer landed knows it did and only the others read that it was answered elsewhere.
   clientResolutionId: string;
@@ -4223,7 +4233,8 @@ interface ApprovalProjectionReadResponse {
     // whether the remembering answer (`Always allow <subject> this session`) is offered
     standingAllowOffered: boolean;
     // whether that answer's project scope (`Always in this project`) is offered: never in a chat,
-    // never on a workflow command step's card, which the daemon raises with no provider's ask
+    // never on a workflow command step's card, which the daemon raises with no provider's ask, and
+    // never without `standingAllowOffered` (schema-refined)
     projectScopeOffered: boolean;
     state: ApprovalState;
     createdAt: string;
@@ -4422,7 +4433,7 @@ interface BranchContextReadResponse {
 // cuts a patch at a size.
 type WorkflowRunSnapshotPoint =
   | { epoch: number; point: "start" }
-  | { epoch: number; point: "pause"; pauseNumber: number } // an approval pause
+  | { epoch: number; point: "pause"; pauseNumber: number } // an approval pause, counted from 1; epoch counted from 0
   | { epoch: number; point: "end" }; // each re-execution of the run opens the next epoch
 type DiffReadRequest =
   | { sessionId: SessionId; scope: "changes" }
@@ -7142,8 +7153,9 @@ interface WorkflowRunReadResponse {
     runCount: number;
   };
   // Whether the daemon captured this run's execution context and pins its snapshot points at the start,
-  // at each approval pause and at the end. True for a run that works in a project's repository; false
-  // for a run in a chat or a `None` run, which has no Review. It decides whether `Open in Review` opens
+  // at each approval pause and at the end. True for a run that works in a project's repository, a
+  // chat's run naming a project among them; false for a chat's run in the chat's own folder or a
+  // `None` run, which has no Review. It decides whether `Open in Review` opens
   // what the run changed.
   executionContextCaptured: boolean;
   // Whether the person marked the run Keep, which `workflow.runsDelete` leaves untouched.
@@ -8234,7 +8246,7 @@ The session's workflow callback tools (ADR-025; [Spec-015 §Interfaces And Contr
 
 No tool in the set takes the session it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context, validates the derived value, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name, which names one workflow in the one library, issuing the same start path as `workflow.runStart` in the invoking turn's session and its recorded folder; in a chat, `workflow_run` also takes an optional `project`, a project's name as `session_options` lists it, and the run then works in that project's own folder; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of these tools is a JSON-RPC method: the chat-start surface adds no registry row of its own.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.repository_required` (422, `nodeIds`) for a start that names no project's repository, of a version holding a Git, Read a repo diff or Run tests step; `workflow.project_on_project_session` (422) for a start in a project session that names a project; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-38)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-38) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from `WORKFLOW_DEFINITION_FINDING_RULES` in `packages/contracts/src/workflow/definition/document.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-014: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.start_denied` for a denied or unresolvable start; `workflow.repository_required` (422, `nodeIds`) for a start or a node run (`workflow.nodeExecute`) that names no project's repository, of a version holding a Git, Read a repo diff or Run tests step; `workflow.project_on_project_session` (422) for a start in a project session that names a project; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-38)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-38) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from `WORKFLOW_DEFINITION_FINDING_RULES` in `packages/contracts/src/workflow/definition/document.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-014: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
 
 ---
 
@@ -9628,11 +9640,14 @@ interface PluginAppListResponse {
 // The daemon serves a session exactly ONE tool server, carrying six verbs — run, message, wait, stop,
 // close, list — registered as ordinary SessionCallbackTool entries through the existing callback-tool
 // dispatch seam (Spec-004 §Required Behavior). The host is the daemon's own, sits OUTSIDE the Spec-024
-// MCP governance model (Spec-024 §Non-Goals), and is never override-governed. The Codex leg reaches the verbs as function-form dynamic tools and the tool server
-// itself is the interface there — its own description lists every cross-provider agent by name and
-// description, and the lead runs one by name. The Claude leg reaches them through the daemon-hosted ephemeral MCP server,
-// where a cross-provider agent is a session-pack entry whose ONLY tools are these six: the lead's own
-// tool list never holds them, so the lead reaches the agent through that entry and nothing else.
+// MCP governance model (Spec-024 §Non-Goals), and is never override-governed. Both legs reach the
+// verbs on the daemon's one shared `sidekicks` tool server, through the one `url` entry each session
+// carries — Claude Code in `--mcp-config`, Codex in the conversation's `mcp_servers` table at
+// `thread/start`, never Codex `dynamicTools`. On a Codex lead the tool server itself is the
+// interface — its own description lists every cross-provider agent by name and description, and the
+// lead runs one by name. On a Claude Code lead a cross-provider agent is a session-pack entry whose
+// ONLY tools are these six: the lead's own tool list never holds them, so the lead reaches the agent
+// through that entry and nothing else.
 // All six are registered at spawn UNCONDITIONALLY and adjudicated per invocation, exactly as every
 // other daemon-registered tool is: the call rides the `tool_execution` approval category through the
 // approval pipeline under the session's own permission level — an asking level raises the same

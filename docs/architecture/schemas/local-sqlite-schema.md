@@ -1262,9 +1262,10 @@ CREATE TABLE mcp_tool_overrides (
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, server_name, tool_name),
-  -- an all-NULL facet row is meaningless: mcp.clearToolOverride deletes the row instead of blanking
-  -- it — and the request schema mirrors this as a Zod refinement (>= 1 facet required), so a
-  -- facet-less request dies as a typed validation error before it can reach this constraint
+  -- an all-NULL facet row is meaningless: mcp.clearToolOverride nulls the one facet it names, and
+  -- clearing the row's last set facet deletes the row instead of blanking it — and the
+  -- mcp.setToolOverride schema mirrors this as a Zod refinement (>= 1 facet required), so a
+  -- facet-less override dies as a typed validation error before it can reach this constraint
   CHECK(enabled IS NOT NULL OR approval_mode IS NOT NULL OR idempotency_class IS NOT NULL),
   -- binding-ref structural validity, mirroring mcp_server_bindings (defense in depth)
   CHECK((scope = 'user') = (scope_ref = '')),
@@ -1319,6 +1320,7 @@ CREATE TABLE provider_accounts (
   account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-025 §Account identity and credential generation). A NULL identity would key nothing — `(account_id, credential_generation)` would be unmatchable, the child table's `ON DELETE CASCADE` would never fire for it, and the credential home derived from it could not be attributed back — and a `STRICT` table's PRIMARY KEY column cannot hold NULL, which the explicit `NOT NULL` states.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
+  display_label         TEXT,  -- the name the person typed, present only on an account added from a pasted token or API key, where it is required; NULL on every other account, which its provider-reported identity names (Spec-025 §The account registry). Treated as personal data. Unique per provider ignoring case and surrounding spaces, by the index below
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-023-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
                         CHECK(credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-023-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. A fractional generation never reaches the column: a `STRICT` INTEGER column stores `2.0` and `'3'` as integers and refuses `1.5`, so a monotonic counter cannot become divisible.
@@ -1335,10 +1337,11 @@ CREATE TABLE provider_accounts (
   logged_in_at          TEXT,  -- RFC 3339 UTC of the moment this home's credential was ISSUED. On a brokered sign-in that is the observed completion, which the daemon witnessed. On a token-mode registration it is the token's ISSUANCE time — read from the provider's own status surface where it publishes one, else supplied explicitly by the person — and is NOT the registration time: a token is minted out of band and may be registered months later, so anchoring here to registration would shift the horizon forward by the token's pre-registration age and could report a credential as good after it had expired. Where no issuance anchor exists the column stays NULL and the estimate renders as unknown; it is never defaulted to `created_at`. NULL also for a home imported by a registration that neither signed in nor supplied a token. The re-login horizon derived from it is MODE-DISPATCHED and is an ESTIMATE, never a fact: the interval belongs to the provider's issuance policy, which the daemon does not control and cannot verify.
   -- Provider-REPORTED account identity, surfaced by a health observation. This IS an account's
   -- identity on every surface that names one — the address, the plan as the provider itself names it,
-  -- and the organization where the plan has one — and there is no label the person typed beside it: one
-  -- address can hold two accounts on different plans, so the plan and the organization are part of
-  -- telling them apart rather than decoration around an invented name. Nullable and independently so:
-  -- a provider may report any subset, and an absent value stays absent rather than defaulting. A later
+  -- and the organization where the plan has one — and only an account added from a pasted token or
+  -- API key carries a typed `display_label` beside it: one address can hold two accounts on
+  -- different plans, so the plan and the organization are part of telling them apart rather than
+  -- decoration around an invented name. Nullable and independently so: a provider may report any
+  -- subset, and an absent value stays absent rather than defaulting. A later
   -- observation REPLACES these values (Spec-020 §PII Data Map, `provider_accounts` row); they are
   -- never logged, never evented, and never carried on an error.
   observed_account_email     TEXT,
@@ -1380,6 +1383,13 @@ CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
 -- writer instead.
 CREATE UNIQUE INDEX provider_accounts_unique_credential_home
   ON provider_accounts(credential_home_path);
+
+-- One typed name per provider, compared ignoring case and surrounding spaces, where a name is
+-- present: a second account of one provider with the same name is unrepresentable, and a register
+-- or rename that would make one is refused `provideraccount.display_label_taken`.
+CREATE UNIQUE INDEX provider_accounts_unique_display_label
+  ON provider_accounts(provider, lower(trim(display_label)))
+  WHERE display_label IS NOT NULL;
 ```
 
 The newest quota reading per account and limit. A provider's quota standing is **not one window**: one pinned provider publishes **several distinct limits at a time, more than one of them over the same window length**, so a key of `(account, window length)` cannot hold them — the ones sharing a length would overwrite each other and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.

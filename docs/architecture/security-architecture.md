@@ -141,7 +141,7 @@ Each live sign-in has one row in `refresh_token_families` (`family_id`, `user_id
 **DPoP sender-constraining:**
 
 - The client holds a DPoP key pair; the machine's is its own credential-store item like every daemon secret, and its private half never leaves the daemon
-- The access token accompanying the proof is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — **never `Bearer`**, which a conforming resource server rejects for a DPoP-bound token and a lax one accepts while silently dropping proof-of-possession enforcement. The daemon session token's `Authorization: Bearer` above is a different credential on a different transport
+- The access token accompanying the proof is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — **never `Bearer`**, which a conforming resource server rejects for a DPoP-bound token and a lax one accepts while silently dropping proof-of-possession enforcement. The daemon session token, presented as `sessionToken` in `daemon.hello` above, is a different credential on a different transport
 - Each API request includes a `DPoP` header containing a signed proof: `{jti, htm, htu, iat, ath}` signed by the client's private key — `ath` is the SHA-256 hash of the presented access token, required by [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3) when a proof accompanies an access-token presentation
 - The control plane verifies the DPoP proof's signature matches the `cnf.jkt` thumbprint in the access token
 - Prevents stolen access tokens from being used by a different client
