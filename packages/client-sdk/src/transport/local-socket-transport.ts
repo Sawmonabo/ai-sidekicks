@@ -4,11 +4,7 @@
 
 import * as net from "node:net";
 
-import {
-  encodeFrame,
-  parseFrame,
-  type ParseFrameResult,
-} from "@ai-sidekicks/contracts/content-length-framing";
+import { encodeFrame, FrameAccumulator } from "@ai-sidekicks/contracts/content-length-framing";
 import {
   JSONRPC_VERSION,
   JsonRpcErrorCode,
@@ -107,19 +103,13 @@ const InboundEnvelopeSchema: z.ZodType<InboundEnvelope> = z.union([
 // Decoding keeps no state between calls, so every connection shares one decoder.
 const UTF8_DECODER = new TextDecoder();
 
-// The receive buffer's first size, enough for most replies; it doubles when a frame outgrows it.
-const RECEIVE_BUFFER_FIRST_BYTES = 64 * 1024;
-
 // One connection to the daemon. Bytes are not read until the client registers its handler, so no
 // frame arrives with nobody to take it; a frame that breaks the framing or the envelope shape ends
 // the connection with that error as the close reason.
 class LocalSocketTransport implements ClientTransport {
   readonly #socket: net.Socket;
   readonly #closed: Promise<void>;
-  // The bytes received and not yet framed are `#received[#readOffset, #writeOffset)`.
-  #received: Uint8Array = new Uint8Array(RECEIVE_BUFFER_FIRST_BYTES);
-  #readOffset = 0;
-  #writeOffset = 0;
+  readonly #frames = new FrameAccumulator(MAX_MESSAGE_BYTES);
   #messageHandler: ((message: InboundEnvelope) => void) | undefined;
   #closeHandler: ((reason?: Error) => void) | undefined;
   #failure: Error | undefined;
@@ -185,66 +175,21 @@ class LocalSocketTransport implements ClientTransport {
   }
 
   #receive(chunk: Buffer, handler: (message: InboundEnvelope) => void): void {
-    this.#append(chunk);
+    this.#frames.append(chunk);
     while (!this.#isClosing && !this.#isClosed) {
       let envelope: InboundEnvelope;
       try {
-        const result: ParseFrameResult = parseFrame(
-          this.#received.subarray(this.#readOffset, this.#writeOffset),
-          MAX_MESSAGE_BYTES,
-        );
-        if (result.frame === null) {
+        const frame = this.#frames.nextFrame();
+        if (frame === null) {
           return;
         }
-        this.#consume(result.consumed);
-        envelope = InboundEnvelopeSchema.parse(
-          JSON.parse(UTF8_DECODER.decode(result.frame)) as unknown,
-        );
+        envelope = InboundEnvelopeSchema.parse(JSON.parse(UTF8_DECODER.decode(frame)) as unknown);
       } catch (error) {
         // A framing, JSON or envelope failure: each throws an `Error`.
         this.#socket.destroy(error as Error);
         return;
       }
       handler(envelope);
-    }
-  }
-
-  // Appends in place. Only when the chunk does not fit behind the unframed bytes are they moved:
-  // to the front when a frame has been read off it, or else into a buffer twice the size. So
-  // every received byte is copied a bounded number of times, however many reads a frame takes.
-  #append(chunk: Uint8Array): void {
-    if (this.#received.byteLength - this.#writeOffset < chunk.byteLength) {
-      const pendingBytes = this.#writeOffset - this.#readOffset;
-      const neededBytes = pendingBytes + chunk.byteLength;
-      if (neededBytes > this.#received.byteLength) {
-        let capacity = this.#received.byteLength * 2;
-        while (capacity < neededBytes) {
-          capacity *= 2;
-        }
-        const grown = new Uint8Array(capacity);
-        grown.set(this.#received.subarray(this.#readOffset, this.#writeOffset));
-        this.#received = grown;
-      } else {
-        this.#received.copyWithin(0, this.#readOffset, this.#writeOffset);
-      }
-      this.#readOffset = 0;
-      this.#writeOffset = pendingBytes;
-    }
-    this.#received.set(chunk, this.#writeOffset);
-    this.#writeOffset += chunk.byteLength;
-  }
-
-  // Drops a read frame. Once nothing is left the buffer starts over at the front, and a buffer a
-  // large frame grew goes back to its first size, so that frame's memory is not held after it.
-  #consume(frameBytes: number): void {
-    this.#readOffset += frameBytes;
-    if (this.#readOffset < this.#writeOffset) {
-      return;
-    }
-    this.#readOffset = 0;
-    this.#writeOffset = 0;
-    if (this.#received.byteLength > RECEIVE_BUFFER_FIRST_BYTES) {
-      this.#received = new Uint8Array(RECEIVE_BUFFER_FIRST_BYTES);
     }
   }
 }

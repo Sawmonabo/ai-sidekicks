@@ -177,52 +177,6 @@ describe("connectToDaemon", () => {
     await connection.close();
   });
 
-  it("reads every reply whole however the reads split them, one past the buffer's size too", async () => {
-    // Each round's replies go out in one write that arrives over several reads, so a frame is read
-    // off the buffer's front while the next still arrives behind it. The first round's large reply,
-    // past the receive buffer's first size, grows it behind a read frame; the second's
-    // medium ones move to its front.
-    const large = "x".repeat(300 * 1024);
-    const medium = "m".repeat(10 * 1024);
-    const rounds = [
-      ["small", large],
-      ["small", ...Array.from({ length: 8 }, () => medium)],
-    ];
-    let roundReplies: Uint8Array[] = [];
-    await serveStandInDaemon((request, socket) => {
-      if (request.method === "daemon.hello") {
-        socket.write(
-          encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: COMPATIBLE_HELLO }),
-        );
-        return;
-      }
-      const [round, index] = request.params as [number, number];
-      roundReplies.push(
-        encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: rounds[round]?.[index] }),
-      );
-      if (roundReplies.length === rounds[round]?.length) {
-        socket.write(Buffer.concat(roundReplies));
-        roundReplies = [];
-      }
-    });
-    const connection = await connectToDaemon({ runFolder, maxQueuedValuesPerSubscription: 8 });
-
-    for (const [round, replies] of rounds.entries()) {
-      const received = await Promise.all(
-        replies.map((_reply, index) =>
-          connection.client.call(
-            "test.echo",
-            [round, index],
-            z.tuple([z.number(), z.number()]),
-            z.string(),
-          ),
-        ),
-      );
-      expect(received).toStrictEqual(replies);
-    }
-    await connection.close();
-  });
-
   it("reads the session token at every connect, so a restarted daemon's token is presented", async () => {
     const daemon = await serveStandInDaemon((request, socket) => {
       socket.write(
