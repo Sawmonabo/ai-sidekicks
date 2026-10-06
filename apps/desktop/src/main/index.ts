@@ -25,7 +25,7 @@ import { installApplicationMenu } from "./menu.js";
 import { firstWindowContents } from "./probes/first-window-contents.js";
 import { startGcProbe } from "./probes/gc.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke.js";
-import { processCrashReporterHost, startCrashReporter } from "./services/crash-reporter.js";
+import { createCrashReporterDependencies, startCrashReporter } from "./services/crash-reporter.js";
 import { DaemonLink } from "./services/daemon/link/status.js";
 import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
@@ -71,7 +71,7 @@ const mainLogOpening = openMainLog();
 // Next and ahead of everything else, so a crash anywhere later in startup is kept. It touches no
 // network and reads one value of the machine's settings file.
 startCrashReporter(
-  processCrashReporterHost(
+  createCrashReporterDependencies(
     crashReporter,
     homedir(),
     "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,

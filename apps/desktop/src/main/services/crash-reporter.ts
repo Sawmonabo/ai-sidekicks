@@ -1,6 +1,6 @@
-// The crash reporter: Crashpad writes each crash of main and every renderer to this machine only,
-// and nothing is uploaded anywhere. It starts before the background service has answered, so the
-// one value it needs, `Keep crash reports`, is read straight from the machine's settings file,
+// The crash reporter: Crashpad writes each crash of every process the app starts to this machine
+// only, and nothing is uploaded anywhere. It starts before the background service has answered, so
+// the one value it needs, `Keep crash reports`, is read straight from the machine's settings file,
 // which main may read itself only before that first answer. The service turns each dump into a
 // stripped report on the machine; this module scrubs nothing, because a dump is not a report.
 
@@ -19,7 +19,7 @@ import { describeFailure } from "./failure-message.js";
 import { isMissingPath } from "./missing-path.js";
 
 /** What the crash reporter reads the settings file through and starts Crashpad with. */
-export interface CrashReporterHost {
+export interface CrashReporterDependencies {
   readonly crashReporter: Pick<CrashReporter, "start">;
   /** The person's home folder, under which the settings file lives. */
   readonly homeDirectory: string;
@@ -34,22 +34,22 @@ export interface CrashReporterHost {
  * missing or broken settings file reads as the defaults, as the service reads it; a file that
  * exists and cannot be read is reported and read as the defaults too.
  */
-export function startCrashReporter(host: CrashReporterHost): void {
-  if (!readKeepCrashReports(host)) {
+export function startCrashReporter(dependencies: CrashReporterDependencies): void {
+  if (!readKeepCrashReports(dependencies)) {
     return;
   }
-  host.crashReporter.start({ uploadToServer: false });
+  dependencies.crashReporter.start({ uploadToServer: false });
 }
 
 /**
- * The crash reporter's host on this process: Electron's reporter, the real file system, and main's
- * log for a settings file it could not read.
+ * The crash reporter's dependencies in this process: Electron's reporter, the real file system,
+ * and main's log for a settings file it could not read.
  */
-export function processCrashReporterHost(
+export function createCrashReporterDependencies(
   crashReporter: Pick<CrashReporter, "start">,
   homeDirectory: string,
   log: Pick<MainDiagnosticLog, "write">,
-): CrashReporterHost {
+): CrashReporterDependencies {
   return {
     crashReporter,
     homeDirectory,
@@ -64,14 +64,17 @@ export function processCrashReporterHost(
   };
 }
 
-function readKeepCrashReports(host: CrashReporterHost): boolean {
-  const settingsPath = path.join(host.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS);
+function readKeepCrashReports(dependencies: CrashReporterDependencies): boolean {
+  const settingsPath = path.join(
+    dependencies.homeDirectory,
+    ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
+  );
   let fileText: string;
   try {
-    fileText = host.readTextFile(settingsPath);
+    fileText = dependencies.readTextFile(settingsPath);
   } catch (readFailure) {
     if (!isMissingPath(readFailure)) {
-      host.reportUnreadableSettings(
+      dependencies.reportUnreadableSettings(
         `The machine's settings file could not be read, so crash reports are kept: ` +
           describeFailure(readFailure),
       );
@@ -83,7 +86,7 @@ function readKeepCrashReports(host: CrashReporterHost): boolean {
     fileJson = JSON.parse(fileText);
   } catch (parseFailure) {
     // A broken file reads as the defaults; the service repairs it when it starts.
-    host.reportUnreadableSettings(
+    dependencies.reportUnreadableSettings(
       `The machine's settings file is not JSON, so crash reports are kept: ` +
         describeFailure(parseFailure),
     );
@@ -91,7 +94,7 @@ function readKeepCrashReports(host: CrashReporterHost): boolean {
   }
   const parsed = parseMachineSettingsFile(fileJson);
   if (!parsed.success) {
-    host.reportUnreadableSettings(
+    dependencies.reportUnreadableSettings(
       "The machine's settings file does not match its schema, so crash reports are kept.",
     );
     return MACHINE_SETTINGS_DEFAULTS.keepCrashReports;

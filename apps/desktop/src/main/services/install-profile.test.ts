@@ -41,7 +41,9 @@ function installApp(options: {
 }
 
 /** The logs folder `app` was pointed at, or `undefined` when it kept the platform's. */
-function chosenLogs(app: { readonly setAppLogsPath: ReturnType<typeof vi.fn> }): unknown {
+function chosenLogs(app: {
+  readonly setAppLogsPath: ReturnType<typeof vi.fn>;
+}): string | undefined {
   return app.setAppLogsPath.mock.calls.at(-1)?.[0];
 }
 

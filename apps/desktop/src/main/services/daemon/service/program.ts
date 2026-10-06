@@ -1,7 +1,6 @@
 // Where the background service's program is. An installed app carries the service's standalone
 // bundle among its resources and starts its `sidekicks-daemon`; a development checkout starts the
-// workspace's built daemon with the `node` on the person's path, as the command line does. The
-// Windows start runs through the service's Windows half, not this program.
+// workspace's built daemon with the `node` on the person's path, as the command line does.
 
 import path from "node:path";
 

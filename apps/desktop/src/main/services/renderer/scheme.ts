@@ -20,9 +20,7 @@ export const RENDERER_ORIGIN: string = `${RENDERER_SCHEME}://${RENDERER_HOST}`;
 export const RENDERER_INDEX_URL: string = `${RENDERER_ORIGIN}/index.html`;
 
 // A response header is the policy's only carrier; the shipped `index.html` has no meta tag.
-// `connect-src` is `'self'` alone, stricter than the baseline's text, which also admits a
-// configured control-plane and relay origin; no such origin is configured anywhere yet, and a
-// placeholder would neither allow the real origin nor refuse honestly. It is also the one
+// `connect-src` is `'self'`: the page connects to nothing beyond its own origin. It is the one
 // directive the dev transport widens, so it is a constant of its own.
 const RENDERER_CONNECT_SRC = "connect-src 'self'";
 

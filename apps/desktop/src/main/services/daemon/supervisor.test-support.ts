@@ -16,6 +16,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   CURRENT_PROTOCOL_VERSION,
+  NEGOTIATION_VERSION_MISMATCH_CODE,
   type DaemonHelloAck,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
@@ -31,6 +32,7 @@ import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/proce
 /** The process id of the service the supervisor finds running. */
 export const FOUND_SERVICE_PROCESS_ID = 3000;
 
+/** A service on the protocol main speaks. */
 export const COMPATIBLE_HELLO: DaemonHelloAck = {
   compatible: true,
   protocolVersion: CURRENT_PROTOCOL_VERSION,
@@ -287,7 +289,7 @@ function scriptedAnswer(
         error: {
           code: JsonRpcErrorCode.InvalidRequest,
           message: "protocol version mismatch",
-          data: { type: "protocol.version_mismatch" },
+          data: { type: NEGOTIATION_VERSION_MISMATCH_CODE },
         },
       },
       delayMs: 0,

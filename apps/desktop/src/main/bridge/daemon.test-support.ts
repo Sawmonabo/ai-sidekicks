@@ -12,8 +12,10 @@ import {
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   SUBSCRIPTION_END_METHOD,
+  SUBSCRIPTION_NOTIFY_METHOD,
   type SubscriptionEndParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { vi } from "vitest";
@@ -71,7 +73,7 @@ export function scriptedConnection(
     notify(subscriptionId, value): void {
       deliver?.({
         jsonrpc: JSONRPC_VERSION,
-        method: "$/subscription/notify",
+        method: SUBSCRIPTION_NOTIFY_METHOD,
         params: { subscriptionId, value },
       });
     },
@@ -95,7 +97,7 @@ export async function linkOver(
   const link = new DaemonLink();
   link.attach(
     new JsonRpcClient(connection, {
-      protocolVersion: "2026-05-01",
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
       maxQueuedValuesPerSubscription: 16,
     }),
     unlinkedState(linkConnection),
