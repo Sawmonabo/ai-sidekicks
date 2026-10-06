@@ -1,14 +1,18 @@
-// Every transcript cursor a scenario's session read hands out names a row its stream delivers: a
-// subscription opened after it catches up on exactly the rows behind it, none lost or doubled, and
-// is never refused, while a cursor the log never held is. Each case drives the real fixture bridge
-// and engine.
+// Every transcript cursor a scenario's session read hands out names a position its stream
+// resolves: `earliest` the one before the first row, the others a row it delivers. A subscription
+// opened after one catches up on exactly the rows behind it, none lost or doubled, and is never
+// refused, while a cursor the log never held is. Each case drives the real fixture bridge and
+// engine.
 
 import { describe, expect, it } from "vitest";
 
 import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/method-map";
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
+import type {
+  SessionReadResponse,
+  SessionStreamFrame,
+} from "@ai-sidekicks/contracts/session/methods";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { SCENARIOS } from "#fixtures/index.js";
@@ -69,6 +73,11 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
         { reason: "refused", refusal: { data: { type: EVENT_CURSOR_UNRESOLVABLE_CODE } } },
       ]);
 
+      // The start of the log has every row behind it, so a reader resuming there misses none.
+      const afterEarliest = await resumeAfter(fixture, read.earliest);
+      expect(afterEarliest.ends).toStrictEqual([]);
+      expect(afterEarliest.events.map((event) => event.sequence)).toStrictEqual(loggedSequences);
+
       // The newest row has nothing behind it, and the stream says so by delivering nothing.
       const afterLatest = await resumeAfter(fixture, read.latest);
       expect(afterLatest.ends).toStrictEqual([]);
@@ -93,7 +102,7 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
 /** The cursor block the scenario's `session.read` answers with, through the real reply seam. */
 async function readTranscriptCursors(
   fixture: FixtureUnderTest,
-): Promise<{ readonly latest: string; readonly acknowledged?: string | undefined }> {
+): Promise<SessionReadResponse["transcriptCursors"]> {
   const sessionId = readSessionId(fixture.engine.scenario.sessionId);
   if (sessionId === undefined) {
     throw new Error(`scenario ${fixture.engine.scenario.id} has no wire session id`);

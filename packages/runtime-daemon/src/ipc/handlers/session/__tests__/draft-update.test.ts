@@ -4,6 +4,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+
 import {
   openScratchDatabase,
   type ScratchDatabase,
@@ -27,7 +29,10 @@ const LOG_READ = {
     createdAt: "2026-09-29T17:00:00.000Z",
     updatedAt: "2026-09-29T17:00:00.000Z",
   },
-  transcriptCursors: { latest: "0" },
+  transcriptCursors: {
+    earliest: encodeEventCursor(START_OF_LOG_POSITION),
+    latest: encodeEventCursor(0),
+  },
 } as SessionLogRead;
 
 let scratch: ScratchDatabase;

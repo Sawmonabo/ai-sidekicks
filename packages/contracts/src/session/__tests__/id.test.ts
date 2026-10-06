@@ -1,10 +1,18 @@
 // `SessionIdSchema` must reject malformed identifiers: if it accepted one, the daemon and the
 // control plane could no longer route reconnects to the right authoritative state. Its accept set
 // (`RFC_9562_TEXT_FORM`, shared by every branded UUID id) is RFC 9562 text, case-insensitive on
-// every alternative, with the version and variant nibbles still deciding.
+// every alternative, with the version and variant nibbles still deciding. The event cursor codec
+// must refuse a corrupted cursor with the typed error rather than resume a read at a wrong position.
 import { describe, expect, it } from "vitest";
 
-import { SessionIdSchema } from "../id.js";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE, EventCursorUnresolvableError } from "../../error.js";
+import {
+  decodeEventCursor,
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+  SessionIdSchema,
+  type EventCursor,
+} from "../id.js";
 
 // A real RFC 9562 v7; version bits are not fabricated because `RFC_9562_TEXT_FORM` validates the
 // version nibble and variant bits in their canonical positions.
@@ -45,5 +53,45 @@ describe("SessionIdSchema — RFC 9562 text, case-insensitive on every alternati
     // the Max UUID is admitted by its own alternative, not by a relaxed general form that would
     // also admit a version-9 id.
     expect(SessionIdSchema.safeParse(value).success).toBe(false);
+  });
+});
+
+describe("the event cursor codec — a log position of at least -1, one spelling each", () => {
+  it.each([
+    ["the start of the log", START_OF_LOG_POSITION],
+    ["the first event", 0],
+    ["the largest safe position", Number.MAX_SAFE_INTEGER],
+  ])("round-trips %s", (_label, position) => {
+    expect(decodeEventCursor(encodeEventCursor(position))).toBe(position);
+  });
+
+  it.each([
+    ["letters", "abc"],
+    ["a position below the start of the log", "-2"],
+    ["a fraction", "1.5"],
+    ["a leading zero", "007"],
+    ["a plus sign", "+1"],
+    ["an exponent", "1e3"],
+    ["negative zero", "-0"],
+    ["surrounding whitespace", " 1"],
+    ["digits past the safe-integer range", "9007199254740993"],
+  ])("REFUSES %s with the typed error", (_label, cursor) => {
+    let refusal: unknown;
+    try {
+      decodeEventCursor(cursor as EventCursor);
+    } catch (error: unknown) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(EventCursorUnresolvableError);
+    expect(refusal).toMatchObject({ code: EVENT_CURSOR_UNRESOLVABLE_CODE, cursor });
+  });
+
+  it.each([
+    ["below the start of the log", -2],
+    ["a fraction", 1.5],
+    ["past the safe-integer range", Number.MAX_SAFE_INTEGER + 1],
+    ["not a number", Number.NaN],
+  ])("refuses to encode a position %s", (_label, position) => {
+    expect(() => encodeEventCursor(position)).toThrow(RangeError);
   });
 });

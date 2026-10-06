@@ -29,6 +29,8 @@
 //   - A machine body. `assistant.*` and `tool.*` payloads describe their body and never carry
 //     it; the body is stored in `content_payload`.
 
+import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+
 import {
   composeScenarioInstant,
   composeScriptBeats,
@@ -496,6 +498,7 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
         // submits the acknowledged position on its next read. It sits behind `latest`, the newest
         // row, as a real one does.
         transcriptCursors: {
+          earliest: encodeEventCursor(START_OF_LOG_POSITION),
           latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length),
           acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
         },

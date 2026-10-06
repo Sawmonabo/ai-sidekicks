@@ -59,10 +59,15 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   })
   .strict();
 
-/** The `session.read` result: the session and its latest and acknowledged transcript cursors. */
+/**
+ * The `session.read` result: the session and its transcript cursors. A reader resumes from
+ * `acknowledged ?? earliest`, and an `acknowledged` below `earliest` means events were lost.
+ */
 export interface SessionReadResponse {
   session: SessionRecord;
   transcriptCursors: {
+    /** The position just before the oldest surviving event, so a read after it misses none. */
+    earliest: EventCursor;
     latest: EventCursor;
     acknowledged?: EventCursor | undefined;
   };
@@ -73,6 +78,7 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
     session: SessionRecordSchema,
     transcriptCursors: z
       .object({
+        earliest: EventCursorSchema,
         latest: EventCursorSchema,
         acknowledged: EventCursorSchema.optional(),
       })

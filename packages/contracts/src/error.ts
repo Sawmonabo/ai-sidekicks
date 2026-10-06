@@ -1,5 +1,5 @@
 // Wire error envelopes and their codes: `resource.limit_exceeded`, `pty.backend_unavailable` and
-// `event.cursor_unresolvable`.
+// `event.cursor_unresolvable`, with the error thrown for an event cursor that names no position.
 import { z } from "zod";
 
 import { wireFreeFormString } from "./free-form-string.js";
@@ -23,6 +23,20 @@ export type EventCursorUnresolvableCode = "event.cursor_unresolvable";
  */
 export const EVENT_CURSOR_UNRESOLVABLE_CODE: EventCursorUnresolvableCode =
   "event.cursor_unresolvable";
+
+/**
+ * Thrown when an `EventCursor` names no log position: it is not a canonical decimal integer of at
+ * least -1. `cursor` holds the refused value so the refusal can name it.
+ */
+export class EventCursorUnresolvableError extends Error {
+  readonly code: EventCursorUnresolvableCode = EVENT_CURSOR_UNRESOLVABLE_CODE;
+  readonly cursor: string;
+  constructor(cursor: string) {
+    super("The event cursor does not name a position in the session's log.");
+    this.name = "EventCursorUnresolvableError";
+    this.cursor = cursor;
+  }
+}
 
 // The framework layer is authoritative on body size; these caps are a second line of defense
 // for non-HTTP callers.
