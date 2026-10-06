@@ -59,10 +59,10 @@ export function frameProps(
  *
  * `AppFrame` mounts the live announcer, which arms the one timeout the app's idle budget
  * counts, so the clock is a property of the window and the frame reads it from the resolution.
- * Both arms are real: `createStubBridge()` is the object the preload starts from, every
- * round-trip member throwing `NotImplementedError` until the preload replaces it with its IPC
- * call to main, and `createFixtureBridge` builds the real engine over a scenario, whose frozen
- * clock a case hands in beside it. Without a clock the window runs on real time.
+ * Both arms are real: `createStubBridge()` is `PreloadApi` with every round-trip member throwing
+ * `NotImplementedError`, a bridge none of whose calls reaches main, and `createFixtureBridge`
+ * builds the real engine over a scenario, whose frozen clock a case hands in beside it. Without a
+ * clock the window runs on real time.
  */
 export function bridgeWrapper(
   bridge: PlatformBridge,

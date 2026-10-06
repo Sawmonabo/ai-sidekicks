@@ -10,19 +10,14 @@ import {
 } from "#shared/bridge-channels.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
-
-/** The part of Electron's `ipcRenderer` the `window` members use. */
-export interface WindowBridgeIpc {
-  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
-  on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): unknown;
-}
+import type { PreloadIpc } from "./preload-ipc.js";
 
 /**
  * The `window` member the preload exposes to the console document, over `ipc`, which main
  * started with `lastUsedWindowId`.
  */
 export function createWindowBridge(
-  ipc: WindowBridgeIpc,
+  ipc: Pick<PreloadIpc, "invoke" | "on">,
   lastUsedWindowId: string,
 ): PreloadApi["window"] {
   const appearance = new MainPushes<AppearanceRecord>();

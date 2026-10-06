@@ -19,22 +19,13 @@ import type {
   DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
 import type { DaemonWire, ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
-
-/** The part of Electron's `ipcRenderer` the daemon's wire uses. */
-export interface DaemonWireIpc {
-  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
-  sendSync(channel: string, ...args: unknown[]): unknown;
-  on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): unknown;
-}
+import type { PreloadIpc } from "./preload-ipc.js";
 
 /**
  * The `daemon` member the preload exposes, carried over `ipc`, its subscriptions opened through
  * `subscriptions`.
  */
-export function createDaemonWire(
-  ipc: DaemonWireIpc,
-  subscriptions: DaemonSubscriptions,
-): DaemonWire {
+export function createDaemonWire(ipc: PreloadIpc, subscriptions: DaemonSubscriptions): DaemonWire {
   return {
     call: async <M extends DaemonMethod>(
       method: M,
@@ -73,10 +64,10 @@ export function settleDaemonCall(answer: unknown): ServedDaemonCall<unknown> {
 
 /** The page's open daemon subscriptions: each opened on main by an id named here. */
 export class DaemonSubscriptions {
-  readonly #ipc: DaemonWireIpc;
+  readonly #ipc: PreloadIpc;
   readonly #byId = new Map<string, SubscriptionHandlers>();
 
-  public constructor(ipc: DaemonWireIpc) {
+  public constructor(ipc: PreloadIpc) {
     this.#ipc = ipc;
     ipc.on(DAEMON_SUBSCRIPTION_VALUE_CHANNEL, (_event, subscriptionId, value) => {
       // One closed while the value was in flight drops it.

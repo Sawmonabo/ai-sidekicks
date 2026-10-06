@@ -10,11 +10,12 @@ import type {
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { MACHINE_SETTINGS_STREAM } from "#shared/daemon/daemon-streams.js";
 import type { PreloadApi } from "#shared/preload-api.js";
-import { settleDaemonCall, type DaemonSubscriptions, type DaemonWireIpc } from "./daemon-wire.js";
+import { settleDaemonCall, type DaemonSubscriptions } from "./daemon-wire.js";
+import type { PreloadIpc } from "./preload-ipc.js";
 
 /** The `machineSettings` member the preload exposes, carried over `ipc`. */
 export function createMachineSettingsBridge(
-  ipc: Pick<DaemonWireIpc, "invoke">,
+  ipc: Pick<PreloadIpc, "invoke">,
   subscriptions: DaemonSubscriptions,
 ): PreloadApi["machineSettings"] {
   return {

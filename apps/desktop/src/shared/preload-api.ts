@@ -15,7 +15,7 @@
 //
 // `PreloadApi` carries the members main answers and the members the renderer already calls.
 // `createStubBridge` is the same object with every round-trip member throwing
-// `NotImplementedError`; the preload starts from it and replaces every member with its IPC call.
+// `NotImplementedError`, the shape the live bridge is checked against.
 // The request and reply types of the bridge calls not built yet are declared here as well, and
 // each call joins `PreloadApi` with its main handler.
 
@@ -484,8 +484,8 @@ export interface PreloadApi {
 }
 
 /**
- * Thrown by a member of the stub bridge, one the preload has not carried to main. Its `name` is
- * stable, so a caller can test it without importing the class.
+ * Thrown by every round-trip member of the stub bridge. Its `name` is stable, so a caller can test
+ * it without importing the class.
  */
 export class NotImplementedError extends Error {
   public constructor(member: string) {
@@ -499,9 +499,9 @@ function stubThrow(member: string): never {
 }
 
 /**
- * The preload API with every round-trip member throwing `NotImplementedError`. The caller
- * supplies the build facts and the window used last, because only the preload can read what main
- * passed.
+ * `PreloadApi` as an object literal, with every round-trip member throwing `NotImplementedError`
+ * and the build facts and the window used last the caller gives: the members the live bridge must
+ * have, and a bridge none of whose calls reaches main.
  */
 export function createStubBridge(app: AppFacts, lastUsedWindowId: string): PreloadApi {
   return {

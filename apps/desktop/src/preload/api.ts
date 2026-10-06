@@ -1,6 +1,6 @@
-// The object the preload exposes: the stub bridge, with every member carried over IPC. Main
-// does not answer the updater's channels yet, so an updater call rejects with Electron's own
-// no-handler error.
+// The object the preload exposes: every member carried over IPC, beside the build facts main
+// passed at start. Main does not answer the updater's channels yet, so an updater call rejects
+// with Electron's own no-handler error.
 
 import { ipcRenderer, webUtils } from "electron";
 
@@ -8,7 +8,6 @@ import { readAppFactsSwitches } from "#shared/app-facts.js";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { readLastUsedWindowIdSwitch } from "#shared/window/id.js";
 import {
-  createStubBridge,
   type EditorEntry,
   type FilePathRef,
   type KeyboardMap,
@@ -26,15 +25,11 @@ import { createWindowBridge } from "./window-bridge.js";
 
 /** The bridge object `index.ts` exposes on `window.desktopBridge`. */
 export function createPreloadApi(argv: readonly string[]): PreloadApi {
-  const lastUsedWindowId = readLastUsedWindowIdSwitch(argv);
-  const stub = createStubBridge(readAppFactsSwitches(argv), lastUsedWindowId);
   const subscriptions = new DaemonSubscriptions(ipcRenderer);
   return {
-    ...stub,
     daemon: createDaemonWire(ipcRenderer, subscriptions),
     machineSettings: createMachineSettingsBridge(ipcRenderer, subscriptions),
     native: {
-      ...stub.native,
       showOpenDialog: async <Purpose extends OpenDialogPurpose>(
         options: OpenDialogOptions<Purpose>,
       ): Promise<OpenDialogResults[Purpose]> =>
@@ -76,6 +71,7 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
       write: async (map): Promise<KeyboardMap> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.writeKeyboardMap, map)) as KeyboardMap,
     },
-    window: createWindowBridge(ipcRenderer, lastUsedWindowId),
+    window: createWindowBridge(ipcRenderer, readLastUsedWindowIdSwitch(argv)),
+    app: readAppFactsSwitches(argv),
   };
 }
