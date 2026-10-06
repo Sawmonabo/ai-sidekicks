@@ -68,15 +68,15 @@ export async function readArtifactPayload(
       return unreadablePayload();
     }
     encoding = windowReply.value.payloadEncoding;
-    const bytes = decodeArtifactPayloadBytes(windowReply.value.payload, encoding);
-    if (bytes === undefined) {
+    const decoded = decodeArtifactPayloadBytes(windowReply.value.payload, encoding);
+    if (!decoded.decodable) {
       const content: ArtifactPayloadText = { status: "opaque", reason: "undecodable" };
       return { status: "served", value: { reply, encoding, content } };
     }
-    if (bytes.length !== length) {
+    if (decoded.bytes.length !== length) {
       return unreadablePayload();
     }
-    joined.set(bytes, offset);
+    joined.set(decoded.bytes, offset);
   }
   return { status: "served", value: { reply, encoding, content: joinedText(joined) } };
 }

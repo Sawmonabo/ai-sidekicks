@@ -3,6 +3,7 @@
 // the artifact calls answer with.
 import { z } from "zod";
 
+import { decodeBase64, type Base64Decoding } from "../internal/base64.js";
 import { composedTextSchema, countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { ArtifactIdSchema, type ArtifactId } from "./id.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
@@ -227,40 +228,33 @@ export function decodeArtifactPayloadText(
   if (encoding === "utf8") {
     return { status: "text", text: payload };
   }
-  const bytes = decodeArtifactPayloadBytes(payload, encoding);
-  if (bytes === undefined) {
+  const decoded = decodeArtifactPayloadBytes(payload, encoding);
+  if (!decoded.decodable) {
     return { status: "opaque", reason: "undecodable" };
   }
   try {
-    return { status: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+    return {
+      status: "text",
+      text: new TextDecoder("utf-8", { fatal: true }).decode(decoded.bytes),
+    };
   } catch {
     return { status: "opaque", reason: "not-utf8" };
   }
 }
 
 /**
- * An inline payload's bytes, read by the encoding the reply sent beside it, or `undefined` for
- * base64 that will not decode. A reader joining ranged windows joins these, since a window may
- * end inside a character.
+ * An inline payload's bytes, read by the encoding the reply sent beside it, or that its base64
+ * does not decode. A reader joining ranged windows joins these, since a window may end inside a
+ * character.
  */
 export function decodeArtifactPayloadBytes(
   payload: string,
   encoding: ArtifactPayloadEncoding,
-): Uint8Array | undefined {
+): Base64Decoding {
   if (encoding === "utf8") {
-    return new TextEncoder().encode(payload);
+    return { decodable: true, bytes: new TextEncoder().encode(payload) };
   }
-  let binary: string;
-  try {
-    binary = atob(payload);
-  } catch {
-    return undefined;
-  }
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+  return decodeBase64(payload);
 }
 
 const ARTIFACT_REFUSAL_CODE_VALUES = [
