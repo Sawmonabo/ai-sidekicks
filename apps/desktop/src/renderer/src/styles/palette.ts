@@ -230,9 +230,11 @@ export const LEADING_EDGE_WIDTH_PX = 2;
  */
 export const RAIL_WIDTH_REM = 3.25;
 
-// Throws on an unknown step so a typo cannot become `NaNrem`, which the browser discards
-// silently. The same stance as `schemeColor`.
-function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
+/**
+ * One step of a rem scale, such as `SPACE_SCALE_REM` or `TYPE_SCALE_REM`. Throws on an unknown
+ * step so a typo cannot become `NaNrem`, which the browser discards silently.
+ */
+export function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
   const sizeRem = scale[stepName];
   if (sizeRem === undefined) {
     throw new RangeError(`unknown Meridian scale step ${stepName}`);

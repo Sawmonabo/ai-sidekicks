@@ -7,6 +7,11 @@
  * so no state rests on color alone. Amber is only for a step waiting on a person, red only for a
  * failure, and the accent only for a running step.
  *
+ * A node and an edge's count are part of the drawing, not chrome: their type, spacing and corner
+ * come from `--meridian-run-graph-*` measures in canvas units (`canvas-measures.ts`), so only the
+ * zoom scales them and a larger text size never pushes a node's lines past its stated box. The
+ * attribution mark and the canvas's own frame are chrome and keep the root-relative tokens.
+ *
  * A run's own motion, the running node's breathing ring and the edge flowing into it, holds
  * still while the canvas is scrolled out of view (`data-in-view`, written by `useInViewMarks`).
  * Reduced motion needs nothing here: the generated token sheet collapses every animation.
@@ -121,15 +126,15 @@
 .meridian-run-graph-node {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-1);
+  gap: var(--meridian-run-graph-space-1);
   justify-content: center;
   box-sizing: border-box;
   block-size: 100%;
   inline-size: 100%;
-  padding: var(--meridian-space-2) var(--meridian-space-3);
+  padding: var(--meridian-run-graph-space-2) var(--meridian-run-graph-space-3);
   background: var(--meridian-surface);
   border: var(--meridian-run-graph-ring) solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
+  border-radius: var(--meridian-run-graph-radius-sm);
   color: var(--meridian-text);
   font-family: var(--meridian-font-sans);
   /* A click selects the node, so it reads as something to press. */
@@ -144,7 +149,7 @@
 /* The name and the first output's count share the top line; the count never truncates. */
 .meridian-run-graph-node__head {
   display: flex;
-  gap: var(--meridian-space-2);
+  gap: var(--meridian-run-graph-space-2);
   align-items: baseline;
   min-inline-size: 0;
 }
@@ -157,7 +162,7 @@
 .meridian-run-graph-node__count {
   flex: none;
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -172,35 +177,35 @@
 }
 
 .meridian-run-graph-node__name {
-  font-size: var(--meridian-text-sm);
+  font-size: var(--meridian-run-graph-text-sm);
   font-weight: 600;
 }
 
 .meridian-run-graph-node__kind {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
 }
 
 .meridian-run-graph-node__state {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
 }
 
 .meridian-run-graph-node__error {
   color: var(--meridian-red-text);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
 }
 
 .meridian-run-graph-node__resume {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
 }
 
 /* An edge's item count, read off the canvas's own background. */
 .meridian-run-graph .react-flow__edge-text {
   fill: var(--meridian-text-muted);
   font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
+  font-size: var(--meridian-run-graph-text-xs);
 }
 
 .meridian-run-graph .react-flow__edge-textbg {
@@ -281,7 +286,7 @@
   inset: calc(var(--meridian-run-graph-ring) * -1);
   content: "";
   border: var(--meridian-run-graph-ring) solid var(--meridian-accent);
-  border-radius: var(--meridian-radius-sm);
+  border-radius: var(--meridian-run-graph-radius-sm);
   pointer-events: none;
   animation: meridian-run-graph-breath var(--meridian-motion-breath) var(--meridian-ease-settle)
     infinite alternate;

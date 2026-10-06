@@ -20,6 +20,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { tokenReference } from "#renderer/styles/tokens.js";
+import { RUN_GRAPH_CANVAS_MEASURES } from "./canvas-measures.js";
 import { RUN_GRAPH_NODE_TYPE, runGraphNodeCenter } from "./elements.js";
 import { RunGraphNode } from "./RunGraphNode.js";
 import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
@@ -137,6 +138,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     <div
       ref={attachCanvas}
       className="meridian-run-graph__canvas"
+      style={RUN_GRAPH_CANVAS_MEASURES}
       onKeyDown={handleCanvasKey}
       onFocus={revealFocusedNode}
     >

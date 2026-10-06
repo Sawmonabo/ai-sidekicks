@@ -12,9 +12,8 @@ import {
   toRunGraphFlowNodes,
   type RunGraphFlowNode,
 } from "../elements.js";
-import { placeRunGraphNodes, runGraphMetrics, type CanvasPoint } from "../layout.js";
+import { placeRunGraphNodes, type CanvasPoint } from "../layout.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../model.js";
-import { useRootFontSizePx } from "./useRootFontSizePx.js";
 
 /**
  * What the canvas hands the library, and where the live step stands.
@@ -29,10 +28,10 @@ export interface RunGraphElements {
 }
 
 /**
- * The run's nodes and edges, each rebuilt only when what it reads moves: places with the document
- * and the window's text size, which sizes every box; handles and edges with the document, the
- * item counts and the steps they flow with; states with the steps and counts; the mark with the
- * selection. The library re-enters its store whenever an array's identity moves.
+ * The run's nodes and edges, each rebuilt only when what it reads moves: places and handles with
+ * the document, edges with it, the item counts and the steps they flow with, states with the
+ * steps and counts, the mark with the selection. The library re-enters its store whenever an
+ * array's identity moves.
  */
 export function useRunGraphElements(
   document: WorkflowDocument,
@@ -41,9 +40,7 @@ export function useRunGraphElements(
   selectedNodeId: string | undefined,
   nowMs: number,
 ): RunGraphElements {
-  const rootFontSizePx = useRootFontSizePx();
-  const metrics = useMemo(() => runGraphMetrics(rootFontSizePx), [rootFontSizePx]);
-  const positions = useMemo(() => placeRunGraphNodes(document, metrics), [document, metrics]);
+  const positions = useMemo(() => placeRunGraphNodes(document), [document]);
   const handles = useMemo(() => nodeHandleIds(document), [document]);
   const edges = useMemo(
     () => toRunGraphFlowEdges(document, edgeItemCounts, flowingEdgeIds(document, steps)),
@@ -54,8 +51,8 @@ export function useRunGraphElements(
     [document, steps, edgeItemCounts, nowMs],
   );
   const nodes = useMemo(
-    () => toRunGraphFlowNodes(views, handles, positions, selectedNodeId, metrics),
-    [views, handles, positions, selectedNodeId, metrics],
+    () => toRunGraphFlowNodes(views, handles, positions, selectedNodeId),
+    [views, handles, positions, selectedNodeId],
   );
   const liveCenter = useMemo(() => {
     const liveId = liveNodeId(steps);
