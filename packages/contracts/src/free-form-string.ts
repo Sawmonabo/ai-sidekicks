@@ -1,12 +1,11 @@
-// The rules every free-form wire string follows: no NUL byte, not blank, and bounded.
+// The rules every free-form wire string follows (no NUL byte, not blank, and bounded) and the
+// longest path a wire string may carry.
 import { z } from "zod";
 
 /**
- * A free-form wire string with at least one non-whitespace character and no NUL byte, and no
- * length cap of its own: what a person writes to an agent, bounded only by the transport's
- * message limit. `fieldLabel` names the field in the refusal message. The whitespace check is
- * ASCII-only, so zero-width characters pass by design; no identity normalization happens here.
- * NUL is refused because it corrupts log lines and traces and opens log and filesystem injection.
+ * A free-form wire string with a non-whitespace character (Unicode whitespace counts as blank;
+ * zero-width characters do not) and no NUL byte, bounded only by the transport's message limit.
+ * `fieldLabel` names the field in the refusal message.
  */
 export const wireUncappedFreeFormString = (fieldLabel: string): z.ZodString =>
   z
@@ -15,6 +14,7 @@ export const wireUncappedFreeFormString = (fieldLabel: string): z.ZodString =>
     .regex(/\S/, {
       message: `${fieldLabel} must contain at least one non-whitespace character.`,
     })
+    // NUL corrupts log lines and traces and opens log and filesystem injection.
     .refine((value) => !value.includes("\0"), {
       message: `${fieldLabel} MUST NOT contain a NUL byte.`,
     });

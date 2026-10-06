@@ -12,8 +12,8 @@ import {
 } from "../method-descriptor.js";
 
 /**
- * The words the service's ready line starts with. It writes the line on standard error once it
- * answers on its socket, and whoever started the process waits for those words.
+ * The words the service's ready line starts with, written once it answers on its socket; whoever
+ * started the process waits for them.
  */
 export const DAEMON_READY_LINE = "The daemon is ready";
 

@@ -5,11 +5,11 @@
 
 import { MAX_MESSAGE_BYTES, type JsonRpcMessage } from "./jsonrpc/message.js";
 
-/** The framing header name: matched case-insensitively on receive, emitted in this casing. */
-export const CONTENT_LENGTH_HEADER = "Content-Length";
+// The framing header name: matched case-insensitively on receive, emitted in this casing.
+const CONTENT_LENGTH_HEADER = "Content-Length";
 
-/** Ends the header section (CRLFCRLF, as in LSP framing). */
-export const HEADER_BODY_SEPARATOR = "\r\n\r\n";
+// Ends the header section (CRLFCRLF, as in LSP framing).
+const HEADER_BODY_SEPARATOR = "\r\n\r\n";
 
 // Encoding keeps no state between calls, so every frame shares one encoder.
 const UTF8_ENCODER = new TextEncoder();
@@ -23,10 +23,8 @@ const SEPARATOR_BYTES: Uint8Array = UTF8_ENCODER.encode(HEADER_BODY_SEPARATOR);
 const MAX_HEADER_BYTES: number = 1024;
 
 /**
- * Result of one `parseFrame` call against a connection's accumulating bytes. `frame !== null` is
- * a complete body, and `consumed` bytes must be dropped from the head of the accumulator.
- * `frame === null` with `consumed === 0` means no complete frame has arrived yet: a normal case on
- * a stream transport, not an error. Framing violations throw `FramingError` instead.
+ * Result of one `parseFrame` call: a complete body and the bytes to drop from the head of the
+ * accumulator, or `{ frame: null, consumed: 0 }` while no whole frame has arrived.
  */
 export interface ParseFrameResult {
   /** A copy of the body bytes, or `null` until a whole frame has arrived. */
@@ -53,16 +51,12 @@ export class FramingError extends Error {
 }
 
 /**
- * Parse one `Content-Length: <bytes>\r\n\r\n<body>` frame from the head of `bytes`. The length
- * counts bytes, not characters, so a multi-byte UTF-8 body is sliced by byte count; the returned
- * body is copied verbatim and decoding it is the caller's job.
- *
- * Returns `{ frame: null, consumed: 0 }` while the header or body is incomplete. Throws
- * `FramingError` for a missing, duplicate or non-numeric `Content-Length`, a declared length over
- * `maxBodyBytes`, or a header section that breaks the `<name>: <value>` grammar or exceeds
- * `MAX_HEADER_BYTES`.
+ * Parses one frame from the head of `bytes`, or answers `{ frame: null, consumed: 0 }` until it is
+ * whole. Throws `FramingError` on any framing violation.
  */
 export function parseFrame(bytes: Uint8Array, maxBodyBytes: number): ParseFrameResult {
+  // The length counts bytes, not characters, so a multi-byte UTF-8 body is sliced by byte count;
+  // the body is copied verbatim and decoding it is the caller's job.
   const separatorIndex = indexOfSeparator(bytes);
   // The header cap applies whether or not the delimiter has arrived. A peer that streams
   // megabytes of header without CRLFCRLF would otherwise pin the accumulator, and one that sends
@@ -112,12 +106,12 @@ export function parseFrame(bytes: Uint8Array, maxBodyBytes: number): ParseFrameR
 const ACCUMULATOR_FIRST_BYTES: number = 64 * 1024;
 
 /**
- * The bytes one stream has received and not yet framed. `append` copies a chunk in place, moving
- * the unframed bytes only when the chunk does not fit behind them, so every received byte is
- * copied a bounded number of times however many reads a frame takes; once drained, a buffer a
- * large frame grew goes back to its first size.
+ * The bytes one stream has received and not yet framed, copied a bounded number of times however
+ * many reads a frame takes; once drained, a buffer a large frame grew goes back to its first size.
  */
 export class FrameAccumulator {
+  // `append` copies a chunk in place, moving the unframed bytes only when the chunk does not fit
+  // behind them.
   readonly #maxBodyBytes: number;
   // The unframed bytes are `#bytes[#readOffset, #writeOffset)`.
   #bytes: Uint8Array = new Uint8Array(ACCUMULATOR_FIRST_BYTES);
@@ -275,10 +269,11 @@ function extractContentLength(headerText: string): number {
         );
       }
       const parsed = Number.parseInt(value, 10);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      // Hundreds of digits parse to `Infinity`.
+      if (!Number.isFinite(parsed)) {
         throw new FramingError(
           "malformed_content_length",
-          `parseFrame: Content-Length value ${JSON.stringify(value)} is not finite or is negative`,
+          `parseFrame: Content-Length value ${JSON.stringify(value)} is not finite`,
         );
       }
       declaredLength = parsed;

@@ -1,7 +1,8 @@
 // A running process as the system knows it: its id, the boot it runs in, and the system's own
 // record of when it started. The system hands a freed id to a new process with a new start, and a
 // reboot changes the boot, so two readings of one process match exactly and a reading of any
-// other process does not. The service reports its own; a client that ends a service it found
+// other process does not, short of its id being reused within the start record's resolution (one
+// second on macOS). The service reports its own; a client that ends a service it found
 // running reads that id again before each signal and signals only on a match. Both sides read
 // through the reader here, so both write the same text for the same process; each hands it the
 // system's file read and program run, since this package stays free of any one runtime.
@@ -63,12 +64,12 @@ export interface ProcessIdentitySystem {
 
 /**
  * A reader of processes on macOS or Linux, which answers `undefined` when no process has the id.
- * It rejects on any other system and when the system's reading fails. It reads the boot once and
- * keeps it, since the boot cannot change while the reading process runs.
+ * It rejects on any other system and when the system's reading fails.
  */
 export function createProcessIdentityReader(
   system: ProcessIdentitySystem,
 ): (processId: number) => Promise<ProcessIdentity | undefined> {
+  // The boot is read once and kept, since it cannot change while the reading process runs.
   let bootIdReading: Promise<string> | undefined;
   const readBootId = (read: () => Promise<string>): Promise<string> => {
     // A failed reading is dropped, so the next one tries again.

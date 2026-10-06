@@ -60,7 +60,7 @@ export type SubscriptionEndParams =
       readonly error: JsonRpcError;
     };
 
-/** Parses {@link SubscriptionEndParams}; unknown fields are refused. */
+/** Parses {@link SubscriptionEndParams}; unknown top-level fields are refused. */
 export const SubscriptionEndParamsSchema: z.ZodType<SubscriptionEndParams> = z.discriminatedUnion(
   "reason",
   [

@@ -54,7 +54,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
   "workflow_gate_resolution",
 ]);
 
-// Declared in `./core.js`, the leaf below this file, and re-exported here.
+// Declared in `./version.js`, the leaf below this file, and re-exported here.
 export type { EventEnvelopeVersion } from "./version.js";
 export {
   /** @consumedBy a reader that checks an event envelope's version */
