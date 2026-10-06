@@ -126,6 +126,6 @@ export function classifyCodexUsageLimitSignal(
   }
   return {
     cause: "plan-allowance-exhausted",
-    resetBoundary: { resetsAt, provenance: "provider-stated" },
+    resetBoundary: { resetsAt },
   };
 }

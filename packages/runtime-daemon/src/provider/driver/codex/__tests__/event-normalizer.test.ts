@@ -156,7 +156,7 @@ function rateLimitsReadReply(snapshot: Record<string, unknown>): Record<string, 
 }
 
 describe("classifyCodexUsageLimitSignal: typed-only recognition on the account plane", () => {
-  it("emits the signal with a provider-stated boundary read from the spent window", () => {
+  it("emits the signal with the reset boundary the spent window names", () => {
     const signal = classifyCodexUsageLimitSignal({
       latestRead: rateLimitsReadReply({
         rateLimitReachedType: "rate_limit_reached",
@@ -177,7 +177,7 @@ describe("classifyCodexUsageLimitSignal: typed-only recognition on the account p
 
     expect(signal).toEqual({
       cause: "plan-allowance-exhausted",
-      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "provider-stated" },
+      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z" },
     });
   });
 

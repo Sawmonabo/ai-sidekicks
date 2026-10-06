@@ -408,22 +408,10 @@ export function boundFailureDetail(detail: string, emptyFallback: string): strin
  */
 type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
-/**
- * Where a reset instant came from: `provider-stated` (the provider named it, for the window it also
- * named as spent) or `runtime-derived` (the daemon computed it from a delay the provider gave). A
- * consumer may schedule on either, but only the first is safe to show as the provider's own answer,
- * and only the second should widen when a retry lands early.
- */
-type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
-
-/**
- * A reset instant and its provenance as one object, so an instant without provenance and a
- * provenance without an instant are both unrepresentable.
- */
+/** The instant the provider named for the spent window to reset. */
 interface ProviderUsageLimitResetBoundary {
   // RFC 3339 UTC.
   resetsAt: string;
-  provenance: ProviderUsageLimitResetProvenance;
 }
 
 /**
