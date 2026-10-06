@@ -88,7 +88,7 @@ export interface DaemonStatusReadResponse {
   relay?: DaemonRelayStatus | undefined;
   /**
    * The file the service keeps its secrets in, readable by this account alone: present only on
-   * Linux where no Secret Service answers.
+   * Linux where no Secret Service answers and on a Mac whose service runs while logged out.
    */
   secretsFile?: string | undefined;
 }
