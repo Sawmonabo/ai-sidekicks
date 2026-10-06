@@ -49,7 +49,7 @@ It also defines **peer invocation** — the one daemon-owned tool server by whic
 ## Architectural Dependencies
 
 - [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) — the `agent.*` definition wire surface, the `SessionCallbackTool` registry the bridge's verbs are registered into, and the member that carries a definition reference on a request that starts a run under one.
-- [local-sqlite-schema.md](../architecture/schemas/local-sqlite-schema.md) — the `agent_definitions` table.
+- [local-sqlite-agent-definition-tables.md](../architecture/schemas/local-sqlite-agent-definition-tables.md) — the `agent_definitions` table.
 - [Spec-005](./005-session-event-taxonomy-and-audit-log.md) — the tool-activity and run-lifecycle events a peer invocation lands on. This spec mints no event type: nothing that manages definitions emits, because a definition is node-local configuration rather than session history, and every session-visible consequence of an invocation is already carried by those existing events.
 - [error-contracts.md](../architecture/contracts/error-contracts.md) — the refusal vocabulary, which this spec extends by its own codes: the `agent.*` definition set, import, export and the refused update included. The **peer-invocation path mints no code at all** — every invocation refusal, authorization denial included, rides the callback-tool result's own `denied` / `failed` arms so it reaches the asking model as a tool result rather than a transport error. Every other namespace is consumed unchanged.
 - [ADR-001](../decisions/001-session-is-the-primary-domain-object.md) — a definition is session-independent configuration; the session remains the primary object and a definition never owns one.
