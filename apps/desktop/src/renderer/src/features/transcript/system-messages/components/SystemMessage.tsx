@@ -1,6 +1,6 @@
 // The system message, drawn: one line across the transcript naming the act, never the actor. The
 // feed dispatches a system message here before the row renderer, which draws row bodies; a system
-// message has only the act's name from the binding table, and no glyph.
+// message has only the act's name its classifier read.
 
 import {
   TranscriptRowLayout,
@@ -37,7 +37,7 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
             : "meridian-system-message"
         }
       >
-        <span className="meridian-system-message__label">{binding.label}</span>
+        <span className="meridian-system-message__label">{props.systemMessage.label}</span>
       </p>
     </TranscriptRowLayout>
   );

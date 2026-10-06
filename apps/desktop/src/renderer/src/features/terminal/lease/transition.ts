@@ -10,7 +10,7 @@ import type { PtyControlChangedReason, TerminalId } from "@ai-sidekicks/contract
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
-import { readPtyControlChangedPayload } from "#renderer/services/daemon/pty-control-changed-payload.js";
+import { readPtyControlChangedPayload } from "#renderer/services/daemon/payload/pty-control-changed.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One transition, as the fold reads it. */

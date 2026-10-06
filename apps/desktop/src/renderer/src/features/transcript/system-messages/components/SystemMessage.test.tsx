@@ -1,5 +1,5 @@
 // The system message, read from the rendered line: it names the act and never the actor or the
-// wire's spelling, and a failed switch is the one caution.
+// wire's spelling, a failed switch names the provider it tried, and it is the one caution.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,26 @@ import {
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+const CLAUDE_BINDING = {
+  driverName: "claude",
+  modelId: "opus",
+  providerAccountId: "claude-work",
+  effort: "high",
+} as const;
+
+/** A failed switch's payload, trying `attempted` from a Claude Code binding. */
+function failedSwitch(attempted: Record<string, unknown>): Record<string, unknown> {
+  return {
+    sessionId: "33333333-3333-4333-8333-333333333333",
+    agentId: "44444444-4444-4444-8444-444444444444",
+    switchId: "switch-2",
+    actor: "user-ada",
+    from: CLAUDE_BINDING,
+    attempted,
+    reason: "output_speed_unavailable",
+  };
+}
+
 function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
   const systemMessage = new SystemMessageClassifier().classify(row);
   if (systemMessage === undefined) {
@@ -23,8 +43,8 @@ function renderSystemMessage(row: TranscriptEventRow): HTMLElement {
 }
 
 describe("the system message — the switch outcomes", () => {
-  it("names the failed switch as the one caution, with no actor and no wire spelling", () => {
-    const container = renderSystemMessage(
+  it("names the failed switch by the provider it tried, as the one caution, with no actor", () => {
+    const failedRow = (attempted: Record<string, unknown>): TranscriptEventRow =>
       runRow({
         id: "sf",
         sequence: 5,
@@ -32,11 +52,16 @@ describe("the system message — the switch outcomes", () => {
         runId: "run-a",
         position: 5,
         actor: "user-ada",
-        payload: { reason: "output_speed_unavailable" },
-      }),
-    );
+        payload: failedSwitch(attempted),
+      });
+    const container = renderSystemMessage(failedRow({ driverName: "codex", modelId: "gpt-5.5" }));
     const line = container.querySelector(".meridian-system-message");
+    expect(line?.textContent).toBe("Switch to Codex failed");
     expect(line?.classList.contains("meridian-system-message--caution")).toBe(true);
+    // A switch that tried another model only names the provider it stayed on.
+    expect(renderSystemMessage(failedRow({ modelId: "sonnet" })).textContent).toContain(
+      "Switch to Claude Code failed",
+    );
     expect(container.textContent).not.toContain("user-ada");
     expect(container.textContent).not.toContain(AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT);
     expect(container.textContent).not.toContain("output_speed_unavailable");
