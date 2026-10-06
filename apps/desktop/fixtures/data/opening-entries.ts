@@ -5,7 +5,7 @@ import { AgentListEntrySchema, type AgentListEntry } from "@ai-sidekicks/contrac
 import {
   SessionCreatedPayloadSchema,
   type SessionCreatedPayload,
-} from "@ai-sidekicks/contracts/session/created";
+} from "@ai-sidekicks/contracts/session/events";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 

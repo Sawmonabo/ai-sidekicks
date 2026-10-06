@@ -74,17 +74,17 @@ import {
   SessionSpendLimitReachedPayloadSchema,
 } from "../session/controls/events.js";
 import { SessionConvertedPayloadSchema } from "../session/convert.js";
-import { SessionCreatedPayloadSchema } from "../session/created.js";
+import {
+  SessionCreatedPayloadSchema,
+  SessionLifecycleChangePayloadSchema,
+  SessionMarkChangePayloadSchema,
+  SessionRenamedPayloadSchema,
+} from "../session/events.js";
 import {
   SessionGoalClearedPayloadSchema,
   SessionGoalUpdatedPayloadSchema,
 } from "../session/goal.js";
 import { SessionRestoreFinishedPayloadSchema } from "../session/restore.js";
-import {
-  SessionLifecycleChangePayloadSchema,
-  SessionMarkChangePayloadSchema,
-  SessionRenamedPayloadSchema,
-} from "../session/methods.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema } from "../session/id.js";
 import {

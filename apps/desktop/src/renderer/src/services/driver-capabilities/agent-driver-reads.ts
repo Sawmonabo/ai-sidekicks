@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
-import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session/created";
+import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session/events";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";

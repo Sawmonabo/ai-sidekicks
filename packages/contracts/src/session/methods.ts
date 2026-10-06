@@ -1,17 +1,10 @@
 // Session contracts: the session read and subscribe shapes, the frame a session's stream sends,
-// the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart), the
-// two searches, and the payloads of the events those verbs append.
+// the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart) and the
+// two searches. The events those verbs append are in `./events.ts`.
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
-import {
-  EventCursorSchema,
-  SessionIdSchema,
-  UserIdSchema,
-  type EventCursor,
-  type SessionId,
-  type UserId,
-} from "./id.js";
+import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 import {
   StreamFrameSchema,
   SubscribeAckResponseSchema,
@@ -316,82 +309,6 @@ export const SessionFileSearchResponseSchema: z.ZodType<SessionFileSearchRespons
   .refine((result) => result.paths.length <= result.searchedFileCount, {
     message: "A file search cannot match more files than it searched.",
   });
-
-// The event payloads below sit beside the verb that appends them and are composed into the event
-// union by the event contract, which imports this file at load, so none may import that contract.
-
-/**
- * The payload of a lifecycle move — `session.archived`, `session.reactivated`,
- * `session.closed` — naming the state the session left and the one it is in. `actor` is the
- * person who acted, absent when the daemon moved it.
- */
-export interface SessionLifecycleChangePayload {
-  sessionId: SessionId;
-  previousState?: SessionState | undefined;
-  newState: SessionState;
-  actor?: UserId | undefined;
-}
-/** Parses a {@link SessionLifecycleChangePayload}. */
-export const SessionLifecycleChangePayloadSchema: z.ZodType<SessionLifecycleChangePayload> = z
-  .object({
-    sessionId: SessionIdSchema,
-    previousState: SessionStateSchema.optional(),
-    newState: SessionStateSchema,
-    actor: UserIdSchema.optional(),
-  })
-  .strict();
-
-/**
- * Who a rename came from: the person (`user`), the provider renaming its own conversation
- * (`provider`), or the daemon's naming pass after the first exchange (`auto`), which writes only
- * while the session is unnamed, so a name the person typed always wins.
- */
-export type SessionRenameOrigin = "user" | "provider" | "auto";
-/** Parses a {@link SessionRenameOrigin}. */
-export const SessionRenameOriginSchema: z.ZodType<SessionRenameOrigin> = z.enum([
-  "user",
-  "provider",
-  "auto",
-]);
-
-/**
- * The `session.renamed` payload: the new name, `null` when the name was cleared, the name it
- * replaced where there was one, and who renamed it. A rename to the current name writes no event.
- */
-export interface SessionRenamedPayload {
-  sessionId: SessionId;
-  name: string | null;
-  previousName?: string | undefined;
-  origin: SessionRenameOrigin;
-  actor?: UserId | undefined;
-}
-/** Parses a {@link SessionRenamedPayload}. */
-export const SessionRenamedPayloadSchema: z.ZodType<SessionRenamedPayload> = z
-  .object({
-    sessionId: SessionIdSchema,
-    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRenamedPayload.name").nullable(),
-    previousName: wireFreeFormString(
-      SESSION_NAME_MAX_LEN,
-      "SessionRenamedPayload.previousName",
-    ).optional(),
-    origin: SessionRenameOriginSchema,
-    actor: UserIdSchema.optional(),
-  })
-  .strict();
-
-/**
- * The payload of a session mark set or cleared — `session.pinned`, `session.unpinned`,
- * `session.muted`, `session.unmuted` — with the time it happened. Pinned rows sit in the order
- * they were pinned, and a mute stands until it is cleared: both are rebuilt from these events.
- */
-export interface SessionMarkChangePayload {
-  sessionId: SessionId;
-  at: string;
-}
-/** Parses a {@link SessionMarkChangePayload}. */
-export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload> = z
-  .object({ sessionId: SessionIdSchema, at: isoDateTimeSchema })
-  .strict();
 
 /**
  * The `session.*` methods whose shapes this file states, each bound to its schemas. The

@@ -13,7 +13,7 @@ import {
 } from "./envelope.js";
 import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import type { RepoWorkspaceLifecyclePayload } from "../repo/mount.js";
-import type { SessionCreatedPayload } from "../session/created.js";
+import type { SessionCreatedPayload } from "../session/events.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import type { WorktreeCreatedPayload, WorktreeRetiredPayload } from "../worktree/events.js";

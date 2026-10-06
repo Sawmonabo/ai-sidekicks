@@ -73,7 +73,7 @@ import type {
   SessionLifecycleChangePayload,
   SessionMarkChangePayload,
   SessionRenamedPayload,
-} from "../session/methods.js";
+} from "../session/events.js";
 import type { SessionId } from "../session/id.js";
 import type {
   WorkflowCanceledPayload,
