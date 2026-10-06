@@ -357,7 +357,9 @@ class ElectronMockImpl implements ElectronMock {
           }
           return `${MOCK_APP_PATH_ROOT}/${pathName}`;
         }),
-        // The build facts main reads after ready and hands every window.
+        // The build facts main reads after ready and hands every window. The name is the
+        // package's own, as an unpackaged launch reads it.
+        getName: vi.fn(() => "@ai-sidekicks/desktop"),
         getVersion: vi.fn(() => "0.0.0"),
         getLocale: vi.fn(() => "en-US"),
         on: vi.fn((eventName: string, listener: (event: MockAppEvent) => void) => {
@@ -366,6 +368,9 @@ class ElectronMockImpl implements ElectronMock {
             ...(this.#appListeners.get(eventName) ?? []),
             listener,
           ]);
+        }),
+        setAboutPanelOptions: vi.fn(() => {
+          this.record("app.setAboutPanelOptions");
         }),
         quit: vi.fn(() => {
           this.record("app.quit");

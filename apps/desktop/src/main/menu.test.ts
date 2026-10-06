@@ -1,8 +1,12 @@
 // The View menu's color scheme against main's appearance record: the tick follows the record, a
 // pick moves it once written, a pick that is not kept puts the tick back on the scheme in force, is
 // written to main's diagnostic log and is announced to the console document, and a change that
-// keeps the scheme rebuilds nothing. `electron` is mocked; the kept appearance is real, over a file
-// whose writes the case settles.
+// keeps the scheme rebuilds nothing. About on each platform: the macOS app menu's roles, or the
+// Help menu's one row elsewhere, and the panel filled from the running app before the menu is
+// installed. `electron` is mocked; the kept appearance is real, over a file whose writes the case
+// settles.
+
+import { existsSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,7 +27,10 @@ beforeEach(() => {
   electronMock.reset();
 });
 
+const realPlatform = process.platform;
+
 afterEach(() => {
+  Object.defineProperty(process, "platform", { value: realPlatform });
   vi.restoreAllMocks();
 });
 
@@ -99,4 +106,73 @@ describe("the View menu's color scheme", () => {
     expect(appearance.record.textSize).toBe(20);
     expect(electronMock.installedMenuTemplates.length).toBe(installedBeforeTextSize);
   });
+});
+
+describe("About", () => {
+  afterEach(async () => {
+    const { app } = await import("electron");
+    vi.mocked(app.getName).mockReset();
+    vi.mocked(app.getVersion).mockReset();
+  });
+
+  /** Installs the menu on `platform`, the app reporting a name and version no literal matches. */
+  async function installOn(platform: NodeJS.Platform) {
+    Object.defineProperty(process, "platform", { value: platform });
+    const { app, Menu } = await import("electron");
+    vi.mocked(app.getName).mockReturnValue("Sidekicks under test");
+    vi.mocked(app.getVersion).mockReturnValue("9.9.9-test");
+    const setAboutPanelOptions = vi.mocked(app.setAboutPanelOptions);
+    const setApplicationMenu = vi.mocked(Menu.setApplicationMenu);
+    setAboutPanelOptions.mockClear();
+    setApplicationMenu.mockClear();
+    const { installApplicationMenu } = await import("./menu.js");
+    installApplicationMenu(
+      { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
+      { write: () => {} },
+      { announceUnkeptScheme: () => {} },
+    );
+    expect(setAboutPanelOptions).toHaveBeenCalledOnce();
+    expect(setAboutPanelOptions.mock.invocationCallOrder[0]).toBeLessThan(
+      setApplicationMenu.mock.invocationCallOrder[0] ?? 0,
+    );
+    const template = electronMock.installedMenuTemplates.at(-1) ?? [];
+    return { panel: setAboutPanelOptions.mock.calls[0]?.[0], template };
+  }
+
+  it("on macOS opens with the app menu's own roles, the bundle supplying the icon", async () => {
+    const { panel, template } = await installOn("darwin");
+
+    expect(template[0]?.role).toBe("appMenu");
+    expect(template[0]?.submenu?.flatMap((item) => item.role ?? [])).toEqual([
+      "about",
+      "hide",
+      "hideOthers",
+      "unhide",
+      "quit",
+    ]);
+    expect(template.some((item) => item.role === "help")).toBe(false);
+    expect(panel).toEqual({
+      applicationName: "Sidekicks under test",
+      applicationVersion: "9.9.9-test",
+    });
+  });
+
+  it.each(["win32", "linux"] as const)(
+    "on %s ends with Help's one About row, the panel showing the app icon",
+    async (platform) => {
+      const { panel, template } = await installOn(platform);
+
+      expect(template.some((item) => item.role === "appMenu")).toBe(false);
+      expect(template.at(-1)?.role).toBe("help");
+      expect(template.at(-1)?.submenu).toEqual([
+        { role: "about", label: "About Sidekicks under test" },
+      ]);
+      expect(panel).toEqual({
+        applicationName: "Sidekicks under test",
+        applicationVersion: "9.9.9-test",
+        iconPath: expect.stringMatching(/icon\.png$/u),
+      });
+      expect(existsSync(panel?.iconPath ?? "")).toBe(true);
+    },
+  );
 });
