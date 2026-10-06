@@ -180,6 +180,23 @@ describe("one provider's import", () => {
     expect(screen.queryByRole("button", { name: /Imported/u })).toBeNull();
   });
 
+  it("names the projects the import attached on the same line", async () => {
+    const { stream } = await renderPanel("claude");
+    await emit(
+      stream,
+      settledMessage("claude", {
+        outcome: "finished",
+        imported: 125,
+        total: 128,
+        alreadyHere: 0,
+        failures: [],
+        unreadableFiles: [],
+        attachedProjects: ["web", "api"],
+      }),
+    );
+    expect(rowText()).toBe("Imported 125 of 128 sessions from Claude Code · attached web, api.");
+  });
+
   it("draws a refused import in the service's own words, and Try again starts it again", async () => {
     const { stream, sent } = await renderPanel("codex");
     await emit(

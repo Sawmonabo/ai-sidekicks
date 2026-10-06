@@ -135,7 +135,10 @@ function SettledLine(props: {
   );
 }
 
-/** How an import that found sessions, or found nothing new, ended; each count only where it is. */
+/**
+ * How an import that found sessions, or found nothing new, ended, then the projects it attached;
+ * each part only where there is one.
+ */
 function settledSentence(
   settlement: Extract<ProviderImportOutcome, { outcome: "finished" | "nothingNew" }>,
   providerLabel: string,
@@ -145,6 +148,7 @@ function settledSentence(
       ? `Nothing new to import from ${providerLabel}`
       : `Imported ${importedCount(settlement.imported, settlement.total)} from ${providerLabel}`;
   const failureCount = settlement.outcome === "finished" ? settlement.failures.length : 0;
+  const attachedProjects = settlement.outcome === "finished" ? settlement.attachedProjects : [];
   const clauses = [
     ...(settlement.alreadyHere === 0
       ? []
@@ -153,6 +157,9 @@ function settledSentence(
     ...(settlement.unreadableFiles.length === 0
       ? []
       : [`${countOf(settlement.unreadableFiles.length, "file", "files")} could not be read`]),
+    ...(attachedProjects.length === 0
+      ? []
+      : [`attached ${attachedProjects.map(formatWireString).join(", ")}`]),
   ];
   return `${[head, ...clauses].join(" · ")}.`;
 }
