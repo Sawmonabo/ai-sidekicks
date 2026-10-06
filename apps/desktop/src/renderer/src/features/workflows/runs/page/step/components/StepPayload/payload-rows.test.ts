@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
-import { parseMarkdownDocument } from "#renderer/components/Markdown/markdown-document-rows.js";
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
+import { parseMarkdownDocument } from "./markdown-document-rows.js";
 import { PayloadTableRows } from "./payload-rows.js";
 
 const NO_SPANS: CodeSpanReader = {
