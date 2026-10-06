@@ -130,7 +130,7 @@ Plan-010 is built in phases, each one slice of the plan's vertical with a `**Pre
 
 #### Tasks
 
-- **T2.1** — Implement `packages/runtime-daemon/src/transcript/transcript-projector.ts` building ordered rows from canonical events, stamping each run-scoped row's `runId` + `position` + `epoch` at emission, and preserving provenance to canonical event ids and run ids. A message the wire delivered in two pieces is rejoined here, where grouping is decided and before any row is emitted, so the transcript carries one message with one time and one copy.
+- **T2.1** — Implement `packages/runtime-daemon/src/transcript/transcript-projector.ts` (CREATE) building ordered rows from canonical events, stamping each run-scoped row's `runId` + `position` + `epoch` at emission, and preserving provenance to canonical event ids and run ids. A message the wire delivered in two pieces is rejoined here, where grouping is decided and before any row is emitted, so the transcript carries one message with one time and one copy.
   - **Spec coverage:** Spec-011 §State And Data Implications; Spec-011 §Required Behavior (grouping comes from the daemon's own run boundaries)
   - **Verifies invariant:** I-010-1
   - **Tests:** an agent message the provider delivered as two pieces projects as one row carrying one time and the joined text, and the same pieces read back by `transcript.read` after a rebuild give the same single row.

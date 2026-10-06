@@ -30,7 +30,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-step work inside a session. |
-| `WorkflowDefinition` | The named, durable record of one workflow: the document an author wrote and the chain of immutable versions of it. Scoped `session`, `project` or `shared`. |
+| `WorkflowDefinition` | The named, durable record of one workflow: the document an author wrote and the chain of immutable versions of it. Every definition is in the one workflow library; its name is used once there, ignoring case. |
 | `WorkflowVersion` | An immutable snapshot of a `WorkflowDefinition`'s document body at a point in time, addressed by that body's content hash. |
 | `WorkflowRun` | A single execution instance of a specific `WorkflowVersion` within a session. |
 | `WorkflowDocument` | The authored body of a workflow: one JSON document holding exactly one trigger node, the rest of the graph as nodes, and the edges between them. Every kind the runtime offers is a node, and nothing is compiled into a second shape when the document is saved. |

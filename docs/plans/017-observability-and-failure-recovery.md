@@ -75,7 +75,7 @@ Each entry is an obligation shared with the plan it names. See Cross-Plan Depend
 
 ### CP-017-2 — The workflow engine's diagnostic bucket (⇄ Plan-014 CP-014-9)
 
-**Obligation.** Plan-017 creates `workflow_engine_events`, the bucket the always-on engine event record of [Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41) lands on, with its TTL and its Path-3 membership; Plan-014 writes records into it and authors none of that.
+**Obligation.** Plan-017 creates `workflow_engine_events`, the bucket the always-on engine event record of [Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40) lands on, with its TTL and its Path-3 membership; Plan-014 writes records into it and authors none of that.
 
 **Resolution.** T2.2 builds the bucket; Plan-014 T5.24 is its writer and waits on it.
 
@@ -122,10 +122,10 @@ Each phase builds one of the §Implementation Steps above: Phase 1 Step 1, Phase
 
 - **T2.2 — The workflow engine's diagnostic bucket.**
   - **Files:** `packages/runtime-daemon/src/observability/diagnostic-buckets/` (EXTEND — the `workflow_engine_events` bucket)
-  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T2.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for projection rebuild, verification or audit.
+  - The bucket the workflow engine's always-on event record writes to ([Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40)): newline-delimited JSON files in the daemon's data folder, one file per day, never a SQLite table and never a canonical event. It takes one record per append call, and Plan-014's `engine-event-log.ts` (T5.24) is its one writer. A day's file is deleted once its day is past `Keep diagnostic logs for`, by T2.1's purge driver, so the TTL and `Erase all data` reach it as they reach every bucket. Nothing reads it for projection rebuild, verification or audit.
   - **Tests:** `packages/runtime-daemon/src/observability/__tests__/diagnostic-buckets.test.ts` (EXTEND) — a day's file past the configured TTL is deleted and the current day's is kept.
   - **Acceptance:** the engine record lives only in this bucket, under the same bound and erase as every other bucket.
-  - **Spec coverage:** Spec-018 §PII in Diagnostics; [Spec-015 §Engine event record (SA-41)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-41)
+  - **Spec coverage:** Spec-018 §PII in Diagnostics; [Spec-015 §Engine event record (SA-40)](../specs/015-workflow-authoring-and-execution.md#engine-event-record-sa-40)
   - **Verifies invariant:** I-017-1
   - **Consumes:** the purge driver ← T2.1; policy-state shape ← T1.1
   - **Provides:** the bucket [Plan-014](./014-workflow-authoring-and-execution.md) T5.24 writes into (CP-017-2)

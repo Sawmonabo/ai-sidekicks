@@ -53,7 +53,7 @@ An account's `accountId` is daemon-minted at registration, opaque to callers, im
 
 **Grounds in.** [Spec-025 §Account identity and credential generation](../specs/025-provider-accounts-and-credential-homes.md#account-identity-and-credential-generation).
 
-**Why load-bearing.** The attention-key fold at [Spec-015 §Provider-limit pacing and durable resumption (SA-38)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-38) composes on the generation held stable across a refusing dispatch; a reset would let a repaired account's fresh refusals fold into the stale epoch, so the person's re-authentication would appear not to have worked. Monotonicity is also what lets any consumer order two observations without a clock.
+**Why load-bearing.** The attention-key fold at [Spec-015 §Provider-limit pacing and durable resumption (SA-37)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-37) composes on the generation held stable across a refusing dispatch; a reset would let a repaired account's fresh refusals fold into the stale epoch, so the person's re-authentication would appear not to have worked. Monotonicity is also what lets any consumer order two observations without a clock.
 
 **Verification.** Registry tests assert strict increase across each transition class and assert that a home reset increments rather than restarts; a rebuild test asserts the value is durable, not recomputed.
 
@@ -337,6 +337,8 @@ Plan-023 implementation lands as a sequence of small PRs. Each PR exercises one 
   - **Spec coverage:** Spec-025 §The account registry; Spec-025 §Interfaces And Contracts (the rename, present only on those accounts); Spec-025 §Account identity and credential generation.
   - **Verifies invariant:** none
   - **Tests:** a register request for a signed-in account carrying `displayLabel` is refused and one without it parses, while a pasted-token request without a name is refused; a second pasted account named `work` beside `Work` on the same provider is refused by the schema's index and the same name on the other provider is accepted; an account with no `display_label` round-trips through the table; a run's payer, a quota reading and a binding choice each render the provider-reported identity for a signed-in account and the name and credential kind for a pasted one, and none renders an account id even when the account is missing from the registry read.
+
+### Phase 2 — Registry service and authorization
 
 **Precondition:** Phase 1 merged; Plan-009 Phase 2 merged.
 

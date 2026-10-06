@@ -30,7 +30,7 @@ How should the console implement dragging, inside one window and between windows
 
 ### Trigger
 
-A session view holds a row of any number of panes that reorder by their headers, session views drag between windows and onto the desktop, and `@atlaskit/pragmatic-drag-and-drop`, the drag library in the desktop package, hears no drag in any visible window.
+A session view holds a row of any number of panes that reorder by their headers, session views drag between windows and onto the desktop, and `@atlaskit/pragmatic-drag-and-drop`, measured in a visible window, heard no drag there.
 
 ---
 
@@ -49,7 +49,7 @@ A session view holds a row of any number of panes that reorder by their headers,
 - **It needs no frame clock**, so it is immune to the one-realm model's two traps: the hidden page's clock never fires, and a loop paced by one window stalls when that window closes. `pointermove` arrives in the window that owns the element and the glides run on that element's own document.
 - **No library covers the cross-window half.** No drag library surveyed offers docking between windows or a live tear-off. VS Code, the one well-known app on the same one-realm model, uses native drag with listeners per window, keeps the dragged item in shared memory, and opens a new window where a drag ends outside every window; its window does not follow the pointer during the drag. Chrome is the precedent for a live tear-off: the torn-off window follows the pointer, moved per mouse-drag event on macOS, by the native move loop on Windows, and through `xdg_toplevel_drag` on Wayland.
 - **The cross-window path is fast enough to be invisible.** Pointer capture kept delivering `pointermove` outside the window to the screen's edge, and a window main moved on each move followed about 10 px behind at about 650 px/s, about one refresh. Main's hit test took 0.2 ms, and the target window drew its indicator at its next frame: 8.8 ms median, 17.4 ms at the 95th percentile.
-- **The code is small.** The in-window core has no dependency and, measured in the built renderer, came out smaller than the `@atlaskit/pragmatic-drag-and-drop` element adapter it replaced ([Spec-021 §References](../specs/021-desktop-app-and-renderer.md#references)).
+- **The code is small.** The in-window core has no dependency and, measured in the built renderer, came out smaller than the `@atlaskit/pragmatic-drag-and-drop` element adapter measured the same way ([Spec-021 §References](../specs/021-desktop-app-and-renderer.md#references)).
 
 ### Antithesis — The Strongest Case Against [T2]
 
