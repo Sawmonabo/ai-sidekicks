@@ -23,6 +23,7 @@ export const BRIDGE_CHANNELS = {
   writeKeyboardMap: "keyboardMap.write",
   setAppearance: "window.setAppearance",
   readAppearance: "window.readAppearance",
+  readNavigationRequest: "window.readNavigationRequest",
   setMinimumSize: "window.setMinimumSize",
   bringWindowForward: "window.bringForward",
   setDefaultSizes: "window.setDefaultSizes",
@@ -60,6 +61,12 @@ export const APPEARANCE_VALUE_CHANNEL = "window.appearance";
 
 /** The channel main asks the console document on to open a window again, carrying its id. */
 export const REOPEN_WINDOW_CHANNEL = "window.reopen";
+
+/**
+ * The channel main pushes each navigation request on, to the console document, once it has read
+ * the one main held for it.
+ */
+export const NAVIGATION_REQUEST_CHANNEL = "window.navigationRequest";
 
 /** The channel main tells the console document on that a View-menu scheme pick was not saved. */
 export const UNKEPT_SCHEME_CHANNEL = "window.unkeptScheme";
@@ -127,4 +134,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeToReopenRequest": [],
   // Pushed by main alone, on `UNKEPT_SCHEME_CHANNEL`: the page asks nothing.
   "window.subscribeToUnkeptScheme": [],
+  // The request main held reads first; every later one is pushed on `NAVIGATION_REQUEST_CHANNEL`.
+  "window.subscribeToNavigationRequest": [BRIDGE_CHANNELS.readNavigationRequest],
 };

@@ -6,8 +6,8 @@
 // `protocol.handle` before the first window (or a window loads against an unhandled scheme). Main's
 // log is opened before the crash reporter, which records in it, and the crash reporter starts
 // before the single-instance lock, so a crash anywhere later in startup is kept, and the
-// second-launch listener is in place before ready, so a launch arriving while the app starts is
-// heard.
+// second-launch and `open-url` listeners are in place before ready, so a launch or a link arriving
+// while the app starts is heard.
 //
 // A failed startup exits even when its own record fails first. The records (stderr, the JSONL
 // log) are best-effort and the exit is the contract: the handler is last on the chain, so a
@@ -95,6 +95,8 @@ const STARTUP_OPERATIONS: readonly string[] = [
   "crashReporter.start",
   "app.requestSingleInstanceLock",
   "app.on:second-instance",
+  "app.on:open-url",
+  "app.setAsDefaultProtocolClient",
   "app.whenReady",
   "protocol.handle",
   "Menu.setApplicationMenu",
@@ -176,6 +178,8 @@ describe("main-process startup composition", () => {
       "crashReporter.start",
       "app.requestSingleInstanceLock",
       "app.on:second-instance",
+      "app.on:open-url",
+      "app.setAsDefaultProtocolClient",
       "app.whenReady",
     ]);
 

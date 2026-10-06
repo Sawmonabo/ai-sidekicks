@@ -12,13 +12,13 @@ export class MainPushes<Value> {
   }
 
   /**
-   * Adds `handler`, first handing it the value `readCurrent` answers when there is one to read,
-   * unless it was removed first. A failed read is thrown on as an unhandled rejection, never
-   * dropped.
+   * Adds `handler`, first handing it the value `readCurrent` answers when there is one to read and
+   * it answers one rather than `null`, unless it was removed first. A failed read is thrown on as
+   * an unhandled rejection, never dropped.
    */
   public subscribe(
     handler: (value: Value) => void,
-    readCurrent?: () => Promise<Value>,
+    readCurrent?: () => Promise<Value | null>,
   ): Unsubscribe {
     // A wrapper per subscription, so the same function subscribed twice is two subscriptions.
     const subscription = (value: Value): void => {
@@ -27,7 +27,7 @@ export class MainPushes<Value> {
     this.#handlers.add(subscription);
     if (readCurrent !== undefined) {
       void readCurrent().then((current) => {
-        if (this.#handlers.has(subscription)) {
+        if (current !== null && this.#handlers.has(subscription)) {
           subscription(current);
         }
       });

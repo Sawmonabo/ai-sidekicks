@@ -3,8 +3,8 @@
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
 // naming one window acts on that window alone, and brings it forward through main's reveal path;
 // the end of a safe start reaches main's registry; main's ask to reopen a window and its word
-// that a menu scheme was not kept reach the page; and every member answers the console document
-// alone.
+// that a menu scheme was not kept reach the page; and every member, the read of a held navigation
+// request among them, answers the console document alone.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -86,6 +86,7 @@ async function connectWindowBridge() {
         endSafeStart: () => {
           safeStartEnds += 1;
         },
+        readNavigationRequest: () => null,
       },
     }),
   )) {
@@ -211,6 +212,9 @@ describe("the window members", () => {
       ipcRenderer: { invoke(channel: string): Promise<unknown> };
     };
     await expect(ipcRenderer.invoke(BRIDGE_CHANNELS.readAppearance)).rejects.toThrow(refusal);
+    await expect(ipcRenderer.invoke(BRIDGE_CHANNELS.readNavigationRequest)).rejects.toThrow(
+      refusal,
+    );
 
     expect(safeStartEnds).toBe(0);
     expect(revealCalls).toStrictEqual([]);

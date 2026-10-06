@@ -12,7 +12,9 @@
 // asks the console document to reopen the console window used last; the renderer's process going
 // away builds the hidden window again, the third loss in a row as a safe start that leaves every
 // kept place as it is until the console document ends it. The registry carries the `window`
-// pushes to the console document, the one document with the bridge.
+// pushes to the console document, the one document with the bridge, and holds the latest navigation
+// request (a link or a notification click) until that document reads it, pushing every later one;
+// a second launch carrying a link is that request, never a launch that brings a window forward.
 
 import { randomUUID } from "node:crypto";
 
@@ -29,14 +31,17 @@ import type {
 import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   APPEARANCE_VALUE_CHANNEL,
+  NAVIGATION_REQUEST_CHANNEL,
   REOPEN_WINDOW_CHANNEL,
   UNKEPT_SCHEME_CHANNEL,
 } from "#shared/bridge-channels.js";
+import type { NavigationRequest } from "#shared/preload-api.js";
 import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
 import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { WindowDefaultSizes } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
+import { findAppLinkArgument } from "../services/app-link.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
@@ -111,6 +116,10 @@ export class OpenWindows {
   #defaultSizes: WindowDefaultSizes | undefined;
   /** The macOS menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
   #menuBarIcon: Pick<Tray, "on"> | undefined;
+  /** The latest navigation request the console document has not read; one at most. */
+  #heldNavigationRequest: NavigationRequest | undefined;
+  /** Whether the console document loaded now has read its held request and hears the pushes. */
+  #isConsoleDocumentListening = false;
 
   /** Reads the kept places, so every window opens where it was. Safe before `ready`. */
   public constructor(options: OpenWindowsOptions) {
@@ -132,8 +141,8 @@ export class OpenWindows {
   /**
    * Builds the hidden window at start, loading the console document handed the console window used
    * last, which it opens first. The registry builds it again after the renderer's process went,
-   * and on a Dock click, a menu-bar icon click or a second launch once a person closed it showing
-   * the load-failure page.
+   * and on a Dock click, a menu-bar icon click, a second launch or a navigation request once a
+   * person closed it showing the load-failure page.
    */
   public openHiddenWindow(options: HiddenWindowStart): RendererWindow {
     this.#hiddenWindowArguments = options.additionalArguments;
@@ -154,7 +163,8 @@ export class OpenWindows {
    * Installs the app's window lifecycle; call it before `ready`, so a second launch that arrives
    * while the app starts is heard. Closing the last window a person sees quits on Windows and
    * Linux and leaves the app running on macOS, where a Dock click or a menu-bar icon click opens a
-   * window again; a second launch or a menu-bar icon click brings the window used last forward. A
+   * window again; a second launch or a menu-bar icon click brings the window used last forward,
+   * except a second launch carrying a link, which the link handler routes to its own place. A
    * quit closes the hidden window first and the windows a person sees once its document is gone,
    * so the console document never hears them close one by one as a person would close them.
    * During a quit, and before start has built the hidden window, no Dock click, menu-bar icon click
@@ -189,8 +199,10 @@ export class OpenWindows {
         this.#reopenWindowUsedLast();
       }
     });
-    app.on("second-instance", () => {
-      this.#showWindowUsedLast();
+    app.on("second-instance", (_event, commandLine) => {
+      if (findAppLinkArgument(commandLine) === undefined) {
+        this.#showWindowUsedLast();
+      }
     });
   }
 
@@ -233,6 +245,40 @@ export class OpenWindows {
    */
   public announceUnkeptScheme(): void {
     this.#sendToConsoleDocument(UNKEPT_SCHEME_CHANNEL, undefined);
+  }
+
+  /**
+   * Hands the console document a request to bring a session or a workflow run forward: pushed once
+   * it listens, otherwise held, the latest only, until it reads. With the hidden window closed by a
+   * person it is built again, and with the load-failure page showing that page comes forward;
+   * where the request opens is the console document's call. During a quit nothing opens.
+   */
+  public requestNavigation(request: NavigationRequest): void {
+    if (this.#isQuitting) {
+      return;
+    }
+    if (this.#isConsoleDocumentListening) {
+      this.#sendToConsoleDocument(NAVIGATION_REQUEST_CHANNEL, request);
+      return;
+    }
+    this.#heldNavigationRequest = request;
+    const hiddenWindow = this.#hiddenWindow;
+    if (hiddenWindow === undefined) {
+      this.#rebuildHiddenWindow();
+    } else if (hiddenWindow.baseWindow.isVisible()) {
+      bringWindowForward(hiddenWindow.baseWindow, this.#platform);
+    }
+  }
+
+  /**
+   * The request held for the console document, handed over once, or `null` with none held. From
+   * then on the document listens, and every request is pushed until another document loads.
+   */
+  public readNavigationRequest(): NavigationRequest | null {
+    this.#isConsoleDocumentListening = true;
+    const held = this.#heldNavigationRequest ?? null;
+    this.#heldNavigationRequest = undefined;
+    return held;
   }
 
   /** Whether `webContents` is the console document, the one document that holds the bridge. */
@@ -323,6 +369,8 @@ export class OpenWindows {
       (_event, details: RenderProcessGoneDetails) => {
         if (this.#hiddenWindow === hiddenWindow && !this.#isQuitting && !this.#isRecoveryPending) {
           this.#isRecoveryPending = true;
+          // A push to the lost document would go nowhere; a request is held for the next one.
+          this.#isConsoleDocumentListening = false;
           // Answered on a later task: a reload started inside this handler re-enters the lost
           // process's start and can crash the main process.
           setTimeout(() => {
@@ -336,6 +384,7 @@ export class OpenWindows {
     // document drew close, their places kept, and the new document reopens them.
     hiddenWindow.view.webContents.on("did-start-navigation", (details) => {
       if (this.#hiddenWindow === hiddenWindow && details.isMainFrame && !details.isSameDocument) {
+        this.#isConsoleDocumentListening = false;
         this.#closeWindowsOfReplacedDocument();
       }
     });

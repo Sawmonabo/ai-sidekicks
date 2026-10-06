@@ -15,6 +15,14 @@ files:
   # per-platform packages and the binaries for other targets never load.
   - "!node_modules/notify-status-*/**"
   - "!node_modules/notify-status/!(notify-status.${platform}-${arch}*).node"
+# The `sidekicks://` links. electron-builder declares the scheme in the macOS bundle's
+# `CFBundleURLTypes` and in the Linux targets' `.desktop` file as `x-scheme-handler/sidekicks`; on
+# Windows its installer registers none, and the app's own `setAsDefaultProtocolClient` at start
+# writes the registry entry.
+protocols:
+  - name: AI Sidekicks
+    schemes:
+      - sidekicks
 # Copies Electron's V8 snapshot as the main process's own, which the snapshot fuse below needs.
 afterPack: ./build/browser-snapshot.ts
 # The hardened fuse wire every packaged app carries. `WasmTrapHandlers` is left at Electron's

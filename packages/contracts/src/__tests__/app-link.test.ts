@@ -18,12 +18,20 @@ describe("composeAppLink and parseAppLink", () => {
     expect(runLink).toBe(`sidekicks://workflow-run/${WORKFLOW_RUN_ID}`);
     expect(parseAppLink(sessionLink)).toEqual({ kind: "session", sessionId: SESSION_ID });
     expect(parseAppLink(runLink)).toEqual({ kind: "workflowRun", workflowRunId: WORKFLOW_RUN_ID });
+    // Read and written again, each link is the same text: nothing was reinterpreted.
+    for (const link of [sessionLink, runLink]) {
+      expect(composeAppLink(parseAppLink(link) ?? expect.fail(`${link} did not parse`))).toBe(link);
+    }
   });
 
   it.each([
     ["another scheme", `https://session/${SESSION_ID}`],
     ["another host", `sidekicks://project/${SESSION_ID}`],
     ["a trailing slash", `sidekicks://session/${SESSION_ID}/`],
+    ["an empty id", "sidekicks://session/"],
+    ["an empty leading segment", `sidekicks://session//${SESSION_ID}`],
+    ["a percent-encoded separator after the host", `sidekicks://session%2F${SESSION_ID}`],
+    ["a percent-encoded separator before the id", `sidekicks://session/%2F${SESSION_ID}`],
     ["a second path segment", `sidekicks://session/${SESSION_ID}/extra`],
     ["a query", `sidekicks://session/${SESSION_ID}?token=secret`],
     ["a fragment", `sidekicks://session/${SESSION_ID}#top`],

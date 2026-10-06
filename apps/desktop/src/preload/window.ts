@@ -1,15 +1,16 @@
 // The `window` members as the preload carries them to main. A subscription keeps its handler
 // here and hears every push main makes on its channel; the appearance's first delivery is main's
-// current value.
+// current value, and a navigation request's the one main held, when it held one.
 
 import type { AppearanceRecord } from "#shared/appearance.js";
 import {
   APPEARANCE_VALUE_CHANNEL,
   BRIDGE_CHANNELS,
+  NAVIGATION_REQUEST_CHANNEL,
   REOPEN_WINDOW_CHANNEL,
   UNKEPT_SCHEME_CHANNEL,
 } from "#shared/bridge-channels.js";
-import type { PreloadApi } from "#shared/preload-api.js";
+import type { NavigationRequest, PreloadApi } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
 import type { PreloadIpc } from "./ipc.js";
 
@@ -32,6 +33,10 @@ export function createWindowBridge(
   const unkeptSchemes = new MainPushes<undefined>();
   ipc.on(UNKEPT_SCHEME_CHANNEL, () => {
     unkeptSchemes.deliver(undefined);
+  });
+  const navigationRequests = new MainPushes<NavigationRequest>();
+  ipc.on(NAVIGATION_REQUEST_CHANNEL, (_event, request) => {
+    navigationRequests.deliver(request as NavigationRequest);
   });
   return {
     lastUsedWindowId,
@@ -57,5 +62,11 @@ export function createWindowBridge(
     },
     subscribeToReopenRequest: (handler) => reopenRequests.subscribe(handler),
     subscribeToUnkeptScheme: (handler) => unkeptSchemes.subscribe(handler),
+    subscribeToNavigationRequest: (handler) =>
+      navigationRequests.subscribe(
+        handler,
+        async () =>
+          (await ipc.invoke(BRIDGE_CHANNELS.readNavigationRequest)) as NavigationRequest | null,
+      ),
   };
 }

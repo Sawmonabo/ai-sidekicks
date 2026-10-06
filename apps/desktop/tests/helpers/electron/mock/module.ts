@@ -130,10 +130,10 @@ export interface ElectronMock {
   /** Sets `app.isPackaged` for the next module load. */
   setPackaged(packaged: boolean): void;
   /**
-   * Fires every `app.on(eventName)` listener with an event, as Electron would emit it, and answers
-   * whether a listener prevented its default.
+   * Fires every `app.on(eventName)` listener with an event and `args` after it, as Electron would
+   * emit it, and answers whether a listener prevented its default.
    */
-  emitAppEvent(eventName: string): boolean;
+  emitAppEvent(eventName: string, ...args: unknown[]): boolean;
   /** Sets the displays' work areas the mocked `screen` answers from; the first is the primary. */
   setDisplayWorkAreas(workAreas: readonly MockRectangle[]): void;
   /** Sets whether the operating system is in its dark scheme, which `system` resolves to. */
@@ -188,7 +188,7 @@ class ElectronMockImpl implements ElectronMock {
   #packaged: boolean;
   #nextId = 1;
   readonly #openWindows: MockBaseWindow[] = [];
-  readonly #appListeners = new Map<string, ((event: MockAppEvent) => void)[]>();
+  readonly #appListeners = new Map<string, ((event: MockAppEvent, ...args: unknown[]) => void)[]>();
   readonly #themeListeners: (() => void)[] = [];
   #displayWorkAreas: readonly MockRectangle[] = [MOCK_PRIMARY_WORK_AREA];
   #isSystemDark = false;
@@ -276,7 +276,7 @@ class ElectronMockImpl implements ElectronMock {
     this.#packaged = packaged;
   }
 
-  public emitAppEvent(eventName: string): boolean {
+  public emitAppEvent(eventName: string, ...args: unknown[]): boolean {
     let isDefaultPrevented = false;
     const event: MockAppEvent = {
       preventDefault: () => {
@@ -284,7 +284,7 @@ class ElectronMockImpl implements ElectronMock {
       },
     };
     for (const listener of this.#appListeners.get(eventName) ?? []) {
-      listener(event);
+      listener(event, ...args);
     }
     return isDefaultPrevented;
   }
@@ -370,14 +370,24 @@ class ElectronMockImpl implements ElectronMock {
         getName: vi.fn(() => "AI Sidekicks"),
         getVersion: vi.fn(() => "0.0.0"),
         getLocale: vi.fn(() => "en-US"),
-        on: vi.fn((eventName: string, listener: (event: MockAppEvent) => void) => {
-          this.record(`app.on:${eventName}`);
-          this.#appListeners.set(eventName, [
-            ...(this.#appListeners.get(eventName) ?? []),
-            listener,
-          ]);
-        }),
+        on: vi.fn(
+          (eventName: string, listener: (event: MockAppEvent, ...args: unknown[]) => void) => {
+            this.record(`app.on:${eventName}`);
+            this.#appListeners.set(eventName, [
+              ...(this.#appListeners.get(eventName) ?? []),
+              listener,
+            ]);
+          },
+        ),
         setAboutPanelOptions: vi.fn(),
+        // The app takes the `sidekicks://` links at every start; a suite answers otherwise with
+        // `mockReturnValueOnce`. No handler is registered on any machine.
+        setAsDefaultProtocolClient: vi.fn(() => {
+          this.record("app.setAsDefaultProtocolClient");
+          return true;
+        }),
+        isDefaultProtocolClient: vi.fn(() => true),
+        getApplicationNameForProtocol: vi.fn(() => ""),
         quit: vi.fn(() => {
           this.record("app.quit");
         }),

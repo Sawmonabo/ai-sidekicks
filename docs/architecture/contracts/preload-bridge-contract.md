@@ -9,6 +9,11 @@ The preload script exposes a single typed object on `window.desktopBridge` via `
 **One interface, three hosts.** The same front end runs in the desktop app, the web client and the phone apps, and the bridge is one typed interface, `PlatformBridge`, the front end's host-agnostic capability boundary, declared in the renderer's `services/platform/` with `PlatformBridgeProvider`, through which the renderer receives it. The provider hands down, beside the bridge, the clock the window runs on — real time for a window that reads the preload, and a fixture composition's own clock for a window that composition builds — so neither the clock nor a fixture's scenario engine is a member of any bridge. No bridge carries an attention member either: the rail's count and the notification surface read the attention projection through `daemon`, as `attention.projectionRead`, the whole projection and then every change. It has three implementations: the desktop's, which alone reads the Electron preload's `window.desktopBridge`; the browser's in the web client; and Capacitor's in the phone apps. The other hosts expose nothing on `window`. The preload's object is the desktop's implementation detail, typed by the desktop's preload API type, `PreloadApi` (`apps/desktop/src/shared/preload-api.ts`), and the daemon method map both types import (`DaemonMethod`, `DaemonParams`, `DaemonResult`, `DaemonEvent`) is in `packages/contracts`. A member a host cannot serve is absent from that host's bridge, so its control is absent from the screen, never drawn and refused; the web client and the phone apps reach a machine over the relay ([Spec-027](../../specs/027-remote-control.md)).
 
 ```ts
+// what main asks the console to bring forward, from a `sidekicks://` link, `sidekicks open` or a notification click: the parsed link's target, its id and nothing else
+type NavigationRequest =
+  | { kind: "session"; sessionId: SessionId }
+  | { kind: "workflowRun"; workflowRunId: WorkflowRunId };
+
 // a Preview pane, named by its session; main maps it to that session's open page
 type PaneRef = { sessionId: SessionId };
 

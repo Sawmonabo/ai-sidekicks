@@ -124,6 +124,8 @@ export interface LaunchAppOptions {
    * which on macOS is never shown and never takes focus.
    */
   readonly isWindowOnScreen?: boolean;
+  /** A `sidekicks://` link on the command line, as a link that launches the app hands it over. */
+  readonly appLink?: string;
 }
 
 /**
@@ -158,6 +160,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
         isPreciseHeapReadingRequired: options.isPreciseHeapReadingRequired === true,
         platform: process.platform,
         ...(options.scenarioId === undefined ? {} : { fixtureScenarioId: options.scenarioId }),
+        ...(options.appLink === undefined ? {} : { appLink: options.appLink }),
       }),
       env: {
         ...process.env,

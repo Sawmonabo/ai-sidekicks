@@ -163,6 +163,7 @@ beforeEach(async () => {
         defaultSizes.push(sizes);
       },
       endSafeStart: () => undefined,
+      readNavigationRequest: () => null,
     },
   };
   bridge = await bridgeOverLink(await linkOver(connection), userData, windowContext);

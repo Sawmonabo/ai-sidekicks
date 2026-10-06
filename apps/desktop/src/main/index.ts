@@ -1,7 +1,8 @@
 // Electron main-process entrypoint. Startup order is load-bearing: the renderer scheme's
 // registration at module top level, before `app.ready`, then the profile keyed to the install,
 // main's log, the crash reporter and the single-instance lock, then the kept appearance, the
-// registry of windows and its lifecycle, so a second launch during start is heard; inside
+// registry of windows and its lifecycle, so a second launch during start is heard, and the
+// `sidekicks://` link handler, so a link that launches the app on macOS is heard; inside
 // `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the Dock icon of a
 // development run, the macOS menu-bar icon, the bridge handlers, the hidden window, whose console
 // document opens every window a person sees, and the background service's start and watch.
@@ -34,6 +35,7 @@ import { installApplicationMenu } from "./menu.js";
 import { firstWindowContents } from "./probes/first-window-contents.js";
 import { startGcProbe } from "./probes/gc.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke.js";
+import { installAppLinkHandler } from "./services/app-link.js";
 import { createCrashReporterDependencies, startCrashReporter } from "./services/crash-reporter.js";
 import { DaemonLink } from "./services/daemon/link/status.js";
 import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/supervisor.js";
@@ -153,8 +155,9 @@ function readResourceImage(fileName: string, location: InstallLocation): NativeI
  * the record is best-effort and the exit is the contract.
  */
 function startApplication(): void {
-  // Before ready: the kept scheme reaches the platform before anything paints, and the registry's
-  // lifecycle is installed so a second launch arriving while the app starts is heard. The executor
+  // Before ready: the kept scheme reaches the platform before anything paints, the registry's
+  // lifecycle is installed so a second launch arriving while the app starts is heard, and the link
+  // handler so a link is held until the console document reads it. The executor
   // runs now; joined with ready at once, a failure here is the startup failure below.
   const windowsReading = new Promise<{
     readonly log: MainDiagnosticLog;
@@ -182,6 +185,8 @@ function startApplication(): void {
       log,
     });
     openWindows.installLifecycle(app);
+    // macOS hands the link that launched the app to `open-url` before ready.
+    installAppLinkHandler({ app, windows: openWindows, log });
     resolve({ log, appearance, openWindows });
   });
   Promise.all([windowsReading, app.whenReady()])

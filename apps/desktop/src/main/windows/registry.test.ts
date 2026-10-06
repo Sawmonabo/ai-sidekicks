@@ -64,6 +64,9 @@ const APP_FACTS_SWITCHES = appFactsSwitches({
   physicalMemoryBytes: 17_179_869_184,
 });
 
+/** A second launch's command line as Electron hands it on: the program, with no link. */
+const PLAIN_SECOND_LAUNCH = ["/Applications/AI Sidekicks.app/Contents/MacOS/AI Sidekicks"];
+
 let userData: string;
 
 beforeEach(async () => {
@@ -351,7 +354,7 @@ describe("the windows a person sees, counted", () => {
     expect(app.quit).not.toHaveBeenCalled();
     // A Dock click or a second launch during the quit's flush opens nothing.
     electronMock.emitAppEvent("activate");
-    electronMock.emitAppEvent("second-instance");
+    electronMock.emitAppEvent("second-instance", PLAIN_SECOND_LAUNCH);
     expect(hiddenWindows()).toHaveLength(1);
 
     // A hidden window already closed, as a probe closing every window does, is left as it is.
@@ -367,11 +370,11 @@ describe("the windows a person sees, counted", () => {
 });
 
 describe("a second launch", () => {
-  it("builds nothing before start, then brings the window used last forward", async () => {
+  it("builds nothing before start, then brings the window used last forward unless it carries a link", async () => {
     const { openWindows } = await startedRegistry("darwin");
 
     // Heard while the app is still starting: start is about to build the window itself.
-    electronMock.emitAppEvent("second-instance");
+    electronMock.emitAppEvent("second-instance", PLAIN_SECOND_LAUNCH);
     electronMock.emitAppEvent("activate");
     expect(electronMock.constructed).toHaveLength(0);
 
@@ -379,14 +382,22 @@ describe("a second launch", () => {
     const usedLastId = await lastUsedWindowIdOf(0);
     const usedLast = openChildWindow(usedLastId);
     const focusesBefore = usedLast.focusCount;
-    electronMock.emitAppEvent("second-instance");
+    // One carrying a link is the link's alone: the window used last stays where it is, so a link
+    // to a session shown in another window never brings the wrong one forward first.
+    electronMock.emitAppEvent("second-instance", [
+      ...PLAIN_SECOND_LAUNCH,
+      "SIDEKICKS://session/0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6e",
+      "--original-process-start-time=1",
+    ]);
+    expect(usedLast.focusCount).toBe(focusesBefore);
+    electronMock.emitAppEvent("second-instance", PLAIN_SECOND_LAUNCH);
 
     expect(hiddenWindows()).toHaveLength(1);
     expect(usedLast.focusCount).toBe(focusesBefore + 1);
 
     // With no window a person sees, it asks the console document to reopen it, as a Dock click.
     usedLast.close();
-    electronMock.emitAppEvent("second-instance");
+    electronMock.emitAppEvent("second-instance", PLAIN_SECOND_LAUNCH);
     expect(hiddenWindows()).toHaveLength(1);
     expect(sentToConsoleDocument()).toEqual([
       { channel: REOPEN_WINDOW_CHANNEL, value: usedLastId },

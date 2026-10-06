@@ -140,6 +140,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       subscribeToReopenRequest: (): Unsubscribe => () => undefined,
       // A fixture runs no main and no View menu, so no pick goes unkept.
       subscribeToUnkeptScheme: (): Unsubscribe => () => undefined,
+      // A fixture launch is given no link and runs no main to hand one over.
+      subscribeToNavigationRequest: (): Unsubscribe => () => undefined,
     },
     app: FIXTURE_APP_META,
     transportReconnect: new TransportReconnectSignal(),
