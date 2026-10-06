@@ -101,11 +101,13 @@ describe("FrameAccumulator", () => {
   it.each([1, 7, 4096, 100_000, 1_000_000])(
     "reads every frame whole and in order from reads of %i bytes",
     (readBytes) => {
+      // Both long bodies are over the accumulator's 64 KiB first size, so every read size meets
+      // frames that outgrow it, the second arriving after the first has drained.
       const messages = [
         notification("first"),
-        notification("x".repeat(300_000)),
+        notification("x".repeat(70_000)),
         notification("third"),
-        notification("y".repeat(70_000)),
+        notification("y".repeat(66_000)),
         notification("last"),
       ];
       const stream = Buffer.concat(messages.map((message) => encodeFrame(message)));
@@ -120,4 +122,14 @@ describe("FrameAccumulator", () => {
       expect(decoded).toStrictEqual(messages);
     },
   );
+
+  it("grows by as many doublings as one read needs", () => {
+    // Over four times the accumulator's 64 KiB first size, so two doublings are not enough.
+    const message = notification("z".repeat(300_000));
+    const frames = new FrameAccumulator(MAX_MESSAGE_BYTES);
+    frames.append(encodeFrame(message));
+    const frame = frames.nextFrame();
+    expect(frame).not.toBeNull();
+    expect(JSON.parse(new TextDecoder().decode(frame!))).toStrictEqual(message);
+  });
 });

@@ -33,8 +33,11 @@ describe("a launch main refuses", () => {
           "carries no scenarios",
       );
       expect(message).toContain("main exited with code 1");
-      // The end of main's stderr was read: the section holds what main wrote, not the empty mark.
-      expect(message).toMatch(/since the launch handed it over:\n(?!<nothing>$)\S/u);
+      // Main's stderr is read from its spawn, so its own line is kept even when main writes it
+      // before Playwright hands the process over, as it does on Linux.
+      expect(message).toMatch(
+        /The end of main's stderr:\n(?:.*\n)*.*\[ai-sidekicks\/desktop\] startup failed: /u,
+      );
       expect(cause).toBeInstanceOf(Error);
       expect((cause as Error).message).toContain("has been closed");
     },

@@ -134,15 +134,22 @@ function collectTwice(collectGarbage: (() => void) | undefined): void {
  * bound across the post-close sample and root the wrapper the sample expects released.
  */
 function closeEveryWindow(): Promise<void> {
-  const closing = BaseWindow.getAllWindows().map((baseWindow) => {
-    const closed = new Promise<void>((resolve) => {
-      baseWindow.once("closed", () => {
-        resolve();
-      });
-    });
-    baseWindow.close();
-    return closed;
-  });
+  const windows = BaseWindow.getAllWindows();
+  // Every listener before any close: on Linux a close emits `closed` before it returns, and the
+  // last window a person sees closing quits there, which closes the hidden window too.
+  const closing = windows.map(
+    (baseWindow) =>
+      new Promise<void>((resolve) => {
+        baseWindow.once("closed", () => {
+          resolve();
+        });
+      }),
+  );
+  for (const baseWindow of windows) {
+    if (!baseWindow.isDestroyed()) {
+      baseWindow.close();
+    }
+  }
   return Promise.all(closing).then(() => undefined);
 }
 
