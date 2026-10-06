@@ -1,5 +1,6 @@
 {
   "name": "@ai-sidekicks/desktop",
+  "productName": "AI Sidekicks",
   "version": "0.0.0",
   "private": true,
   "type": "module",
