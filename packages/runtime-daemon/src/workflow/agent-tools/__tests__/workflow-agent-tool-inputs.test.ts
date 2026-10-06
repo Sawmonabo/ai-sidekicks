@@ -7,9 +7,12 @@ import {
   WorkflowDefinitionCreateRequestSchema,
   WorkflowDefinitionListRequestSchema,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import {
+  WORKFLOW_RUN_TOOL,
+  WorkflowRunToolInputSchema,
+} from "@ai-sidekicks/contracts/workflow/run-tool";
 
 import { describeArgumentRefusal } from "../../../provider/callback-tool-host.js";
-import { WORKFLOW_RUN_TOOL, WorkflowRunToolInputSchema } from "../workflow-agent-tool-inputs.js";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";

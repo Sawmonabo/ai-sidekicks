@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
+import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run-tool";
 
 /**
  * The registry in the two states the callback tools section keeps apart. Both carry entries:
@@ -21,27 +22,11 @@ export type ReadCallbackToolRegistry = (request: {
 }) => Promise<CallbackToolRegistryReading>;
 
 /**
- * The registry's one entry, `workflow_run`, withheld. Its name, description and input schema
- * are fixed by the wire contract.
+ * The registry's one entry, `workflow_run`, withheld.
  *
  * @consumedBy the agent definition's Tool allowlist
  */
-export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [
-  {
-    name: "workflow_run",
-    description:
-      "Start a workflow run in this session by the workflow's name. The run works in this " +
-      "session's folder.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        definitionName: { type: "string" },
-      },
-      required: ["definitionName"],
-      additionalProperties: false,
-    },
-  },
-];
+export const BORN_WITHHELD_REGISTRY: readonly SessionCallbackTool[] = [WORKFLOW_RUN_TOOL];
 
 /**
  * Reads the registry for one session, once per (read, session) pair. `undefined` while

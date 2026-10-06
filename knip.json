@@ -304,9 +304,14 @@
         // A workflow step that parses YAML.
         "yaml"
       ],
-      // The machine's `presence.read` binding, which nothing registers until Remote Control
-      // reports the devices connected to this machine.
-      "ignoreFiles": ["src/ipc/handlers/presence/read.ts"]
+      "ignoreFiles": [
+        // The machine's `presence.read` binding, which nothing registers until Remote Control
+        // reports the devices connected to this machine.
+        "src/ipc/handlers/presence/read.ts",
+        // The input schemas of the workflow agent tools, read by their handlers once the daemon
+        // serves them.
+        "src/workflow/agent-tools/workflow-agent-tool-inputs.ts"
+      ]
     }
   }
 }

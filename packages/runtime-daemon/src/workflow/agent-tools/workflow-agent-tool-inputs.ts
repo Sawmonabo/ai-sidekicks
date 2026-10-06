@@ -1,7 +1,8 @@
 // Input schemas for the workflow tools an agent calls from a session, for the tools whose input
-// differs from the request of the method they drive. `workflow_kinds`, `workflow_list`,
-// `workflow_create`, `workflow_update` and `workflow_enable` take their methods' request schemas
-// (`workflow.kindList`, `workflow.definitionList`, `workflow.definitionCreate`,
+// differs from the request of the method they drive. `workflow_run` is in
+// `@ai-sidekicks/contracts/workflow/run-tool`, which the desktop also reads. `workflow_kinds`,
+// `workflow_list`, `workflow_create`, `workflow_update` and `workflow_enable` take their methods'
+// request schemas (`workflow.kindList`, `workflow.definitionList`, `workflow.definitionCreate`,
 // `workflow.definitionUpdate`, `workflow.enabledSet`) unchanged.
 //
 // No tool takes a session id or a repository: the session is the one whose turn made the call,
@@ -14,28 +15,9 @@ import {
   type WorkflowDefinitionId,
   type WorkflowDraftDocument,
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
 import { z } from "zod";
 
 const positiveNumber = z.number().int().positive();
-
-/** The `workflow_run` input: a workflow named by its name, which the library holds once. */
-export interface WorkflowRunToolInput {
-  definitionName: string;
-}
-/** Schema for {@link WorkflowRunToolInput}. */
-export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, WorkflowRunToolInput> = z
-  .object({ definitionName: z.string().min(1).describe("The workflow's name.") })
-  .strict();
-
-/** The `workflow_run` tool: starts a named workflow's latest version in the calling session. */
-export const WORKFLOW_RUN_TOOL: SessionCallbackTool = {
-  name: "workflow_run",
-  description:
-    "Start a workflow run in this session by the workflow's name. The run works in this " +
-    "session's folder.",
-  inputSchema: z.toJSONSchema(WorkflowRunToolInputSchema),
-};
 
 /**
  * The `workflow_read` input: one version of a workflow, and with `diffFromVersion` its
