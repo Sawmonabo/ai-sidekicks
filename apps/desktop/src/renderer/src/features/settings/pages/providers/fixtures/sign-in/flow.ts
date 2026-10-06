@@ -15,11 +15,12 @@ import type {
   ProviderAccountProbeResponse,
   ProviderAccountSetCurrentResponse,
 } from "@ai-sidekicks/contracts/provider/account/methods";
-import type {
-  ProviderAccountLoginCancelResponse,
-  ProviderAccountLoginResponse,
-  ProviderAccountRegisterRequest,
-  ProviderAccountRegisterResponse,
+import {
+  PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
+  type ProviderAccountLoginCancelResponse,
+  type ProviderAccountLoginResponse,
+  type ProviderAccountRegisterRequest,
+  type ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -178,6 +179,9 @@ export const TOKEN_REGISTRATION_REFUSAL_ORIGIN = "provider-account-registration"
 /** The code a rejected registration that carried none of its own is reported under. */
 const REGISTRATION_FAILED_CODE = "registration-failed";
 
+/** The code the form refuses a blank name under. */
+const REGISTRATION_LABEL_BLANK_CODE = "registration-label-blank";
+
 /** The three fields a registration needs beside the write-only token. */
 export interface AdmittedRegistrationFields {
   readonly provider: ProviderName;
@@ -209,7 +213,7 @@ export function readRegistrationFields(
       kind: "refused",
       refusal: refuse(
         TOKEN_REGISTRATION_REFUSAL_ORIGIN,
-        "registration-label-blank",
+        REGISTRATION_LABEL_BLANK_CODE,
         "Name this account.",
       ),
     };
@@ -225,8 +229,8 @@ export function readRegistrationFields(
       kind: "refused",
       refusal: refuse(
         TOKEN_REGISTRATION_REFUSAL_ORIGIN,
-        "registration-label-taken",
-        `Another ${PROVIDER_LABELS[typed.provider]} account already has this name.`,
+        PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
+        takenNameLine(typed.provider),
       ),
     };
   }
@@ -234,6 +238,21 @@ export function readRegistrationFields(
     kind: "admitted",
     fields: { provider: typed.provider, displayLabel, billingMode: "unknown" },
   };
+}
+
+/**
+ * The line under the `Name` field for a refusal of the name, or `undefined` for any other
+ * refusal. The service refusing a name another account of `provider` has reads as the form's own
+ * check does, never in the service's words.
+ */
+export function nameRefusalLine(refusal: Refusal, provider: ProviderName): string | undefined {
+  if (refusal.code === REGISTRATION_LABEL_BLANK_CODE) {
+    return refusal.detail;
+  }
+  if (refusal.code === PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE) {
+    return takenNameLine(provider);
+  }
+  return undefined;
 }
 
 /**
@@ -255,4 +274,8 @@ export async function submitTokenRegistration(
       refusal: coerceToRefusal(error, TOKEN_REGISTRATION_REFUSAL_ORIGIN, REGISTRATION_FAILED_CODE),
     };
   }
+}
+
+function takenNameLine(provider: ProviderName): string {
+  return `Another ${PROVIDER_LABELS[provider]} account already has this name.`;
 }

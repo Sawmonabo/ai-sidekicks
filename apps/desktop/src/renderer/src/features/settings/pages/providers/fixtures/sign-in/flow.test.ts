@@ -3,7 +3,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import {
+  PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
+  type ProviderAccountRegisterResponse,
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -108,7 +111,7 @@ describe("readRegistrationFields", () => {
     expect(blank?.detail).toBe("Name this account.");
     // Compared without case or surrounding spaces, so two rows can never read alike.
     const taken = refusalOf(readRegistrationFields(typed(" metered "), [REGISTERED.account]));
-    expect(taken?.code).toBe("registration-label-taken");
+    expect(taken?.code).toBe(PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE);
     expect(taken?.detail).toBe("Another Codex account already has this name.");
   });
 });

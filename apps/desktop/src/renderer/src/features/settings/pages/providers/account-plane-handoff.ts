@@ -8,11 +8,11 @@
 // lives; nothing runs a sign-in or re-derives admission.
 //
 // The table maps into the contract's `ProviderRemedy` union, so a new upstream arm is a compile
-// error here. A code with no remedy is a real answer: six of the twelve are refusals no Providers
-// act closes (a pinned account the registry no longer carries, a session asking for an account
-// verb, a lost set-default race that retries, a token this machine's keychain refused to seal, a
-// token the provider did not accept, an account a live run holds), so the table's value type
-// admits `null`.
+// error here. A code with no remedy is a real answer: seven of the thirteen are refusals no
+// Providers act closes (a pinned account the registry no longer carries, a session asking for an
+// account verb, a lost set-default race that retries, a token this machine's keychain refused to
+// seal, a token the provider did not accept, a name another account of the provider has, an
+// account a live run holds), so the table's value type admits `null`.
 
 import {
   PROVIDER_ACCOUNT_IN_USE_CODE,
@@ -24,6 +24,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import {
   PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
+  PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE,
   PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
@@ -45,6 +46,7 @@ export type AccountPlaneRefusalCode =
   | "provideraccount.signin_in_flight"
   | typeof PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE
   | typeof PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE
+  | typeof PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE
   | typeof PROVIDER_ACCOUNT_IN_USE_CODE;
 
 /** Where the act that closes a refusal lives, and which act it is. */
@@ -91,12 +93,13 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
   // readiness handoff discloses, display-only on the page that shows it.
   "provideraccount.signin_unsupported": { section: "providers", remedyKind: "sign_in" },
-  // No Providers act closes these six: an account reference the registry no longer carries is
+  // No Providers act closes these seven: an account reference the registry no longer carries is
   // answered where it was pinned, and no default stands in for it; only this machine's client or
   // a linked device may call an account verb, never a session; a lost set-default race is
   // retried; a token the keychain refused to seal needs the keychain fixed; a token the provider
-  // did not accept is answered under the field it was pasted into, with another token; and
-  // `Remove` on an account a live run holds is refused on its own row, naming the sessions to
+  // did not accept is answered under the field it was pasted into, with another token; a name
+  // another account of the provider has is answered under the `Name` field, with another name;
+  // and `Remove` on an account a live run holds is refused on its own row, naming the sessions to
   // move first, while `Sign out` stays open because it forgets nothing.
   // Routing any to a page would offer an act that changes nothing.
   "provideraccount.unknown": null,
@@ -104,6 +107,7 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   "provideraccount.default_conflict": null,
   [PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE]: null,
   [PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE]: null,
+  [PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE]: null,
   [PROVIDER_ACCOUNT_IN_USE_CODE]: null,
 };
 

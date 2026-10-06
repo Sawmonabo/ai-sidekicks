@@ -5,6 +5,7 @@ import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
 import {
   IDLE_TOKEN_REGISTRATION,
+  nameRefusalLine,
   readRegistrationFields,
   submitTokenRegistration,
   takeWriteOnlyToken,
@@ -31,6 +32,7 @@ export function TokenRegistrationForm(props: {
 }): ReactNode {
   const { register, provider, accounts } = props;
   const nameFieldId = useId();
+  const nameRefusalId = useId();
   const tokenFieldId = useId();
   const displayLabelInput = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -73,6 +75,10 @@ export function TokenRegistrationForm(props: {
     );
   };
 
+  // A refused name is answered under the `Name` field, every other refusal in the slot below.
+  const nameRefusal =
+    outcome.kind === "refused" ? nameRefusalLine(outcome.refusal, provider) : undefined;
+
   return (
     <form className="meridian-accounts__register" onSubmit={onSubmit}>
       <label htmlFor={nameFieldId} className="meridian-form__label">
@@ -84,7 +90,18 @@ export function TokenRegistrationForm(props: {
         ref={displayLabelInput}
         type="text"
         required
+        aria-invalid={nameRefusal !== undefined}
+        aria-describedby={nameRefusal === undefined ? undefined : nameRefusalId}
       />
+      {nameRefusal === undefined ? null : (
+        <p
+          id={nameRefusalId}
+          className="meridian-settings-page__state meridian-settings-page__state--failed"
+          role="alert"
+        >
+          {nameRefusal}
+        </p>
+      )}
 
       <label htmlFor={tokenFieldId} className="meridian-visually-hidden">
         Paste the token you minted at the provider.
@@ -131,7 +148,9 @@ export function TokenRegistrationForm(props: {
           Cancel
         </button>
       </span>
-      <RegistrationOutcomeLine outcome={outcome} />
+      <RegistrationOutcomeLine
+        outcome={nameRefusal === undefined ? outcome : IDLE_TOKEN_REGISTRATION}
+      />
     </form>
   );
 }

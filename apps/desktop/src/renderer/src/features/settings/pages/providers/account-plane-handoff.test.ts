@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE } from "@ai-sidekicks/contracts/provider/account/sign-in";
+
 import { accountPlaneHandoffFor, isAccountPlaneRefusalCode } from "./account-plane-handoff.js";
 
 describe("the account-plane router", () => {
@@ -15,6 +17,9 @@ describe("the account-plane router", () => {
     expect(accountPlaneHandoffFor("provideraccount.permission_denied")).toBeUndefined();
     // Control: a code the contracts export is known, and a routed code reaches its page.
     expect(isAccountPlaneRefusalCode("provideraccount.account_in_use")).toBe(true);
+    // A taken name is known and answered under the field, never on a page.
+    expect(isAccountPlaneRefusalCode(PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE)).toBe(true);
+    expect(accountPlaneHandoffFor(PROVIDER_ACCOUNT_DISPLAY_LABEL_TAKEN_CODE)).toBeUndefined();
     expect(accountPlaneHandoffFor("provideraccount.not_registered")).toStrictEqual({
       section: "providers",
       remedyKind: "register",
