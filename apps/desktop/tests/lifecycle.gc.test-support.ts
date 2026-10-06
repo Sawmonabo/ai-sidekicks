@@ -6,7 +6,7 @@
 // shares the bundle paths, spawner and spawn deadline with `helpers/smoke-probe/harness.ts`; the
 // two probes read different things and carry different diagnostics.
 //
-// The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
+// The GC probe in `src/main/probes/gc.ts` runs 20 cycles of two `gc()` calls, an 8 MB
 // allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BaseWindow)` count. It
 // records whether `window-all-closed` fired, prints one `[SIDEKICKS_GC_PROBE]` JSON line and
 // calls `app.exit(0)`. Bare `gc()` is used because `gc(true)` is a minor scavenge in V8.
@@ -25,7 +25,7 @@
 
 import process from "node:process";
 
-import type { GcProbeReading } from "#main/probes/gc-probe.js";
+import type { GcProbeReading } from "#main/probes/gc.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron/child/cleanup.js";

@@ -131,7 +131,7 @@ export async function bridgeOverLink(
   windowContext: WindowHandlerContext = idleWindowContext(),
 ): Promise<PreloadApi> {
   const { DaemonForwarding } = await import("./daemon.js");
-  const { installBridgeHandlers } = await import("./install-bridge-handlers.js");
+  const { installBridgeHandlers } = await import("./install-handlers.js");
   const { createPreloadApi } = await import("#preload/api.js");
   const { FilePathRefs } = await import("./file-path/file-path-refs.js");
 

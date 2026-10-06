@@ -8,6 +8,7 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -15,7 +16,6 @@ import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifec
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
 import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
-import { PACKAGE_ROOT } from "#test/helpers/fixture/bundle.js";
 import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
 import { DaemonLink } from "../daemon-link.js";
@@ -28,7 +28,7 @@ import {
 } from "./service-process.js";
 import { startServiceDetached } from "./start.js";
 
-const DAEMON_SOURCE = path.resolve(PACKAGE_ROOT, "../../packages/runtime-daemon/src");
+const DAEMON_ENTRY = fileURLToPath(import.meta.resolve("@ai-sidekicks/runtime-daemon/main"));
 const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescript-source-loader");
 // The daemon's start runs the login shell under its own 5 s deadline before it binds its socket.
 const LINK_WITHIN_MS = 20_000;
@@ -78,7 +78,7 @@ it(
               "--conditions=@ai-sidekicks/source",
               "--import",
               `data:text/javascript,import{register}from"node:module";register(${JSON.stringify(SOURCE_LOADER)})`,
-              path.join(DAEMON_SOURCE, "main.ts"),
+              DAEMON_ENTRY,
             ],
           },
           { ...process.env, HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory },

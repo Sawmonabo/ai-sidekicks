@@ -1,6 +1,6 @@
 // Spawns a real Electron process on a private profile and reads its tagged probe lines.
 // The harness asserts nothing: the suite decides whether a reading is acceptable, and
-// `diagnosis.ts` explains a missing one. `src/main/probes/smoke-probe.ts` emits the
+// `diagnosis.ts` explains a missing one. `src/main/probes/smoke.ts` emits the
 // lines.
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";

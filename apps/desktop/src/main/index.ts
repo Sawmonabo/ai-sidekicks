@@ -17,12 +17,12 @@ import { KeptAppearance } from "./appearance/kept-appearance.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/file-path-refs.js";
-import { installBridgeHandlers } from "./bridge/install-bridge-handlers.js";
+import { installBridgeHandlers } from "./bridge/install-handlers.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { installApplicationMenu } from "./menu.js";
 import { firstWindowContents } from "./probes/first-window-contents.js";
-import { startGcProbe } from "./probes/gc-probe.js";
-import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
+import { startGcProbe } from "./probes/gc.js";
+import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke.js";
 import { processCrashReporterHost, startCrashReporter } from "./services/crash-reporter.js";
 import { DaemonLink } from "./services/daemon/daemon-link.js";
 import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/daemon-supervisor.js";
@@ -41,8 +41,8 @@ import {
   installRendererProtocol,
   RendererSchemeRegistration,
 } from "./services/renderer/protocol.js";
-import { OpenWindows } from "./windows/open-windows.js";
-import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/place-file.js";
+import { OpenWindows } from "./windows/registry.js";
+import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
 import { installActivationPolicy } from "./windows/reveal.js";
 
 /** Where main records a line while it has no log of its own: the startup is failing then. */

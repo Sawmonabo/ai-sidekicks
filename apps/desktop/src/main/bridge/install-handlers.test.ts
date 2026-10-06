@@ -27,7 +27,7 @@ beforeEach(async () => {
   electronMock.reset();
   userData = await mkdtemp(path.join(tmpdir(), "sidekicks-bridge-handlers-test-"));
   vi.resetModules();
-  const { installBridgeHandlers } = await import("./install-bridge-handlers.js");
+  const { installBridgeHandlers } = await import("./install-handlers.js");
   const { DaemonForwarding } = await import("./daemon.js");
   const { DaemonLink } = await import("../services/daemon/daemon-link.js");
   const { FilePathRefs } = await import("./file-path/file-path-refs.js");

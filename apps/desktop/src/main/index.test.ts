@@ -185,10 +185,10 @@ describe("main-process startup composition", () => {
 
   it("keeps running on macOS when the last window closes, and quits after the service's flush", async () => {
     await startMain("darwin");
-    const consoleWindow = electronMock.constructed.at(-1) ?? expect.fail("no console window");
+    const hiddenWindow = electronMock.constructed.at(-1) ?? expect.fail("no hidden window");
     const answer = windowOpenHandlerOf({
-      baseWindow: consoleWindow,
-      view: consoleWindow.contentView.children[0],
+      baseWindow: hiddenWindow,
+      view: hiddenWindow.contentView.children[0],
     })({ url: "about:blank", frameName: "window/w-1" }) as {
       createWindow: (options: object) => unknown;
     };

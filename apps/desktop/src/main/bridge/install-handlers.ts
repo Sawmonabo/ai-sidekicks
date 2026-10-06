@@ -153,7 +153,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
           installedEditors: () => installedEditorsFor(process.platform, runProgram),
           runProgram,
           openWithSystemDefault: async (systemTarget) => {
-            // `openPath` answers its failure as a message rather than rejecting.
+            // `openPath` answers a failure as a fixed message naming no path; it never rejects.
             const failure = await shell.openPath(systemTarget);
             if (failure !== "") {
               throw new Error(failure);

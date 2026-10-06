@@ -3,7 +3,7 @@
 // of the display the window is on, the widths a window with no kept place opens at, and the end of
 // a safe start. Only the console document asks, and it names the window by the id its frame name
 // carries. The pushes that follow a subscription's first delivery, and main's ask to reopen a
-// window, come from main's registry of windows (`../windows/open-windows.ts`), which owns every
+// window, come from main's registry of windows (`../windows/registry.ts`), which owns every
 // window and the console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
@@ -15,7 +15,7 @@ import type { WindowDefaultSizes, WindowSize } from "#shared/window/window-size.
 
 import type { KeptAppearance } from "../appearance/kept-appearance.js";
 import { appearanceChoiceSchema, appearanceGroundsSchema } from "../appearance/record-file.js";
-import type { OpenWindows } from "../windows/open-windows.js";
+import type { OpenWindows } from "../windows/registry.js";
 
 /** What the `window` members act on, and the window the platform's dialogs are sheeted on. */
 export interface WindowHandlerContext {

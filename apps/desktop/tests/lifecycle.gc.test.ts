@@ -6,12 +6,12 @@
 // count and `window-all-closed` must not fire; once every window is closed the count must drop by
 // at least one per window (the delta separates the instance from a fixed non-instance match that
 // a count-only sample cannot tell apart). Two anchors keep a window reachable: main's registry of
-// open windows (`src/main/windows/open-windows.ts`) and Electron's native `BaseWindow::self_ref_`,
+// open windows (`src/main/windows/registry.ts`) and Electron's native `BaseWindow::self_ref_`,
 // so this guards against either letting go of an open window, or an unrelated bug that fires
 // `window-all-closed`.
 //
 // The probe, its gates, the spawn and the display handling are in `lifecycle.gc.test-support.ts`
-// and `src/main/probes/gc-probe.ts`. Failure shapes: A, count drift or a missing per-window
+// and `src/main/probes/gc.ts`. Failure shapes: A, count drift or a missing per-window
 // delta; B, `allClosedFired`; C, no probe line (usually environmental: no `xvfb-run`, smoke
 // bundle unbuilt, or `--js-flags=--expose-gc` not forwarded).
 

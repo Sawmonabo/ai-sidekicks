@@ -35,7 +35,7 @@ import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./frame-name.js";
 import { newWindowBounds } from "./places/new-window-bounds.js";
-import type { WindowPlace, WindowPlaceFile } from "./places/place-file.js";
+import type { WindowPlace, WindowPlaceFile } from "./places/file.js";
 import { fitOnScreen } from "./places/screen-fit.js";
 import { RendererCrashes, type RendererReload } from "./renderer-crashes.js";
 import {
@@ -419,7 +419,7 @@ export class OpenWindows {
 
   /**
    * The last window a person sees closed: off macOS the app quits; on macOS it keeps running, with
-   * its menu bar and menu-bar icon, until a Dock click opens a window again.
+   * its menu bar, until a Dock click or a second launch opens a window again.
    */
   #closeLastWindow(): void {
     if (this.#platform !== "darwin") {
@@ -449,7 +449,7 @@ export class OpenWindows {
     this.#log.write({
       at: new Date().toISOString(),
       level: "error",
-      source: "main/windows/open-windows",
+      source: "main/windows/registry",
       message:
         `the renderer's process is gone (${details.reason}, exit code ` +
         `${String(details.exitCode)}); reopening its ${String(lost.length)} window(s)` +
@@ -512,7 +512,7 @@ export class OpenWindows {
       this.#log.write({
         at: new Date().toISOString(),
         level: "error",
-        source: "main/windows/open-windows",
+        source: "main/windows/registry",
         message: `the window places were not kept: ${describeFailure(error)}`,
       });
     }

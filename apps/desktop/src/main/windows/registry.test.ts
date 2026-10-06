@@ -67,7 +67,7 @@ beforeEach(async () => {
   // The mock's `app.quit` is one spy for the whole file; each case counts its own calls.
   vi.clearAllMocks();
   electronMock.setDisplayWorkAreas([PRIMARY_WORK_AREA]);
-  userData = await mkdtemp(path.join(tmpdir(), "sidekicks-open-windows-test-"));
+  userData = await mkdtemp(path.join(tmpdir(), "sidekicks-window-registry-test-"));
 });
 
 afterEach(async () => {
@@ -108,8 +108,8 @@ async function createRegistry(
   appearance: ChangingAppearance = changingAppearance(),
 ) {
   vi.resetModules();
-  const { OpenWindows } = await import("./open-windows.js");
-  const { WindowPlaceFile, WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+  const { OpenWindows } = await import("./registry.js");
+  const { WindowPlaceFile, WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
   const { screen } = (await import("electron")) as unknown as {
     screen: ConstructorParameters<typeof OpenWindows>[0]["screen"];
   };
@@ -180,7 +180,7 @@ function openChildWindow(frameName: string): MockBaseWindow {
 
 /** The window-place file as main last wrote it. */
 async function readPlaceFile(): Promise<{ windowUsedLast: string; places: object }> {
-  const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+  const { WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
   return JSON.parse(await readFile(path.join(userData, WINDOW_PLACES_FILE_NAME), "utf8")) as {
     windowUsedLast: string;
     places: object;
@@ -189,7 +189,7 @@ async function readPlaceFile(): Promise<{ windowUsedLast: string; places: object
 
 /** The window-place file's text as main last wrote it. */
 async function readPlaceFileText(): Promise<string> {
-  const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+  const { WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
   return readFile(path.join(userData, WINDOW_PLACES_FILE_NAME), "utf8");
 }
 
@@ -762,7 +762,7 @@ describe("the window-place file", () => {
   });
 
   it("opens at the default size when the file is broken, and rewrites it", async () => {
-    const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+    const { WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
     await writeFile(path.join(userData, WINDOW_PLACES_FILE_NAME), "{ not json", "utf8");
 
     const { openWindows, log } = await createRegistry("darwin");
@@ -774,7 +774,7 @@ describe("the window-place file", () => {
   });
 
   it("drops the entries the schema refuses and rewrites the file with the rest", async () => {
-    const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+    const { WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
     const keptPlace = { x: 40, y: 65, width: 1000, height: 700, isMaximized: false };
     await writeFile(
       path.join(userData, WINDOW_PLACES_FILE_NAME),
@@ -800,7 +800,7 @@ describe("the window-place file", () => {
   });
 
   it("records a place it could not write in main's log, and the window still closes", async () => {
-    const { WINDOW_PLACES_FILE_NAME } = await import("./places/place-file.js");
+    const { WINDOW_PLACES_FILE_NAME } = await import("./places/file.js");
     const { openWindows, log } = await createRegistry("darwin");
     openWindows.openHiddenWindow({ additionalArguments: [] });
     const first = openChildWindow("window/w-1");

@@ -57,7 +57,7 @@ export class GcProbe {
 
   /**
    * Registers the probe-scoped `window-all-closed` listener. The window registry registers its
-   * own handler first (`../windows/open-windows.ts`); both run in the same `emit()`, and
+   * own handler first (`../windows/registry.ts`); both run in the same `emit()`, and
    * `app.quit` only schedules the quit sequence, so it cannot pre-empt this listener.
    */
   public observe(electronApp: App): void {

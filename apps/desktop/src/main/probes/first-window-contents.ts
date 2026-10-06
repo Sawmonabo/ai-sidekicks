@@ -4,7 +4,7 @@
 import type { App, WebContents } from "electron";
 
 /**
- * The contents of the first window the console document opens. Call it after the console window
+ * The contents of the first window the console document opens. Call it after the hidden window
  * is built and before that document opens a window.
  */
 export function firstWindowContents(electronApp: Pick<App, "once">): Promise<WebContents> {
