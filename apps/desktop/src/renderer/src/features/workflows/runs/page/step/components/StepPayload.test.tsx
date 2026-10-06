@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { ElementHeightShim } from "#test/helpers/element/element-height-shim.js";
+import { ElementHeightShim } from "#test/helpers/element/height-shim.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";

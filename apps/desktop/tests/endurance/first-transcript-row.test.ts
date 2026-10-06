@@ -36,7 +36,7 @@ import {
   concurrentStreamingDeliverySchedule,
 } from "./workload.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();

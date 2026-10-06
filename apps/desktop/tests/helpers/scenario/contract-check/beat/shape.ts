@@ -32,10 +32,10 @@ import {
 } from "@ai-sidekicks/contracts/event/session-event";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import { describeSchemaIssue } from "../scenario-contract-defect.js";
+import { describeSchemaIssue } from "../defect.js";
 import { describeRunAndQueueSemanticsDefect } from "../run-and-queue-semantics.js";
 import { composeScenarioEventEnvelope } from "#renderer/services/daemon/event/envelope.fixture.js";
-import type { ScenarioBeat } from "#fixtures/scenario.js";
+import type { ScenarioBeat } from "#fixtures/scenarios/script.js";
 
 /** What is wrong with one beat, or `undefined` when the wire could have emitted it. */
 export function describeBeatDefect(beat: ScenarioBeat): string | undefined {

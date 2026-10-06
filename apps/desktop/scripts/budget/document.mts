@@ -1,4 +1,4 @@
-// Reads `budgets.json` and validates it into a `BudgetDocument`. It refuses with
+// Reads `tests/budget/document.json` and validates it into a `BudgetDocument`. It refuses with
 // `BudgetRegistryError` rather than return a partial document: a budget that silently vanishes is
 // a gate nobody notices is off.
 
@@ -25,7 +25,7 @@ const OptionalStringSchema = z
 interface BudgetLimit {
   /** Every budget is a ceiling. A floor would need a different verdict shape. */
   readonly comparison: "<=";
-  /** The figure as the spec writes it, in `unit`. */
+  /** The target figure as the row states it, in `unit`. */
   readonly value: number;
   readonly unit: string;
   /** The same figure reduced to `canonicalUnit`; the only figure compared. */
@@ -33,7 +33,7 @@ interface BudgetLimit {
   readonly canonicalUnit: string;
 }
 
-/** One row of `budgets.json`, validated. */
+/** One row of `tests/budget/document.json`, validated. */
 export interface Budget {
   readonly id: string;
   readonly label: string;
@@ -59,7 +59,7 @@ export interface Budget {
   readonly notes: string;
 }
 
-/** A validated `budgets.json`, before anything is asked of it. */
+/** A validated `tests/budget/document.json`, before anything is asked of it. */
 export interface BudgetDocument {
   readonly schemaVersion: number;
   /**

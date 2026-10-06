@@ -14,7 +14,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import { bridgeOver, scriptedConnection } from "./daemon.test-support.js";
 
 const electronMock = createElectronMock();

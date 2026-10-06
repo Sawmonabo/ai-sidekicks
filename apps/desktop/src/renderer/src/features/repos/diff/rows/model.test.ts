@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import { DIFF_GAP_EXPANSION_LINE_COUNT } from "../measures.js";
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
-import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import { diffGapKey, expandGap } from "./model.js";
 import { DiffRowIndex } from "./flat-index.js";
 

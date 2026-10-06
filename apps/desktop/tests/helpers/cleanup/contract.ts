@@ -1,7 +1,7 @@
 // What a bounded cleanup is handed and the verdict it returns. The race that produces the verdict
 // is `bounded-cleanup.ts`.
 
-import { type ProfileRemovalFailure } from "../launch/launch-profile.js";
+import { type ProfileRemovalFailure } from "../launch/profile.js";
 
 /** The launched application, reduced to what cleanup needs of it. */
 export interface ClosableApplication {

@@ -1,7 +1,7 @@
 // The concurrent-streaming scenario: four lanes streaming at once.
 //
 // This is the session behind the `frame-time-p95-four-lanes` row in
-// `tests/budget/budgets.json`, so its concurrency is the property measured: four runs are
+// `tests/budget/document.json`, so its concurrency is the property measured: four runs are
 // mid-turn at the same tick, interleaved beat by beat, and `tests/endurance/streaming-lanes.ts`
 // reads that back off these beats.
 //
@@ -21,10 +21,10 @@
 //     never shows: a run that has produced nothing yet.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session-event.ts`, because a fixture that plays a type no daemon emits
-// produces passing results about a wire that does not exist.
+// `packages/contracts/src/event/session-event.ts`, because a fixture that plays a type no daemon
+// emits produces passing results about a wire that does not exist.
 //
 // The approval pair and the run-state pair are two records, not one: `approval_flow` records
 // what was asked, by whom and who granted it, and `run_lifecycle` records what the run did
@@ -45,7 +45,7 @@ import {
   findBeatCursor,
   newestBeatInstant,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,

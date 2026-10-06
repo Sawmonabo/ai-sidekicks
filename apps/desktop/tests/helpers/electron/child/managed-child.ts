@@ -1,5 +1,5 @@
-// The object that owns one spawned child's fate. The spawner, `electron/child/child.ts`, constructs
-// it.
+// The object that owns one spawned child's fate. The spawner, `electron/child/spawner.ts`,
+// constructs it.
 //
 // The child is gone at `close`, not `exit`: `node_modules/.bin/electron` is a shim that hands the
 // browser its stdout, so the shim can exit while the browser runs and holds the pipe. Releasing a
@@ -11,8 +11,8 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
-import { terminateProcessTree } from "./process-tree/termination.js";
-import { SpawnedTreeRecord } from "./spawned-tree-record.js";
+import { terminateProcessTree } from "../../process-tree/termination.js";
+import { SpawnedTreeRecord } from "../../spawned-tree-record.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it. The shim forwards

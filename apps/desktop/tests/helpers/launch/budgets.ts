@@ -1,9 +1,9 @@
 // The timing bounds an app launch and its test body are held to, read once from
-// `tests/budget/budgets.json` through `BudgetRegistry`. One module so `frame-paint-probe.ts` and
-// `launch-deadline.ts` share each figure without either owning the other's. These are
+// `tests/budget/document.json` through `BudgetRegistry`. One module so `frame-paint-probe.ts` and
+// `deadline.ts` share each figure without either owning the other's. These are
 // `harness`-scoped rows: no product figure stands behind them.
 
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 
 const BUDGETS = BudgetRegistry.load();
 
@@ -28,7 +28,7 @@ export const READINESS_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch
  * only delays reporting a throttled launch, which delivers no frame and spends the whole budget
  * anyway. So it is the largest value keeping two orderings: at most half of
  * `READINESS_BUDGET_MS`, so a window problem fails naming the window, and reserved inside
- * `LAUNCH_BUDGET_MS`, which `launch-deadline.ts` holds against each launching tier's
+ * `LAUNCH_BUDGET_MS`, which `deadline.ts` holds against each launching tier's
  * `testTimeout`, so a reader sees this paint probe's sentence rather than vitest's.
  */
 export const FRAME_PAINT_PROBE_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
@@ -48,7 +48,7 @@ export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("launch-c
 /**
  * How long a test body gets between a settled launch and its cleanup.
  *
- * `body.ts` applies it and `tierTimeoutFor` (`launch-deadline.ts`) sums it into the
+ * `body.ts` applies it and `tierTimeoutFor` (`deadline.ts`) sums it into the
  * tier's timeout, so raising it raises the tier's patience instead of eating the cleanup. It is
  * the default for a tier that states none, and the shorter of the two, so a new tier whose body
  * needs longer fails inside a bound that names itself, not under vitest's generic kill.

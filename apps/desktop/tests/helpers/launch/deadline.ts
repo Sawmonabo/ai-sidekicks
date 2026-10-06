@@ -18,7 +18,7 @@ import { CLEANUP_BUDGET_MS, FRAME_PAINT_PROBE_TIMEOUT_MS, READINESS_BUDGET_MS } 
  * by a refused kill run past what the tier waits for, so vitest would kill the test before the
  * `unterminable` verdict existed and before the profile came off disk.
  *
- * A count, not a second duration, so `budgets.json` keeps one row for one bound.
+ * A count, not a second duration, so `tests/budget/document.json` keeps one row for one bound.
  */
 export const CLEANUP_PHASES = 2;
 
@@ -51,8 +51,8 @@ export const POST_READINESS_RESERVE_MS: number = FRAME_PAINT_PROBE_TIMEOUT_MS + 
  * profile and the throw propagating out through two frames, both sub-second. Two seconds is
  * roughly an order of magnitude of headroom.
  *
- * A constant here, not a `budgets.json` row, because every row there is a ceiling (the loader
- * refuses a `comparison` other than `"<="`) and this is a floor a tier must leave.
+ * A constant here, not a `tests/budget/document.json` row, because every row there is a ceiling
+ * (the loader refuses a `comparison` other than `"<="`) and this is a floor a tier must leave.
  */
 export const MINIMUM_SETTLEMENT_RESIDUAL_MS = 2_000;
 
@@ -201,7 +201,7 @@ export function readinessFailure(deadline: LaunchDeadline, error: unknown): unkn
       "window, the document's `load`, the app's frame element, the visibility read — rather " +
       "than each receiving its own; the paint probe's interval is reserved beyond this budget, " +
       "so a launch that overruns reports here rather than as the enclosing tier's timeout " +
-      "(tests/helpers/launch/launch-deadline.ts)",
+      "(tests/helpers/launch/deadline.ts)",
     { cause: error },
   );
 }

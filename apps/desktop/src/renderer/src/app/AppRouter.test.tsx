@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import {
   createWorkflowCommandTargets,
   registerWorkflowScreens,

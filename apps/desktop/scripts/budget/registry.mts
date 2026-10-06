@@ -1,5 +1,5 @@
-// Query layer over `tests/budget/budgets.json`, the one place every numeric budget the app is
-// gated on is written down. Validation is `budget-document.mts`, comparing a measurement is
+// Query layer over `tests/budget/document.json`, the one place every numeric budget the app is
+// gated on is written down. Validation is `document.mts`, comparing a measurement is
 // `evaluation.mts`, and formatting the un-measured rows is `report.mts`.
 
 import path from "node:path";
@@ -10,22 +10,22 @@ import {
   type BudgetDocument,
   BudgetRegistryError,
   readBudgetDocument,
-} from "./budget-document.mts";
+} from "./document.mts";
 
 const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 
 /** `apps/desktop`, resolved from this file so every default path is absolute. */
 export const DESKTOP_PACKAGE_ROOT: string = path.resolve(THIS_DIRECTORY, "..", "..");
 
-/** Absolute path of the checked-in `budgets.json`. */
+/** Absolute path of the checked-in `tests/budget/document.json`. */
 export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
   DESKTOP_PACKAGE_ROOT,
   "tests",
   "budget",
-  "budgets.json",
+  "document.json",
 );
 
-/** The parsed `budgets.json`. Construct with `BudgetRegistry.load()`. */
+/** The parsed `tests/budget/document.json`. Construct with `BudgetRegistry.load()`. */
 export class BudgetRegistry {
   readonly budgetsFilePath: string;
   readonly schemaVersion: number;

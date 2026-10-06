@@ -1,7 +1,8 @@
 // The repos feature's mount list and diff pane, mounted once for the accessibility tier.
 //
-// Not a test file. `helpers/app/harness.ts` owns how the app is mounted, `mount-queries.ts` what a
-// mounted view is and how a tier finds it, `fixtures.ts` what the views are drawn against.
+// Not a test file. `helpers/app/harness.ts` owns how the app is mounted,
+// `tests/accessibility/feature-mounts/queries.ts` what a mounted view is and how a tier finds it,
+// `fixtures.ts` what the views are drawn against.
 //
 // Both views are mounted directly:
 //
@@ -17,7 +18,7 @@
 
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -37,7 +38,7 @@ import { SessionStore } from "#renderer/store/session/store.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { renderSettled } from "#test/helpers/app/harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./fixtures.js";
-import { requireLabeledRegion, type MountedView } from "../mount-queries.js";
+import { requireLabeledRegion, type MountedView } from "../queries.js";
 
 /**
  * The mount list with its three mounts read.

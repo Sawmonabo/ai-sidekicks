@@ -2,7 +2,7 @@
 // case reaches for by name.
 //
 // This module says what shapes exist; the patch text is `patch.test-support.ts`'s and
-// the model is `fixture.ts`'s. Shapes are generated rather than transcribed, and size is a
+// the model is `model.ts`'s. Shapes are generated rather than transcribed, and size is a
 // parameter, so one builder serves a two-line unit case and the forty-file endurance case.
 
 /** What a generated change set looks like. Every field is a measured dimension. */

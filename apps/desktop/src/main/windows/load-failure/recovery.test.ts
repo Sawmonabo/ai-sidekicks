@@ -5,13 +5,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   asMockWindow,
   INDEX_URL,
   loggedMessages,
   testWindowFrame,
-} from "#test/helpers/window-test-harness.js";
+} from "#test/helpers/window-harness.js";
 
 const electronMock = createElectronMock();
 

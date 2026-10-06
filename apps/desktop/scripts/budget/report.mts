@@ -1,7 +1,7 @@
 // Formats the budgets a harness did not measure, so an ungated budget stays visible in every
 // report. It reads the rows through a small interface instead of importing `BudgetRegistry`.
 
-import { type Budget } from "./budget-document.mts";
+import { type Budget } from "./document.mts";
 
 /** The one question this report asks of whatever it is handed. */
 export interface UnavailableBudgetSource {

@@ -15,7 +15,7 @@ import type { ServedDaemonCall, Unsubscribe } from "#shared/preload-api.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { SESSION_EVENT_STREAM } from "#shared/daemon/streams.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";

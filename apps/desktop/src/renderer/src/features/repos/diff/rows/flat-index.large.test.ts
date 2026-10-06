@@ -23,11 +23,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildDiffFixture, fixtureChangedLineCount } from "#test/helpers/diff/fixture/fixture.js";
+import { buildDiffFixture, fixtureChangedLineCount } from "#test/helpers/diff/fixture/model.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
-} from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+} from "#test/helpers/diff/fixture/shapes.js";
 import { diffLineText, type DiffLine } from "../model.js";
 import { diffGapKey, expandGap, type DiffGapExpansion, type DiffLineRow } from "./model.js";
 import { DiffRowIndex } from "./flat-index.js";

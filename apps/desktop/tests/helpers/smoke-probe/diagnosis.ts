@@ -5,7 +5,7 @@ import { spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
 
-import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/spawner.js";
 import {
   localDisplaySocketPath,
   needsXvfb,

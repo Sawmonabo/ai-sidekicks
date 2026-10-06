@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { FixtureBridgeError } from "../refusal.fixture.js";
 import { callThroughBridge, createFixture } from "#test/helpers/fixture/bridge.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /** A registered method the registry binds, so a scripted reply is checkable. */

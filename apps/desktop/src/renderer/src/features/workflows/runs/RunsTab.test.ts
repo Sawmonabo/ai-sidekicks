@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { isRunsTableRead, mountWorkflowsScreen, press } from "../WorkflowsScreen.test-support.js";

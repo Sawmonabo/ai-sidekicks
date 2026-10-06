@@ -5,7 +5,7 @@
 
 import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
 import type { SessionSummary } from "./summary.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 
 /**
  * The identity the scenario declares for one session, or `undefined` when the scenario scripts no

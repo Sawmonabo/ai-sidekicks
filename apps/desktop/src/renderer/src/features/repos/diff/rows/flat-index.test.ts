@@ -3,8 +3,8 @@
 // comes from `@tanstack/react-virtual` and is asserted against the DOM in `DiffRenderer.test.ts`.
 
 import { describe, expect, it } from "vitest";
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
-import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import { DIFF_VIEW_MODES, type DiffModel } from "../model.js";
 import { type DiffRow } from "./model.js";
 import { DiffRowIndex } from "./flat-index.js";

@@ -2,14 +2,14 @@
 //
 // It writes hunk headers with the line numbers the format produces, the extended headers a rename
 // and a mode change carry, and the `\ No newline at end of file` marker; shapes and the model are
-// `diff-fixture-shapes.ts` and `fixture.ts`. It generates a patch rather than a model so the
+// `shapes.ts` and `model.ts`. It generates a patch rather than a model so the
 // tiers measure the parser a wire will call, not a second implementation of it.
 
 import {
   EXTENDED_HEADER_FIXTURE_FILES,
   TERMINAL_NEWLINE_FIXTURE_FILE,
   type DiffFixtureShape,
-} from "./diff-fixture-shapes.js";
+} from "./shapes.js";
 import type { DiffLineKind } from "#renderer/features/repos/diff/model.js";
 
 /**

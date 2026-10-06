@@ -18,7 +18,7 @@
 // evaluates before the `const` initializes, so the factory would read a binding in its temporal
 // dead zone. Such a suite keeps a local factory (`src/main/services/renderer/protocol.test.ts`).
 //
-// The reading helpers the window suites share live in `../../window-test-harness.ts`.
+// The reading helpers the window suites share live in `../../window-harness.ts`.
 
 import { vi } from "vitest";
 

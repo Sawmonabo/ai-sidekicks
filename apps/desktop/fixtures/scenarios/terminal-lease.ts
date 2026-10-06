@@ -24,7 +24,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 
 // Who and what the scenario is about: the session, the owner, a second device and the agent's
 // run. Ids are UUIDs because the contract check presents each beat to the strict layer as a

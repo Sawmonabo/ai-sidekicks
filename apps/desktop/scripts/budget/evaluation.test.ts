@@ -1,10 +1,10 @@
 // The boundary of the comparison every harness runs: under, exactly at, and one over the limit.
-// A ceiling that excluded its own value would fail a measurement the spec permits.
+// A ceiling that excluded its own value would fail a measurement its budget permits.
 
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "./budget-registry.mts";
-import { BudgetRegistryError } from "./budget-document.mts";
+import { BudgetRegistry } from "./registry.mts";
+import { BudgetRegistryError } from "./document.mts";
 import { evaluateBudget } from "./evaluation.mts";
 
 const registry = BudgetRegistry.load();

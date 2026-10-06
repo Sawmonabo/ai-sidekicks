@@ -12,7 +12,7 @@
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
 import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "#test/helpers/launch/budgets.ts";
-import { tierTimeoutFor } from "#test/helpers/launch/launch-deadline.ts";
+import { tierTimeoutFor } from "#test/helpers/launch/deadline.ts";
 import {
   browserModeOptions,
   BROWSER_MODE_DEDUPE,
@@ -28,7 +28,7 @@ import { iconCompilationPlugin } from "./icon-compilation.js";
  * reach the same folders exclude them.
  */
 export const RENDERER_TESTS_OUTSIDE_SOURCE: readonly string[] = [
-  "tests/helpers/scenario-contract-check/**/*.test.ts",
+  "tests/helpers/scenario/contract-check/**/*.test.ts",
 ];
 
 /** Every tier that runs under Vitest, in the order they run, before the shared plugins. */
@@ -77,8 +77,8 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: bundle. Chunk sizes against `budgets.json`, and claims about what a release bundle
-    // does not contain, since both need the built tree and no other tier has one.
+    // Tier: bundle. Chunk sizes against `tests/budget/document.json`, and claims about what a
+    // release bundle does not contain, since both need the built tree and no other tier has one.
     //
     // It names renderer constants so a rename breaks it at compile time, and those modules read
     // the renderer's build-time gate, which is `false` here because this process is not a build.

@@ -290,7 +290,7 @@ export const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: "ImportExpression[source.value=/child_process/]",
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/child.ts` " +
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/spawner.ts` " +
       "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
       "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
       "a timer. Spawn through that module; `spawnSync` is untouched.",
@@ -298,7 +298,7 @@ export const CHILD_PROCESS_DYNAMIC_REACH = [
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.value=/child_process/]',
     message:
-      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/child.ts` " +
+      "Mechanical gate 5 in `apps/desktop/AGENTS.md`: `tests/helpers/electron/child/spawner.ts` " +
       "is the only module that reaches `spawn` from `node:child_process`, and it registers the " +
       "kill on `onTestFinished` so a spawned child's lifetime belongs to the test rather than to " +
       "a timer. Spawn through that module; `spawnSync` is untouched.",

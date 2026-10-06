@@ -2,7 +2,7 @@
 //
 // Not a picker scenario and not in `fixtures/index.ts`: a ten-thousand-row session in the
 // manifest would be paid for by every suite that iterates the shipped set. It is a generator
-// `endurance.test.ts` calls with the row count it measures, so the count is a required
+// `long-log.test.ts` calls with the row count it measures, so the count is a required
 // argument: a fixture that hard-coded ten thousand would have callers measuring one number and
 // reporting another.
 //

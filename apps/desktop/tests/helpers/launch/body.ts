@@ -1,6 +1,6 @@
 // The allowance the caller's test body runs inside, and what happens when it ends.
 //
-// `launch-deadline.ts` bounds the launch and `bounded-cleanup.ts` bounds the close; this bounds
+// `deadline.ts` bounds the launch and `bounded-cleanup.ts` bounds the close; this bounds
 // the body between them. An unbounded body can be killed by vitest mid-poll, so the poll's own
 // message never prints, cleanup never runs and the Electron survives into later launches. The
 // body gets a bound of its own, worded to name which allowance expired, and the tier's timeout is
@@ -14,7 +14,7 @@
 import { type ClosableApplication } from "../cleanup/contract.js";
 import { closeAfterBody } from "../cleanup/disposition.js";
 import { BODY_ALLOWANCE_MS } from "./budgets.js";
-import { LaunchDeadline } from "./launch-deadline.js";
+import { LaunchDeadline } from "./deadline.js";
 
 /** How an overrun names the phase that ran out. */
 const TEST_BODY_PHASE = "the launched app's test body";
@@ -24,7 +24,7 @@ const TEST_BODY_PHASE = "the launched app's test body";
  * overlay opening or a durable write landing is sub-second work on any runner, so this catches a
  * stopped app, not a slow one. It is one figure for the class, shared by both launching
  * tiers, and a bound a wait declares rather than a ceiling a reading is compared to, so it is
- * not a `budgets.json` row.
+ * not a `tests/budget/document.json` row.
  */
 export const IN_WINDOW_STEP_TIMEOUT_MS = 10_000;
 

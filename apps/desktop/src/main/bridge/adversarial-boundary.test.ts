@@ -33,7 +33,7 @@ import {
 import { DEFAULT_APPEARANCE_RECORD, MERIDIAN_GROUNDS } from "#shared/appearance.js";
 import type { DaemonSubscriptionRequest } from "#shared/daemon/forwarding.js";
 import type { PreloadApi } from "#shared/preload-api.js";
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   bridgeOverLink,
   linkOver,

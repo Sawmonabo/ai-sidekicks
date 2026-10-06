@@ -6,11 +6,11 @@
 // rendered diff row must state how tall the pane is, which also makes the window bound a real
 // bound instead of one the overscan band satisfies.
 //
-// `element-height-shim.ts` owns writing and restoring the global `offsetHeight` property; what
-// stays here is the diff's part: which element is a scroller, which is a row, and which row a
-// wrapped line grew.
+// `tests/helpers/element/height-shim.ts` owns writing and restoring the global `offsetHeight`
+// property; what stays here is the diff's part: which element is a scroller, which is a row, and
+// which row a wrapped line grew.
 
-import { ElementHeightShim } from "../element/element-height-shim.js";
+import { ElementHeightShim } from "../element/height-shim.js";
 import {
   DIFF_FILE_ROW_HEIGHT_PX,
   DIFF_ROW_HEIGHT_PX,

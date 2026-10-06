@@ -31,9 +31,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { HeapSampler, retainedGrowthBytes } from "../heap/sampling.js";
-import { createTranscriptEnduranceFixture } from "./endurance.test-support.js";
+import { createTranscriptEnduranceFixture } from "./long-log.test-support.js";
 import { deriveTranscriptWindow } from "#renderer/features/transcript/window/transcript-window.js";
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 /**

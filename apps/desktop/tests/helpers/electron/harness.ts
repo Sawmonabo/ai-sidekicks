@@ -12,7 +12,7 @@
 // `SingletonLock`: a second Electron on it (another checkout, an unrelated app, an orphan from a
 // killed run) loses `requestSingleInstanceLock()` and quits before opening a window, surfacing as
 // a timeout with no error. So every launch gets its own `--user-data-dir` under the system
-// temporary directory (`launch-profile.ts`), removed as part of the close.
+// temporary directory (`tests/helpers/launch/profile.ts`), removed as part of the close.
 //
 // Headless Linux needs an X server. `_electron.launch` takes an executable path, not a shell
 // command, so a per-spawn `xvfb-run` wrapper is not available; the CI job stands one Xvfb up for
@@ -43,8 +43,8 @@ import {
   LaunchDeadline,
   POST_READINESS_RESERVE_MS,
   readinessFailure,
-} from "../launch/launch-deadline.js";
-import { createLaunchProfile, removeLaunchProfile } from "../launch/launch-profile.js";
+} from "../launch/deadline.js";
+import { createLaunchProfile, removeLaunchProfile } from "../launch/profile.js";
 import { MainProcessOutput } from "../launch/main-process-output.js";
 import { awaitPaintingAppWindow } from "../launch/readiness.js";
 import { LAUNCH_TRACE_TAG } from "../launch/trace.js";
@@ -123,7 +123,7 @@ export interface LaunchAppOptions {
  *
  * Throws rather than returning a partial handle. Every wait draws its timeout from one deadline
  * minted here, so the whole call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run
- * (`launch-deadline.ts`).
+ * (`tests/helpers/launch/deadline.ts`).
  */
 async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   // Minted before the first phase, including the profile directory, so everything waited on is

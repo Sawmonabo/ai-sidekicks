@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "./budget-registry.mts";
+import { BudgetRegistry } from "./registry.mts";
 import { formatUnavailableBudgetReport } from "./report.mts";
 
 const registry = BudgetRegistry.load();

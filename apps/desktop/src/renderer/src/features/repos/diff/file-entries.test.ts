@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 
 import { diffFileListReading, selectedEntryRow } from "./file-entries.js";
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
-import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 const FIRST_PATH = DIFF.files[0]?.path ?? "";

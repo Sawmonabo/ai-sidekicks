@@ -4,9 +4,9 @@
 
 import { render } from "@testing-library/react";
 
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import type { DiffGapExpansion } from "../rows/model.js";
 

@@ -24,7 +24,7 @@ import {
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import type { MockBaseWindow } from "#test/helpers/electron/mock/window.js";
 import {
   asMockWindow,
@@ -33,7 +33,7 @@ import {
   loggedMessages,
   testWindowFrame,
   windowOpenHandlerOf,
-} from "#test/helpers/window-test-harness.js";
+} from "#test/helpers/window-harness.js";
 
 const electronMock = createElectronMock();
 

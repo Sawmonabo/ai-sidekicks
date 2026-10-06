@@ -40,7 +40,7 @@
     "src/**/*.d.ts",
     // The renderer unit tests outside `src/`, the list `vitest/tier-projects.ts`
     // runs under the renderer project (`RENDERER_TESTS_OUTSIDE_SOURCE`).
-    "../../tests/helpers/scenario-contract-check/**/*.test.ts"
+    "../../tests/helpers/scenario/contract-check/**/*.test.ts"
   ],
   "exclude": []
 }

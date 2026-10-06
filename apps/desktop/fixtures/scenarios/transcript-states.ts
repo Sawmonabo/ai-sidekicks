@@ -15,10 +15,10 @@
 // empty session is the one composition no script reaches, and it lives in `empty-session.ts`.
 //
 // Every beat is a registered event with its registered payload.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session-event.ts`, and `fixtures/data/script-entries.ts` carries the
-// payload builders so a member cannot drift between two beats of one kind.
+// `packages/contracts/src/event/session-event.ts`, and `fixtures/data/script-entries.ts` carries
+// the payload builders so a member cannot drift between two beats of one kind.
 //
 // Deliberately not scripted:
 //
@@ -37,7 +37,7 @@ import {
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,

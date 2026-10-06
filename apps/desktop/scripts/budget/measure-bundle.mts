@@ -6,7 +6,7 @@
 // lazy chunks stay out; the initial/lazy split is the bundler's and is not re-derived here.
 //
 // One walk, two sums, because code and fonts are not commensurable:
-//   - code: scripts and stylesheets, gated gzipped, since the spec's figure is a gzip figure.
+//   - code: scripts and stylesheets, gated gzipped, since the product figure is a gzip figure.
 //   - fonts: the self-hosted `woff2` faces `src/renderer/src/styles/typeface.ts` declares, gated
 //     raw. A `woff2` is already Brotli-compressed; gzipping one measured 28 B larger than the file.
 //
@@ -24,8 +24,8 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-import { errorText } from "./budget-document.mts";
-import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./budget-registry.mts";
+import { errorText } from "./document.mts";
+import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./registry.mts";
 import {
   BudgetSubjectMissingError,
   formatBudgetReport,
@@ -38,7 +38,7 @@ import {
 /** The compressed-code ceiling for the renderer's initial graph. */
 export const RENDERER_BUNDLE_BUDGET_ID: string = "renderer-initial-bundle";
 
-/** The raw-font-byte ceiling, a `harness` row beside the spec's code row. */
+/** The raw-font-byte ceiling, a `harness` row beside the product code row. */
 export const RENDERER_FONTS_BUDGET_ID: string = "renderer-initial-fonts";
 
 /** `electron.vite.config.ts` → `renderer.build.outDir`. */

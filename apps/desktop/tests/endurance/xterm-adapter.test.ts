@@ -18,7 +18,7 @@
 // row's harness beside it prices both halves of a populated pane and compares their sum to the
 // ceiling once. Measuring a full scrollback against the same ceiling here would be a second
 // allowance, not a second opinion: each half would receive the whole 20 MiB. The scrollback
-// measurement lives in `terminal-adapter-workload.ts`, which this file shares.
+// measurement lives in `tests/endurance/terminal/adapter-workload.ts`, which this file shares.
 //
 // The adapter is driven in process rather than in a real window because the claims are about
 // the adapter's own bookkeeping; a window would put a renderer, a React tree and a pane's store
@@ -32,14 +32,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "#renderer/features/terminal/caps.js";
 import { TerminalRendererPool } from "#renderer/features/terminal/emulator/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "./heap/sampling.js";
-import {
-  requireHeapCollector,
-  TerminalAdapterWorkload,
-} from "./terminal/terminal-adapter-workload.js";
+import { requireHeapCollector, TerminalAdapterWorkload } from "./terminal/adapter-workload.js";
 
 const registry = BudgetRegistry.load();
 

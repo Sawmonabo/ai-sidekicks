@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppearanceRecord } from "#shared/appearance.js";
 import { BRIDGE_CHANNELS, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 
 const electronMock = createElectronMock();
 

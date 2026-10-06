@@ -1,5 +1,5 @@
 // The single ordered teardown one spawned child settles through. It sits below the spawner
-// (`child.ts`) and imports only the lifetime object.
+// (`spawner.ts`) and imports only the lifetime object.
 //
 // The question it answers is an order: a child holds a resource, the platform may refuse to kill
 // that child, and the resource must come off disk after the last attempt, not between two of them.
@@ -9,7 +9,7 @@ import {
   DISPOSAL_ATTEMPTS,
   TERMINATION_GRACE_MS,
   type ManagedElectronChild,
-} from "../../managed-electron-child.js";
+} from "./managed-child.js";
 
 /** What a spawn releases once its child is gone: the resource that child held. */
 export type ChildRelease = () => void;

@@ -9,7 +9,7 @@ import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.
 import { unscriptedScenario } from "../../helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
-import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
+import { type MountedView, paneTrailName, requireLabeledRegion } from "./queries.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
 

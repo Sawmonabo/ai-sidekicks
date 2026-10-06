@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach } from "vitest";
 
-import { ElementHeightShim } from "#test/helpers/element/element-height-shim.js";
+import { ElementHeightShim } from "#test/helpers/element/height-shim.js";
 
 /** How tall the list's scroller is: ten command rows, so a long list overflows it. */
 const PALETTE_FIXTURE_VIEWPORT_HEIGHT_PX = 320;

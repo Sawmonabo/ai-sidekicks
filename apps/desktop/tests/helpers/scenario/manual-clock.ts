@@ -10,7 +10,7 @@
 
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
-import { settle } from "./settle.js";
+import { settle } from "../settle.js";
 
 /**
  * How many debounce intervals a case may drive before giving up.

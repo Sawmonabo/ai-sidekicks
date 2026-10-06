@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 //
 // The terminal-instance memory budget: one `terminal` pane instance at the default scrollback is
-// bounded at 20 MiB in `budgets.json`, and this file is that row's `measuredBy`.
+// bounded at 20 MiB in `tests/budget/document.json`, and this file is that row's `measuredBy`.
 //
 // The reading is taken in a real window, not beside the adapter: the row's subject is the
 // `@xterm/xterm` instance, its WebGL renderer and the pane's own state, and a Node process
@@ -34,7 +34,7 @@
 //
 // Not owned here: adapter-level claims (eviction, disposal giving bytes back, a working day of
 // churn) are `tests/endurance/xterm-adapter.test.ts`'s, and the pane-count sweep and its
-// admissibility rule are `terminal-instance-series.ts`'s.
+// admissibility rule are `series.ts`'s.
 
 import process from "node:process";
 
@@ -49,7 +49,7 @@ import {
   measureFullScrollbackRetainedBytes,
   requireHeapCollector,
   TerminalAdapterWorkload,
-} from "../terminal-adapter-workload.js";
+} from "../adapter-workload.js";
 import {
   closeEveryPane,
   openHarnessOnDeliveredSession,
@@ -61,14 +61,14 @@ import {
   MEASURED_INSTANCE_COUNT,
   TEARDOWN_RESIDUE_FACTOR,
   type TerminalInstanceSeries,
-} from "./terminal-instance-series.js";
+} from "./series.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
 } from "#renderer/features/terminal/caps.js";
 import { TerminalRendererPool } from "#renderer/features/terminal/emulator/renderer-pool.js";
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();

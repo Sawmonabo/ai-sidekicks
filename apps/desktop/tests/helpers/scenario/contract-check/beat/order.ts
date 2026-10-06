@@ -1,9 +1,9 @@
 // Where a beat sits: in the tick order the clock reaches it in, and in the log position the store
 // reads it at.
 
-import type { ScenarioContractDefect } from "../scenario-contract-defect.js";
+import type { ScenarioContractDefect } from "../defect.js";
 import { BASE_STATE_CURSOR } from "#renderer/store/session/state.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 
 /**
  * The log position a scenario's first beat occupies.

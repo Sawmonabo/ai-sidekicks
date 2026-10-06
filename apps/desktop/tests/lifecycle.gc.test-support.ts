@@ -29,16 +29,16 @@ import type { GcProbeReading } from "#main/probes/gc.js";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron/child/cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron/child/child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron/child/spawner.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture/bundle.js";
 import { needsXvfb } from "./helpers/display-readiness.js";
-import { createLaunchProfile } from "./helpers/launch/launch-profile.js";
+import { createLaunchProfile } from "./helpers/launch/profile.js";
 import {
   ISOLATED_SERVICE_READY_TIMEOUT_MS,
   ISOLATED_SERVICE_START_CEILING_MS,
   startIsolatedService,
 } from "./helpers/isolated-service.js";
-import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
+import { TERMINATION_GRACE_MS } from "./helpers/electron/child/managed-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
 import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe/harness.js";
 import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";

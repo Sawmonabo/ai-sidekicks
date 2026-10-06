@@ -4,7 +4,7 @@
 // copies of it could disagree about a reply that is half a record.
 
 import { isWireRecord } from "#renderer/lib/wire/record.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 
 /** The wire call a scenario states its session through. */
 const SESSION_READ_CALL = "session.read";

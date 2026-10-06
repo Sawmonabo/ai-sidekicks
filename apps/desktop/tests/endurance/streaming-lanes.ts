@@ -19,7 +19,7 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { ScenarioBeat } from "#fixtures/scenario.js";
+import type { ScenarioBeat } from "#fixtures/scenarios/script.js";
 
 /**
  * The most lanes this script has streaming at one time, within the given beat range.

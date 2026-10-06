@@ -1,6 +1,6 @@
 // The renderer initial-graph budget gates.
 //
-// One walk of the built `out/renderer` tree, held against two rows of `budgets.json`:
+// One walk of the built `out/renderer` tree, held against two rows of `document.json`:
 // `renderer-initial-bundle` over the code it emits, gzipped (≤ 450 kB excluding lazy chunks),
 // and `renderer-initial-fonts` over the font files on the same graph, raw. The split is a change
 // of unit, not an exclusion.
@@ -13,10 +13,10 @@
 import process from "node:process";
 import { describe, expect, it } from "vitest";
 
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 import { formatUnavailableBudgetReport } from "#scripts/budget/report.mts";
-import { type Budget } from "#scripts/budget/budget-document.mts";
+import { type Budget } from "#scripts/budget/document.mts";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
   RENDERER_BUNDLE_GATES,
@@ -71,7 +71,7 @@ describe("renderer initial-graph budgets", () => {
           `${gateReading.verdict.limitCanonicalValue.toLocaleString("en-US")} B budget ` +
           `(${(gateReading.verdict.utilizationFraction * 100).toFixed(1)} % of budget). ` +
           "Move code behind a dynamic import so it lands in a lazy chunk, or drop a face — and " +
-          "amend `budgets.json` only with the reasoning its row and `harnessBudgetDerivation` " +
+          "amend `document.json` only with the reasoning its row and `harnessBudgetDerivation` " +
           "already carry, since the registry mirrors its sources rather than setting them.",
       ).toBe(true);
     },

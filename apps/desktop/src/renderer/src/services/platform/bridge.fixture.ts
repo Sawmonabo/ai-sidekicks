@@ -24,7 +24,7 @@ import {
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { createFixtureDaemon } from "#renderer/services/daemon/scenario/wire.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 
 /** Fixed `app` meta, so a rendered view does not move with the machine. */
 export const FIXTURE_APP_META: PlatformBridge["app"] = {

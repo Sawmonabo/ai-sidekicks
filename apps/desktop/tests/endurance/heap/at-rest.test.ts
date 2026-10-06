@@ -1,5 +1,5 @@
 // The renderer heap-at-rest budget: the heap with one session open at rest stays under the
-// ceiling in `budgets.json`, compared through the registry's own `evaluateBudget`.
+// ceiling in `tests/budget/document.json`, compared through the registry's own `evaluateBudget`.
 //
 // The reading is taken here, not in the budget CLI: the figure is a renderer heap, and a Node
 // process holds no Chromium, React, DOM or app store. Only the built app holds the subject.
@@ -32,7 +32,7 @@ import {
 } from "../workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-import { BudgetRegistry } from "#scripts/budget/budget-registry.mts";
+import { BudgetRegistry } from "#scripts/budget/registry.mts";
 import { evaluateBudget } from "#scripts/budget/evaluation.mts";
 
 const bundleIsBuilt = fixtureBundleExists();

@@ -2,7 +2,7 @@
 
 /* `flex: 1 1 auto` because a pane is a flex child as often as a grid one: the pane layout is a
    column flex chain (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where the initial `0 1 auto` would size the pane by its
-   content. `flex` is inert on a grid item. `tests/browser/pane-layout/pane-fill.test.tsx` holds
+   content. `flex` is inert on a grid item. `tests/browser/pane-layout/fill.test.tsx` holds
    both. `height: 100%` would break under a parent that is not full height. */
 .meridian-pane {
   display: flex;

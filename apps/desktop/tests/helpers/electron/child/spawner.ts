@@ -24,7 +24,7 @@ import process from "node:process";
 import { onTestFinished } from "vitest";
 
 import { OrderedChildTeardown, type ChildRelease } from "./teardown.js";
-import { ManagedElectronChild } from "../../managed-electron-child.js";
+import { ManagedElectronChild } from "./managed-child.js";
 
 /**
  * The reserve every spawner keeps between its own deadline and Vitest's.

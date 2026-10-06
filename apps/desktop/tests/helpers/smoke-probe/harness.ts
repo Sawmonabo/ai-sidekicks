@@ -6,15 +6,15 @@
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "../electron/child/cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/spawner.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "../fixture/bundle.js";
 import {
   ISOLATED_SERVICE_READY_TIMEOUT_MS,
   ISOLATED_SERVICE_START_CEILING_MS,
   startIsolatedService,
 } from "../isolated-service.js";
-import { createLaunchProfile } from "../launch/launch-profile.js";
-import { TERMINATION_GRACE_MS } from "../managed-electron-child.js";
+import { createLaunchProfile } from "../launch/profile.js";
+import { TERMINATION_GRACE_MS } from "../electron/child/managed-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "../process-tree/budget.js";
 import {
   DISPLAY_READY_TIMEOUT_MS,

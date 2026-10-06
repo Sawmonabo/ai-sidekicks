@@ -10,7 +10,7 @@ import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { paneContext } from "#test/helpers/pane-context.js";
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import type { WorkflowRunComparisonRef } from "#renderer/routing/panes/address.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { installDiffPaneLayout } from "./DiffPane.test-support.js";

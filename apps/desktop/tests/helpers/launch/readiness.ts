@@ -8,11 +8,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
 import { isConsoleWindowId } from "#shared/window/frame-name.js";
 import { FramePaintProbe, type RendererFrameSource } from "../frame-paint-probe.js";
-import {
-  POST_READINESS_RESERVE_MS,
-  readinessFailure,
-  type LaunchDeadline,
-} from "./launch-deadline.js";
+import { POST_READINESS_RESERVE_MS, readinessFailure, type LaunchDeadline } from "./deadline.js";
 import { LAUNCH_TRACE_TAG } from "./trace.js";
 
 /** The launched app's pages: the window a person sees, and the hidden console document. */

@@ -46,7 +46,7 @@ import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody, resolvedScreenBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
-import { type MountedView } from "./mount-queries.js";
+import { type MountedView } from "./queries.js";
 
 /** A registry carrying exactly this feature's pane claims, built per call so no state is shared. */
 function workflowPaneRegistry(): PaneRegistry {

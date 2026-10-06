@@ -4,7 +4,7 @@
 // and retry suites build their own harnesses.
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { SessionEventSubscriber } from "./subscriber.js";

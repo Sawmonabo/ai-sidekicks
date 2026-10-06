@@ -14,7 +14,7 @@ export async function readPageScheme(appWindow: Page): Promise<string | null> {
   );
 }
 
-/** Clicks the View menu's scheme row labeled `label` in main; false when the menu has no such row. */
+/** Clicks the View menu's scheme row labeled `label` in main; false when the menu lacks that row. */
 export async function clickViewMenuScheme(
   appUnderTest: AppUnderTest,
   label: string,

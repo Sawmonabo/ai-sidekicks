@@ -14,8 +14,8 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
-import { handedDocument, windowOpenHandlerOf } from "#test/helpers/window-test-harness.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
+import { handedDocument, windowOpenHandlerOf } from "#test/helpers/window-harness.js";
 import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
 
 // The mock's `app.whenReady()` is a deferred the test releases by hand: awaiting the dynamic

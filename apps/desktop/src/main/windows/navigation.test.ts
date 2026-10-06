@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A local `electron` stub rather than the shared `tests/helpers/electron/mock/electron-mock.ts`:
+// A local `electron` stub rather than the shared `tests/helpers/electron/mock/module.ts`:
 // the module under test is imported statically, so `electron` resolves before a top-level
 // `createElectronMock(...)` would initialize, leaving the hoisted `vi.mock` factory in its temporal
 // dead zone.

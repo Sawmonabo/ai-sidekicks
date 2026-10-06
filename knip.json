@@ -54,7 +54,7 @@
       // Measured: dropping the globs moved no file into `Unused files`.
       //
       // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a
-      // root, so a dead export in `scripts/budget/budget-registry.mts`, a module nothing invokes by
+      // root, so a dead export in `scripts/budget/registry.mts`, a module nothing invokes by
       // name, would be exempt rather than reported. Listing the defaults again is drift the run
       // refuses: `--treat-config-hints-as-errors` fails the gate on a redundant or unmatched
       // pattern.

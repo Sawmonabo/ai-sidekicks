@@ -21,7 +21,7 @@ import {
   type ScenarioSubscribeOptions,
 } from "./event/delivery.fixture.js";
 import type { ScenarioReply } from "./scenario/reply.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one
@@ -142,7 +142,7 @@ export class ScenarioEngine {
     // The contiguous due prefix: stopping at the first beat not yet due keeps
     // `deliveredBeatCount` and the set actually delivered the same claim whatever order the
     // script is written in. A filter would skip an earlier beat and re-emit a later one.
-    // `tests/helpers/scenario-contract-check/beat/order.ts` holds shipped scripts to
+    // `tests/helpers/scenario/contract-check/beat/order.ts` holds shipped scripts to
     // nondecreasing `atMs`; this makes a disordered script cost a late beat, not a duplicate.
     const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
     const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);

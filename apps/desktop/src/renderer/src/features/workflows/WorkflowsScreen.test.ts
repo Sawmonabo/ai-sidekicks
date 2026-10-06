@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
 import { PersistenceAdapterError, type StoredRecord } from "#renderer/store/persistence/adapter.js";

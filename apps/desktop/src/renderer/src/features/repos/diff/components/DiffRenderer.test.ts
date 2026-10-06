@@ -1,25 +1,25 @@
 // The renderer's claims: the mounted row count is bounded by the window, not the diff; the window
 // sits at the heights rows were measured at, not estimated; and the rows say what a patch holds.
-// happy-dom has no layout engine, so `tests/helpers/diff/diff-layout-fixture.ts` supplies heights
+// happy-dom has no layout engine, so `tests/helpers/diff/layout-fixture.ts` supplies heights
 // at the seam the library reads them from, and every case installs it.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
   TERMINAL_NEWLINE_FIXTURE_FILE,
-} from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+} from "#test/helpers/diff/fixture/shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
-} from "#test/helpers/diff/diff-layout-fixture.js";
+} from "#test/helpers/diff/layout-fixture.js";
 import { SMALL_DIFF, renderDiff, reportedRowCount } from "./DiffRenderer.test-support.js";
 import { expandGap } from "../rows/model.js";
 

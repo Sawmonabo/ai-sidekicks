@@ -13,7 +13,7 @@ import {
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
 } from "#shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 
 const electronMock = createElectronMock();

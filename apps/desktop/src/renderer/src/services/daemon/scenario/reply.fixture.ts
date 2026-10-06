@@ -1,8 +1,8 @@
 // The reply table a scenario scripts: what a request/response call is answered with. It is split
-// from the scenario (`fixtures/scenario.ts`) because it answers a question about a single call,
-// which arm it takes, what a computed one is handed and what shape a refusal arrives in, so
+// from the scenario (`fixtures/scenarios/script.ts`) because it answers a question about a single
+// call, which arm it takes, what a computed one is handed and what shape a refusal arrives in, so
 // `scripted/reply.fixture.ts` and the scenario contract reply checks in
-// `tests/helpers/scenario-contract-check/reply-checks.ts` need no other scenario member.
+// `tests/helpers/scenario/contract-check/replies.ts` need no other scenario member.
 
 import type { WireErrorEnvelope } from "#renderer/lib/wire/errors.js";
 import type { MachineNoticeStreamName } from "../session/event/streams.js";

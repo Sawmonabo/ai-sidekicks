@@ -41,7 +41,7 @@ import { type ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { MessageComposer } from "#renderer/features/composer/Composer.js";
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
-import { requireLabeledRegion, type MountedView } from "./mount-queries.js";
+import { requireLabeledRegion, type MountedView } from "./queries.js";
 
 /**
  * A store holding the scenario's beats up to and including the named kind.

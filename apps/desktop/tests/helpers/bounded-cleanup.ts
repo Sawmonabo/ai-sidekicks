@@ -10,10 +10,10 @@
 // carries. A profile that could not be removed travels on the outcome too;
 // `cleanup/disposition.ts` decides what a caller is told.
 
-import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "./managed-electron-child.js";
+import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "./electron/child/managed-child.js";
 import { type CleanupOutcome, type ClosableApplication } from "./cleanup/contract.js";
 import { CLEANUP_BUDGET_MS } from "./launch/budgets.js";
-import { type LaunchProfile, removeLaunchProfile } from "./launch/launch-profile.js";
+import { type LaunchProfile, removeLaunchProfile } from "./launch/profile.js";
 import { processHasTerminated } from "./process-tree/liveness.js";
 import { terminateProcessTree } from "./process-tree/termination.js";
 
@@ -113,8 +113,8 @@ export class BoundedCleanup {
    * the first attempt. The close's remaining budget is already zero on the path this loop exists
    * for. Every reader inside the loop, the pause included, is charged to that deadline. Charged to
    * the close's origin, each pause would be zero-length and the attempts would run back to back.
-   * `CLEANUP_PHASES` in `launch-deadline.ts` counts this restart. Giving up an ask never gives up
-   * the profile removal in `close()`.
+   * `CLEANUP_PHASES` in `tests/helpers/launch/deadline.ts` counts this restart. Giving up an ask
+   * never gives up the profile removal in `close()`.
    */
   async #terminateUntilGone(processId: number): Promise<boolean> {
     const terminationStartedAt = Date.now();

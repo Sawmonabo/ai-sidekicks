@@ -9,7 +9,7 @@ import { FIRST_RUN_SCENARIO_ID } from "#fixtures/scenarios/first-run.js";
 
 import { withLaunchedApp } from "./helpers/electron/harness.js";
 import { BODY_ALLOWANCE_MS } from "./helpers/launch/budgets.js";
-import { tierTimeoutFor } from "./helpers/launch/launch-deadline.js";
+import { tierTimeoutFor } from "./helpers/launch/deadline.js";
 
 describe("a launch main refuses", () => {
   it(

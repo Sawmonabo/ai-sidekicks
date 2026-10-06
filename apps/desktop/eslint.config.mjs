@@ -646,7 +646,7 @@ const desktopConfig = defineConfig(
   {
     // The spawn module. It registers the kill on `onTestFinished`, which runs on a pass,
     // on a failure, and on vitest's own timeout kill alike.
-    files: ["tests/helpers/electron/child/child.ts"],
+    files: ["tests/helpers/electron/child/spawner.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -757,7 +757,7 @@ const desktopConfig = defineConfig(
               importNames: ["spawn"],
               message:
                 "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
-                "`tests/helpers/electron/child/child.ts` is the only module that reaches " +
+                "`tests/helpers/electron/child/spawner.ts` is the only module that reaches " +
                 "`spawn`, and it registers the kill on `onTestFinished` — which " +
                 "runs on a pass, on a failure, and on vitest's own timeout kill " +
                 "alike. A child a timer was going to kill is reparented to init " +
@@ -768,7 +768,7 @@ const desktopConfig = defineConfig(
               importNames: ["spawn"],
               message:
                 "Mechanical gate 5 in `apps/desktop/AGENTS.md`: " +
-                "`tests/helpers/electron/child/child.ts` is the only module that reaches " +
+                "`tests/helpers/electron/child/spawner.ts` is the only module that reaches " +
                 "`spawn`, and it registers the kill on `onTestFinished`. The prefix-less " +
                 "specifier resolves to the same builtin. `spawnSync` is untouched.",
             },
@@ -779,7 +779,7 @@ const desktopConfig = defineConfig(
   },
   {
     // The spawn module itself.
-    files: ["tests/helpers/electron/child/child.ts"],
+    files: ["tests/helpers/electron/child/spawner.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   {

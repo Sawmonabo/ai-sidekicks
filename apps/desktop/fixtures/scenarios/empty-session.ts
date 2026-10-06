@@ -4,7 +4,7 @@
 // the transcript's empty state. Its one reply is `session.read`; a call it does not answer is
 // refused by name and each view renders that refusal where it happened.
 
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 
 /** The id of the empty-session scenario. */
 export const EMPTY_SESSION_SCENARIO_ID = "empty-session";

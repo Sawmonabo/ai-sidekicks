@@ -9,7 +9,7 @@
 // There are no entities because every partition is projected from the delivered log.
 
 import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import { BASE_STATE_CURSOR, type SessionBaseState } from "#renderer/store/session/state.js";
 
 /**

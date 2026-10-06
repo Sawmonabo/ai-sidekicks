@@ -7,7 +7,7 @@
 // a breadcrumb. `cleanupFailure` draws that line once.
 
 import { type CleanupOutcome, type ClosableApplication } from "./contract.js";
-import { type ProfileRemovalFailure } from "../launch/launch-profile.js";
+import { type ProfileRemovalFailure } from "../launch/profile.js";
 
 /**
  * The clause about a profile that outlived its launch, or nothing.

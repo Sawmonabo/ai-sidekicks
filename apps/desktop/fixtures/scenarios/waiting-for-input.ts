@@ -5,7 +5,7 @@
 // blocked on.
 //
 // Every beat is a registered event with its registered payload, and every id is the UUID its
-// branded type declares. `tests/helpers/scenario-contract-check/contract-check.ts` holds the
+// branded type declares. `tests/helpers/scenario/contract-check/all-axes.ts` holds the
 // beats to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict payload layer
 // (`SessionEventSchema`) in `packages/contracts/src/event/session-event.ts`. So:
 //
@@ -45,7 +45,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are

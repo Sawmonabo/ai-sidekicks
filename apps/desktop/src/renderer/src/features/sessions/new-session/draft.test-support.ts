@@ -8,7 +8,7 @@ import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import type { FirstTurnQueueCall } from "./control-contract.js";
 import { NewSessionDraft } from "./draft.js";
 import { type DraftRepoMount } from "./send.js";

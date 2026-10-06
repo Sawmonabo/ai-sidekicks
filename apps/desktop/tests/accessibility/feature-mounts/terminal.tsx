@@ -12,7 +12,7 @@ import { fixtureSessionBaseState } from "#renderer/services/daemon/session/base-
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 import { renderSettled } from "../../helpers/app/harness.js";
-import { type MountedView, paneTrailName, requireLabeledRegion } from "./mount-queries.js";
+import { type MountedView, paneTrailName, requireLabeledRegion } from "./queries.js";
 import { paneContext } from "../../helpers/pane-context.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";

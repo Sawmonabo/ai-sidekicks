@@ -142,11 +142,11 @@ export function renderAgentLibrary(stub: RegistryStub): { readonly container: HT
   return { container };
 }
 
-/** The region labeled `Saved sidekicks`; throws where the page rendered none. */
+/** The saved agents region; throws where the page rendered none. */
 export function savedRegionOf(container: HTMLElement): Element {
   const region = container.querySelector('[aria-label="Saved sidekicks"]');
   if (region === null) {
-    throw new Error("the page rendered no `Saved sidekicks` region");
+    throw new Error("the page rendered no saved agents region");
   }
   return region;
 }

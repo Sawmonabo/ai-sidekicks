@@ -6,7 +6,7 @@
 // view must not count as waiting.
 //
 // Approval beats carry the full registered payload of each variant.
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and strict payload layer (`SessionEventSchema`) in
 // `packages/contracts/src/event/session-event.ts`.
 //
@@ -27,7 +27,7 @@ import {
   composeScriptBeats,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
 // identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id

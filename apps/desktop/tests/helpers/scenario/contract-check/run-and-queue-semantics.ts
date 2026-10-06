@@ -29,9 +29,9 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { z } from "zod";
 import type { ZodType } from "zod";
 
-import { describeSchemaIssue } from "./scenario-contract-defect.js";
+import { describeSchemaIssue } from "./defect.js";
 import { projectRunStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
-import type { ScenarioBeat } from "#fixtures/scenario.js";
+import type { ScenarioBeat } from "#fixtures/scenarios/script.js";
 import { RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import {
   runQueueStreamStateFor,

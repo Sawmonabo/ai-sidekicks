@@ -12,7 +12,7 @@ import {
   createFixtureBridge,
   type FixtureBridge,
 } from "#renderer/services/platform/bridge.fixture.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import type { StoredRecord } from "#renderer/store/persistence/adapter.js";
 import { DraftStore } from "#renderer/store/drafts.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";

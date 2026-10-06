@@ -20,7 +20,7 @@ import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { FilePathRef } from "#shared/preload-api.js";
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
 import { unlinkedState } from "../services/daemon/link/status.js";
 import type { DaemonSubscriber } from "./daemon.js";

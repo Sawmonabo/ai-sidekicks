@@ -1,9 +1,9 @@
 // Which machine a hardware-dependent budget may gate on. Not a test file: no `include` glob
 // reaches it.
 //
-// `budgets.json`'s `measurementProtocol.hardwareDependent` says a frame-time or CPU reading
-// gates "on the pinned CI runner class the desktop workflow names by label". One module owns
-// that pin, exposes a boolean and a one-sentence reason, and every file in the tier decides
+// `tests/budget/document.json`'s `measurementProtocol.hardwareDependent` says a frame-time or CPU
+// reading gates "on the pinned CI runner class the desktop workflow names by label". One module
+// owns that pin, exposes a boolean and a one-sentence reason, and every file in the tier decides
 // from it.
 //
 // Off the pinned class a row runs and reports rather than skips: every PR runs every tier whose

@@ -2,7 +2,7 @@
 // `WebContentsView` it hosts, and the view's `webContents`. Each records what a test reads (URLs
 // loaded, pushes sent, listeners registered) and does what the code under test relies on: a close
 // fires `close` then `closed`, a destroyed `webContents` fires `destroyed`, and every listener on
-// an event runs, a `once` one only the first time, as Electron's emitters do. `electron-mock.ts` owns
+// an event runs, a `once` one only the first time, as Electron's emitters do. `module.ts` owns
 // the rest of the `electron` module.
 
 import { vi } from "vitest";

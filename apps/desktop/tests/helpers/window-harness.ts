@@ -1,7 +1,7 @@
 // Reading and building helpers shared by the window suites. Each suite owns its
 // `createElectronMock` instance and `vi.mock("electron", …)`, because the instance must be a
 // file-local `const` for the hoisted factory to close over (see
-// `./electron/mock/electron-mock.ts`). Only the reading is shared: the casts back to the mock, the
+// `./electron/mock/module.ts`). Only the reading is shared: the casts back to the mock, the
 // listener accessors, a window's frame and the URL literals.
 
 import { expect, vi, type Mock } from "vitest";

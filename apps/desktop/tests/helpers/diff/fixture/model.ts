@@ -2,7 +2,7 @@
 //
 // Nothing in the running app produces a `DiffModel` (no daemon method returns patch bytes), so
 // this fixture stands in for the producer. It is deleted when a wire supplies patch bytes, along
-// with `diff-fixture-shapes.ts`, `patch.test-support.ts` and their imports;
+// with `shapes.ts`, `patch.test-support.ts` and their imports;
 // `patch-parse.ts` is the real producer and stays. Only tests import it, so it cannot ship.
 //
 // It generates a patch and parses it rather than building the model by hand, so the tiers measure
@@ -11,7 +11,7 @@
 // each hunk, which the unified format cannot represent.
 
 import { buildPatchText } from "./patch.test-support.js";
-import type { DiffFixtureShape } from "./diff-fixture-shapes.js";
+import type { DiffFixtureShape } from "./shapes.js";
 import type { DiffModel, DiffLine } from "#renderer/features/repos/diff/model.js";
 import { wholeLineSegments } from "#renderer/features/repos/diff/model.js";
 import { parseUnifiedPatch } from "#renderer/features/repos/diff/patch-parse.js";

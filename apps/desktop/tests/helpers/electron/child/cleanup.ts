@@ -1,6 +1,6 @@
 // Releases what a spawned child was holding, once the child is actually gone.
 //
-// `child.ts` owns the child's lifetime and, through `OrderedChildTeardown` in
+// `spawner.ts` owns the child's lifetime and, through `OrderedChildTeardown` in
 // `teardown.ts`, when the resource it held is released. This module covers the
 // moment before that: a harness creates the temporary Chromium profile before the spawn (its path
 // is a spawn argument), so a spawn that refuses, as `spawnManagedElectronChild` does when
@@ -12,9 +12,9 @@
 // would run first and remove the profile under a tree whose kill was refused. It travels into the
 // spawn as `releaseAfterTermination` and the spawner sequences it.
 
-import { spawnManagedElectronChild, type ElectronChildSpawnOptions } from "./child.js";
+import { spawnManagedElectronChild, type ElectronChildSpawnOptions } from "./spawner.js";
 import { type ChildRelease } from "./teardown.js";
-import { type ManagedElectronChild } from "../../managed-electron-child.js";
+import { type ManagedElectronChild } from "./managed-child.js";
 
 /**
  * Spawns a child that is already holding a resource, and releases it if the spawn refuses.

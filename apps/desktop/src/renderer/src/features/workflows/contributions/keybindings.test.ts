@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
+import { advanceScenarioUntil } from "#test/helpers/scenario/manual-clock.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { parseChord } from "#renderer/registries/keybindings/chord.js";
 import { KeybindingTable } from "#renderer/registries/keybindings/table.js";

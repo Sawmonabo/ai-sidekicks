@@ -22,7 +22,7 @@ import { emulateSystemScheme, renderSettled } from "../helpers/app/harness.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";

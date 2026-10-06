@@ -6,7 +6,7 @@
 // It scripts one beat and the reply the frame's opening read needs; every other call is
 // refused by name and the frame renders the refusal.
 //
-// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beat and replies to the
+// `tests/helpers/scenario/contract-check/all-axes.ts` holds the beat and replies to the
 // wire contract: ids are UUIDs, and `session.created` carries the session's shape and its
 // lead, not a title, which its `.strict()` schema rejects.
 
@@ -16,7 +16,7 @@ import {
   composeScriptBeats,
   findBeatCursor,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import type { Scenario } from "./script.js";
 
 /** The id of the first-run scenario. */
 export const FIRST_RUN_SCENARIO_ID = "first-run";

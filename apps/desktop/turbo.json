@@ -140,7 +140,7 @@
         "fixtures/**",
         "build/**",
         "scripts/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "tests/helpers/**",
         "vitest.config.*",
         "vitest/**",
@@ -161,7 +161,7 @@
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": ["coverage/**"],
@@ -186,7 +186,7 @@
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -200,7 +200,7 @@
     // tree that is no longer there.
     //
     // Every tier's Vitest config reads the launch budgets (`vitest/tier-projects.ts`), so each
-    // lists `tests/budget/budgets.json` and the `scripts/budget/**` reader that loads it.
+    // lists `tests/budget/document.json` and the `scripts/budget/**` reader that loads it.
 
     "test:renderer": {
       "dependsOn": ["^build"],
@@ -210,13 +210,13 @@
         "fixtures/**",
         "tests/helpers/**",
         "tests/endurance/streaming-lanes*",
-        "tests/endurance/transcript/endurance.test-support*",
+        "tests/endurance/transcript/long-log.test-support*",
         "vitest.config.*",
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "tsconfig*.json",
         "package.json",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -234,7 +234,7 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -252,7 +252,7 @@
         "$TURBO_ROOT$/vitest.shared.ts",
         "vitest/**",
         "package.json",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -299,7 +299,7 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -322,7 +322,7 @@
         "vitest/**",
         "package.json",
         "out/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "scripts/budget/**"
       ],
       "outputs": [],
@@ -342,7 +342,7 @@
       "dependsOn": ["build"],
       "inputs": [
         "scripts/budget/**",
-        "tests/budget/budgets.json",
+        "tests/budget/document.json",
         "out/renderer/**",
         "package.json"
       ],

@@ -7,16 +7,13 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
-import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
+import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import {
-  EXTENDED_HEADER_DIFF_SHAPE,
-  SMALL_DIFF_SHAPE,
-} from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
+import { EXTENDED_HEADER_DIFF_SHAPE, SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
-} from "#test/helpers/diff/diff-layout-fixture.js";
+} from "#test/helpers/diff/layout-fixture.js";
 import { DiffFileList } from "./DiffFileList.js";
 import {
   REPOSITORY_WIDE_DIFF,

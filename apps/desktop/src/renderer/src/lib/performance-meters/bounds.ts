@@ -1,7 +1,7 @@
 // What the dev-tier perf meters may hold, kept beside the only registry that spends them
 // (`registry.ts`). Each is a retention bound, not a budget target: the budget figures
 // the meters are read against (p95 frame time, idle CPU, renderer heap) live in
-// `tests/budget/budgets.json`, and restating one here would be a second answer.
+// `tests/budget/document.json`, and restating one here would be a second answer.
 
 /** The retention bounds, by name. */
 export const PERFORMANCE_METER_BOUNDS = {

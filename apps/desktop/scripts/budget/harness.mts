@@ -8,10 +8,10 @@
 
 import console from "node:console";
 
-import { BudgetRegistry } from "./budget-registry.mts";
+import { BudgetRegistry } from "./registry.mts";
 import { evaluateBudget, type BudgetVerdict } from "./evaluation.mts";
 import { formatUnavailableBudgetReport } from "./report.mts";
-import { type Budget } from "./budget-document.mts";
+import { type Budget } from "./document.mts";
 
 /** Formats a byte count with thousands separators, for example `92,497 B`. */
 export function formatBytes(byteCount: number): string {

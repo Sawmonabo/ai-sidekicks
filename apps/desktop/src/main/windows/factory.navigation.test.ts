@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   DEV_SERVER_URL,
   INDEX_URL,
@@ -16,7 +16,7 @@ import {
   loggedMessages,
   testWindowFrame,
   windowOpenHandlerOf,
-} from "#test/helpers/window-test-harness.js";
+} from "#test/helpers/window-harness.js";
 
 const electronMock = createElectronMock();
 

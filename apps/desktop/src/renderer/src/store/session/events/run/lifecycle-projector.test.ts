@@ -12,7 +12,7 @@ import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
 import { SCENARIOS } from "#fixtures/index.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { SYNTHETIC_SESSION_ID } from "./lifecycle-projector.test-support.js";
-import type { Scenario } from "#fixtures/scenario.js";
+import type { Scenario } from "#fixtures/scenarios/script.js";
 import { SessionStore } from "../../store.js";
 import { type ProjectedSessionEvent } from "../../entities/vocabulary.js";
 import { type SessionBaseState } from "../../state.js";
