@@ -24,9 +24,9 @@
 
 import { MERIDIAN_GROUND_COLORS } from "#shared/appearance.js";
 import type { OklchColor } from "#shared/color.js";
-// The enumeration row height is a product of the type scale and line height from `typography.ts`,
-// a leaf that imports nothing local, and the spacing scale here.
-import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
+// The enumeration row height and the transcript's row gap are products of the type scale and line
+// heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
+import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /**
  * Rows a bounded enumeration shows before it scrolls. A ceiling, not a preference: the shortest
@@ -262,6 +262,13 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
  */
 export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
+
+/**
+ * The one gap between any two consecutive transcript rows, in rem: half the reply's reading line,
+ * a `text-sm` line box at the reading line height, so it moves with the text size.
+ */
+export const TRANSCRIPT_ROW_GAP_REM: number =
+  (scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT) / 2;
 
 /**
  * The narrowest viewport the app lays out in, in CSS px. WCAG 2.2 SC 1.4.10 (Reflow) asks

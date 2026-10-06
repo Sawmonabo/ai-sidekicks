@@ -68,7 +68,7 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
   // teardown has already run when this sees a superseded one. It installs from an effect because
   // React may discard a render pass, and a handle installed then would point at an unread engine.
   useEffect(() => {
-    if (resolved.isSupersededBy(bridge, clock, composition)) {
+    if (resolved.isSupersededBy(bridge, clock, composition, frames)) {
       setResolved(new ResolvedPlatformBridge(bridge, clock, composition, frames));
       return undefined;
     }
@@ -91,6 +91,7 @@ class ResolvedPlatformBridge {
   readonly #suppliedBridge: PlatformBridge | undefined;
   readonly #suppliedClock: Clock | undefined;
   readonly #composition: BridgeComposition | undefined;
+  readonly #frames: FrameScheduling | undefined;
   /** What a composition built here. `undefined` when the caller supplied the bridge. */
   readonly #composed: ComposedBridge | undefined;
   readonly #resolution: BridgeResolution;
@@ -104,6 +105,7 @@ class ResolvedPlatformBridge {
     this.#suppliedBridge = suppliedBridge;
     this.#suppliedClock = suppliedClock;
     this.#composition = composition;
+    this.#frames = frames;
     this.#composed =
       suppliedBridge === undefined && composition !== undefined
         ? composition.createBridge()
@@ -131,11 +133,13 @@ class ResolvedPlatformBridge {
     suppliedBridge: PlatformBridge | undefined,
     suppliedClock: Clock | undefined,
     composition: BridgeComposition | undefined,
+    frames: FrameScheduling | undefined,
   ): boolean {
     if (
       suppliedBridge !== this.#suppliedBridge ||
       suppliedClock !== this.#suppliedClock ||
-      composition !== this.#composition
+      composition !== this.#composition ||
+      frames !== this.#frames
     ) {
       return true;
     }

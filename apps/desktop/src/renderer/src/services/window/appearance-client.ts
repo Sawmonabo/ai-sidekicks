@@ -2,7 +2,8 @@
 // keeps through `window.subscribeAppearance`, the View menu's pick and another window's choice
 // among them, and asks for a change through `window.setAppearance`, which main applies only once
 // the record is written. It holds the last record heard and nothing the person chose that main has
-// not kept, so the window never shows a scheme a restart would lose.
+// not kept, so the window never shows a scheme a restart would lose. An ask still waiting for
+// main's first record when the client closes is refused, so no caller waits forever.
 
 import type { AppearanceRecord, SchemePreference } from "#shared/appearance.js";
 import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
@@ -15,7 +16,8 @@ export type AppearanceMembers = Pick<PreloadApi["window"], "setAppearance" | "su
 export class AppearanceClient {
   readonly #members: AppearanceMembers;
   readonly #listeners = new Set<(record: AppearanceRecord) => void>();
-  readonly #firstRecord: Promise<AppearanceRecord>;
+  /** The asks waiting for main's first record, settled when it comes or when the client closes. */
+  readonly #waitingForFirstRecord = new Set<PromiseSettlers<AppearanceRecord>>();
   readonly #stopHearing: Unsubscribe;
   #record: AppearanceRecord | undefined;
   #isClosed = false;
@@ -23,13 +25,12 @@ export class AppearanceClient {
   /** Starts hearing main's record; `close` stops it. */
   public constructor(members: AppearanceMembers) {
     this.#members = members;
-    let heardFirst: (record: AppearanceRecord) => void = () => undefined;
-    this.#firstRecord = new Promise((resolve) => {
-      heardFirst = resolve;
-    });
     this.#stopHearing = members.subscribeAppearance((record) => {
       this.#record = record;
-      heardFirst(record);
+      for (const waiting of this.#waitingForFirstRecord) {
+        waiting.resolve(record);
+      }
+      this.#waitingForFirstRecord.clear();
       for (const listener of this.#listeners) {
         listener(record);
       }
@@ -47,7 +48,10 @@ export class AppearanceClient {
     };
   }
 
-  /** Asks main to keep `scheme`. Rejects with main's refusal, and the record stays as it was. */
+  /**
+   * Asks main to keep `scheme`. Rejects with main's refusal, and the record stays as it was, or
+   * when the client closes before main sent a record.
+   */
   public async chooseScheme(scheme: SchemePreference): Promise<void> {
     const { grounds, ...choice } = await this.#current();
     await this.#members.setAppearance({ ...choice, scheme }, grounds);
@@ -68,10 +72,31 @@ export class AppearanceClient {
     this.#isClosed = true;
     this.#stopHearing();
     this.#listeners.clear();
+    for (const waiting of this.#waitingForFirstRecord) {
+      waiting.reject(new Error(CLOSED_BEFORE_FIRST_RECORD));
+    }
+    this.#waitingForFirstRecord.clear();
   }
 
   /** The record in force, waiting for main's first delivery when none was heard yet. */
   async #current(): Promise<AppearanceRecord> {
-    return this.#record ?? (await this.#firstRecord);
+    if (this.#record !== undefined) {
+      return this.#record;
+    }
+    if (this.#isClosed) {
+      throw new Error(CLOSED_BEFORE_FIRST_RECORD);
+    }
+    return await new Promise((resolve, reject) => {
+      this.#waitingForFirstRecord.add({ resolve, reject });
+    });
   }
+}
+
+/** Why an ask waiting for main's first record was refused. */
+const CLOSED_BEFORE_FIRST_RECORD = "The window closed before main sent its appearance record.";
+
+/** The two ends of a promise a later event settles. */
+interface PromiseSettlers<Value> {
+  readonly resolve: (value: Value) => void;
+  readonly reject: (reason: Error) => void;
 }

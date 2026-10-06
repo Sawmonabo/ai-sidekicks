@@ -5,20 +5,14 @@
  * as a custom property.
  */
 .meridian-transcript-row-layout {
-  /* The reply's reading line, and the gap between rows derived from it: half that line, so it
-     moves with Text size. */
-  --meridian-transcript-reading-line-height: 1.55;
-  --meridian-transcript-row-gap: calc(
-    var(--meridian-text-md) * var(--meridian-transcript-reading-line-height) / 2
-  );
-
   display: grid;
   grid-template-areas:
     "edge gutter body"
     "edge gutter footer";
   grid-template-columns: var(--meridian-leading-edge) minmax(0, 16ch) minmax(0, 1fr);
   column-gap: var(--meridian-space-3);
-  padding-block: var(--meridian-space-2);
+  /* Half the one gap between rows above and below, so two rows sit one gap apart. */
+  padding-block: calc(var(--meridian-transcript-row-gap) / 2);
   padding-inline-end: var(--meridian-space-4);
   transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
@@ -68,8 +62,8 @@
   max-inline-size: 78ch;
   min-inline-size: 0;
   color: var(--meridian-text);
-  font-size: var(--meridian-text-md);
-  line-height: var(--meridian-transcript-reading-line-height);
+  font-size: var(--meridian-text-sm);
+  line-height: var(--meridian-reading-line-height);
 }
 
 .meridian-transcript-row-layout__meta {

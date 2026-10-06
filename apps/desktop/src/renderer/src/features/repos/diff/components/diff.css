@@ -188,8 +188,6 @@
   font-family: var(--meridian-font-mono);
 }
 
-/* What the extended headers said, where a change is in no hunk. Sans so it reads as the
-   console's sentence about the file, and it never takes the measure from the path. */
 /* The step that changed the file, on a workflow run's comparison: a quiet mark, never a hue. */
 .meridian-diff-files__step {
   flex: 0 1 auto;
@@ -201,6 +199,8 @@
   white-space: nowrap;
 }
 
+/* What the extended headers said, where a change is in no hunk. Sans so it reads as the
+   console's sentence about the file, and it never takes the measure from the path. */
 .meridian-diff-files__change {
   flex: 0 1 auto;
   min-inline-size: 0;

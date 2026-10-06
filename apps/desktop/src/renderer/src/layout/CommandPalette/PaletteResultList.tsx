@@ -7,9 +7,16 @@ import { Combobox } from "@base-ui/react/combobox";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { useRef, type ReactNode } from "react";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
+import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "#renderer/lib/chord-format.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import {
+  ENUMERATION_ROW_HEIGHT_REM,
+  SPACE_SCALE_REM,
+  scaleStep,
+} from "#renderer/styles/palette.js";
+import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { CommandSearchResult } from "#renderer/registries/commands/ranking.js";
 import type { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
@@ -46,14 +53,20 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   const { rows, context, platform, bindings, onRunResult } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   // Rows are measured once drawn, so the estimate is only a first guess and the sheet stays the
-  // one source of size.
+  // one source of size. The guess is the sheet's own tokens at the window's text size.
   const { virtualizer } = useRowWindow({
     rowCount: rows.length,
     getScrollElement: () => scrollerRef.current,
     clock,
     estimateRowHeightPx: (rowIndex) =>
-      rows[rowIndex]?.kind === "group-label" ? ESTIMATED_LABEL_HEIGHT_PX : ESTIMATED_ROW_HEIGHT_PX,
+      (rows[rowIndex]?.kind === "group-label"
+        ? GROUP_LABEL_HEIGHT_REM
+        : ENUMERATION_ROW_HEIGHT_REM) *
+      Number.parseFloat(
+        ownerWindow.getComputedStyle(ownerWindow.document.documentElement).fontSize,
+      ),
     overscanRows: OVERSCAN_ROWS,
     rowWindowRef: props.rowWindowRef,
   });
@@ -196,11 +209,14 @@ function renderTitle(title: string, matchedIndices: readonly number[] | undefine
   return segments;
 }
 
-/** A category heading's first guess, in CSS pixels. */
-const ESTIMATED_LABEL_HEIGHT_PX = 28;
-
-/** A command row's first guess, in CSS pixels. */
-const ESTIMATED_ROW_HEIGHT_PX = 36;
+/**
+ * A category heading's height, in rem: one `text-xs` line box at the body line height under a
+ * `space-2` and over a `space-1`, as the sheet pads it. A command row is an enumeration row.
+ */
+const GROUP_LABEL_HEIGHT_REM =
+  scaleStep(TYPE_SCALE_REM, "text-xs") * BODY_LINE_HEIGHT +
+  scaleStep(SPACE_SCALE_REM, "space-2") +
+  scaleStep(SPACE_SCALE_REM, "space-1");
 
 /** Rows drawn past each edge, so a quick flick or arrow press does not meet an undrawn band. */
 const OVERSCAN_ROWS = 8;

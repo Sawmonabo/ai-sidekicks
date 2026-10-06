@@ -61,8 +61,6 @@ const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 
 const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
 
-const REGULAR_ACTION_BUTTON_CLASS = "meridian-action-button meridian-action-button--regular";
-
 /**
  * The first action of the card for `approvalRequestId`, or `undefined`. The id is compared as a
  * string, never interpolated into a selector, because it is a wire value.
@@ -228,10 +226,13 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
 /** The classes one action wears: the shared action button, then the accent fill or the outline. */
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const base = `${APPROVAL_CARD_ACTION_CLASS} ${REGULAR_ACTION_BUTTON_CLASS}`;
-  return action === PRIMARY_ACTION
-    ? `${base} meridian-accent-fill`
-    : `${base} meridian-action-button--outline`;
+  const fill =
+    action === PRIMARY_ACTION ? "meridian-accent-fill" : "meridian-action-button--outline";
+  return [
+    APPROVAL_CARD_ACTION_CLASS,
+    "meridian-action-button meridian-action-button--regular",
+    fill,
+  ].join(" ");
 }
 
 /** Arrow and vim movement, and nothing else. `0` means this key is not ours. */

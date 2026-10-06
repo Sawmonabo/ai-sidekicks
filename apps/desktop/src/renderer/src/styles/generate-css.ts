@@ -28,11 +28,13 @@ import {
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
+  TRANSCRIPT_ROW_GAP_REM,
 } from "./palette.js";
 import {
   BODY_LINE_HEIGHT,
   FONT_STACKS,
   LETTER_SPACING_EM,
+  READING_LINE_HEIGHT,
   TYPE_SCALE_REM,
   WIRE_FIGURE_SIZE_EM,
 } from "./typography.js";
@@ -196,6 +198,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${spacingEm}em`));
   }
   lines.push(declaration("figure-wire-size-default", `${WIRE_FIGURE_SIZE_EM}em`));
+  lines.push(declaration("reading-line-height", String(READING_LINE_HEIGHT)));
 
   lines.push("");
   lines.push("  /* Space and radius. */");
@@ -209,6 +212,7 @@ function invariantBlock(): string {
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
+  lines.push(declaration("transcript-row-gap", `${TRANSCRIPT_ROW_GAP_REM}rem`));
   // The reflow floor is emitted so a stylesheet reads the property instead of copying the
   // palette's number. It cannot be a media-query condition (custom properties do not reach one);
   // the app holds this width with one fluid layout, not a breakpoint.

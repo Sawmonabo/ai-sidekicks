@@ -18,6 +18,12 @@
 export const BODY_LINE_HEIGHT = 1.5;
 
 /**
+ * The line height a reply is read at, as a multiple of its `text-sm` size: looser than the body,
+ * since a reply is prose read at length. The transcript's gap between rows is half this line.
+ */
+export const READING_LINE_HEIGHT = 1.65;
+
+/**
  * Type scale, in rem, shared by the sans and mono faces so a figure and its label sit on the
  * same baseline.
  */

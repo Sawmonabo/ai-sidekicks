@@ -16,7 +16,8 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--meridian-space-2);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
+  /* Half the one gap between rows above and below, as every transcript row pads. */
+  padding: calc(var(--meridian-transcript-row-gap) / 2) var(--meridian-space-3);
   border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-muted);

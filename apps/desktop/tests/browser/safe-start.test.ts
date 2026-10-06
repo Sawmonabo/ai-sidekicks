@@ -78,6 +78,16 @@ function standInForMain(scenarioId: string): MainStandIn {
   };
 }
 
+/**
+ * Wait inside `act` until `assertion` holds, so the state the app's own reads settle while it
+ * waits is flushed by React, not reported as an update outside `act`.
+ */
+async function untilInsideAct(assertion: () => PromiseLike<void>): Promise<void> {
+  await act(async () => {
+    await assertion();
+  });
+}
+
 async function deleteUiStateDatabase(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const deletion = indexedDB.deleteDatabase(UI_STATE_DATABASE_NAME);
@@ -122,7 +132,9 @@ describe("a safe start", () => {
 
     const usedLast = await renderAppSettled(FIRST_RUN_SCENARIO_ID, frames, main.composition);
     const shown = within(usedLast.document.body);
-    await expect.poll(() => shown.queryByText(SAFE_START_LINE)).not.toBeNull();
+    await untilInsideAct(() =>
+      expect.poll(() => shown.queryByText(SAFE_START_LINE)).not.toBeNull(),
+    );
 
     expect(frames.openedIds()).toEqual([FIXTURE_WINDOW_ID]);
     expect(usedLast.location.hash).toBe("#/sessions");
@@ -138,30 +150,38 @@ describe("a safe start", () => {
       await crossMacrotaskBoundary();
     });
 
-    await expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]);
-    await expect.poll(() => shown.queryByText(SAFE_START_LINE)).toBeNull();
+    await untilInsideAct(() =>
+      expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]),
+    );
+    await untilInsideAct(() => expect.poll(() => shown.queryByText(SAFE_START_LINE)).toBeNull());
     // Main keeps each window's place again.
     expect(main.safeStartEnds()).toBe(1);
     expect(frames.windowNamed("window/kept-first").location.hash).toBe("#/settings");
     // Restored, the kept layout follows the open windows again, the used-last one where it is now.
-    await expect
-      .poll(async () => withUiStateStore(readKeptWindows))
-      .toEqual([{ windowId: FIXTURE_WINDOW_ID, route: { kind: "sessions" } }, ...OTHERS_KEPT]);
+    await untilInsideAct(() =>
+      expect
+        .poll(async () => withUiStateStore(readKeptWindows))
+        .toEqual([{ windowId: FIXTURE_WINDOW_ID, route: { kind: "sessions" } }, ...OTHERS_KEPT]),
+    );
   });
 
   it("negative control: an ordinary load opens the kept windows where they were", async () => {
     const frames = new FrameWindows();
     const usedLast = await renderAppSettled(FIRST_RUN_SCENARIO_ID, frames);
 
-    await expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]);
-    await expect.poll(() => usedLast.location.hash).toBe("#/workflows");
+    await untilInsideAct(() =>
+      expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]),
+    );
+    await untilInsideAct(() => expect.poll(() => usedLast.location.hash).toBe("#/workflows"));
     expect(frames.windowNamed("window/kept-first").location.hash).toBe("#/settings");
     expect(frames.windowNamed("window/kept-second").location.hash).toBe("#/sessions");
     expect(within(usedLast.document.body).queryByText(SAFE_START_LINE)).toBeNull();
     // The kept layout is written only after its read, so it still holds every address.
-    await expect
-      .poll(async () => withUiStateStore(readKeptWindows))
-      .toEqual([USED_LAST_KEPT, ...OTHERS_KEPT]);
+    await untilInsideAct(() =>
+      expect
+        .poll(async () => withUiStateStore(readKeptWindows))
+        .toEqual([USED_LAST_KEPT, ...OTHERS_KEPT]),
+    );
   });
 });
 
@@ -170,7 +190,9 @@ describe("main's ask to reopen a window", () => {
     const frames = new FrameWindows();
     const main = standInForMain(FIRST_RUN_SCENARIO_ID);
     await renderAppSettled(FIRST_RUN_SCENARIO_ID, frames, main.composition);
-    await expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]);
+    await untilInsideAct(() =>
+      expect.poll(() => frames.openedIds()).toEqual([FIXTURE_WINDOW_ID, ...KEPT_WINDOW_IDS]),
+    );
 
     await act(async () => {
       main.askToReopen("window/closed-last");
