@@ -7,13 +7,10 @@ import { PassThrough } from "node:stream";
 
 import { vi } from "vitest";
 
-import type { NodePtyChild } from "../../node-pty-host.js";
-import type {
-  SidecarChildProcess,
-  SidecarSpawnFn,
-} from "../../sidecar/sidecar-child-supervisor.js";
-import type { Envelope, SpawnRequest } from "../protocol.js";
-import type { RustSidecarPtyHost } from "../../rust-sidecar-pty-host.js";
+import type { NodePtyChild } from "../node-pty-host.js";
+import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar/sidecar-child-supervisor.js";
+import type { Envelope, SpawnRequest } from "../host/protocol.js";
+import type { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 
 // Matches `NodePtyChild.onExit`'s event type. Under `exactOptionalPropertyTypes` the
 // `| undefined` on `signal` also permits an explicit `{ signal: undefined }`.

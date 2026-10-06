@@ -2,13 +2,24 @@
 // `daemon.hello` on its socket, keeps serving a client that drops and reconnects, comes back after
 // a SIGKILL over the socket file the crash left with the same machine id and a new session token
 // the old one no longer opens, and stops cleanly on SIGTERM, a second one during its drain
-// included. Its service log goes to standard error and to its own file, and a log folder it cannot
-// open never stops it. Each run gets its own home and run folder, so the person's own files are
-// never read.
+// included. Its service log goes to standard error and to its own file: a log folder it cannot
+// open never stops it, a start that fails says why in the file, and it runs on, logging to the
+// file, once its standard error's reader is gone. Each run gets its own home and run folder, so
+// the person's own files are never read.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,12 +29,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import {
+  JSONRPC_VERSION,
+  JsonRpcErrorCode,
+  MAX_MESSAGE_BYTES,
+} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 
-import { connect } from "../ipc/__tests__/local-socket-client.test-support.js";
+import { connect } from "../ipc/__fixtures__/local-socket-client.js";
 
 const ENTRY_POINT = fileURLToPath(new URL("../main.ts", import.meta.url));
 const SOURCE_LOADER = new URL("./typescript-source-loader.mjs", import.meta.url).href;
@@ -68,8 +83,8 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-/** Starts the daemon from its command and resolves once it says it is ready. */
-function startDaemon(): Promise<RunningDaemon> {
+/** Starts the daemon from its command, without waiting for it to be ready. */
+function spawnDaemon(): RunningDaemon {
   const child = spawn(
     process.execPath,
     [
@@ -89,26 +104,44 @@ function startDaemon(): Promise<RunningDaemon> {
     });
   });
   let serviceLog = "";
+  child.stderr!.on("data", (chunk: Buffer) => {
+    serviceLog += chunk.toString("utf8");
+  });
   const daemon: RunningDaemon = { child, exited, standardError: () => serviceLog };
   running.push(daemon);
+  return daemon;
+}
+
+/** Starts the daemon from its command and resolves once it says it is ready. */
+function startDaemon(): Promise<RunningDaemon> {
+  const daemon = spawnDaemon();
   return new Promise<RunningDaemon>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error(`The daemon did not become ready: ${serviceLog}`));
+      reject(new Error(`The daemon did not become ready: ${daemon.standardError()}`));
     }, READY_TIMEOUT_MS);
-    child.stderr!.on("data", (chunk: Buffer) => {
-      serviceLog += chunk.toString("utf8");
-      if (serviceLog.includes(DAEMON_READY_LINE)) {
+    daemon.child.stderr!.on("data", () => {
+      if (daemon.standardError().includes(DAEMON_READY_LINE)) {
         clearTimeout(timeout);
         resolve(daemon);
       }
     });
-    void exited.then(({ code, signal }) => {
+    void daemon.exited.then(({ code, signal }) => {
       clearTimeout(timeout);
       reject(
-        new Error(`The daemon exited (${String(code ?? signal)}) before ready: ${serviceLog}`),
+        new Error(
+          `The daemon exited (${String(code ?? signal)}) before ready: ${daemon.standardError()}`,
+        ),
       );
     });
   });
+}
+
+/** Everything in the one service log file the daemon wrote to its data folder. */
+async function readServiceLogFile(): Promise<string> {
+  const logFolder = path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "logs");
+  const logFiles = await readdir(logFolder);
+  expect(logFiles).toHaveLength(1);
+  return readFile(path.join(logFolder, logFiles[0]!), "utf8");
 }
 
 const readSessionToken = (): Promise<string> => readFile(tokenPath, "utf8");
@@ -280,6 +313,57 @@ describe("the daemon started from its command", () => {
       expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
       const reasons = daemon.standardError().match(/The service log file .* could not be opened/g);
       expect(reasons).toHaveLength(1);
+    },
+    READY_TIMEOUT_MS * 2,
+  );
+
+  it(
+    "writes why it could not start to its log file, whoever reads its standard error",
+    async () => {
+      // A run folder other accounts can reach, which the start refuses.
+      const { folderPath } = resolveDaemonRunFolder({
+        platform: process.platform,
+        runtimeDirectory,
+        temporaryDirectory: os.tmpdir(),
+        userId: os.userInfo().uid,
+      });
+      await mkdir(folderPath);
+      await chmod(folderPath, 0o755);
+
+      const daemon = spawnDaemon();
+      expect(await daemon.exited).toStrictEqual({ code: 1, signal: null });
+      expect(await readServiceLogFile()).toMatch(
+        /The daemon could not start: .*is open to other accounts/,
+      );
+    },
+    READY_TIMEOUT_MS * 2,
+  );
+
+  it(
+    "keeps running and logging to its file once the reader of its standard error is gone",
+    async () => {
+      // A starter that waits for the ready line and then closes its end of the pipe.
+      const daemon = await startDaemon();
+      const readerGone = new Promise<void>((resolve) => {
+        daemon.child.stderr!.once("close", () => {
+          resolve();
+        });
+      });
+      daemon.child.stderr!.destroy();
+      await readerGone;
+
+      // A frame over the size cap makes the daemon log a failed connection while it runs on.
+      const client = await connect(socketPath);
+      client.socket.write(`Content-Length: ${String(MAX_MESSAGE_BYTES + 1)}\r\n\r\n`);
+      await vi.waitFor(async () => {
+        expect(await readServiceLogFile()).toMatch(/Connection \d+ failed/);
+      });
+      await client.close();
+      expect(await sayHello()).toStrictEqual(COMPATIBLE_REPLY);
+
+      daemon.child.kill("SIGTERM");
+      expect(await daemon.exited).toStrictEqual({ code: 0, signal: null });
+      expect(await readServiceLogFile()).toContain("The terminals drained at the stop");
     },
     READY_TIMEOUT_MS * 2,
   );

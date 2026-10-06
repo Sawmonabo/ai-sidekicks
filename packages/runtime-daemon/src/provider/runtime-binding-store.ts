@@ -291,22 +291,22 @@ export class RuntimeBindingStore {
 
     this.#insertStmt = db.prepare(
       `INSERT INTO runtime_bindings
-         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
-        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+         (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+          resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
        VALUES
-         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver, ` +
-        `@resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
+         (@id, @run_id, @driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
+          @resume_handle, @spawn_config, @runtime_metadata, @created_at, @updated_at)`,
     );
     this.#selectByIdStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
-        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE id = ?`,
     );
     // Uses `idx_runtime_bindings_run`; the order is stable for a run's many bindings.
     this.#selectByRunStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
-        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id = ?
         ORDER BY created_at, id`,
@@ -314,15 +314,15 @@ export class RuntimeBindingStore {
     // One statement for any arity: run ids arrive as one JSON-array parameter, since an
     // `IN (?,?,...)` list would need SQL per arity and could reach SQLITE_MAX_VARIABLE_NUMBER.
     this.#selectByRunsStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
-        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE run_id IN (SELECT value FROM json_each(?))
         ORDER BY run_id, created_at, id`,
     );
     this.#selectResumableStmt = db.prepare(
-      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver, ` +
-        `resume_handle, spawn_config, runtime_metadata, created_at, updated_at
+      `SELECT id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+              resume_handle, spawn_config, runtime_metadata, created_at, updated_at
          FROM runtime_bindings
         WHERE resume_handle IS NOT NULL
         ORDER BY created_at, id`,

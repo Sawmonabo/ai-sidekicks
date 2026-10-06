@@ -14,7 +14,7 @@ import {
   parseFramesFromStdin,
   spawnAnsweredSession,
   spawnReturning,
-} from "../host/__tests__/pty-host.test-support.js";
+} from "./pty-host.test-support.js";
 
 // Distinctive, so a taskkill assertion names the sidecar's pid.
 const SIDECAR_PID = 67890;

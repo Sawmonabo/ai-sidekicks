@@ -25,8 +25,8 @@ export class SessionDraftStore {
     );
     this.#upsertDraft = database.prepare(
       `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT (session_id) DO UPDATE SET text = excluded.text, updated_at = ` +
-        `excluded.updated_at`,
+       ON CONFLICT (session_id) DO UPDATE SET text = excluded.text,
+         updated_at = excluded.updated_at`,
     );
     this.#deleteDraft = database.prepare("DELETE FROM session_drafts WHERE session_id = ?");
     this.#selectDraft = database.prepare("SELECT text FROM session_drafts WHERE session_id = ?");

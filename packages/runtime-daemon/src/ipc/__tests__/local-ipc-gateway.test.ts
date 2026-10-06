@@ -3,8 +3,9 @@
 // reaches a handler, and error replies carry no paths or stack frames. Sockets live under
 // `os.tmpdir()` with a random suffix so parallel workers never collide.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -28,7 +29,7 @@ import {
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "../__fixtures__/zod-schemas.js";
-import { connect, decodeFrames } from "./local-socket-client.test-support.js";
+import { connect, decodeFrames } from "../__fixtures__/local-socket-client.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
 
@@ -372,6 +373,95 @@ describe("LocalIpcGateway stop", () => {
       await gateway.stop();
       await fs.rm(socketPath, { force: true });
     }
+  });
+
+  describe("while a connection is slow to close", () => {
+    const writeSpy = vi.fn(async () => ({ ok: true }));
+    let socketPath: string;
+    let gateway: LocalIpcGateway;
+    let slowClient: net.Socket;
+
+    beforeEach(async () => {
+      writeSpy.mockClear();
+      socketPath = ephemeralSocketPath("slow");
+      bootstrap({ localIpcPath: socketPath });
+      const registry = new MethodRegistryImpl();
+      const writeHandler: Handler<unknown, { ok: boolean }> = writeSpy;
+      registry.register(
+        "x.write",
+        passthroughSchema<unknown>(),
+        passthroughSchema<{ ok: boolean }>(),
+        writeHandler,
+        { mutating: true },
+      );
+      gateway = new LocalIpcGateway({ registry });
+      await gateway.start();
+      // A client that keeps its own side open after the gateway ends the connection, so the stop
+      // waits on it.
+      slowClient = net.createConnection({ path: socketPath, allowHalfOpen: true });
+      await new Promise<void>((resolve, reject) => {
+        slowClient.once("connect", resolve);
+        slowClient.once("error", reject);
+      });
+    });
+
+    afterEach(async () => {
+      slowClient.destroy();
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    });
+
+    /** Whether `stop` settles before `withinMs`. */
+    async function settlesWithin(stop: Promise<void>, withinMs: number): Promise<boolean> {
+      let timer: NodeJS.Timeout | undefined;
+      const deadline = new Promise<false>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(false);
+        }, withinMs);
+      });
+      try {
+        return await Promise.race([stop.then(() => true as const), deadline]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    it("finishes even when a client tries to connect during the wait", async () => {
+      // A connection accepted during the wait would hold the listener's close open for as long as
+      // that client stayed, and the daemon would never finish its stop.
+      const stopping = gateway.stop();
+      const lateClient = net.createConnection({ path: socketPath, allowHalfOpen: true });
+      const lateClientClosed = new Promise<void>((resolve) => {
+        lateClient.once("close", () => {
+          resolve();
+        });
+      });
+      lateClient.on("error", () => {
+        // A refused connect is one of the two outcomes this case accepts.
+      });
+      try {
+        expect(await settlesWithin(stopping, 2_000)).toBe(true);
+        await lateClientClosed;
+      } finally {
+        lateClient.destroy();
+      }
+    });
+
+    it("runs no request that arrives on a connection the stop has already ended", async () => {
+      // Its reply would be dropped, so the client could not tell whether its write landed.
+      const stopping = gateway.stop();
+      slowClient.write(
+        encodeFrame({
+          jsonrpc: JSONRPC_VERSION,
+          id: 1,
+          method: "x.write",
+          protocolVersion: PROTOCOL_VERSION,
+          params: {},
+        }),
+      );
+      await stopping;
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -108,6 +108,74 @@ export function parseFrame(bytes: Uint8Array, maxBodyBytes: number): ParseFrameR
   return { frame: new Uint8Array(bytes.subarray(bodyStart, bodyEnd)), consumed: bodyEnd };
 }
 
+// The accumulator's first size, enough for most frames; it doubles when a frame outgrows it.
+const ACCUMULATOR_FIRST_BYTES: number = 64 * 1024;
+
+/**
+ * The bytes one stream has received and not yet framed. `append` copies a chunk in place, moving
+ * the unframed bytes only when the chunk does not fit behind them, so every received byte is
+ * copied a bounded number of times however many reads a frame takes; once drained, a buffer a
+ * large frame grew goes back to its first size.
+ */
+export class FrameAccumulator {
+  readonly #maxBodyBytes: number;
+  // The unframed bytes are `#bytes[#readOffset, #writeOffset)`.
+  #bytes: Uint8Array = new Uint8Array(ACCUMULATOR_FIRST_BYTES);
+  #readOffset = 0;
+  #writeOffset = 0;
+
+  /** `maxBodyBytes` is the largest frame body this stream accepts. */
+  constructor(maxBodyBytes: number) {
+    this.#maxBodyBytes = maxBodyBytes;
+  }
+
+  /** Adds received bytes behind the ones not yet framed. */
+  append(chunk: Uint8Array): void {
+    if (this.#bytes.byteLength - this.#writeOffset < chunk.byteLength) {
+      const pendingBytes = this.#writeOffset - this.#readOffset;
+      const neededBytes = pendingBytes + chunk.byteLength;
+      if (neededBytes > this.#bytes.byteLength) {
+        let capacity = this.#bytes.byteLength * 2;
+        while (capacity < neededBytes) {
+          capacity *= 2;
+        }
+        const grown = new Uint8Array(capacity);
+        grown.set(this.#bytes.subarray(this.#readOffset, this.#writeOffset));
+        this.#bytes = grown;
+      } else {
+        this.#bytes.copyWithin(0, this.#readOffset, this.#writeOffset);
+      }
+      this.#readOffset = 0;
+      this.#writeOffset = pendingBytes;
+    }
+    this.#bytes.set(chunk, this.#writeOffset);
+    this.#writeOffset += chunk.byteLength;
+  }
+
+  /**
+   * Takes the next complete frame's body off the head, or answers `null` until one has arrived.
+   * Throws `FramingError` as `parseFrame` does; the stream is then desynced and is to be closed.
+   */
+  nextFrame(): Uint8Array | null {
+    const result = parseFrame(
+      this.#bytes.subarray(this.#readOffset, this.#writeOffset),
+      this.#maxBodyBytes,
+    );
+    if (result.frame === null) {
+      return null;
+    }
+    this.#readOffset += result.consumed;
+    if (this.#readOffset === this.#writeOffset) {
+      this.#readOffset = 0;
+      this.#writeOffset = 0;
+      if (this.#bytes.byteLength > ACCUMULATOR_FIRST_BYTES) {
+        this.#bytes = new Uint8Array(ACCUMULATOR_FIRST_BYTES);
+      }
+    }
+    return result.frame;
+  }
+}
+
 /**
  * Encode a JSON-RPC envelope as a Content-Length frame; the header carries the body's UTF-8 byte
  * count. Throws `FramingError("oversized_body")` past `MAX_MESSAGE_BYTES`, so an oversized message

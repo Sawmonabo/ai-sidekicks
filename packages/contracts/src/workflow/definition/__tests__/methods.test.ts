@@ -1,16 +1,23 @@
 // The definition methods are called by the builder, the catalog, an agent's tools and the
 // Versions panel. These cases hold what those callers rely on: a create names the workflow once,
-// in its document; a read reports a token's last use only beside the date the token was made,
-// since the daemon keeps only the token's hash; and each version names who saved it.
+// in its document; neither a create nor a list names a session or a project; a read reports a
+// token's last use only beside the date the token was made, since the daemon keeps only the
+// token's hash; and each version names who saved it.
 import { describe, expect, it } from "vitest";
 
 import {
   WorkflowDefinitionCreateRequestSchema,
+  WorkflowDefinitionListRequestSchema,
   WorkflowDefinitionReadResponseSchema,
   WorkflowVersionChainReadResponseSchema,
 } from "../methods.js";
 
 const AGENT_ID = "33333333-3333-4333-8333-333333333333";
+const SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+// An agent's tools take these requests unchanged, and an agent may name neither another session
+// nor a repository.
+const SCOPE_MEMBERS = [{ sessionId: SESSION_ID }, { projectId: PROJECT_ID }];
 const NOW = "2026-09-29T08:00:00.000Z";
 
 const DOCUMENT = {
@@ -29,12 +36,23 @@ const DOCUMENT = {
 };
 
 describe("workflow.definitionCreate", () => {
-  it("creates from the document, whose name is the one name", () => {
+  it("creates from the document alone, whose name is the one name", () => {
     const create = { document: DOCUMENT };
     expect(WorkflowDefinitionCreateRequestSchema.safeParse(create).success).toBe(true);
-    expect(
-      WorkflowDefinitionCreateRequestSchema.safeParse({ ...create, name: "Test workflow" }).success,
-    ).toBe(false);
+    for (const extra of [{ name: "Test workflow" }, ...SCOPE_MEMBERS]) {
+      expect(WorkflowDefinitionCreateRequestSchema.safeParse({ ...create, ...extra }).success).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe("workflow.definitionList", () => {
+  it("takes no session id or project id", () => {
+    expect(WorkflowDefinitionListRequestSchema.safeParse({}).success).toBe(true);
+    for (const extra of SCOPE_MEMBERS) {
+      expect(WorkflowDefinitionListRequestSchema.safeParse(extra).success).toBe(false);
+    }
   });
 });
 

@@ -21,34 +21,28 @@ interface LocalMachineRow {
 
 /**
  * Returns this machine's id and name, minting the id and reading the name through `readName` only
- * when no daemon has started on this database before. Two daemons racing on a fresh database
- * serialize on the write lock and both return the one row that won.
+ * when no daemon has started on this database before. One daemon at a time holds the data folder,
+ * so no other start writes the row meanwhile.
  */
 export async function readOrMintLocalMachine(
   database: Database,
   readName: () => Promise<string>,
   now: () => Date,
 ): Promise<LocalMachine> {
-  const selectRow = database.prepare<[], LocalMachineRow>(
-    "SELECT node_id, name FROM local_machine WHERE singleton = 1",
-  );
-  const existing = selectRow.get();
+  const existing = database
+    .prepare<[], LocalMachineRow>("SELECT node_id, name FROM local_machine WHERE singleton = 1")
+    .get();
   if (existing !== undefined) {
     return toLocalMachine(existing);
   }
 
-  const name = await readName();
-  const insertRow = database.prepare(
-    `INSERT INTO local_machine (singleton, node_id, name, minted_at)
-     VALUES (1, @nodeId, @name, @mintedAt)
-     ON CONFLICT(singleton) DO NOTHING`,
-  );
-  const minted = database
-    .transaction((): LocalMachineRow => {
-      insertRow.run({ nodeId: mintUuidV7(), name, mintedAt: now().toISOString() });
-      return selectRow.get()!;
-    })
-    .immediate();
+  const minted: LocalMachineRow = { node_id: mintUuidV7(), name: await readName() };
+  database
+    .prepare(
+      `INSERT INTO local_machine (singleton, node_id, name, minted_at)
+       VALUES (1, @nodeId, @name, @mintedAt)`,
+    )
+    .run({ nodeId: minted.node_id, name: minted.name, mintedAt: now().toISOString() });
   return toLocalMachine(minted);
 }
 

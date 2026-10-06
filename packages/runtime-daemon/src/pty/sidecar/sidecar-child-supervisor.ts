@@ -7,11 +7,7 @@
 
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 
-import {
-  FramingError,
-  parseFrame,
-  type ParseFrameResult,
-} from "@ai-sidekicks/contracts/content-length-framing";
+import { FrameAccumulator, FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
 import type { TaskkillResult } from "../taskkill-windows.js";
 import { PtyBackendUnavailableError } from "./binary-path.js";
@@ -114,10 +110,10 @@ export class SidecarChildSupervisor {
   private child: SidecarChildProcess | null = null;
 
   /**
-   * The current child's unparsed stdout bytes. Emptied on every child exit or error: leftover
+   * The current child's unparsed stdout bytes. Replaced on every child exit or error: leftover
    * partial-frame bytes would desync the next child and burn the crash budget.
    */
-  private stdoutBuffer: Buffer = Buffer.alloc(0);
+  private stdoutFrames: FrameAccumulator = new FrameAccumulator(MAX_FRAME_BODY_BYTES);
 
   /**
    * The current child's stdout `data` listener, kept so exit and error can detach it before the
@@ -292,8 +288,7 @@ export class SidecarChildSupervisor {
 
     // Named so handleChildExit and handleChildError can detach it before the parser is replaced.
     const stdoutListener = (chunk: Buffer): void => {
-      this.stdoutBuffer =
-        this.stdoutBuffer.length === 0 ? chunk : Buffer.concat([this.stdoutBuffer, chunk]);
+      this.stdoutFrames.append(chunk);
       this.drainParserUntilIncomplete();
     };
     child.stdout.on("data", stdoutListener);
@@ -318,9 +313,9 @@ export class SidecarChildSupervisor {
   /** Pulls every complete frame from the stdout buffer, since one chunk can carry several. */
   private drainParserUntilIncomplete(): void {
     for (;;) {
-      let result: ParseFrameResult;
+      let frame: Uint8Array | null;
       try {
-        result = parseFrame(this.stdoutBuffer, MAX_FRAME_BODY_BYTES);
+        frame = this.stdoutFrames.nextFrame();
       } catch (error) {
         if (!(error instanceof FramingError)) {
           throw error;
@@ -344,15 +339,11 @@ export class SidecarChildSupervisor {
         }
         return;
       }
-      if (result.frame === null) {
+      if (frame === null) {
         return;
       }
-      // Copy the remainder: a `subarray` view would keep the whole original allocation alive.
-      this.stdoutBuffer = Buffer.from(this.stdoutBuffer.subarray(result.consumed));
       // A view over the parser's own copy, so the frame keeps `Buffer`'s decoding methods.
-      this.events.onFrame(
-        Buffer.from(result.frame.buffer, result.frame.byteOffset, result.frame.byteLength),
-      );
+      this.events.onFrame(Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength));
     }
   }
 
@@ -381,7 +372,7 @@ export class SidecarChildSupervisor {
     // After the stale-event guard, so a late event cannot mark the live child as exited.
     this.childExitedBeforeDrain = true;
     this.detachChildStdoutListener(child);
-    this.stdoutBuffer = Buffer.alloc(0);
+    this.stdoutFrames = new FrameAccumulator(MAX_FRAME_BODY_BYTES);
     this.child = null;
     return true;
   }

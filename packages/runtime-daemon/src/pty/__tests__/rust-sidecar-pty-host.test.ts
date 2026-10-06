@@ -22,7 +22,7 @@ import {
   parseFramesFromStdin,
   SHELL_SPAWN_REQUEST,
   spawnAnsweredSession,
-} from "../host/__tests__/pty-host.test-support.js";
+} from "./pty-host.test-support.js";
 
 interface HostUnderTest {
   readonly host: RustSidecarPtyHost;

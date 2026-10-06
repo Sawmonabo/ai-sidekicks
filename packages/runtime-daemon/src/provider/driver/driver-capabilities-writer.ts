@@ -174,16 +174,16 @@ export class DriverCapabilitiesWriter {
     // Delete and reinsert in one transaction so a removed tool leaves no orphan row.
     this.#deleteToolsStmt = db.prepare(`DELETE FROM driver_tools WHERE driver_name = ?`);
     this.#insertToolStmt = db.prepare(
-      `INSERT INTO driver_tools (driver_name, tool_name, idempotency_class, description, ` +
-        `refreshed_at)
+      `INSERT INTO driver_tools (driver_name, tool_name, idempotency_class, description,
+                                 refreshed_at)
        VALUES (@driver_name, @tool_name, @idempotency_class, @description, @refreshed_at)`,
     );
     // The version pair rides every mutating branch, so it never lags a capability write.
     this.#upsertContractMetaStmt = db.prepare(
-      `INSERT INTO driver_contract_meta (driver_name, contract_version, cli_version_raw, ` +
-        `cli_version_semver, refreshed_at)
-       VALUES (@driver_name, @contract_version, @cli_version_raw, @cli_version_semver, ` +
-        `@refreshed_at)
+      `INSERT INTO driver_contract_meta (driver_name, contract_version, cli_version_raw,
+                                         cli_version_semver, refreshed_at)
+       VALUES (@driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
+               @refreshed_at)
        ON CONFLICT(driver_name)
          DO UPDATE SET contract_version   = excluded.contract_version,
                        cli_version_raw    = excluded.cli_version_raw,

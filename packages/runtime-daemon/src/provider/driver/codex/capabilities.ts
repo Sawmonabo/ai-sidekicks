@@ -252,15 +252,13 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     let hasFastTier = false;
     for (const rawServiceTier of Array.isArray(rawServiceTiers) ? rawServiceTiers : []) {
       // A tier is `{ id, name, description }`; the id is what a turn request carries.
-      const tierId = isPlainObject(rawServiceTier)
-        ? readNonEmptyString(rawServiceTier, "id")
-        : undefined;
-      if (tierId === undefined) {
+      const tier = isPlainObject(rawServiceTier) ? rawServiceTier : undefined;
+      const tierId = tier === undefined ? undefined : readNonEmptyString(tier, "id");
+      if (tier === undefined || tierId === undefined) {
         throw codexCatalogUnreadable(`model '${id}' has an unreadable service-tier entry`);
       }
       tierIds.push(tierId);
-      hasFastTier ||=
-        isPlainObject(rawServiceTier) && rawServiceTier["name"] === CODEX_FAST_TIER_NAME;
+      hasFastTier ||= tier["name"] === CODEX_FAST_TIER_NAME;
     }
     const model: ProviderModel = {
       id,

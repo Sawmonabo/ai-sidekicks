@@ -3,6 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
+import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run-tool";
+
+import { describeArgumentRefusal } from "../callback-tool-host.js";
 import type { CallbackToolInvocation } from "../driver/provider-driver.js";
 import {
   bindSpawn,
@@ -132,6 +135,15 @@ describe("CallbackToolHost — refusals that precede the pipeline", () => {
     expect(result.status).toBe("failed");
     expect(harness.evaluatedRequests).toHaveLength(0);
     expect(harness.activityRecords[0]?.disposition).toBe("failed-invalid-arguments");
+  });
+
+  it("refuses a workflow_run call without the definition name its input schema requires", () => {
+    // The host checks the JSON Schema the provider received, which is generated from the tool's
+    // own input schema, so the host refuses what the tool would.
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, {})).toContain("definitionName");
+    const run = { definitionName: "Nightly suite" };
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, run)).toBe(null);
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, { ...run, project: "Notes app" })).toBe(null);
   });
 });
 

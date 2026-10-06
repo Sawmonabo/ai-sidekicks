@@ -2,10 +2,10 @@
 // macOS and Linux the daemon runs the person's login shell once as `<shell> -lic` with no input,
 // has it print its environment with `env -0` between two marker lines, and keeps only what lies
 // between them, so proxy, certificate and locale settings are there with no terminal open and a
-// provider installed later is on the path. A shell that misses the deadline, or prints no markers,
-// is ended and the start goes on with the account's own environment and one line in the service
-// log; the start never waits on a shell. On Windows the service starts with the account's own
-// environment.
+// provider installed later is on the path. A shell that misses the deadline, prints no markers or
+// is still running when a stop comes during the start is ended, and the start goes on with the
+// account's own environment and one line in the service log; the start never waits on a shell. On
+// Windows the service starts with the account's own environment.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -29,12 +29,14 @@ export interface LoginShellCaptureOptions {
   readonly accountEnvironment: NodeJS.ProcessEnv;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** Abandons the capture when a stop comes during the start: the shell and its group end. */
+  readonly signal: AbortSignal;
 }
 
 /**
  * Captures the base environment for provider processes as name-value pairs. Never rejects for a
- * shell that hangs, fails or prints no markers: it says why in the service log and returns the
- * account's own environment.
+ * shell that hangs, fails, prints no markers or is abandoned: it says why in the service log and
+ * returns the account's own environment.
  */
 export async function captureLoginShellEnvironment(
   options: LoginShellCaptureOptions,
@@ -77,6 +79,10 @@ function runLoginShell(
     `command printf '\\n%s\\n' '${endMarker}'`;
 
   return new Promise<LoginShellOutcome>((resolve) => {
+    if (options.signal.aborted) {
+      resolve({ kind: "failed", reason: "was not run, since a stop came during the start" });
+      return;
+    }
     // Its own process group, so the deadline ends whatever the rc files started with it.
     const child = spawn(shell, ["-lic", script], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -84,7 +90,11 @@ function runLoginShell(
       env: options.accountEnvironment,
     });
     const endLine = Buffer.from(`\n${endMarker}\n`, "utf8");
-    let output = Buffer.alloc(0);
+    // The output is joined once, when the end marker has arrived; until then only the bytes that
+    // could start the marker across a chunk boundary are kept beside the new chunk for the search.
+    const chunks: Buffer[] = [];
+    let outputBytes = 0;
+    let tail = Buffer.alloc(0);
     let isSettled = false;
 
     const settle = (outcome: LoginShellOutcome, shouldEndGroup: boolean): void => {
@@ -93,11 +103,15 @@ function runLoginShell(
       }
       isSettled = true;
       clearTimeout(deadline);
+      options.signal.removeEventListener("abort", abandon);
       child.stdout.destroy();
       if (shouldEndGroup && child.pid !== undefined) {
-        endProcessGroup(child.pid);
+        endProcessGroup(child.pid, options.writeServiceLog);
       }
       resolve(outcome);
+    };
+    const abandon = (): void => {
+      settle({ kind: "failed", reason: "was ended, since a stop came during the start" }, true);
     };
 
     const deadline = setTimeout(() => {
@@ -106,19 +120,27 @@ function runLoginShell(
         true,
       );
     }, options.deadlineMs);
+    options.signal.addEventListener("abort", abandon);
 
     child.stdout.on("data", (chunk: Buffer) => {
-      output = Buffer.concat([output, chunk]);
+      chunks.push(chunk);
+      outputBytes += chunk.byteLength;
       // Everything needed is in once the end marker arrives; a process the rc files left
-      // holding the output open is then no reason to wait. Only the new bytes are searched.
-      const searchFrom = Math.max(0, output.byteLength - chunk.byteLength - endLine.byteLength);
-      const pairs =
-        output.indexOf(endLine, searchFrom) === -1
-          ? undefined
-          : readBetweenMarkers(output.toString("utf8"), beginMarker, endMarker);
-      if (pairs !== undefined) {
-        settle({ kind: "captured", pairs }, false);
-      } else if (output.byteLength > MAX_CAPTURE_BYTES) {
+      // holding the output open is then no reason to wait.
+      const searched = Buffer.concat([tail, chunk]);
+      if (searched.indexOf(endLine) !== -1) {
+        const pairs = readBetweenMarkers(
+          Buffer.concat(chunks).toString("utf8"),
+          beginMarker,
+          endMarker,
+        );
+        if (pairs !== undefined) {
+          settle({ kind: "captured", pairs }, false);
+          return;
+        }
+      }
+      tail = searched.subarray(Math.max(0, searched.byteLength - (endLine.byteLength - 1)));
+      if (outputBytes > MAX_CAPTURE_BYTES) {
         settle({ kind: "failed", reason: "printed more than an environment can hold" }, true);
       }
     });
@@ -167,13 +189,19 @@ function toPairs(environment: NodeJS.ProcessEnv): readonly SpawnEnvPair[] {
   return pairs;
 }
 
-function endProcessGroup(processGroupId: number): void {
+// A failure to end the group is logged, not thrown: it runs from a timer or an abort, where a
+// throw would end the daemon over a cleanup.
+function endProcessGroup(processGroupId: number, writeServiceLog: (line: string) => void): void {
   try {
     process.kill(-processGroupId, "SIGKILL");
   } catch (error) {
     // The group can be gone already: the shell exited between the check and the kill.
-    if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-      throw error;
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") {
+      return;
     }
+    writeServiceLog(
+      `The login shell's process group ${String(processGroupId)} could not be ended: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }

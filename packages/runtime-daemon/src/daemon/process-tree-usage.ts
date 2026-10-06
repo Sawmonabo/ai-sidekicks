@@ -19,11 +19,15 @@ export interface ProcessTreeUsage {
  */
 export async function readProcessTreeUsage(rootPid: number): Promise<ProcessTreeUsage> {
   const pids = await pidtree(rootPid, { root: true });
-  const readings = await pidusage(pids);
+  // On Linux a process that ended between the two reads has a null or missing reading, though the
+  // library's types say otherwise; on macOS it is left out. Either way it counts for nothing.
+  const readings: Record<string, pidusage.Status | null | undefined> = await pidusage(pids);
   let corePercent = 0;
   let residentBytes = 0;
-  // A process that ended between the two reads has no reading and counts for nothing.
   for (const reading of Object.values(readings)) {
+    if (reading === null || reading === undefined) {
+      continue;
+    }
     corePercent += reading.cpu;
     residentBytes += reading.memory;
   }

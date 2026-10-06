@@ -12,7 +12,7 @@ import type {
   NodePtySpawnFn,
   TaskkillResult,
 } from "../node-pty-host.js";
-import { makeFakeChild } from "../host/__tests__/pty-host.test-support.js";
+import { makeFakeChild } from "./pty-host.test-support.js";
 import type { SpawnRequest } from "../host/protocol.js";
 
 // Distinctive, so a failing assertion names the fixture.

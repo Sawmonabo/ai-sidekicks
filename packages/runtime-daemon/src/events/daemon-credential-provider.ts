@@ -91,10 +91,9 @@ export class DeferredDaemonCredentialProvider implements DaemonCredentialProvide
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {
     return Promise.reject(
       new Error(
-        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth): ` +
-          `no daemon PASETO signing identity exists yet, so no ` +
-          `${DPOP_AUTHORIZATION_SCHEME}-bound token can be minted for ${attempt.htm} ` +
-          `${attempt.htu} ` +
+        `DaemonCredentialProvider.mintForAttempt is deferred (PASETO auth): no daemon PASETO ` +
+          `signing identity exists yet, so no ${DPOP_AUTHORIZATION_SCHEME}-bound token can be ` +
+          `minted for ${attempt.htm} ${attempt.htu} ` +
           `(session ${attempt.sessionId}, node ${attempt.nodeId}).`,
       ),
     );
@@ -136,9 +135,8 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
     throw new Error(
       `DaemonCredentialProvider.mintForAttempt returned no ${AUTHORIZATION_HEADER_NAME} header. ` +
         `The control-plane call is an authenticated write; an unauthenticated attempt would ` +
-        `surface as ` +
-        `a generic control-plane 401 that names the wrong cause. That is an injection bug at the ` +
-        `boundary.`,
+        `surface as a generic control-plane 401 that names the wrong cause. That is an ` +
+        `injection bug at the boundary.`,
     );
   }
 
@@ -148,11 +146,11 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
   if (schemeSeparatorIndex === -1) {
     throw new Error(
       `DaemonCredentialProvider.mintForAttempt returned an ${AUTHORIZATION_HEADER_NAME} header ` +
-        `with no scheme separator, so it names no scheme and carries no token (RFC 9449 ` +
-        `section 7.1 ` +
-        `requires \`${DPOP_AUTHORIZATION_SCHEME} <token>\`). The value is WITHHELD from this ` +
-        `message on purpose: a separator-less header is most often the bare token itself, and ` +
-        `this message may be logged or persisted. That is an injection bug at the boundary.`,
+        `with no scheme separator, so it names no scheme and carries no token ` +
+        `(RFC 9449 section 7.1 requires \`${DPOP_AUTHORIZATION_SCHEME} <token>\`). ` +
+        `The value is WITHHELD from this message on purpose: a separator-less header is most ` +
+        `often the bare token itself, and this message may be logged or persisted. That is an ` +
+        `injection bug at the boundary.`,
     );
   }
 
@@ -164,11 +162,9 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
       `DaemonCredentialProvider.mintForAttempt returned an ${AUTHORIZATION_HEADER_NAME} header ` +
         `that is not \`${DPOP_AUTHORIZATION_SCHEME}\`-schemed (RFC 9449 section 7.1). A bearer ` +
         `credential on this path is replayable by anyone who reads it from a log, a proxy ` +
-        `buffer, ` +
-        `or a crash dump. The offending scheme is not quoted back: it is a prefix of a ` +
-        `credential, ` +
-        `and this message may be persisted. That is an injection bug at the boundary, not a ` +
-        `control-plane compatibility question.`,
+        `buffer, or a crash dump. The offending scheme is not quoted back: it is a prefix of a ` +
+        `credential, and this message may be persisted. That is an injection bug at the ` +
+        `boundary, not a control-plane compatibility question.`,
     );
   }
 
@@ -177,9 +173,8 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
     throw new Error(
       `DaemonCredentialProvider.mintForAttempt returned a bare \`${DPOP_AUTHORIZATION_SCHEME}\` ` +
         `${AUTHORIZATION_HEADER_NAME} scheme with no token after it (RFC 9449 section 7.1). ` +
-        `An empty ` +
-        `credential is not a credential; it would surface as a generic control-plane 401 naming ` +
-        `the wrong cause. That is an injection bug boundary.`,
+        `An empty credential is not a credential; it would surface as a generic control-plane ` +
+        `401 naming the wrong cause. That is an injection bug at the boundary.`,
     );
   }
 
@@ -188,10 +183,9 @@ export function assertDpopCredentialMaterial(material: DaemonCredentialMaterial)
     throw new Error(
       `DaemonCredentialProvider.mintForAttempt returned a ${DPOP_AUTHORIZATION_SCHEME}-schemed ` +
         `token with no ${DPOP_PROOF_HEADER_NAME} proof header (RFC 9449 section 4.3). ` +
-        `Without the proof ` +
-        `the token is bearer-equivalent in practice while claiming otherwise, which is worse ` +
-        `than ` +
-        `an honest bearer token. That is an injection bug boundary.`,
+        `Without the proof the token is bearer-equivalent in practice while claiming ` +
+        `otherwise, which is worse than an honest bearer token. That is an injection bug at ` +
+        `the boundary.`,
     );
   }
 }

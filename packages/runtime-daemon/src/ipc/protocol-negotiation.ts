@@ -194,7 +194,7 @@ class WrappedRegistry implements MethodRegistry {
  */
 export class ProtocolNegotiator {
   // Only latched outcomes are stored; an id with no entry is in `pre`.
-  readonly #states: Map<number, NegotiationState>;
+  readonly #states: Map<number, Exclude<NegotiationState, { readonly kind: "pre" }>>;
   readonly #sessionToken: Buffer;
   readonly #supportedProtocolVersions: readonly string[];
 
@@ -241,20 +241,20 @@ export class ProtocolNegotiator {
       }
       const transportId = ctx.transportId;
 
-      // A repeated hello is refused and the first outcome stays latched; the gate refuses a hello
-      // on a `refused` connection before it reaches here.
+      // A repeated hello is refused and the first outcome stays latched. The ack repeats the first
+      // handshake's version; the client already has the supported list.
       const existing = this.#states.get(transportId);
       if (existing !== undefined) {
-        const priorVersion =
-          existing.kind === "done-compatible"
-            ? existing.negotiatedProtocolVersion
-            : existing.kind === "done-incompatible"
-              ? existing.preferredProtocolVersion
-              : params.protocolVersion;
-        // The ack repeats the first handshake's version; the client already has the supported list.
+        if (existing.kind === "refused") {
+          // The gate refuses this before the handler; the latched refusal is the same answer.
+          throw sessionTokenRefusal();
+        }
         return {
           compatible: false,
-          protocolVersion: priorVersion,
+          protocolVersion:
+            existing.kind === "done-compatible"
+              ? existing.negotiatedProtocolVersion
+              : existing.preferredProtocolVersion,
           reason: NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
         };
       }

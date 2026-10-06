@@ -17,7 +17,8 @@ import { DaemonAlreadyRunningError } from "./daemon-already-running-error.js";
 export async function prepareRunFolder(runFolder: DaemonRunFolder): Promise<void> {
   await mkdir(runFolder.folderPath, { recursive: true, mode: 0o700 });
   const folder = await lstat(runFolder.folderPath);
-  if (!folder.isDirectory() || folder.uid !== process.getuid?.()) {
+  // `getuid` is missing only on Windows, which has no run folder.
+  if (!folder.isDirectory() || folder.uid !== process.getuid!()) {
     throw new Error(`The run folder ${runFolder.folderPath} is not a folder this account owns`);
   }
   if ((folder.mode & 0o077) !== 0) {

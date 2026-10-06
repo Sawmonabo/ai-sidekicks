@@ -41,6 +41,7 @@ function capture(shell: string, deadlineMs: number) {
     writeServiceLog: (line) => {
       serviceLog.push(line);
     },
+    signal: new AbortController().signal,
   });
 }
 

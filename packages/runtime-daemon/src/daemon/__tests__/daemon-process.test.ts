@@ -41,7 +41,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
-import { connect, type Client } from "../../ipc/__tests__/local-socket-client.test-support.js";
+import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
 import type { DrainResult, PtyHost } from "../../pty/host/pty-host.js";
 import { DaemonAlreadyRunningError } from "../daemon-already-running-error.js";

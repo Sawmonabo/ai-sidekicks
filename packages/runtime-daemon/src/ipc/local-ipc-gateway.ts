@@ -30,9 +30,8 @@ import {
 import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   encodeFrame,
+  FrameAccumulator,
   FramingError,
-  parseFrame,
-  type ParseFrameResult,
 } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { assertLoadedForBind } from "../bootstrap/index.js";
@@ -97,12 +96,12 @@ export type SupervisionDisconnectReason =
   | "malformed_frame";
 
 /**
- * Callbacks that observe the connection lifecycle. All three are synchronous, and a throwing
- * callback is a programmer error that the gateway does not swallow. Each connection's `onError`
- * is followed by exactly one `onDisconnect` for the same transport.
+ * Callbacks that observe the connection lifecycle; `onConnect` is optional. All are synchronous,
+ * and a throwing callback is a programmer error that the gateway does not swallow. Each
+ * connection's `onError` is followed by exactly one `onDisconnect` for the same transport.
  */
 export interface SupervisionHooks {
-  onConnect(transport: SupervisionTransport): void;
+  onConnect?(transport: SupervisionTransport): void;
   onDisconnect(transport: SupervisionTransport, reason: SupervisionDisconnectReason): void;
   onError(transport: SupervisionTransport, err: unknown): void;
 }
@@ -194,11 +193,14 @@ export const SANITIZED_MESSAGE_MAX_LEN = 8192;
 interface ConnectionState {
   readonly transport: SupervisionTransport;
   readonly socket: net.Socket;
-  /** Per-connection accumulator; the parser shares no state across sockets. */
-  buffer: Buffer;
+  /** The connection's received bytes not yet framed; no state is shared across sockets. */
+  readonly frames: FrameAccumulator;
   /** Set once `onDisconnect` has fired, so a late socket event cannot fire it twice. */
   disposed: boolean;
 }
+
+// Decoding keeps no state between calls, so every connection shares one decoder.
+const UTF8_DECODER = new TextDecoder();
 
 let nextTransportId = 1;
 function allocTransportId(): number {
@@ -296,15 +298,30 @@ export class LocalIpcGateway {
 
   /**
    * Close the listener and every open connection, each of which fires
-   * `onDisconnect(transport, "server_close")`. Each connection first sends what is already written
-   * to it, within a short wait, so a stop's own reply reaches its client. Unlike `start()`, it is
-   * idempotent and a no-op on an unstarted or stopped gateway, so error handlers can call it
-   * without knowing the state.
+   * `onDisconnect(transport, "server_close")`. The listener closes first, so no connection arrives
+   * during the stop; each open connection then sends what is already written to it, within a short
+   * wait, so a stop's own reply reaches its client, and nothing more it receives is run. Unlike
+   * `start()`, it is idempotent and a no-op on an unstarted or stopped gateway, so error handlers
+   * can call it without knowing the state.
    */
   async stop(): Promise<void> {
     if (!this.#started || this.#server === null) {
       return;
     }
+
+    const server = this.#server;
+    this.#server = null;
+    this.#started = false;
+    // The close's callback waits for every connection to end, so it settles with them.
+    const listenerClosed = new Promise<void>((resolve, reject) => {
+      server.close((err) => {
+        if (err !== null && err !== undefined) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
 
     // Snapshot: disconnecting mutates the map.
     const connections = Array.from(this.#connections.values());
@@ -314,20 +331,7 @@ export class LocalIpcGateway {
     });
     this.#connections.clear();
 
-    const server = this.#server;
-    this.#server = null;
-    this.#started = false;
-
-    await Promise.all(closings);
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => {
-        if (err !== null && err !== undefined) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    await Promise.all([listenerClosed, ...closings]);
   }
 
   /**
@@ -352,13 +356,13 @@ export class LocalIpcGateway {
     const state: ConnectionState = {
       transport,
       socket,
-      buffer: Buffer.alloc(0),
+      frames: new FrameAccumulator(MAX_MESSAGE_BYTES),
       disposed: false,
     };
     this.#connections.set(transport.id, state);
 
     if (this.#hooks !== null) {
-      this.#hooks.onConnect(transport);
+      this.#hooks.onConnect?.(transport);
     }
 
     socket.on("data", (chunk: Buffer) => {
@@ -386,12 +390,17 @@ export class LocalIpcGateway {
   }
 
   #onSocketData(state: ConnectionState, chunk: Buffer): void {
-    state.buffer = Buffer.concat([state.buffer, chunk]);
+    // A disconnected connection runs nothing more: its reply would be dropped, so its client could
+    // not tell whether a write landed, and a subscription opened now would never be cleaned up.
+    if (state.disposed) {
+      return;
+    }
+    state.frames.append(chunk);
     // One chunk can carry several frames, since a stream has no message boundaries.
     for (;;) {
-      let result: ParseFrameResult;
+      let frame: Uint8Array | null;
       try {
-        result = parseFrame(state.buffer, MAX_MESSAGE_BYTES);
+        frame = state.frames.nextFrame();
       } catch (err) {
         // The wire is desynced and the peer cannot recover, so send a best-effort error response
         // with id null and then close.
@@ -414,12 +423,11 @@ export class LocalIpcGateway {
         }
         return;
       }
-      if (result.frame === null) {
+      if (frame === null) {
         // Wait for the next `data` event.
         return;
       }
-      state.buffer = state.buffer.subarray(result.consumed);
-      this.#dispatchFrame(state, result.frame);
+      this.#dispatchFrame(state, frame);
     }
   }
 
@@ -428,7 +436,7 @@ export class LocalIpcGateway {
     // open: the framing was intact, so the next frame may parse.
     let parsed: unknown;
     try {
-      parsed = JSON.parse(new TextDecoder().decode(body)) as unknown;
+      parsed = JSON.parse(UTF8_DECODER.decode(body)) as unknown;
     } catch (err) {
       const wrapped = new FramingError(
         "invalid_json",

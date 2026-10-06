@@ -47,10 +47,29 @@ const homeDirectory = os.homedir();
 const writeServiceLog = openServiceLog({
   dataFolder: resolveDataFolder(homeDirectory),
   startedAt: new Date(),
-  writeStandardError: (text) => {
-    process.stderr.write(text);
-  },
+  standardError: process.stderr,
 });
+
+let isStarted = false;
+// Node would print an error nothing handled to standard error alone, which whoever started the
+// daemon may not keep, so it goes to the service log, stack and all. A failed start ends here too.
+// A rejection can carry any value, whatever Node's types say.
+process.on("uncaughtException", (error: unknown) => {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  writeServiceLog(`${isStarted ? "The daemon failed" : "The daemon could not start"}: ${detail}`);
+  process.exit(1);
+});
+
+// Installed before the start, so a signal sent at any moment stops the daemon cleanly: during the
+// start it ends the login shell's capture and the daemon stops as soon as it has started. The
+// handlers stay installed for the whole stop: with none, a second signal would end the daemon
+// mid-drain.
+const stopRequest = new AbortController();
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    stopRequest.abort();
+  });
+}
 
 // Read once: the reading of a running process never changes.
 const runProgram = promisify(execFile);
@@ -80,6 +99,7 @@ const daemon = await DaemonProcess.start({
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       accountEnvironment: process.env,
       writeServiceLog,
+      signal: stopRequest.signal,
     }),
   serviceVersion: readServiceVersion(),
   processIdentity,
@@ -87,18 +107,18 @@ const daemon = await DaemonProcess.start({
   now: () => new Date(),
   writeServiceLog,
 });
-// Installed before the ready line, so a signal sent on seeing it stops the daemon cleanly. The
-// handlers stay installed for the whole stop: with none, a second signal would end the daemon
-// mid-drain. A later signal joins the stop already running.
-for (const signal of ["SIGTERM", "SIGINT"] as const) {
-  process.on(signal, () => {
+
+isStarted = true;
+if (stopRequest.signal.aborted) {
+  void daemon.stop();
+} else {
+  stopRequest.signal.addEventListener("abort", () => {
     void daemon.stop();
   });
+  writeServiceLog(
+    `${DAEMON_READY_LINE} (process ${String(process.pid)}, protocol ${CURRENT_PROTOCOL_VERSION}).`,
+  );
 }
-
-writeServiceLog(
-  `${DAEMON_READY_LINE} (process ${String(process.pid)}, protocol ${CURRENT_PROTOCOL_VERSION}).`,
-);
 
 void daemon.whenStopped().then((outcome) => {
   if (!outcome.isClean) {

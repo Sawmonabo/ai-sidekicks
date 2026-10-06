@@ -159,7 +159,6 @@ export class DaemonProcess {
     this.#gateway = new LocalIpcGateway({
       registry,
       hooks: {
-        onConnect: () => {},
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);
           streamingPrimitive.cleanupTransport(transport.id);

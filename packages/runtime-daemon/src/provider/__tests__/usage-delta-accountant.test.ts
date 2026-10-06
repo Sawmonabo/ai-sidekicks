@@ -286,38 +286,49 @@ describe("UsageDeltaAccountant", () => {
 });
 
 describe("resolveCostUpdateProvenance", () => {
-  function makeDiagnostics() {
-    return makeSilentDriverDiagnostics();
-  }
   const ladderDefaults = { provider: "codex" as const };
 
   it("a sane provider-emitted cost resolves provider_reported", () => {
+    const diagnostics = makeSilentDriverDiagnostics();
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
       providerReportedCostUsdMicros: 42,
       derivedQuote: { costUsdMicros: 40 },
-      diagnostics: makeDiagnostics(),
+      diagnostics,
     });
     expect(resolved).toEqual({
       resolution: "cost-update",
       costSource: "provider_reported",
       costUsdMicros: 42,
     });
+    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(0);
   });
 
-  it("a non-finite or negative reported cost falls through to derivation", () => {
+  it("a non-finite or negative reported cost falls through to derivation, recorded", () => {
+    // Falling through silently would put a daemon estimate where the provider's figure was.
     for (const badReportedUsdMicros of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      const diagnostics = makeSilentDriverDiagnostics();
       const resolved = resolveCostUpdateProvenance({
         ...ladderDefaults,
         providerReportedCostUsdMicros: badReportedUsdMicros,
         derivedQuote: { costUsdMicros: 40 },
-        diagnostics: makeDiagnostics(),
+        diagnostics,
       });
       expect(resolved).toEqual({
         resolution: "cost-update",
         costSource: "derived_exact",
         costUsdMicros: 40,
       });
+      expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([
+        expect.objectContaining({
+          details: {
+            providerReportedCostUsdMicros: Number.isFinite(badReportedUsdMicros)
+              ? badReportedUsdMicros
+              : null,
+            reportedCostIsFinite: Number.isFinite(badReportedUsdMicros),
+          },
+        }),
+      ]);
     }
   });
 
@@ -326,7 +337,7 @@ describe("resolveCostUpdateProvenance", () => {
       ...ladderDefaults,
       providerReportedCostUsdMicros: null,
       derivedQuote: null,
-      diagnostics: makeDiagnostics(),
+      diagnostics: makeSilentDriverDiagnostics(),
     });
     expect(resolved).toEqual({ resolution: "held-until-priced" });
   });

@@ -156,8 +156,8 @@ function readRawMutableColumns(id: string): {
 } {
   const row = db
     .prepare(
-      `SELECT contract_version, resume_handle, runtime_metadata, updated_at FROM ` +
-        `runtime_bindings WHERE id = ?`,
+      `SELECT contract_version, resume_handle, runtime_metadata, updated_at
+         FROM runtime_bindings WHERE id = ?`,
     )
     .get(id) as
     | {

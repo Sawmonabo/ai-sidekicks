@@ -10,10 +10,11 @@
 //     rewrite `.js` specifiers to find sibling `.ts` files.
 //
 // A worker registers it via `node:module#register()`; a child process passes that call through
-// `--import`. `node_modules` paths go straight to the default resolver.
+// `--import`. Only a relative specifier from a source file is rewritten: a bare or `node:` one,
+// and anything under `node_modules`, goes straight to the default resolver.
 
 import { existsSync } from "node:fs";
-import { fileURLToPath, URL } from "node:url";
+import { URL } from "node:url";
 
 /**
  * @param {string} specifier
@@ -21,22 +22,17 @@ import { fileURLToPath, URL } from "node:url";
  * @param {(s: string, c: { parentURL?: string }) => unknown} nextResolve
  */
 export async function resolve(specifier, context, nextResolve) {
+  const parentUrl = context.parentURL;
   if (
+    (specifier.startsWith("./") || specifier.startsWith("../")) &&
     specifier.endsWith(".js") &&
-    context.parentURL !== undefined &&
-    !specifier.includes("node_modules") &&
-    !context.parentURL.includes("node_modules")
+    parentUrl !== undefined &&
+    parentUrl.startsWith("file:") &&
+    !parentUrl.includes("node_modules")
   ) {
-    try {
-      const candidateUrl = new URL(specifier, context.parentURL);
-      const tsHref = candidateUrl.href.replace(/\.js$/, ".ts");
-      const tsPath = fileURLToPath(tsHref);
-      if (existsSync(tsPath)) {
-        return nextResolve(tsHref, context);
-      }
-    } catch {
-      // Fall through to default resolver on any URL parse failure —
-      // node_modules / builtin specifiers (e.g. "node:fs") land here.
+    const sourceUrl = new URL(specifier.replace(/\.js$/, ".ts"), parentUrl);
+    if (existsSync(sourceUrl)) {
+      return nextResolve(sourceUrl.href, context);
     }
   }
   return nextResolve(specifier, context);
