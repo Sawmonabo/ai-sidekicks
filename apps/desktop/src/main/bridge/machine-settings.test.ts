@@ -4,9 +4,12 @@
 
 import { setImmediate } from "node:timers/promises";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
+  DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
+  environmentNameRefusal,
   MACHINE_SETTINGS_DEFAULTS,
+  type DaemonEnvironmentNameRefusedDetails,
   type MachineSettingsReading,
 } from "@ai-sidekicks/contracts/machine-settings";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,10 +23,21 @@ vi.mock("electron", () => electronMock.moduleExports);
 
 const SUBSCRIPTION_ID = "6f4a0a43-6f1f-4b8f-9d50-2b0e4bb0b001";
 
-const REFUSAL = {
+/** A row name the contract's own rule refuses. */
+const REFUSED_NAME = "OPENAI_API_KEY";
+
+/** The details the service sends with the refusal, built from the contract's rule and type. */
+const REFUSED_DETAILS: DaemonEnvironmentNameRefusedDetails = {
+  name: REFUSED_NAME,
+  reason: environmentNameRefusal(REFUSED_NAME) ?? expect.fail("the contract takes the name"),
+};
+
+/** The service's refusal as its wire sends it: the contract's code, with the details as fields. */
+const REFUSAL: JsonRpcError = {
   code: JsonRpcErrorCode.InvalidParams,
-  message: 'environment row "OPENAI_API_KEY" refused: looks like a credential',
-  data: { type: "daemon.environment_name_refused", fields: { name: "OPENAI_API_KEY" } },
+  // The service's own words for a credential-shaped name, which no contract carries.
+  message: "Credentials are not set here.",
+  data: { type: DAEMON_ENVIRONMENT_NAME_REFUSED_CODE, fields: { ...REFUSED_DETAILS } },
 };
 
 beforeEach(() => {
@@ -49,7 +63,7 @@ describe("the machine's settings through main", () => {
     await expect(bridge.machineSettings.write({ editorId: "zed" })).resolves.toEqual(written);
     await expect(
       bridge.machineSettings.write({
-        environmentRows: [{ name: "OPENAI_API_KEY", value: "sk-not-a-real-key" }],
+        environmentRows: [{ name: REFUSED_NAME, value: "sk-not-a-real-key" }],
       }),
     ).rejects.toEqual(REFUSAL);
     expect(connection.requests.map((request) => request.method)).toEqual([
