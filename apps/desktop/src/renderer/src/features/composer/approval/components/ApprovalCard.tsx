@@ -1,14 +1,18 @@
-// One approval, one card, two answers (approve or reject). The remembering policy is visible
-// before the answer, and an untouched remember control omits `rememberedScope` from the payload.
-// The answer names no scope, so the daemon applies the one the ask was raised with.
-// The action row is a `toolbar` walked with arrows and `h`/`l`, both suppressing page scroll.
+// One approval, one card, three answers in a fixed order: `Decline`, `Always allow <subject> this
+// session` and `Approve once`, the primary last. The middle answer is the rule: its face remembers
+// it for this session and its arrow for the whole project, and it is absent where the ask may not
+// carry a standing allow. On a network ask `Decline` carries an arrow that blocks the host for the
+// session. `Approve once` and a plain `Decline` send no `rememberedScope`. The answer names no
+// scope, so the daemon applies the one the ask was raised with. The faces are a `toolbar` walked
+// with arrows and `h`/`l`, both suppressing page scroll.
 
 import type {
   ApprovalDecision,
   ApprovalProjectionRow,
   ApprovalResolveRequest,
+  RememberedScope,
 } from "@ai-sidekicks/contracts/approval";
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { isHTMLElement } from "@floating-ui/utils/dom";
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -22,13 +26,14 @@ import { ApprovalResource } from "./ApprovalResource.js";
 import {
   APPROVAL_CATEGORY_LABELS,
   APPROVAL_STATE_LABELS,
+  RULE_SCOPE_LABELS,
 } from "#renderer/lib/approval-vocabulary.js";
 import { APPROVAL_STATE_TONES } from "../state-tones.js";
 import {
-  IDLE_REMEMBERED_RULE_INTENT,
-  RememberDecision,
-  rememberedScopeFor,
-} from "./RememberDecision.js";
+  APPROVAL_CARD_ACTION_CLASS,
+  ScopedAnswer,
+  type ScopedAnswerArrow,
+} from "./ScopedAnswer.js";
 
 import "./ApprovalCard.css";
 
@@ -47,23 +52,24 @@ export interface ApprovalCardProps {
   readonly children?: React.ReactNode;
 }
 
-/** The action row's members, in the order the arrows walk them. */
-const ACTION_ORDER = ["approve", "reject"] as const;
-
-/** The one action that carries the accent: a card has one filled primary action. */
-const PRIMARY_ACTION: (typeof ACTION_ORDER)[number] = "approve";
-
 /**
  * The attribute a card carries its record's id on; the card writes it and
  * {@link findApprovalCardAction} reads it.
  */
 const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 
-const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
+/** The class only `Approve once` wears, where an arriving card's focus lands. */
+const APPROVE_ONCE_CLASS = "meridian-approval-card__approve-once";
+
+/** The faces' shared size; each adds its own look. */
+const ANSWER_FACE_CLASS = "meridian-action-button meridian-action-button--regular";
+
+/** `Decline`'s look: an outline marked red. */
+const DECLINE_FACE_CLASS = "meridian-action-button--outline meridian-action-button--destructive";
 
 /**
- * The first action of the card for `approvalRequestId`, or `undefined`. The id is compared as a
- * string, never interpolated into a selector, because it is a wire value.
+ * The `Approve once` action of the card for `approvalRequestId`, or `undefined`. The id is
+ * compared as a string, never interpolated into a selector, because it is a wire value.
  *
  * @consumedBy the approval arrival announcement
  */
@@ -75,7 +81,7 @@ export function findApprovalCardAction(
     if (card.getAttribute(APPROVAL_CARD_ID_ATTRIBUTE) !== approvalRequestId) {
       continue;
     }
-    const action = card.querySelector(`.${APPROVAL_CARD_ACTION_CLASS}`);
+    const action = card.querySelector(`.${APPROVE_ONCE_CLASS}`);
     return isHTMLElement(action) ? action : undefined;
   }
   return undefined;
@@ -86,22 +92,16 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const { record, onResolve } = props;
   const titleId = useId();
   const actionRowRef = useRef<HTMLDivElement>(null);
-  const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_RULE_INTENT);
 
   // The offer reading shared with the palette rows: a refusal that settled this request takes
   // the actions off the card and the same two rows out of the palette.
   const answerable = isApprovalAnswerable(record, props.refusal);
 
-  const answer = useCallback(
-    (decision: ApprovalDecision) => {
-      // The opt-in rides the approve path only; an untouched control omits the member.
-      const remembered =
-        decision === "approved"
-          ? rememberedScopeFor(rememberedGrantIntent, record.subject)
-          : undefined;
+  const answer = useCallback<ApprovalAnswerPress>(
+    (decision, remembered) => {
       onResolve(approvalAnswer(record, decision, remembered));
     },
-    [onResolve, record, rememberedGrantIntent],
+    [onResolve, record],
   );
 
   const onActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -109,15 +109,19 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     if (step === 0) {
       return;
     }
+    // The faces alone are walked; an arrow beside a face, and its open menu, keep their keys.
+    const faces = [
+      ...(actionRowRef.current?.querySelectorAll<HTMLElement>(`.${APPROVAL_CARD_ACTION_CLASS}`) ??
+        []),
+    ];
+    const focusedAt = faces.findIndex((face) => face === face.ownerDocument.activeElement);
+    if (focusedAt < 0) {
+      return;
+    }
     // An arrow in a toolbar is a movement; letting it also scroll would move the row away.
     event.preventDefault();
-    const buttons = [...(actionRowRef.current?.querySelectorAll("button") ?? [])];
-    const focusedAt = Math.max(
-      buttons.findIndex((button) => button === button.ownerDocument.activeElement),
-      0,
-    );
     // The walk stops at each end rather than wrapping around.
-    const next = buttons[clampedRowIndex(focusedAt + step, buttons.length)];
+    const next = faces[clampedRowIndex(focusedAt + step, faces.length)];
     next?.focus();
   }, []);
 
@@ -185,38 +189,43 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       </Collapsible.Root>
 
       {answerable ? (
-        <>
+        <div
+          className="meridian-approval-card__actions"
+          ref={actionRowRef}
+          role="toolbar"
+          aria-label="Answer this request"
+          aria-orientation="horizontal"
+          onKeyDown={onActionKeyDown}
+        >
+          <ScopedAnswer
+            label="Decline"
+            faceClassName={`${ANSWER_FACE_CLASS} ${DECLINE_FACE_CLASS}`}
+            isDisabled={props.isResolving}
+            onPress={() => {
+              answer("rejected", undefined);
+            }}
+            arrow={declineArrowFor(record, answer)}
+          />
           {record.standingAllowOffered ? (
-            <RememberDecision
-              intent={rememberedGrantIntent}
-              subject={record.subject}
-              onChange={setRememberedGrantIntent}
+            <ScopedAnswer
+              label={allowLabelFor(record)}
+              faceClassName={`${ANSWER_FACE_CLASS} meridian-action-button--outline`}
+              isDisabled={props.isResolving}
+              onPress={() => {
+                answer("approved", ruleFor(record, "session", "allow"));
+              }}
+              arrow={allowArrowFor(record, answer)}
             />
           ) : null}
-
-          <div
-            className="meridian-approval-card__actions"
-            ref={actionRowRef}
-            role="toolbar"
-            aria-label="Answer this request"
-            aria-orientation="horizontal"
-            onKeyDown={onActionKeyDown}
-          >
-            {ACTION_ORDER.map((action) => (
-              <button
-                className={actionClassName(action)}
-                key={action}
-                type="button"
-                disabled={props.isResolving}
-                onClick={() => {
-                  answer(action === "approve" ? "approved" : "rejected");
-                }}
-              >
-                {action === "approve" ? "Approve" : "Reject"}
-              </button>
-            ))}
-          </div>
-        </>
+          <ScopedAnswer
+            label="Approve once"
+            faceClassName={`${ANSWER_FACE_CLASS} meridian-accent-fill ${APPROVE_ONCE_CLASS}`}
+            isDisabled={props.isResolving}
+            onPress={() => {
+              answer("approved", undefined);
+            }}
+          />
+        </div>
       ) : null}
 
       {props.refusal === undefined ? null : <RefusalWithRemedy refusal={props.refusal} />}
@@ -224,15 +233,74 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   );
 }
 
-/** The classes one action wears: the shared action button, then the accent fill or the outline. */
-function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
-  const fill =
-    action === PRIMARY_ACTION ? "meridian-accent-fill" : "meridian-action-button--outline";
-  return [
-    APPROVAL_CARD_ACTION_CLASS,
-    "meridian-action-button meridian-action-button--regular",
-    fill,
-  ].join(" ");
+/** One press of the card: a decision and the rule it makes, if any. */
+type ApprovalAnswerPress = (
+  decision: ApprovalDecision,
+  remembered: RememberedScope | undefined,
+) => void;
+
+/** The rule a press makes on the ask's own subject. */
+function ruleFor(
+  record: ApprovalProjectionRow,
+  kind: RememberedScope["kind"],
+  sense: RememberedScope["sense"],
+): RememberedScope {
+  return { kind, pattern: record.subject, sense };
+}
+
+function allowLabelFor(record: ApprovalProjectionRow): string {
+  return `Always allow ${record.subject} ${RULE_SCOPE_LABELS.session}`;
+}
+
+/** `Decline`'s arrow, on a network ask only: a host is the one subject a refusal is kept for. */
+function declineArrowFor(
+  record: ApprovalProjectionRow,
+  answer: ApprovalAnswerPress,
+): ScopedAnswerArrow | undefined {
+  if (record.category !== "network_access") {
+    return undefined;
+  }
+  return {
+    label: "Other ways to decline",
+    rows: [
+      {
+        label: `Block ${record.subject} ${RULE_SCOPE_LABELS.session}`,
+        isFacePress: false,
+        onPress: () => {
+          answer("rejected", ruleFor(record, "session", "block"));
+        },
+      },
+    ],
+  };
+}
+
+/** The standing allow's arrow, where the rule may also be written for the whole project. */
+function allowArrowFor(
+  record: ApprovalProjectionRow,
+  answer: ApprovalAnswerPress,
+): ScopedAnswerArrow | undefined {
+  if (!record.projectScopeOffered) {
+    return undefined;
+  }
+  return {
+    label: "Other scopes for this rule",
+    rows: [
+      {
+        label: allowLabelFor(record),
+        isFacePress: true,
+        onPress: () => {
+          answer("approved", ruleFor(record, "session", "allow"));
+        },
+      },
+      {
+        label: `Always in ${RULE_SCOPE_LABELS.project}`,
+        isFacePress: false,
+        onPress: () => {
+          answer("approved", ruleFor(record, "project", "allow"));
+        },
+      },
+    ],
+  };
 }
 
 /** Arrow and vim movement, and nothing else. `0` means this key is not ours. */

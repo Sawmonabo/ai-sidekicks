@@ -88,6 +88,7 @@ const PENDING_ROW = {
   subject: "pnpm test",
   reason: "The command writes outside the worktree.",
   standingAllowOffered: true,
+  projectScopeOffered: true,
   state: "pending",
   createdAt: AT,
   updatedAt: AT,
@@ -133,6 +134,19 @@ describe("ApprovalProjectionReadResponseSchema", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("refuses a project scope offered where no standing allow is", () => {
+    expect(
+      ApprovalProjectionReadResponseSchema.safeParse({
+        approvals: [{ ...PENDING_ROW, standingAllowOffered: false }],
+      }).success,
+    ).toBe(false);
+    expect(
+      ApprovalProjectionReadResponseSchema.safeParse({
+        approvals: [{ ...PENDING_ROW, standingAllowOffered: false, projectScopeOffered: false }],
+      }).success,
+    ).toBe(true);
   });
 
   it("refuses a rule on an ask that has not been answered", () => {

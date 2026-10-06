@@ -1,8 +1,9 @@
-// What an answer sends: an answer the contract accepts, no second press while one is in flight, a
-// remember opt-in that sends nothing until engaged, only on approve, and is absent where no
-// standing allow is offered, a keyboard-walkable action row, and the requested resource shown in
-// full before the person answers. The card and the palette rows withdraw together on a settled
-// refusal. Payload assertions drive the real `onResolve`, so they check the wire request.
+// What an answer sends: an answer the contract accepts, no second press while one is in flight,
+// the three answers in their fixed order with the standing allow absent where none is offered, a
+// rule made only by the press whose label names it, the project scope and the host block only
+// where offered, a keyboard-walkable row, and the requested resource shown in full before the
+// person answers. The card and the palette rows withdraw together on a settled refusal. Payload
+// assertions drive the real `onResolve`, so they check the wire request.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -12,19 +13,24 @@ import { approvalCommandRows, type ApprovalCommandInput } from "../contributions
 import { isAcceptedAnswer, pendingRecord } from "../record.test-support.js";
 import { renderCard } from "./ApprovalCard.test-support.js";
 
-/**
- * Engages the remember opt-in by clicking its label: the visible control is a `span` whose
- * state lives on a hidden native input inside the label.
- */
-function engageRememberOptIn(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
-  fireEvent.click(screen.getByText("Remember my approval"));
+/** The faces of the action row, by their words, in the order they stand. */
+function answerFaces(): readonly string[] {
+  const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+  return [...actions.querySelectorAll(".meridian-approval-card__action")].map(
+    (face) => face.textContent,
+  );
+}
+
+/** Opens the arrow named `arrowLabel` and presses its row named `rowLabel`. */
+function pressArrowRow(arrowLabel: string, rowLabel: string): void {
+  fireEvent.click(screen.getByRole("button", { name: arrowLabel }));
+  fireEvent.click(screen.getByRole("menuitem", { name: rowLabel }));
 }
 
 describe("what an answer sends", () => {
-  it("sends an answer the contract accepts, naming no scope of its own", () => {
+  it("sends Approve once as an answer the contract accepts, naming no scope and no rule", () => {
     const requests = renderCard(pendingRecord());
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
     expect(requests).toHaveLength(1);
     expect(isAcceptedAnswer(requests[0])).toBe(true);
     expect(requests[0]).toStrictEqual({
@@ -34,36 +40,52 @@ describe("what an answer sends", () => {
     });
   });
 
-  it("mints a fresh client resolution id for every press", () => {
+  it("sends a plain Decline with no rule, and mints a fresh client resolution id for every press", () => {
     // Two presses sharing an id would be two answers the daemon cannot tell apart.
     const requests = renderCard(pendingRecord());
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(requests[1]?.decision).toBe("rejected");
+    expect(requests[1] && "rememberedScope" in requests[1]).toBe(false);
     expect(requests[0]?.clientResolutionId).not.toBe(requests[1]?.clientResolutionId);
   });
 });
 
 describe("a press while the answer is in flight", () => {
-  it("disables both actions while this record's call is in flight", () => {
-    renderCard(pendingRecord(), true);
+  it("disables every answer and every arrow while this record's call is in flight", () => {
+    renderCard(pendingRecord({ category: "network_access", subject: "api.example.com" }), true);
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    for (const button of actions.querySelectorAll("button")) {
+    const buttons = [...actions.querySelectorAll("button")];
+    // Three faces and the two arrows.
+    expect(buttons).toHaveLength(5);
+    for (const button of buttons) {
       expect(button.disabled).toBe(true);
     }
   });
 });
 
-describe("the remembered-rule opt-in", () => {
-  it("omits `rememberedScope` entirely when the control was never engaged", () => {
-    const requests = renderCard(pendingRecord());
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(requests[0] && "rememberedScope" in requests[0]).toBe(false);
+describe("the three answers", () => {
+  it("stand in one fixed order, the standing allow naming the ask's own subject", () => {
+    renderCard(pendingRecord({ subject: "pnpm test" }));
+    expect(answerFaces()).toEqual([
+      "Decline",
+      "Always allow pnpm test this session",
+      "Approve once",
+    ]);
   });
 
-  it("sends an allow on the ask's own subject, at this session, once engaged", () => {
+  it("drop the standing allow, arrow and all, where the ask may not carry one", () => {
+    renderCard(pendingRecord({ standingAllowOffered: false, projectScopeOffered: false }));
+    expect(answerFaces()).toEqual(["Decline", "Approve once"]);
+    expect(screen.queryByRole("button", { name: "Other scopes for this rule" })).toBeNull();
+  });
+});
+
+describe("the standing allow makes the rule its label names", () => {
+  it("allows the ask's own subject for this session from its face", () => {
     const requests = renderCard(pendingRecord({ subject: "pnpm test" }));
-    engageRememberOptIn();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Always allow pnpm test this session" }));
+    expect(requests[0]?.decision).toBe("approved");
     expect(requests[0]?.rememberedScope).toStrictEqual({
       kind: "session",
       pattern: "pnpm test",
@@ -72,58 +94,84 @@ describe("the remembered-rule opt-in", () => {
     expect(isAcceptedAnswer(requests[0])).toBe(true);
   });
 
-  it("never sends a remembered scope on the reject path", () => {
-    const requests = renderCard(pendingRecord());
-    engageRememberOptIn();
-    expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-    expect(requests[0]?.decision).toBe("rejected");
-    expect(requests[0]?.rememberedScope).toBeUndefined();
+  it("allows it for the whole project from its arrow's second row", () => {
+    const requests = renderCard(pendingRecord({ subject: "pnpm test" }));
+    pressArrowRow("Other scopes for this rule", "Always in this project");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.rememberedScope).toStrictEqual({
+      kind: "project",
+      pattern: "pnpm test",
+      sense: "allow",
+    });
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
   });
 
-  it("is absent where the ask may not carry a standing allow", () => {
-    renderCard(pendingRecord({ standingAllowOffered: false }));
-    expect(screen.queryByRole("button", { name: "Remember this answer" })).toBeNull();
-    // Negative control: the answers themselves stay.
-    expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull();
+  it("carries no arrow where the project scope is not offered", () => {
+    renderCard(pendingRecord({ projectScopeOffered: false }));
+    expect(screen.queryByRole("button", { name: "Other scopes for this rule" })).toBeNull();
+    // Negative control: the face itself stays.
+    expect(answerFaces()).toContain("Always allow approval.ts this session");
+  });
+});
+
+describe("a network ask's Decline can block the host", () => {
+  it("blocks the host for this session from Decline's arrow", () => {
+    const requests = renderCard(
+      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+    );
+    pressArrowRow("Other ways to decline", "Block api.example.com this session");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.decision).toBe("rejected");
+    expect(requests[0]?.rememberedScope).toStrictEqual({
+      kind: "session",
+      pattern: "api.example.com",
+      sense: "block",
+    });
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
+  });
+
+  it("negative control: a file write's Decline keeps its single press", () => {
+    renderCard(pendingRecord());
+    expect(screen.queryByRole("button", { name: "Other ways to decline" })).toBeNull();
   });
 });
 
 describe("the action row is keyboard-walkable", () => {
-  it("moves focus with an arrow and with a vim key, and suppresses the page scroll", () => {
+  it("moves focus between the faces with an arrow and with a vim key, and suppresses the page scroll", () => {
     renderCard(pendingRecord());
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const approve = screen.getByRole("button", { name: "Approve" });
-    const reject = screen.getByRole("button", { name: "Reject" });
-    approve.focus();
+    const decline = screen.getByRole("button", { name: "Decline" });
+    const allow = screen.getByRole("button", { name: "Always allow approval.ts this session" });
+    decline.focus();
     const arrowHandled = fireEvent.keyDown(actions, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(reject);
+    // The standing allow's arrow sits between the two faces and is skipped.
+    expect(document.activeElement).toBe(allow);
     // `fireEvent` answers false when a handler called `preventDefault`.
     expect(arrowHandled).toBe(false);
     fireEvent.keyDown(actions, { key: "h" });
-    expect(document.activeElement).toBe(approve);
+    expect(document.activeElement).toBe(decline);
   });
 
   it("stops at each end rather than wrapping around", () => {
     renderCard(pendingRecord());
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const approve = screen.getByRole("button", { name: "Approve" });
-    const reject = screen.getByRole("button", { name: "Reject" });
-    approve.focus();
+    const decline = screen.getByRole("button", { name: "Decline" });
+    const approveOnce = screen.getByRole("button", { name: "Approve once" });
+    decline.focus();
     fireEvent.keyDown(actions, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(approve);
-    reject.focus();
+    expect(document.activeElement).toBe(decline);
+    approveOnce.focus();
     fireEvent.keyDown(actions, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(reject);
+    expect(document.activeElement).toBe(approveOnce);
   });
 
   it("negative control: a key the row does not own moves nothing and is not suppressed", () => {
     renderCard(pendingRecord());
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const approve = screen.getByRole("button", { name: "Approve" });
-    approve.focus();
+    const decline = screen.getByRole("button", { name: "Decline" });
+    decline.focus();
     expect(fireEvent.keyDown(actions, { key: "ArrowDown" })).toBe(true);
-    expect(document.activeElement).toBe(approve);
+    expect(document.activeElement).toBe(decline);
   });
 });
 

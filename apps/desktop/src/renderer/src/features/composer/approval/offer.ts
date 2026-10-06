@@ -14,8 +14,8 @@ import { refusalRemedyFor } from "#renderer/lib/refusal/remedies.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
- * Whether the record's approve and reject answers are still offered: false once it leaves
- * `pending`, or once a `settled` refusal (answered elsewhere) has landed against it.
+ * Whether the record's answers are still offered: false once it leaves `pending`, or once a
+ * `settled` refusal (answered elsewhere) has landed against it.
  */
 export function isApprovalAnswerable(
   record: ApprovalProjectionRow,
@@ -30,7 +30,7 @@ export function isApprovalAnswerable(
 /**
  * The answer one press sends. It names no `effectiveScope`, so the daemon applies the scope the
  * ask was raised with. Each press mints its own `clientResolutionId`, which the daemon echoes on
- * the resolution event. `rememberedScope` is present only when the person chose to remember.
+ * the resolution event. `rememberedScope` is present only on a press whose label names a rule.
  */
 export function approvalAnswer(
   record: ApprovalProjectionRow,

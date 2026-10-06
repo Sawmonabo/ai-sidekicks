@@ -24,6 +24,7 @@ export function pendingRecord(
     resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
     subject: "approval.ts",
     standingAllowOffered: true,
+    projectScopeOffered: true,
     state: "pending",
     createdAt: "2026-01-01T13:30:00.900Z",
     updatedAt: "2026-01-01T13:30:00.900Z",

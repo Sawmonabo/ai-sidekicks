@@ -1,7 +1,7 @@
-// The approval card's acts as palette rows. Each row sends the same answer its on-screen control
-// does, without the remembered-rule member (a rule must be seen before it is minted), and reads
-// the card's own offer rule, so the palette cannot offer an act the card has withdrawn. A record
-// with a resolve in flight contributes no rows.
+// The approval card's acts as palette rows: `Approve once` and a plain `Decline`, each sending
+// the same answer its on-screen control does with no remembered rule (a rule is made only by the
+// press whose label names it), and each reading the card's own offer rule, so the palette cannot
+// offer an act the card has withdrawn. A record with a resolve in flight contributes no rows.
 
 import type {
   ApprovalProjectionRow,
@@ -50,12 +50,14 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
     rows.push({
       kind: "approve",
       record,
-      title: namesTheRecord ? `Approve request ${record.id}` : "Approve the pending request",
+      title: namesTheRecord
+        ? `Approve request ${record.id} once`
+        : "Approve the pending request once",
     });
     rows.push({
       kind: "reject",
       record,
-      title: namesTheRecord ? `Reject request ${record.id}` : "Reject the pending request",
+      title: namesTheRecord ? `Decline request ${record.id}` : "Decline the pending request",
     });
   }
   return rows;

@@ -1,6 +1,7 @@
 /* The approval card's sheet. Colors, spaces and radii are tokens; the amber and red marks come
-   through `Chip` and `Refusal`. The scope choice and the actions wear the shared action button
-   from `styles/action-buttons.css`, so this sheet adds only the actions' disabled state. */
+   through `Chip` and `Refusal`. The answers wear the shared action button from
+   `styles/action-buttons.css`, so this sheet adds their disabled state and how a face meets its
+   arrow. */
 
 .meridian-approval-card {
   display: flex;
@@ -92,64 +93,62 @@
   line-height: 1.5;
 }
 
-.meridian-approval-card__remember-note {
-  max-width: 62ch;
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
-}
-
-.meridian-approval-card__opt-in {
+/* One filled primary action per card: `Approve once` wears `meridian-accent-fill`, last in the
+   row. `Decline` is an outline marked red, and the standing allow a plain outline. */
+.meridian-approval-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--meridian-space-2);
   align-items: center;
-  font-size: var(--meridian-text-sm);
 }
 
-.meridian-approval-card__checkbox {
+.meridian-approval-card__action:disabled,
+.meridian-approval-card__arrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* A face and its arrow read as one control: the seam between them has one edge. */
+.meridian-approval-card__split {
   display: inline-flex;
-  flex: none;
+}
+
+.meridian-approval-card__split > .meridian-approval-card__action {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.meridian-approval-card__arrow {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1rem;
-  height: 1rem;
-  padding: 0;
-  background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
+  padding-inline: var(--meridian-space-1);
+  border-inline-start-width: 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
 }
 
-.meridian-approval-card__checkbox-mark {
-  width: 0.5rem;
-  height: 0.5rem;
-  background: var(--meridian-accent);
-  border-radius: 1px;
-}
-
-.meridian-approval-card__scope-popup {
+.meridian-approval-card__scope-menu {
+  display: flex;
+  flex-direction: column;
+  margin-block: var(--meridian-space-1);
   padding: var(--meridian-space-1);
   background: var(--meridian-surface-raised);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
+  font-size: var(--meridian-text-sm);
 }
 
-.meridian-approval-card__scope-item {
+.meridian-approval-card__scope-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  justify-content: space-between;
   padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
   border-radius: var(--meridian-radius-sm);
   cursor: pointer;
 }
 
-/* One filled primary action per card: approve wears `meridian-accent-fill`. Reject stays quiet
-   and never red, because a rejection is the console working. */
-.meridian-approval-card__actions {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-}
-
-.meridian-approval-card__action:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.meridian-approval-card__scope-row[data-highlighted] {
+  background: var(--meridian-surface-sunken);
 }

@@ -104,7 +104,7 @@ export type ApprovalDecision = (typeof APPROVAL_DECISION_VALUES)[number];
 /**
  * Every {@link ApprovalDecision}.
  *
- * @consumedBy the approval card's Allow and Deny
+ * @consumedBy the approval card's Approve once and Decline
  */
 export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = APPROVAL_DECISION_VALUES;
 /** Parses an {@link ApprovalDecision}. */
@@ -118,8 +118,6 @@ const REMEMBERED_SCOPE_KIND_VALUES = ["session", "project"] as const;
  * session on this project, kept in the provider's own project rule file.
  */
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KIND_VALUES)[number];
-/** Every {@link RememberedScopeKind}. */
-export const REMEMBERED_SCOPE_KINDS: readonly RememberedScopeKind[] = REMEMBERED_SCOPE_KIND_VALUES;
 /** Parses a {@link RememberedScopeKind}. */
 export const RememberedScopeKindSchema: z.ZodType<RememberedScopeKind, RememberedScopeKind> =
   z.enum(REMEMBERED_SCOPE_KIND_VALUES);
@@ -311,6 +309,12 @@ export interface ApprovalProjectionRow {
    * `Approve once`.
    */
   standingAllowOffered: boolean;
+  /**
+   * Whether that standing allow may also be written for the whole project: false on a chat, which
+   * has no project, and on an ask the daemon raised itself. Never true without
+   * `standingAllowOffered`.
+   */
+  projectScopeOffered: boolean;
   state: ApprovalState;
   createdAt: string;
   updatedAt: string;
@@ -334,6 +338,7 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     subject: z.string().min(1),
     reason: z.string().min(1).optional(),
     standingAllowOffered: z.boolean(),
+    projectScopeOffered: z.boolean(),
     state: ApprovalStateSchema,
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -362,6 +367,13 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
         code: "custom",
         path: ["decision"],
         message: "the decision is the state the ask resolved to",
+      });
+    }
+    if (row.projectScopeOffered && !row.standingAllowOffered) {
+      context.addIssue({
+        code: "custom",
+        path: ["projectScopeOffered"],
+        message: "the project scope is offered only beside a standing allow",
       });
     }
     const mintedSense = row.decision === undefined ? undefined : SENSE_BY_DECISION[row.decision];

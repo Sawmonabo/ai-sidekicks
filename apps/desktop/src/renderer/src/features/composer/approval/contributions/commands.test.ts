@@ -38,10 +38,10 @@ describe("the rows the approval card contributes", () => {
     );
 
     expect(rows.map((row) => row.title)).toEqual([
-      `Approve request ${FIRST_REQUEST}`,
-      `Reject request ${FIRST_REQUEST}`,
-      `Approve request ${SECOND_REQUEST}`,
-      `Reject request ${SECOND_REQUEST}`,
+      `Approve request ${FIRST_REQUEST} once`,
+      `Decline request ${FIRST_REQUEST}`,
+      `Approve request ${SECOND_REQUEST} once`,
+      `Decline request ${SECOND_REQUEST}`,
     ]);
   });
 });
@@ -52,7 +52,7 @@ describe("what answering from the palette sends", () => {
     const record = pendingAsk(FIRST_REQUEST);
 
     performApprovalCommand(
-      { kind: "approve", record, title: "Approve the pending request" },
+      { kind: "approve", record, title: "Approve the pending request once" },
       inputFor({ resolve }),
     );
 
@@ -68,7 +68,7 @@ describe("what answering from the palette sends", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Reject the pending request" },
+      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Decline the pending request" },
       inputFor({ resolve }),
     );
 
