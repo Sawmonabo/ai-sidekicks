@@ -41,6 +41,9 @@ export function createWindowBridge(
     setMinimumSize: async (windowId, size): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.setMinimumSize, { windowId, size });
     },
+    bringForward: async (windowId): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.bringWindowForward, windowId);
+    },
     setDefaultSizes: async (sizes): Promise<void> => {
       await ipc.invoke(BRIDGE_CHANNELS.setDefaultSizes, sizes);
     },

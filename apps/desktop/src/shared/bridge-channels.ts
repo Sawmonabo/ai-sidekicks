@@ -24,6 +24,7 @@ export const BRIDGE_CHANNELS = {
   setAppearance: "window.setAppearance",
   readAppearance: "window.readAppearance",
   setMinimumSize: "window.setMinimumSize",
+  bringWindowForward: "window.bringForward",
   setDefaultSizes: "window.setDefaultSizes",
   endSafeStart: "window.endSafeStart",
   readUpdateState: "update.getState",
@@ -116,6 +117,7 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.setAppearance": [BRIDGE_CHANNELS.setAppearance],
   "window.subscribeAppearance": [BRIDGE_CHANNELS.readAppearance],
   "window.setMinimumSize": [BRIDGE_CHANNELS.setMinimumSize],
+  "window.bringForward": [BRIDGE_CHANNELS.bringWindowForward],
   "window.setDefaultSizes": [BRIDGE_CHANNELS.setDefaultSizes],
   "window.endSafeStart": [BRIDGE_CHANNELS.endSafeStart],
   // Pushed by main alone, on `REOPEN_WINDOW_CHANNEL`: the page asks nothing.

@@ -127,6 +127,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       setMinimumSize: async () => {
         // Nothing reads the floor back, and the harness sizes the fixture window itself.
       },
+      bringForward: async () => {
+        // A fixture runs no main to bring a window forward; the harness lays out every one itself.
+      },
       setDefaultSizes: async () => {
         // Nothing reads the sizes back, and the harness sizes the fixture window itself.
       },

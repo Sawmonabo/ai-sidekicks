@@ -7,7 +7,7 @@
 // layout and leaves it as it was, and says so in a line whose `Restore windows` reopens the kept
 // windows and ends the safe start.
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
@@ -64,6 +64,15 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   // Main keeps the appearance; every window applies what main kept and asks main for a change.
   const appearance = useAppearance(bridge, openWindows);
+
+  // A window opened again comes forward through main, which keeps test windows unobtrusive.
+  useEffect(
+    () =>
+      openWindows.bringForwardThrough((windowId) => {
+        void bridge.window.bringForward(windowId);
+      }),
+    [openWindows, bridge],
+  );
 
   useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 

@@ -4,13 +4,14 @@
 // waits over. Every stream the renderer keeps open re-opens through this one rule.
 
 import type { Clock, ScheduledHandle } from "#renderer/lib/clock.js";
+import { SERVICE_START_BACKOFF_MS } from "#shared/daemon/restart-backoff.js";
 
 /**
  * The waits before each re-open in a row of streams that ended at once or re-opens that threw, in
- * milliseconds: the first is at once and the last repeats, as the main process's restarts of the
- * service grow.
+ * milliseconds: the first is at once, then main's waits between starts of the service, the last
+ * repeating.
  */
-export const REOPEN_WAITS_MS: readonly number[] = [0, 100, 300, 1_000, 3_000, 10_000];
+export const REOPEN_WAITS_MS: readonly number[] = [0, ...SERVICE_START_BACKOFF_MS];
 
 /** How long a stream stays open before its end starts the re-open waits over, in milliseconds. */
 export const REOPEN_SETTLED_MS = 10_000;

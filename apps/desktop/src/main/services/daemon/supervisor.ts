@@ -36,6 +36,7 @@ import {
 } from "@ai-sidekicks/contracts/process-identity";
 import { z } from "zod";
 
+import { SERVICE_START_BACKOFF_MS } from "#shared/daemon/restart-backoff.js";
 import type {
   DaemonConnection,
   MainProcessNegotiation,
@@ -46,12 +47,6 @@ import { describeFailure } from "../failure-message.js";
 import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/status.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
-
-/**
- * The waits before each start after a loss or a failed start. Their count is the number of failed
- * starts in a row after which main stops trying and reports the service degraded.
- */
-export const SERVICE_START_BACKOFF_MS: readonly number[] = [100, 300, 1_000, 3_000, 10_000];
 
 /** How long main waits for a started or found service to answer `daemon.hello`. */
 export const SERVICE_HELLO_WAIT_MS = 10_000;

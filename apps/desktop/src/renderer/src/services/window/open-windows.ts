@@ -42,8 +42,8 @@ export class WindowNotOpenedError extends Error {
 
 /**
  * The open windows, the window used last first. A listener hears every open and close; a window
- * already open is brought forward rather than opened twice, since opening its name again would
- * load a blank page over it.
+ * already open is brought forward through main rather than opened twice, since opening its name
+ * again would load a blank page over it.
  */
 export class OpenWindows {
   readonly #options: OpenWindowsOptions;
@@ -54,6 +54,7 @@ export class OpenWindows {
     this.#isConsoleUnloading = true;
   };
   #usedLastFirst: readonly OpenWindow[] = [];
+  #askMainToBringForward: ((windowId: string) => void) | undefined;
   #isConsoleUnloading = false;
   #isDisposed = false;
 
@@ -84,7 +85,10 @@ export class OpenWindows {
   public open(windowId: string, address?: string): OpenWindow {
     const held = this.#held.get(windowId);
     if (held !== undefined) {
-      held.openWindow.window.focus();
+      if (this.#askMainToBringForward === undefined) {
+        throw new Error("A window is brought forward only once the bridge is registered.");
+      }
+      this.#askMainToBringForward(windowId);
       return held.openWindow;
     }
     const opened = this.#options.openWindow(windowId);
@@ -156,6 +160,20 @@ export class OpenWindows {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Bring an open window that is opened again forward through `bringForward`, main's one reveal
+   * path, until the returned call. The app registers it once the bridge resolves, before it opens
+   * a window.
+   */
+  public bringForwardThrough(bringForward: (windowId: string) => void): Unsubscribe {
+    this.#askMainToBringForward = bringForward;
+    return () => {
+      if (this.#askMainToBringForward === bringForward) {
+        this.#askMainToBringForward = undefined;
+      }
     };
   }
 

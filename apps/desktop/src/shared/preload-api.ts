@@ -465,6 +465,11 @@ export interface PreloadApi {
     /** The smallest size one window may shrink to. */
     setMinimumSize(windowId: string, size: WindowSize): Promise<void>;
     /**
+     * Brings an open window forward through main's one reveal path; nothing for a window that
+     * closed while the ask crossed.
+     */
+    bringForward(windowId: string): Promise<void>;
+    /**
      * The widths a pane's own window with no kept place opens at, handed before the first window
      * opens and again when the text size changes.
      */
@@ -543,6 +548,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       setAppearance: () => stubThrow("window.setAppearance"),
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
+      bringForward: () => stubThrow("window.bringForward"),
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
       endSafeStart: () => stubThrow("window.endSafeStart"),
       subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),
