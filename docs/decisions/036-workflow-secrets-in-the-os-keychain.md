@@ -13,7 +13,7 @@
 
 ## Context
 
-A workflow step often calls a service that wants a credential: an HTTP step sends a bearer token, and a step that talks to a hosted API needs its key. Workflows run unattended. A schedule, a webhook or a file watch starts them while no app window is open, and the daemon that runs them outlives the desktop app. Definitions are exported, imported, copied from shared scope into a project and read by agents that author workflows, so anything a definition holds travels further than the machine it was written on.
+A workflow step often calls a service that wants a credential: an HTTP step sends a bearer token, and a step that talks to a hosted API needs its key. Workflows run unattended. A schedule, a webhook or a file watch starts them while no app window is open, and the daemon that runs them outlives the desktop app. Definitions are exported, imported, run in any repository and read by agents that author workflows, so anything a definition holds travels further than the machine it was written on.
 
 [Spec-015 §Secrets — by reference only (C-15)](../specs/015-workflow-authoring-and-execution.md#secrets--by-reference-only-c-15) already keeps secret values out of definitions: a node's Credential param holds a `secret://<scope>/<name>` reference, never a value. It does not say where the value itself is kept, who may create or change it, where a reference may resolve, or what a step does when the store cannot be read.
 
@@ -39,10 +39,10 @@ The decision has six parts.
 
 1. **One store, or refusal.** The daemon writes each value through `@napi-rs/keyring` on macOS and Linux, and on Windows through the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE`, never a roaming persistence: one item per secret keyed by the daemon-minted `secretId`, so no secret's name appears in the operating system's keychain list. Every item the daemon opens, for a workflow secret or anything else, opens with `{linux: {store: "secret-service"}}`: on Linux it uses the Secret Service, and never the kernel keyring, which is cleared at every restart; where no Secret Service answers, the item goes in the daemon's one file readable only by the person (mode `0600`), as every daemon secret does, never silently ([ADR-020 §The Credential Store](./020-cli-identity-key-storage-custody.md#the-credential-store)). There is no other store: no database column, no environment variable. A store that is locked, or one the daemon cannot use, refuses the write with `workflow.secret_store_unavailable`, carrying `cause: locked | unavailable`, and nothing is stored anywhere else. Calls to the store for one item run one at a time, and a save that timed out and lands later is deleted, so a late write never overwrites the value its retry saved.
 
-2. **The record holds no value.** A secret is `{secretId, scope, scopeRef, name}` in a `workflow_secrets` table with no value column. `secretId` is minted by the daemon and never accepted from a request. `scope` is `project`, with `scopeRef` naming the project, or `shared`, with no `scopeRef`; there is no session scope, because an unattended run lives in a session nobody manages and nobody would create a secret there. `project` in a reference is relative: `secret://project/github-read` means the secret named `github-read` in the project the run is running in, so a shared definition run from two projects resolves each project's own secret, and copying a shared definition into a project needs no rewrite. A name is lowercase letters, digits and hyphens, starting with a letter or digit, at most 64 characters; one that breaks the pattern or is already taken in its scope is refused with `workflow.secret_name_invalid`, carrying `reason: pattern | taken`.
+2. **The record holds no value.** A secret is `{secretId, scope, scopeRef, name}` in a `workflow_secrets` table with no value column. `secretId` is minted by the daemon and never accepted from a request. `scope` is `project`, with `scopeRef` naming the project, or `shared`, with no `scopeRef`; there is no session scope, because an unattended run lives in a session nobody manages and nobody would create a secret there. `project` in a reference is relative: `secret://project/github-read` means the secret named `github-read` in the project the run works in, so one workflow run in two repositories resolves each project's own secret, and a run that works in no repository resolves only shared ones. A name is lowercase letters, digits and hyphens, starting with a letter or digit, at most 64 characters; one that breaks the pattern or is already taken in its scope is refused with `workflow.secret_name_invalid`, carrying `reason: pattern | taken`.
 
 3. **The verbs, and the order of the two writes.**
-   - `workflow.secretList {scopeRef?}` returns this project's secrets and the shared ones, by name, with no value.
+   - `workflow.secretList {scopeRef?}` returns a project's secrets and the shared ones, by name, with no value.
    - `workflow.secretCreate {scope, scopeRef, name, secretValue}` writes the value, then commits the record.
    - `workflow.secretReplace {secretId, secretValue}` overwrites the item, then updates the record. The name cannot change, because references find a secret by name.
    - `workflow.secretDelete {secretId}` records the removal intent on the row, deletes the item, then deletes the row; a crash between the steps is finished at the next start, as a provider account's removal is.
@@ -154,7 +154,7 @@ The decision has six parts.
 
 - No credential value is ever in a definition, an export, a step record, a log or a reply.
 - One credential-store module, one refusal shape and one removal order serve provider tokens, workflow secrets and the delivery secrets.
-- A shared definition works in every project that holds the secrets it names.
+- A workflow works in every repository whose project holds the secrets it names.
 - The person manages a secret where they use it: in the step's Credential field, with `New secret`, `Replace value` and `Delete`. No Settings page holds secrets.
 
 ### Negative (accepted trade-offs)

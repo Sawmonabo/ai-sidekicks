@@ -536,9 +536,9 @@ CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(wo
 
 -- Owner: Plan-007 (D-007-16) | Extended by: Plan-014
 -- Per-run execution binding (Spec-008 §State And Data Implications: execution mode as run setup data):
--- which workspace, mode and root a run in a project session executes against. One row per run, written
+-- which workspace, mode and root a run that works in a repository executes against. One row per run, written
 -- at the run's start: an agent run keyed by its run id, a workflow run keyed by its workflow run id (both
--- event-sourced UUIDs, so the PRIMARY KEY carries no FK). A run in a chat session writes no row. A workflow
+-- event-sourced UUIDs, so the PRIMARY KEY carries no FK). A run in a chat, and a run that works in no repository, writes no row. A workflow
 -- run's row lives as long as the run's record, and a session that moves while the run is paused leaves its
 -- steps on the recorded root (Spec-015 §Interfaces And Contracts).
 -- released_at stamps run-terminal release; an undo leaves it as it is (Spec-003 §Required Behavior; the Plan-007 bundle owns the implementing task).
@@ -563,7 +563,7 @@ CREATE TABLE run_execution_contexts (
 CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
 ```
 
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the workflow definitions, the agent definitions and the workflow secrets key a project by this record's id.
+**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.
 
 ---
 
@@ -702,33 +702,6 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
   name                 TEXT NOT NULL,                  -- author-facing name
-  -- Three-value scope domain per Spec-015 §State And Data Implications
-  -- 'session' binds to one session, named by scope_ref,
-  -- 'project' spans a project's sessions, 'shared' is the cross-project reuse tier —
-  -- visible to any project on this daemon, out of this same table. 'shared' is
-  -- breadth only: no distribution, no cross-machine sync, no additional table.
-  -- No column records an owning session: a 'session' definition names its session in
-  -- scope_ref, and it is runs, not definitions, that live in sessions.
-  scope                TEXT NOT NULL DEFAULT 'session'
-                       CHECK(scope IN ('session','project','shared')),
-  -- Scope identity: the session's id at 'session', the project record's id at
-  -- 'project', the '' sentinel at 'shared'. Without this column a 'project' row would name no
-  -- project, so the scope tier is not storable on `scope` alone.
-  -- The DEFAULT '' is safe beside `scope`'s DEFAULT 'session' only because the
-  -- CHECK below makes an all-defaults row invalid — and an all-defaults INSERT is
-  -- already unreachable, since content_hash, name, schema_version, and
-  -- definition_body are NOT NULL with no defaults. The default exists so the
-  -- 'shared' sentinel is written by the schema rather than by every caller,
-  -- matching mcp_server_bindings.scope_ref below. Do not "fix" it by dropping the
-  -- CHECK.
-  scope_ref            TEXT NOT NULL DEFAULT '',
-  -- Copy-on-write provenance (Spec-015 §Definition scope in the builder (SA-34)):
-  -- the content hash of the 'shared' definition this row was branched from when an
-  -- author edited a shared definition, NULL for a definition authored from scratch.
-  -- Provenance only — it is not part of the hashed body, so a branched definition
-  -- and a from-scratch definition with identical bodies carry the same content_hash
-  -- and collide on the dedupe key below, which is the intended convergence.
-  parent_content_hash  TEXT,
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
   schema_version       TEXT NOT NULL                   -- the document's own schemaVersion, verbatim; V1 value '2' (Spec-015 §Required Behavior). A string rather than a number so a later '2.1' round-trips
                        CHECK(schema_version GLOB '[0-9]*'),
@@ -746,17 +719,13 @@ CREATE TABLE workflow_definitions (
                        CHECK(permission_level IN ('readonly','ask','reviewed','sandboxed','yolo')),
   created_at           TEXT NOT NULL,
   created_by           TEXT,                           -- the device the save came from
-  -- Only 'shared' is daemon-wide and therefore ref-free; 'session' and 'project'
-  -- REQUIRE a ref. Mirrors the Spec-024 binding CHECK idiom as defense in depth
-  -- behind the schema-layer validation.
-  CHECK((scope = 'shared') = (scope_ref = '')),
-  -- Dedupe is per scope identity: two sessions storing the same 'shared' or
-  -- 'project' definition must converge on one row, or resolution has two
-  -- irreconcilable candidates.
-  UNIQUE(scope, scope_ref, content_hash)
+  deleted_at           TEXT                            -- the soft delete: set when the person deletes the workflow, whose runs keep their pinned versions; NULL while it is in the library
 );
 
-CREATE INDEX idx_workflow_definitions_scope ON workflow_definitions(scope, scope_ref);
+-- One library, so a name names one workflow: unique among the workflows not deleted, and a
+-- deleted workflow's name can be used again. A save, an import or a create whose name another
+-- workflow holds is refused with workflow.definition_refused (finding name_taken).
+CREATE UNIQUE INDEX idx_workflow_definitions_name ON workflow_definitions(name) WHERE deleted_at IS NULL;
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
 -- Note: `updated_at` intentionally absent — definitions are immutable by C-9/F13 convention.
@@ -781,7 +750,7 @@ CREATE TABLE workflow_versions (
   created_by           TEXT,                           -- the device the save came from
   saved_by_agent_id    TEXT,                           -- the agent that saved this version through the authoring call; NULL where the person saved it in the builder, so the Versions panel names the user or that agent
   UNIQUE(definition_id, version_number),
-  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions; copy-on-write and project -> shared promotion reuse a hash under a new definition id by design (Spec-015 §Definition scope in the builder (SA-34))
+  UNIQUE(definition_id, content_hash)                  -- per-definition: one definition never stores the same bytes as two versions
 );
 
 CREATE INDEX idx_workflow_versions_definition ON workflow_versions(definition_id, version_number DESC);
@@ -797,7 +766,7 @@ CREATE INDEX idx_workflow_versions_parent ON workflow_versions(parent_version_id
 -- one `Stop a run after` setting on Settings › Runtime, off by default, and time spent waiting on a person
 -- does not count against it; no run carries a cap, a step budget or a pool reservation of its own.
 CREATE TABLE workflow_runs (
-  id                        TEXT PRIMARY KEY,          -- the workflow run id, an event-sourced UUID; run_execution_contexts keys a project run's captured context by it
+  id                        TEXT PRIMARY KEY,          -- the workflow run id, an event-sourced UUID; run_execution_contexts keys the captured context of a run that works in a repository by it
   workflow_version_id       TEXT NOT NULL REFERENCES workflow_versions(id),
   session_id                TEXT NOT NULL,             -- the asking chat's session, or the workflow's own session for a run no chat asked for
   status                    TEXT NOT NULL DEFAULT 'new'

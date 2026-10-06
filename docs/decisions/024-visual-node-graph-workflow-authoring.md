@@ -13,7 +13,7 @@
 
 [Spec-015](../specs/015-workflow-authoring-and-execution.md) specifies a workflow engine whose execution model is a node graph: every kind in the catalog is a node with its own executor, branches join through `flow.merge`'s modes, iteration is the `flow.loop-items` kind whose body wires back into its own input, and one memory gate decides when each step starts. The node kinds `agent.run`, `agent.multi-agent`, `human.approval` and `human.form` delegate to the existing run, orchestration, approval and form machinery. Definitions are content-hashed and immutably versioned; `workflow.definitionCreate` runs a cycle check, exempting only the edge that closes a loop body into its loop's input, and rejects a definition that fails it.
 
-Authoring has a file form and a typed SDK, which the CLI and an agent use, and the product sets two requirements beside them: workflow definitions must be reusable across the projects on one daemon as well as within a single project — the daemon-wide `shared` tier — and authoring must happen on a dedicated visual canvas where every step is a node and the tools a step can reach are wired into it.
+Authoring has a file form and a typed SDK, which the CLI and an agent use, and the product sets two requirements beside them: workflow definitions must be reusable across the projects on one daemon as well as within a single project — one library, every workflow runnable from every chat and every project session — and authoring must happen on a dedicated visual canvas where every step is a node and the tools a step can reach are wired into it.
 
 The system already constrains what such a surface may do. A tool's approval is set only in Settings › MCP servers, through [Spec-024](../specs/024-mcp-server-configuration-and-governance.md)'s override operations, and enforced through each provider's own tool settings ([Spec-024 §Tool-Level Overrides](../specs/024-mcp-server-configuration-and-governance.md#tool-level-overrides)); the renderer is an untrusted process that reaches the daemon only through a preload bridge; the [Spec-015 §Truth vs projection vs ephemeral (SA-24)](../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24) hierarchy admits exactly three storage tiers (immutable truth, rebuildable projection, run-ephemeral); and the CLI is the product's first delivery track, so no authoring capability may be desktop-only.
 
@@ -127,7 +127,7 @@ The layout cost is bounded by the document itself: geometry is part of what is s
 - Definitions stay byte-stable under visual editing: no version churn, no re-run noise, no verification cost from geometry.
 - A tool's approval is set only in Settings › MCP servers; no authoring path can set one, and a workflow file that sets `approvalMode` is refused as a parse error naming the field.
 - CLI parity is structural rather than promised: one file form, one canonical byte sequence, one set of SDK operations behind both surfaces, and every CLI verb resolves to a named SDK operation rather than one the client derives.
-- Promotion to `shared` scope and file import both ride the one definition-create operation, so an import passes the same parse as any save and carries no `approvalMode`.
+- Duplicate and file import both ride the one definition-create operation, so an import passes the same parse as any save and carries no `approvalMode`.
 
 ### Negative (accepted trade-offs)
 

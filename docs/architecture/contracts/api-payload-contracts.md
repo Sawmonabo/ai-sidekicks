@@ -716,7 +716,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `workflow.definitionCreate` | Save a new workflow; also Duplicate and sharing to shared scope | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.2, T1.5, T1.6 |
+| `workflow.definitionCreate` | Save a new workflow; also Duplicate | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.2, T1.5, T1.6 |
 | `workflow.definitionDelete` | Delete a workflow (soft) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.9 |
 | `workflow.definitionExport` | Export a version as a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.5 |
 | `workflow.definitionImport` | Import a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.5 |
@@ -750,13 +750,13 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.runRerun` | Re-run on a run's page: a new run of that run's own version with its input and mode | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.8 |
 | `workflow.runResume` | Resume a parked run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.21, T5.22 |
 | `workflow.runRetry` | Retry from a step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.8 |
-| `workflow.runStart` | Start a run: Run now in two places, `/workflow run`, the inputs panel | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.9 |
+| `workflow.runStart` | Start a run: Run now in two places through the Run now panel, `/workflow run` | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.9 |
 | `workflow.runsDelete` | Delete runs older than a date; Keep runs and waiting runs are untouched | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runsDeletePreview` | Count what `Delete runs older than…` would remove, before it runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runsPauseSet` | Pause new runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.10 |
 | `workflow.secretCreate {scope, scopeRef, name, secretValue}` → `{secretId, scope, scopeRef, name}` | Create a workflow secret from the Credential chooser's `New secret` | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.secretDelete {secretId}` | `Delete` a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
-| `workflow.secretList {scopeRef?}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: this project's and the shared ones, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
+| `workflow.secretList {scopeRef?}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: a project's and the shared ones, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.secretReplace {secretId, secretValue}` → `{secretId}` | `Replace value` on a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.stepRead` | Read a step's input, output or log (step panel, inspector data panels) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.7 |
 | `workflow.subscribe` | Live updates: runs, steps, schedules, the start hold | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.12 |
@@ -6615,45 +6615,17 @@ The receipt mints no event type, no error code and no table: it is a decompositi
 
 A definition has ONE form on the wire and in the store: the node-graph document below. An author writes nodes and edges; the engine runs them, its agent and human node kinds delegating at run time to the daemon's own run-admission, orchestration, approval and form paths, so no second definition form exists to keep in step with it ([Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts)). `WorkflowGateResolveResponse` carries the id of the answer's row in `workflow_gate_resolutions`, the row `workflow.gate_resolved` names. A member is required unless it is marked optional, and every optional member says when it is absent.
 
-The visual builder ([Spec-015 §Visual Workflow Builder](../../specs/015-workflow-authoring-and-execution.md#visual-workflow-builder), ADR-024) is why the definition-create request carries the copy-on-write parent pointer, and why `WorkflowToolBinding` exists. Neither promotion to `shared` scope nor the submit half of a file import mints an operation of its own: both ride `workflow.definitionCreate`.
+The visual builder ([Spec-015 §Visual Workflow Builder](../../specs/015-workflow-authoring-and-execution.md#visual-workflow-builder), ADR-024) is why `WorkflowToolBinding` exists. Neither Duplicate nor the submit half of a file import mints an operation of its own: both ride `workflow.definitionCreate`. Every workflow is in one library ([Spec-015 §One workflow library (SA-34)](../../specs/015-workflow-authoring-and-execution.md#one-workflow-library-sa-34)): no request or reply carries a scope, and a name another workflow holds is refused with `workflow.definition_refused`, finding `name_taken`.
 
 Order, fan-out and join are the document's own edges ([Spec-015 §Graph model — nodes, ports, and edges (SA-30)](../../specs/015-workflow-authoring-and-execution.md#graph-model--nodes-ports-and-edges-sa-30)): a node runs when every one of its `main` inputs is settled, a fan-in waits in a per-node partial-input buffer until every slot is filled, and a document whose nodes declare no edges runs as the sequential chain its node order gives. Nothing outside the document declares that order.
 
 ```ts
-// Workflow-definition scope (Spec-015 §State And Data Implications).
-// Three values: `session` binds the definition to its authoring
-// session, `project` spans a project's sessions, `shared` is the cross-project tier —
-// a definition reusable by any project on the same daemon, out of the same local
-// definition store. `shared` widens visibility/reuse breadth only: no distribution,
-// no marketplace, no cross-machine sync.
-type WorkflowDefinitionScope = "session" | "project" | "shared";
-
-// Scope identity, in the shape Spec-024 already uses for scope-qualified bindings:
-// non-empty for `session` (the session's id) and `project` (the project record's id); the empty string for `shared`, which is
-// daemon-wide and refers to nothing narrower. Enforced at the schema layer as a typed
-// validation error, with the DDL CHECK mirroring it as defense in depth — without it,
-// `project` names no project and definition dedupe cannot converge.
-//
-// On requests the field is optional only at `shared`, where absent means the empty
-// string. A definition request carries no session, so `session` and `project` have
-// nothing to derive a ref from, and omitting it there is refused with
-// `workflow.definition_refused` (finding `scope_ref_invalid`), never a silent default.
-type WorkflowDefinitionScopeRef = string;
-
 // WorkflowDefinitionCreate — workflow.definitionCreate
 interface WorkflowDefinitionCreateRequest {
-  // A save from the Save panel, a Duplicate, and a file import all ride this one operation,
-  // at any scope, with no role check; the name is the document's own. A document the
-  // daemon's re-check refuses answers `workflow.definition_refused`, carrying every
-  // finding with the rule it breaks and the nodes it names.
-  scope: WorkflowDefinitionScope;
-  scopeRef?: WorkflowDefinitionScopeRef; // required at `session` and `project`
-  // Copy-on-write provenance: the content hash of the `shared` definition this one was
-  // branched from when an author edited a shared definition. Provenance only — it is NOT
-  // part of the hashed body, so a branched definition and a from-scratch definition with
-  // identical bodies hash alike.
-  // Spec-015 §Definition scope in the builder (SA-34)
-  parentContentHash?: string;
+  // A save from the Save panel, a Duplicate, and a file import all ride this one operation into the
+  // one library, with no role check; the name is the document's own, and one another workflow holds
+  // is refused. A document the daemon's re-check refuses answers `workflow.definition_refused`,
+  // carrying every finding with the rule it breaks and the nodes it names.
   // The authored body is the NODE-GRAPH DOCUMENT below: exactly one trigger node, the other
   // nodes, and the edges between them. There is no second, compiled form: the agent and
   // human kinds are node kinds like any other, and their executors call the existing
@@ -6935,7 +6907,7 @@ interface WorkflowStep {
 // in §Plan-022 below rather than restating its members: Plan-014 consumes that identity and
 // authors none of it (CP-014-6), and re-declaring it flat would drop the scope rules the union
 // enforces at the schema layer (`scopeRef` forbidden for `user`, required for `project` and `local`).
-// That `scopeRef` is Spec-024's config scope, never the workflow-definition scope above.
+// That `scopeRef` is Spec-024's config scope.
 interface WorkflowToolBinding {
   binding: McpServerBindingRef;
   toolName: string;
@@ -6949,8 +6921,6 @@ interface WorkflowDefinitionReadRequest {
 interface WorkflowDefinitionReadResponse {
   id: WorkflowDefinitionId;
   name: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef: WorkflowDefinitionScopeRef;
   versionNumber: number;
   // The opaque server-minted reference to the returned version — the exact value
   // workflow.runStart accepts as `workflowVersionId`.
@@ -6980,15 +6950,8 @@ interface WorkflowDefinitionReadResponse {
 
 // WorkflowDefinitionList — workflow.definitionList. The one enumeration of saved workflows: the
 // Workflows tab, the `/workflow` name completion, the CLI `list` subcommand and an agent's
-// `workflow_list` all read it. Called with a session (the chat verbs, an agent's tool), it returns that
-// session's resolved scope set most-specific-first — the session's definitions, its project's, and the
-// daemon's `shared` tier — deduped by `(scope, scopeRef, contentHash)` exactly as the store keys them,
-// and it never discloses a definition outside that set (I-014-9). Called with no session (the
-// Workflows screen, which belongs to no session), it returns every definition on this machine, with
-// scope as a filter.
+// `workflow_list` all read it, and every caller gets every workflow in the one library.
 interface WorkflowDefinitionListRequest {
-  sessionId?: SessionId; // omit from the Workflows screen
-  scope?: WorkflowDefinitionScope; // omit for every visible scope
   limit?: number;
   cursor?: string;
 }
@@ -6999,8 +6962,6 @@ interface WorkflowDefinitionListResponse {
 interface WorkflowDefinitionSummary {
   id: WorkflowDefinitionId;
   name: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef: WorkflowDefinitionScopeRef;
   latestVersionNumber: number;
   // The opaque server-minted reference to that latest version — the exact value
   // workflow.runStart accepts as `workflowVersionId`; clients pass it through
@@ -7009,12 +6970,6 @@ interface WorkflowDefinitionSummary {
   latestWorkflowVersionId: string;
   // So the caller that just listed an entry can pin it.
   contentHash: string;
-  // Present only when the request named a session: true for the one entry per definition name that
-  // most-specific-first resolution (`session`, then `project`, then `shared`) would actually pick from
-  // that session, so a picker or `sidekicks workflow list` can show which definition a run would use
-  // rather than leaving the caller to re-derive the order (Spec-015 §Definition scope in the builder
-  // (SA-34)).
-  resolvesAtThisContext?: boolean;
   // The facts a catalog row shows beside the name, so the table needs no second read per row.
   // The kind of the document's one trigger.
   triggerKind: WorkflowNodeKindId;
@@ -7083,12 +7038,16 @@ interface WorkflowRunStartRequest {
   // only session its progress row and its results row ever reach; a session that does not exist is
   // refused `session.not_found`. A start from outside a chat — Run now from the Workflows screen or
   // the builder — omits it, and the run lives in the one session the workflow owns, created on its
-  // first such run and reused by every later one.
+  // first such run and reused by every later one. A run started in a session works in that session's
+  // recorded folder.
   sessionId?: SessionId;
+  // The repository a start from outside a session works in: the project the Run now panel's
+  // `Repository` names, in that project's own folder. Absent for `None`, a run with no checkout, no
+  // snapshot and no `Open in Review`. Refused beside `sessionId`, whose session already names the folder.
+  projectId?: ProjectId;
   // The items the run starts on. A workflow declares the inputs it asks for on its trigger, each one
   // named, typed and carrying the value it starts on; the start affordance seeds a field per input and
-  // this member carries what was filled in. Absent where the workflow declares none, which starts on the
-  // press.
+  // this member carries what was filled in. Absent where the workflow declares none.
   input?: WorkflowItem[];
   // How this start was made. It is an INPUT here and the recorded outcome on the run: a chat caller mints
   // no start mode of its own, and `retry` and `sub-workflow` are minted by the operations that produce
@@ -7363,15 +7322,10 @@ interface WorkflowDefinitionUpdateRequest {
   document: WorkflowDocument;
 }
 interface WorkflowDefinitionUpdateResponse {
-  // The definition the version landed on — the requested one, or the copy-on-write branch where the
-  // request edited a `shared` definition from a narrower scope.
   definitionId: WorkflowDefinitionId;
   versionNumber: number;
   workflowVersionId: string;
   contentHash: string;
-  // Present exactly on the branch: the `shared` definition this one was copied from, which is also the
-  // value stored as the new definition's parent hash.
-  branchedFromContentHash?: string;
   createdAt: string;
 }
 
@@ -7410,8 +7364,7 @@ interface WorkflowDefinitionExportResponse {
 // WorkflowDefinitionImport — workflow.definitionImport. Reads the file the person picked with the platform's
 // own open dialog — its `FilePathRef` token, which main's relay puts in `filePath` as the path it stands
 // for — parses it, and submits it through the ORDINARY create path with the ordinary validation, all or
-// nothing, answering as workflow.definitionCreate does; the file carries no scope, so the caller names
-// where it lands. A tool binding with an
+// nothing, answering as workflow.definitionCreate does, into the one library. A tool binding with an
 // approval setting and an unknown top-level key are each refused as parse errors naming the field. A file
 // whose schema version the daemon does not know is refused with `workflow.import_schema_unknown`. A Code
 // node keeps the package lock the file carries, and one without a lock is locked on import, or kept with
@@ -7419,8 +7372,6 @@ interface WorkflowDefinitionExportResponse {
 // section is laid out deterministically on open, so an imported file is never unopenable.
 interface WorkflowDefinitionImportRequest {
   filePath: string;
-  scope: WorkflowDefinitionScope;
-  scopeRef?: WorkflowDefinitionScopeRef;
 }
 
 // WorkflowEnabledSet — workflow.enabledSet. Arms or disarms EVERY trigger one workflow declares; there is
@@ -7578,8 +7529,9 @@ interface WorkflowRunRerunRequest {
 // honored here and IGNORED by every trigger-started run.
 interface WorkflowNodeExecuteRequest {
   workflowVersionId: string;
-  // Omitted from the builder, where the run lives in the one session the workflow owns; a chat that
-  // asks for a node run names its own session, as workflow.runStart does.
+  // Omitted from the builder, where the run lives in the one session the workflow owns and works in the
+  // repository the trigger's `Repository` names; a chat that asks for a node run names its own session,
+  // as workflow.runStart does, and works in that session's recorded folder.
   sessionId?: SessionId;
   nodeId: WorkflowNodeId;
   // `node` runs the one node; `fromHere` runs its ancestors and it.
@@ -7676,7 +7628,9 @@ type WorkflowParamSpec =
         | "secret"
         | "agent"
         | "mcp-tool"
-        | "session";
+        | "callback-tool" // one of the daemon's own callback tools, chosen from callbackTool.list
+        | "session"
+        | "project"; // a trigger's Repository: one of the person's projects, or None (absent)
       required?: boolean;
       // The only params a `secret://<scope>/<name>` reference resolves in: a step's Credential field, and an
       // HTTP request step's auth and headers. A node never stores a secret: the daemon resolves the
@@ -7791,31 +7745,28 @@ interface WorkflowPinDataSetResponse {
 }
 
 // WorkflowDraftUpdate — workflow.draftUpdate. Holds the builder's unsaved draft in the daemon, so a reload
-// loses nothing and nothing is kept in window storage. The first call for a draft omits `workflowDraftId`
-// and the daemon mints one, which the builder's address carries so a reload finds the draft again. A draft
-// of a saved workflow names the definition and the version it was opened from; a never-saved one names
-// neither, and `basedOnVersionNumber` never appears without `definitionId`. The whole document replaces
-// the one held, and it may not have its trigger yet.
-type WorkflowDraftId = string & { readonly __brand: "WorkflowDraftId" };
+// loses nothing and nothing is kept in window storage. The daemon holds one draft per saved workflow,
+// keyed by its definition id, and one for a new workflow, which names no definition; the Builder's
+// address names the workflow and carries no draft, so a reload of `#/workflows/builder/<definitionId>`
+// or `#/workflows/builder` reads its own draft back. A draft of a saved workflow names the version it was
+// opened from, and `basedOnVersionNumber` never appears without `definitionId`. The whole document
+// replaces the one held, and it may not have its trigger yet; saving the version clears the draft.
 interface WorkflowDraftUpdateRequest {
-  workflowDraftId?: WorkflowDraftId;
-  definitionId?: WorkflowDefinitionId;
+  definitionId?: WorkflowDefinitionId; // omit for the new workflow's draft
   basedOnVersionNumber?: number;
   document: WorkflowDraftDocument;
 }
 interface WorkflowDraftUpdateResponse {
-  workflowDraftId: WorkflowDraftId;
   updatedAt: string;
 }
 
-// WorkflowDraftRead — workflow.draftRead. The draft read back after a reload, by the id the builder's
-// address carries. A draft that is no longer held is an answer (`draft: null`), not a refusal.
+// WorkflowDraftRead — workflow.draftRead. The draft read back after a reload, by the workflow the Builder's
+// address names. A draft that is no longer held is an answer (`draft: null`), not a refusal.
 interface WorkflowDraftReadRequest {
-  workflowDraftId: WorkflowDraftId;
+  definitionId?: WorkflowDefinitionId; // omit for the new workflow's draft
 }
 interface WorkflowDraftReadResponse {
   draft: {
-    workflowDraftId: WorkflowDraftId;
     definitionId?: WorkflowDefinitionId;
     basedOnVersionNumber?: number;
     document: WorkflowDraftDocument;
@@ -7829,9 +7780,8 @@ interface WorkflowDraftReadResponse {
 // cancellation stay. The preview never resolves a secret: a sensitive field previews the secret's name,
 // never its value.
 interface WorkflowExpressionPreviewRequest {
-  // Exactly one of the two: the unsaved draft the expression sits in, or the saved definition where the
-  // builder holds no edits.
-  workflowDraftId?: WorkflowDraftId;
+  // The workflow the expression sits in, omitted for a new workflow. The daemon evaluates it in that
+  // workflow's held draft, or in its latest saved version where no draft is held.
   definitionId?: WorkflowDefinitionId;
   nodeId: WorkflowNodeId;
   expression: string;
@@ -7988,14 +7938,15 @@ interface WorkflowWebhookListenerReadResponse {
 // back to a plaintext value. ----
 type WorkflowSecretScope = "project" | "shared";
 type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" }; // a UUID the daemon mints
-// A secret's place: `project` with `scopeRef`, the project's identity as a project-scoped workflow
-// definition names it, or `shared` with none.
+// A secret's place: `project` with `scopeRef`, the project record's id, or `shared` with none. A
+// `project/` reference resolves in the project the run works in, so a run with no repository resolves
+// only shared ones.
 type WorkflowSecretPlace = { scope: "project"; scopeRef: string } | { scope: "shared" };
 // One secret as the chooser lists it: its place and name, and never its value.
 type WorkflowSecretSummary = { secretId: WorkflowSecretId; name: string } & WorkflowSecretPlace;
 
-// WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: this project's
-// and the shared ones, by name — for a `shared` workflow's step, the shared ones only. Metadata only.
+// WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: a project's
+// and the shared ones, by name. Metadata only.
 interface WorkflowSecretListRequest {
   scopeRef?: string; // the project whose secrets join the shared ones; omit for the shared ones alone
 }
@@ -8168,9 +8119,9 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | --- | --- | --- | --- |
 | `workflow.definitionCreate` | `mutation` | `WorkflowDefinitionCreateRequest` → `WorkflowDefinitionCreateResponse` | Content-hashes and persists version 1; the daemon re-checks the whole document and refuses `workflow.definition_refused` with every finding |
 | `workflow.definitionRead` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token |
-| `workflow.definitionList` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every saved workflow with the facts its catalog row shows, paged; from a session, that session's resolved scope set, most-specific-first; with no session, every definition on this machine |
+| `workflow.definitionList` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every workflow in the one library with the facts its catalog row shows, paged |
 | `workflow.versionRead` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
-| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-025) |
+| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own, working in that session's folder or the repository `projectId` names; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-025) |
 | `workflow.runRead` | `query` | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the step array with each waiting step's cause, instants and question and each answered step's resolution, the chain's first run with its run count, whether the run's execution context was captured, the Keep mark, the fix session, the run's cost, a going run's live step, the per-edge item counts, a finished run's review epoch and the chain's question on its first run, so a waiting run renders from this one call (Spec-015 §Park surfacing on the read model) |
 | `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-014-21); refuses `workflow.run_not_cancelable` against a run that has ended; a `failed` run parked on its failed step has not ended and is canceled (a cancel on an already-`canceled` run returns the saved result) |
 | `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-39 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the re-pin member on an accepted repair); refuses `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
@@ -8197,7 +8148,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.tagsSet` | `mutation` | `WorkflowTagsSetRequest` → `WorkflowDefinitionSettingResponse` | The workflow's tags, saved beside the definition without a new version |
 | `workflow.permissionLevelUpdate` | `mutation` | `WorkflowPermissionLevelUpdateRequest` → `WorkflowPermissionLevelUpdateResponse` | The workflow's own permission level, saved beside the definition without a new version |
 | `workflow.pinDataSet` | `mutation` | `WorkflowPinDataSetRequest` → `WorkflowPinDataSetResponse` | Pins or unpins a node's test data without a new version; honored only in manual runs |
-| `workflow.draftUpdate` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload; the first call mints the draft's id |
+| `workflow.draftUpdate` | `mutation` | `WorkflowDraftUpdateRequest` → `WorkflowDraftUpdateResponse` | The builder's unsaved draft, held by the daemon so it survives a reload, one per saved workflow and one for a new workflow |
 | `workflow.draftRead` | `query` | `WorkflowDraftReadRequest` → `WorkflowDraftReadResponse` | The draft read back after a reload, by the id the builder's address carries |
 | `workflow.expressionPreview` | `query` | `WorkflowExpressionPreviewRequest` → `WorkflowExpressionPreviewResponse` | An expression's value against the last run, evaluated in the daemon; never resolves a secret |
 | `workflow.versionDiffRead` | `query` | `WorkflowVersionDiffReadRequest` → `WorkflowVersionDiffReadResponse` | The structural difference between two versions, over the hashed body only |
@@ -8231,7 +8182,7 @@ The session's workflow callback tools (ADR-025; [Spec-015 §Interfaces And Contr
 | `workflow_resume` | `Action::"workflow::resume"` |
 | `workflow_results_post` | `Action::"workflow::author"`, with the session derived from the invoking turn and never tool-supplied |
 
-No tool in the set takes the session it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context, validates the derived value, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name and resolve it most-specific-first (session → project → shared), issuing the same start path as `workflow.runStart`; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of these tools is a JSON-RPC method: the chat-start surface adds no registry row of its own.
+No tool in the set takes the session it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context, validates the derived value, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name, which names one workflow in the one library, issuing the same start path as `workflow.runStart` in the invoking turn's session and its recorded folder; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of these tools is a JSON-RPC method: the chat-start surface adds no registry row of its own.
 
 Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-39)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-39) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from `WORKFLOW_DEFINITION_FINDING_RULES` in `packages/contracts/src/workflow/definition/definition.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-014: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
 

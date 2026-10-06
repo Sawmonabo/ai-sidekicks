@@ -10,10 +10,10 @@ This document covers `WorkflowDefinition`, `WorkflowVersion`, and `WorkflowRun`,
 
 ## Definitions
 
-- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Scoped to one of the three `WorkflowScope` tiers below.
+- `WorkflowDefinition`: a named, durable definition record that holds the node-graph document an author wrote. Every definition is in the one workflow library, and its name is used once there.
 - `WorkflowVersion`: an immutable snapshot of a workflow definition's document body at a point in time. Editing a definition creates a new version rather than mutating an existing one.
 - `WorkflowRun`: a single execution instance of a specific workflow version within a session. Each run keeps one step record per node attempt.
-- `WorkflowScope`: the boundary within which a workflow definition is visible and executable — `session` (one session, named by `scope_ref`), `project` (the sessions of one project), or `shared` (the daemon's cross-project tier). A definition carries no owning session of its own; runs, not definitions, live in sessions. Scope identity is carried by a companion `scope_ref` value — the session's id at `session`, the project record's id at `project`, the empty string at `shared` — and definitions dedupe on `(scope, scope_ref, contentHash)` ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
+- The workflow library: every workflow definition on the daemon, visible and runnable from every chat, every project session and the Workflows tab. A definition carries no owning session, project or scope; runs, not definitions, live in sessions, and a run chooses the repository it works in ([Spec-015 §One workflow library (SA-34)](../specs/015-workflow-authoring-and-execution.md#one-workflow-library-sa-34)).
 
 ## What This Is
 
@@ -30,15 +30,15 @@ The workflow model describes how reusable, multi-step execution templates are de
 
 - A workflow definition has exactly one active version at a time. Previous versions remain immutable and referenceable.
 - A workflow run executes exactly one version. If the definition changes while a run is in progress, the running instance continues on the version it started with.
-- Workflow scope is three-valued: `session`, `project`, or `shared`. A definition is visible and executable only within its declared scope's tier; run-start resolution walks the tiers most-specific-first (`session`, then `project`, then `shared`) with no merging across tiers, and editing a `shared` definition is copy-on-write into the editor's scope — never edit-in-place ([Spec-015 §Definition scope in the builder (SA-34)](../specs/015-workflow-authoring-and-execution.md#definition-scope-in-the-builder-sa-34)).
-- Every workflow run belongs to exactly one session.
+- There is one workflow library, and a name names one workflow in it: a save, an import or a create whose name another workflow holds is refused ([Spec-015 §One workflow library (SA-34)](../specs/015-workflow-authoring-and-execution.md#one-workflow-library-sa-34)).
+- Every workflow run belongs to exactly one session, and works in one folder chosen per run: a run started in a session in that session's recorded folder, a run nobody started from a session in the repository its Run now panel or its trigger names or in none, and a sub-workflow child in its parent's.
 - A workflow definition has exactly one trigger node. A document with no node, with no trigger, or with a second trigger is refused when it is saved.
 - Version immutability is absolute: no mutation of the nodes or edges of a published version. The canvas layout sits outside the version's hashed bytes, so moving a node changes no version.
 
 ## Relationships To Adjacent Concepts
 
-- `Session` is the containing boundary for every workflow run and for a `session`-scoped definition. A run started from a chat lives in that chat's session, an unattended run in the one session its workflow owns, and a sub-workflow's child run in its parent's session.
-- `Project` and the daemon-wide `shared` tier are the broader scope tiers above `session` ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
+- `Session` is the containing boundary for every workflow run. A run started from a chat lives in that chat's session, an unattended run in the one session its workflow owns, and a sub-workflow's child run in its parent's session.
+- `Project` is the repository a run works in when the run's session is a project session, or when its Run now panel or trigger names one; no definition belongs to a project ([Spec-015 §State And Data Implications](../specs/015-workflow-authoring-and-execution.md#state-and-data-implications)).
 - `WorkflowStep` records one attempt of one node within a workflow run. See [Workflow Step Model](./workflow-step-model.md).
 - `Run` (from the run state machine) is the execution primitive an agent step uses: `agent.run` starts its run through the run admission, and `agent.multi-agent` runs a lead and its helpers in the workflow run's session through `orchestration.runCreate`.
 - `Agent` (from the [Agent And Run Model](./agent-and-run-model.md)) provides the execution persona for a step's work. A multi-agent step runs its lead and helpers as an orchestration run in the workflow run's own session.
