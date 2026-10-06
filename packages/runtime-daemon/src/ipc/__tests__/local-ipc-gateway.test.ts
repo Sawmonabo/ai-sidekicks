@@ -335,11 +335,13 @@ describe("LocalIpcGateway", () => {
 describe("LocalIpcGateway stop", () => {
   it("sends a reply already written before it closes the connection", async () => {
     // The daemon's stop answers and then stops the gateway on the next turn; a reply large enough
-    // to outlast one socket write must still reach the client whole.
+    // to outlast one socket write must still reach the client whole. 256 KiB is many times a local
+    // socket's 8 KiB buffer, yet small enough to cross well inside the close wait when the test
+    // client shares a loaded event loop.
     const socketPath = ephemeralSocketPath("stop");
     bootstrap({ localIpcPath: socketPath });
     const registry = new MethodRegistryImpl();
-    const largeText = "r".repeat(3 * 1024 * 1024);
+    const largeText = "r".repeat(256 * 1024);
     const gateway = new LocalIpcGateway({ registry });
     const stopping: Array<Promise<void>> = [];
     const replyThenStop: Handler<unknown, { text: string }> = async () => {
