@@ -4,9 +4,9 @@
 // `protocol.registerSchemesAsPrivileged` before `app.whenReady()` (Electron refuses it after
 // ready, and a non-`standard` scheme has no origin, so no IndexedDB or `localStorage`), and
 // `protocol.handle` before the first window (or a window loads against an unhandled scheme). The
-// crash reporter comes next after the scheme, so a crash anywhere later in startup is kept, and
-// the second-launch listener is in place before ready, so a launch arriving while the app starts
-// is heard.
+// crash reporter starts before the single-instance lock, so a crash anywhere later in startup is
+// kept, and the second-launch listener is in place before ready, so a launch arriving while the
+// app starts is heard.
 //
 // A failed startup exits even when its own record fails first. The records (stderr, the JSONL
 // log) are best-effort and the exit is the contract: the handler is last on the chain, so a
