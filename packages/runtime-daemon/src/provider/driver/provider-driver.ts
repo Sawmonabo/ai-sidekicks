@@ -437,6 +437,14 @@ export interface ProviderUsageLimitSignal {
   resetBoundary?: ProviderUsageLimitResetBoundary | undefined;
 }
 
+/**
+ * A turn that ended because the provider's own retries ran out: the provider did not answer. It
+ * is not a usage limit, since nothing clears on its own, so no reset boundary rides it.
+ */
+export interface ProviderSpentRetriesSignal {
+  cause: "retries-exhausted";
+}
+
 // ---- Conversation fork ----
 
 /**
