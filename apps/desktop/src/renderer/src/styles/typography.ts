@@ -25,16 +25,30 @@ export const READING_LINE_HEIGHT = 1.65;
 
 /**
  * Type scale, in rem, shared by the sans and mono faces so a figure and its label sit on the
- * same baseline.
+ * same baseline. Its named steps are `text-xs` to `text-xl`, 11, 13, 14, 16 and 20 px at the
+ * default root; the steps named for their size are the other sizes the screens set, each named
+ * by its pixels at the default root (`text-12-5` is 12.5 px). A size the named steps already hold
+ * takes no second name, so `text-2xs` is the only 10 px step.
  */
 export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
-  /** The smallest step, 10px at the default root size: the uppercase field label's size. */
+  "text-8-5": 0.53125,
+  "text-9": 0.5625,
+  "text-9-5": 0.59375,
+  /** 10 px at the default root: the uppercase field label's size. */
   "text-2xs": 0.625,
+  "text-10-5": 0.65625,
   "text-xs": 0.6875,
+  "text-11-5": 0.71875,
+  "text-12": 0.75,
+  "text-12-5": 0.78125,
   "text-sm": 0.8125,
+  "text-13-5": 0.84375,
   "text-md": 0.875,
+  "text-15": 0.9375,
   "text-lg": 1,
+  "text-17": 1.0625,
   "text-xl": 1.25,
+  "text-21": 1.3125,
 };
 
 /**

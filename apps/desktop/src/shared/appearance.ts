@@ -4,6 +4,7 @@
 // once.
 
 import { formatSrgbHex, oklchToSrgb, resolveEmittedColor, type OklchColor } from "./color.js";
+import { tokenVariableName } from "./token-variable.js";
 
 /** The two themes, and no third. */
 export const APPEARANCE_THEMES = ["meridian", "graphite"] as const;
@@ -59,19 +60,34 @@ export interface AppearanceRecord {
   readonly grounds: AppearanceGrounds;
 }
 
-/** Meridian's ground, the window's own field, in each scheme: the palette's `ground` token. */
-export const MERIDIAN_GROUND_COLORS: { readonly light: OklchColor; readonly dark: OklchColor } = {
-  light: { lightness: 0.965, chroma: 0.003, hueDegrees: 255 },
-  dark: { lightness: 0.165, chroma: 0.011, hueDegrees: 255 },
+/** One color in each scheme. */
+export interface SchemePair {
+  readonly light: OklchColor;
+  readonly dark: OklchColor;
+}
+
+/**
+ * Each theme's ground, the window's own field, in each scheme: the palette's `ground` token. Here
+ * rather than in the palette because main paints a window's first frame from it.
+ */
+export const THEME_GROUND_COLORS: Readonly<Record<AppearanceTheme, SchemePair>> = {
+  meridian: {
+    light: { lightness: 0.965, chroma: 0.003, hueDegrees: 255 },
+    dark: { lightness: 0.165, chroma: 0.011, hueDegrees: 255 },
+  },
+  graphite: {
+    light: { lightness: 0.978, chroma: 0.005, hueDegrees: 80 },
+    dark: { lightness: 0.155, chroma: 0.008, hueDegrees: 60 },
+  },
 };
 
 /**
- * Meridian's two grounds as the stylesheet paints them, in `#rrggbb`: main paints a window's first
- * frame with them before any page has loaded.
+ * Each theme's two grounds as the stylesheet paints them, in `#rrggbb`: the grounds a choice of
+ * that theme hands main, which paints a window's first frame with them before any page loads.
  */
-export const MERIDIAN_GROUNDS: AppearanceGrounds = {
-  light: formatSrgbHex(oklchToSrgb(resolveEmittedColor(MERIDIAN_GROUND_COLORS.light))),
-  dark: formatSrgbHex(oklchToSrgb(resolveEmittedColor(MERIDIAN_GROUND_COLORS.dark))),
+export const THEME_GROUNDS: Readonly<Record<AppearanceTheme, AppearanceGrounds>> = {
+  meridian: paintedGrounds(THEME_GROUND_COLORS.meridian),
+  graphite: paintedGrounds(THEME_GROUND_COLORS.graphite),
 };
 
 /**
@@ -83,7 +99,7 @@ export const DEFAULT_APPEARANCE_RECORD: AppearanceRecord = {
   scheme: SYSTEM_SCHEME_PREFERENCE,
   textSize: 16,
   transcriptWidth: 57.5,
-  grounds: MERIDIAN_GROUNDS,
+  grounds: THEME_GROUNDS.meridian,
 };
 
 /** The part of the record a person chooses; the grounds come from the theme. */
@@ -108,7 +124,7 @@ export const RESOLVED_SCHEME_ATTRIBUTE = "data-resolved-color-scheme";
 export const THEME_ATTRIBUTE = "data-theme";
 
 /** The root custom property every session's transcript reads its column width from. */
-const TRANSCRIPT_WIDTH_PROPERTY = "--meridian-transcript-width";
+const TRANSCRIPT_WIDTH_PROPERTY = tokenVariableName("transcript-width");
 
 /**
  * What the document's root element carries for one record: its attributes, one left off where
@@ -140,5 +156,12 @@ export function composeRootAppearance(
       "font-size": `${String(record.textSize)}px`,
       [TRANSCRIPT_WIDTH_PROPERTY]: `${String(record.transcriptWidth)}rem`,
     },
+  };
+}
+
+function paintedGrounds(grounds: SchemePair): AppearanceGrounds {
+  return {
+    light: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.light))),
+    dark: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.dark))),
   };
 }

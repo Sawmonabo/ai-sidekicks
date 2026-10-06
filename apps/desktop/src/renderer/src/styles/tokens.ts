@@ -1,22 +1,23 @@
 // The typed TS mirror of the Meridian token set. `palette.ts` authors the values; this module
 // resolves them (gamut fit, then rounding to the precision the CSS carries) and names them.
-// `generate-css.ts` emits the stylesheet from exactly these records and `contrast.test.ts`
-// measures exactly these records, so a token that passes the contrast test is the token the
-// browser paints.
+// `generate-css.ts` emits the stylesheet from exactly these records, and the contrast check reads
+// what the running page paints in each of the four renderings, so a token that passes it is the
+// token the browser paints.
 //
-// Component code writes `var(--meridian-text-muted)` and lets the cascade resolve the scheme. The
-// records exist so a test can measure what the cascade resolves to, and so the agent-hue
+// Component code writes `var(--meridian-text-muted)` and lets the cascade resolve the theme and
+// the scheme. The records exist so a check can hold the cascade to them, and so the agent-hue
 // allocator can hand out a wheel step by number.
 
 import {
   COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
-  type ColorScheme,
+  type SchemePair,
   type SchemePreference,
 } from "#shared/appearance.js";
 import type { OklchColor } from "#shared/color.js";
 import { resolveEmittedColor } from "#shared/color.js";
-import type { SchemePair } from "./palette.js";
+import { tokenVariableName } from "#shared/token-variable.js";
+import type { ThemedColor } from "./palette.js";
 import {
   ANSI_TOKENS,
   ATTENTION_TOKENS,
@@ -26,6 +27,7 @@ import {
   HUE_WHEEL_STEPS,
   GROUND_TOKENS,
   TEXT_TOKENS,
+  TOOL_HUE_ALIASES,
   computeHueWheelAngle,
 } from "./palette.js";
 
@@ -70,51 +72,30 @@ const NEXT_SCHEME_PREFERENCE: Readonly<Record<SchemePreference, SchemePreference
   light: SYSTEM_SCHEME_PREFERENCE,
 };
 
-/** The CSS custom-property prefix every Meridian token carries. */
-export const TOKEN_PREFIX = "--meridian-";
-
-/** The CSS custom-property name for a token. */
-export function tokenVariableName(tokenName: string): string {
-  return `${TOKEN_PREFIX}${tokenName}`;
-}
-
 /** A `var()` reference to a token, for a style object or a template. */
 export function tokenReference(tokenName: string): string {
   return `var(${tokenVariableName(tokenName)})`;
 }
 
-function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string, SchemePair> {
-  const resolved = new Map<string, SchemePair>();
-  for (const [tokenName, pair] of Object.entries(source)) {
-    resolved.set(tokenName, {
-      light: resolveEmittedColor(pair.light),
-      dark: resolveEmittedColor(pair.dark),
-    });
-  }
-  return resolved;
-}
-
 /**
- * Every scheme-varying color token, resolved, as entries: grounds, then text, then attention,
- * then the code and terminal vocabularies, the order the stylesheet emits.
+ * Every color token that varies with the theme or the scheme, resolved, as entries: grounds, then
+ * text, then attention, then the code and terminal vocabularies, the order the stylesheet emits.
  *
  * Data and not an exported `Map` (banned in `eslint.restricted-syntax.mjs`): a shared `Map` is
  * one object every importer can write into, and `ReadonlyMap` hides the mutators from nothing at
  * runtime.
  */
-export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
-  ...resolvePairs(GROUND_TOKENS),
-  ...resolvePairs(TEXT_TOKENS),
-  ...resolvePairs(ATTENTION_TOKENS),
-  ...resolvePairs(CODE_TOKENS),
-  ...resolvePairs(ANSI_TOKENS),
-];
-
-/**
- * The same entries, keyed, for `schemeColor`'s lookup. Module-private, so it is a lookup table
- * and not shared state.
- */
-const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
+export const THEMED_COLOR_TOKENS: readonly (readonly [string, ThemedColor])[] = [
+  GROUND_TOKENS,
+  TEXT_TOKENS,
+  ATTENTION_TOKENS,
+  CODE_TOKENS,
+  ANSI_TOKENS,
+].flatMap((record) =>
+  Object.entries(record).map(
+    ([tokenName, color]) => [tokenName, resolveThemedColor(color)] as const,
+  ),
+);
 
 /** The token name of an agent wheel step. */
 export function formatHueWheelTokenName(step: number): string {
@@ -145,9 +126,9 @@ export function readHueWheelColor(step: number): OklchColor {
 }
 
 /**
- * The grounds a foreground token can legitimately sit on. The contrast test
- * measures every foreground against every one of these in both schemes, so a new
- * ground added here widens the assertion rather than escaping it.
+ * The grounds a foreground token can legitimately sit on. The contrast check measures every
+ * foreground against every one of these in all four renderings, so a new ground added here
+ * widens the assertion rather than escaping it.
  */
 export const GROUND_TOKEN_NAMES: readonly string[] = [
   "ground",
@@ -167,9 +148,9 @@ export const TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
 ];
 
 /**
- * Foreground tokens that carry the 3:1 non-text floor — controls, their
- * boundaries, and marks. `edge` is deliberately absent: it is a
- * decorative hairline, not a control boundary (see `palette.ts`).
+ * Foreground tokens that carry the 3:1 non-text floor — controls, their boundaries, and marks,
+ * the tool verbs' glyph hues among them. `edge` is deliberately absent: it is a decorative
+ * hairline, not a control boundary (see `palette.ts`).
  */
 export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
   "edge-strong",
@@ -177,6 +158,7 @@ export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
   "red-mark",
   "accent",
   "accent-pressed",
+  ...Object.keys(TOOL_HUE_ALIASES),
 ];
 
 /**
@@ -223,11 +205,13 @@ export const TEXT_CONTRAST_FLOOR = 4.5;
 /** The WCAG 2.2 AA floor for non-text controls, boundaries, and marks. */
 export const NON_TEXT_CONTRAST_FLOOR = 3;
 
-/** Resolve a scheme-varying color token for one scheme. Throws on an unknown name. */
-export function schemeColor(tokenName: string, scheme: ColorScheme): OklchColor {
-  const pair = SCHEME_PAIR_BY_TOKEN_NAME.get(tokenName);
-  if (pair === undefined) {
-    throw new RangeError(`unknown Meridian color token ${tokenName}`);
-  }
-  return pair[scheme];
+function resolveThemedColor(color: ThemedColor): ThemedColor {
+  return {
+    meridian: resolveSchemePair(color.meridian),
+    graphite: resolveSchemePair(color.graphite),
+  };
+}
+
+function resolveSchemePair(pair: SchemePair): SchemePair {
+  return { light: resolveEmittedColor(pair.light), dark: resolveEmittedColor(pair.dark) };
 }

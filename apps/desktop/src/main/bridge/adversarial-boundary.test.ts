@@ -30,7 +30,7 @@ import {
   OPEN_DAEMON_SUBSCRIPTION_CHANNEL,
   type InvokedBridgeChannel,
 } from "#shared/bridge-channels.js";
-import { DEFAULT_APPEARANCE_RECORD, MERIDIAN_GROUNDS } from "#shared/appearance.js";
+import { DEFAULT_APPEARANCE_RECORD, THEME_GROUNDS } from "#shared/appearance.js";
 import type { DaemonSubscriptionRequest } from "#shared/daemon/forwarding.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
@@ -227,7 +227,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
   const droppedTokens: unknown[] = [];
   const appearance = {
     choice: { theme: "graphite", scheme: "dark", textSize: 18, transcriptWidth: 44 },
-    grounds: MERIDIAN_GROUNDS,
+    grounds: THEME_GROUNDS.meridian,
   };
   return [
     {
@@ -362,7 +362,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         { ...appearance, choice: { ...appearance.choice, theme: "neon" } },
         { ...appearance, choice: { ...appearance.choice, textSize: 17 } },
         { ...appearance, choice: { ...appearance.choice, transcriptWidth: 35 } },
-        { ...appearance, grounds: { light: "white", dark: MERIDIAN_GROUNDS.dark } },
+        { ...appearance, grounds: { light: "white", dark: THEME_GROUNDS.meridian.dark } },
         { ...appearance, extra: true },
         appearance.choice,
         null,

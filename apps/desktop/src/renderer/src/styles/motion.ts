@@ -8,7 +8,10 @@
 // sampling it at every mount would recompute the same 106 characters.
 //
 // This file lives in `styles/` and carries no DOM type: the assets tier reads `styles/` from
-// Node, where `Document` and `Window` do not exist.
+// Node, where `Document` and `Window` do not exist. The overlay scrollbar's options name the
+// library's option type only, which the compiler erases.
+
+import type { PartialOptions } from "overlayscrollbars";
 
 /** The motion duration tokens, so a reader that names one is checked against the set. */
 type MotionDurationToken = "motion-quick" | "motion-settle" | "motion-thread" | "motion-breath";
@@ -34,3 +37,29 @@ export const MOTION_DURATIONS_MS: Readonly<Record<MotionDurationToken, number>> 
 export const CHROME_SETTLE_EASING: string =
   "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, " +
   "0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";
+
+/**
+ * How long the pointer rests before an overlay scrollbar fades, in milliseconds: long enough that
+ * a pause between two wheel turns keeps the bar, short enough that a still page shows none.
+ */
+const OVERLAY_SCROLLBAR_REST_MS = 500;
+
+/** The class every overlay scrollbar carries, which `OverlayScrollArea.css` themes from the tokens. */
+const OVERLAY_SCROLLBAR_THEME_CLASS = "os-theme-meridian";
+
+/**
+ * The options every overlay scrollbar is built with: drawn over the content in the Meridian theme,
+ * faded once the pointer rests and back on hover or a scroll, its thumb dragged and its track
+ * paging. The track's paging needs the library's click-scroll plugin registered.
+ *
+ * @consumedBy the overlay scrollbar on every scroller but the conversation
+ */
+export const OVERLAY_SCROLLBAR_OPTIONS: PartialOptions = {
+  scrollbars: {
+    theme: OVERLAY_SCROLLBAR_THEME_CLASS,
+    autoHide: "move",
+    autoHideDelay: OVERLAY_SCROLLBAR_REST_MS,
+    dragScroll: true,
+    clickScroll: true,
+  },
+};

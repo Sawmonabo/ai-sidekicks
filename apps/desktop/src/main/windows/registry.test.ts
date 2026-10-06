@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appFactsSwitches } from "#shared/app-facts.js";
 import {
   DEFAULT_APPEARANCE_RECORD,
-  MERIDIAN_GROUNDS,
+  THEME_GROUNDS,
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import {
@@ -92,7 +92,7 @@ interface ChangingAppearance {
 function changingAppearance(): ChangingAppearance {
   const listeners: (() => void)[] = [];
   return {
-    ground: MERIDIAN_GROUNDS.light,
+    ground: THEME_GROUNDS.meridian.light,
     record: DEFAULT_APPEARANCE_RECORD,
     subscribe: (listener) => {
       listeners.push(listener);
@@ -676,7 +676,7 @@ describe("the pushes to the console document", () => {
     const pane = openChildWindow("pane/terminal/s-1");
 
     appearance.record = { ...DEFAULT_APPEARANCE_RECORD, scheme: "dark" };
-    appearance.ground = MERIDIAN_GROUNDS.dark;
+    appearance.ground = THEME_GROUNDS.meridian.dark;
     appearance.announce();
     // The platform's scheme moving repaints, and pushes no record that did not change.
     appearance.announce();
@@ -686,8 +686,8 @@ describe("the pushes to the console document", () => {
     ]);
     expect(child.contentView.children[0]?.webContents.sent).toEqual([]);
     for (const window of [hiddenWindow.baseWindow, child, pane]) {
-      expect(window.backgroundColor).toBe(MERIDIAN_GROUNDS.dark);
-      expect(window.contentView.children[0]?.backgroundColor).toBe(MERIDIAN_GROUNDS.dark);
+      expect(window.backgroundColor).toBe(THEME_GROUNDS.meridian.dark);
+      expect(window.contentView.children[0]?.backgroundColor).toBe(THEME_GROUNDS.meridian.dark);
     }
   });
 });
