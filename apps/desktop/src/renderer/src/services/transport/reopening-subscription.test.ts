@@ -2,23 +2,23 @@
 // opened again at once and then after growing waits, and from the first wait again once a stream
 // stays open. A re-open that throws reaches the owner as a refusal, is tried again at the next
 // wait or the transport's returning edge, and is cleared by the re-open that works; an owner that
-// asks for it has a first open that throws handled the same way.
+// asks for it has a first open that throws handled the same way. A stream the daemon refuses before
+// delivering reaches the owner as the daemon's refusal and is opened again at the returning edge.
 
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import {
-  openReopeningSubscription,
-  REOPEN_SETTLED_MS,
-  REOPEN_WAITS_MS,
-  type ReopenableStreamOpen,
-} from "./reopening-subscription.js";
 import { TransportReconnectSignal } from "./reconnect.js";
+import { REOPEN_SETTLED_MS, REOPEN_WAITS_MS } from "./reopen-backoff.js";
+import { openReopeningSubscription, type ReopenableStreamOpen } from "./reopening-subscription.js";
 
 /** A daemon stream played by the test: each open it took, and how many next opens throw. */
 class ScriptedStream {
-  public readonly opens: Array<{ readonly deliverAndEnd: () => void }> = [];
+  public readonly opens: Array<{
+    readonly deliverAndEnd: () => void;
+    readonly refuse: () => void;
+  }> = [];
   public failingOpens = 0;
 
   public readonly open: ReopenableStreamOpen<string> = (deliver, onEnded) => {
@@ -31,9 +31,20 @@ class ScriptedStream {
         deliver("value");
         onEnded({ reason: "completed" });
       },
+      refuse: () => {
+        onEnded({
+          reason: "refused",
+          refusal: { code: -32000, message: "Not allowed.", data: { type: "stream.not_allowed" } },
+        });
+      },
     });
     return () => undefined;
   };
+
+  /** The newest open ends refused, having delivered nothing. */
+  public refuse(): void {
+    this.opens.at(-1)!.refuse();
+  }
 
   /** The newest open delivers one value and ends. */
   public deliverAndEnd(): void {
@@ -128,6 +139,36 @@ describe("a stream kept open", () => {
 
     clock.advance(REOPEN_WAITS_MS[1]!);
     expect(stream.opens).toHaveLength(1);
+    expect(refusals.at(-1)).toBeUndefined();
+  });
+
+  it("reports a stream the daemon refused before delivering, and re-opens it at the returning edge", () => {
+    const clock = new ManualClock();
+    const signal = new TransportReconnectSignal();
+    const stream = new ScriptedStream();
+    const refusals: Array<Refusal | undefined> = [];
+    openReopeningSubscription({
+      signal,
+      subject: "test stream",
+      open: stream.open,
+      onFrame: () => undefined,
+      onReopenRefusal: (refusal) => {
+        refusals.push(refusal);
+      },
+      clock,
+    });
+
+    stream.refuse();
+    expect(refusals).toStrictEqual([
+      expect.objectContaining({ code: "stream.not_allowed", detail: "Not allowed." }),
+    ]);
+    // Never in a loop: nothing is opened again until the transport comes back.
+    clock.advance(REOPEN_WAITS_MS.at(-1)!);
+    expect(stream.opens).toHaveLength(1);
+
+    signal.observe("unreachable");
+    signal.observe("reachable");
+    expect(stream.opens).toHaveLength(2);
     expect(refusals.at(-1)).toBeUndefined();
   });
 });

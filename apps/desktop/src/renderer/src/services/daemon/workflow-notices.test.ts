@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { bridgeAnswering, withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { REOPEN_WAITS_MS } from "../transport/reopening-subscription.js";
+import { REOPEN_WAITS_MS } from "../transport/reopen-backoff.js";
 import { subscribeWorkflowNotices, type WorkflowNoticeFrame } from "./workflow-notices.js";
 
 /** One open the stream made: what delivers a frame on it, and what ends it. */

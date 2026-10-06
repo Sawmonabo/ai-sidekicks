@@ -32,8 +32,8 @@ export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
   return {
     ...preloadApi,
     // Reported into by main's `daemon.status` topic (`daemon/status.ts`) and by every
-    // subscription this window opens (`transport/observed-subscription.ts`). One per window: a
-    // shared signal would mix two windows' transport readings.
+    // subscription any window opens (`transport/observed-subscription.ts`). One for the app: every
+    // window reaches the service through main's one connection, so they share one reading.
     transportReconnect: new TransportReconnectSignal(),
     source: "live",
   };

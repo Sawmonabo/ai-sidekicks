@@ -15,8 +15,10 @@
 //   `failed-subscription-retry.ts` remembers failed opens and retries them on the returning edge.
 // - No feed lost when it stops: a stream that ends after it opened is opened again from the
 //   cursor of the last change it delivered, so the daemon catches up from there and nothing is
-//   missed or applied twice. One that delivered since it opened is opened again at once; one that
-//   did not waits for the returning edge, so a stream the daemon keeps ending never spins. A
+//   missed or applied twice. One that delivered since it opened is opened again through the
+//   re-open waits (`reopen-backoff.ts`), so a stream that catches up and ends every time is not
+//   opened in a loop; one that did not waits for the returning edge, so a stream the daemon keeps
+//   ending never spins. A
 //   cursor the daemon can no longer resolve is dropped and the session re-read instead. Nothing is
 //   drawn for any of it: the service being unreachable is the status topic's to say.
 //
@@ -40,7 +42,7 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
 import type { TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { RealClock } from "#renderer/lib/clock.js";
+import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
@@ -50,6 +52,7 @@ import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session/event/session-event-streams.js";
 import { readSessionId } from "../daemon/wire/identifiers.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
+import { ReopenBackoff } from "../transport/reopen-backoff.js";
 import { readSessionStreamFrame } from "../daemon/session/event/payload.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { type SessionDiagnostics } from "./session-diagnostics-handle.js";
@@ -63,18 +66,23 @@ const DIAGNOSTIC_SOURCE = "services/session-events";
 export interface SessionEventSubscriberOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: PlatformBridge;
+  /** Times the waits before a stream that ended is opened again; the wall clock by default. */
+  readonly clock?: Clock;
 }
 
 /** Binds each open session to its wire subscription and feeds the registry; see the header. */
 export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
   readonly #bridge: PlatformBridge;
+  readonly #clock: Clock;
   readonly #bindingBySessionId = new Map<string, StreamBinding>();
   /** The cursor of the last change each open session's stream delivered, where it delivered one. */
   readonly #lastCursorBySessionId = new Map<string, EventCursor>();
   /** Open sessions whose stream was bound once, so a later open is a resume. */
   readonly #resumingSessionIds = new Set<string>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
+  /** Each open session's place in the re-open waits, from its stream's first end. */
+  readonly #backoffBySessionId = new Map<string, ReopenBackoff>();
   /** Which failed opens are remembered, and what one returning edge is worth. */
   readonly #retry: FailedSubscriptionRetry;
   readonly #diagnostics: SessionDiagnostics;
@@ -88,6 +96,7 @@ export class SessionEventSubscriber {
   public constructor(options: SessionEventSubscriberOptions) {
     this.#registry = options.registry;
     this.#bridge = options.bridge;
+    this.#clock = options.clock ?? new RealClock();
     // Answered from here so the retry reaches a retained id and nothing else.
     this.#retry = new FailedSubscriptionRetry({
       isRetired: () => this.#disposed,
@@ -191,6 +200,10 @@ export class SessionEventSubscriber {
       binding.release();
     }
     this.#bindingBySessionId.clear();
+    for (const backoff of this.#backoffBySessionId.values()) {
+      backoff.cancel();
+    }
+    this.#backoffBySessionId.clear();
     // A retained id is a promise to re-attempt, and a disposed subscriber makes none.
     this.#retry.clear();
   }
@@ -222,7 +235,11 @@ export class SessionEventSubscriber {
     }
     const isResume = this.#resumingSessionIds.has(sessionId);
     const afterCursor = this.#lastCursorBySessionId.get(sessionId);
-    const binding: StreamBinding = { release: () => undefined, hasDelivered: false };
+    const binding: StreamBinding = {
+      release: () => undefined,
+      hasDelivered: false,
+      openedAt: this.#clock.now(),
+    };
     try {
       binding.release = openObservedSubscription(this.#bridge.transportReconnect, () =>
         // The bridge's type is a claim about another process; `readSessionStreamFrame` checks it.
@@ -264,8 +281,9 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * A stream that ended while the session was open: opened again after its last cursor, at once
-   * when it delivered since it opened and on the returning edge when it did not. A refusal that
+   * A stream that ended while the session was open: opened again after its last cursor, through
+   * the re-open waits when it delivered since it opened and on the returning edge when it did
+   * not. A refusal that
    * came with no delivery is the daemon declining the stream, which the store is marked for.
    */
   #resumeEndedStream(sessionId: string, binding: StreamBinding, end: DaemonSubscriptionEnd): void {
@@ -280,7 +298,11 @@ export class SessionEventSubscriber {
       return;
     }
     if (binding.hasDelivered) {
-      this.#bindSession(sessionId);
+      const backoff = this.#backoffFor(sessionId);
+      backoff.noteEnded(binding.openedAt);
+      backoff.schedule(() => {
+        this.#bindSession(sessionId);
+      });
       return;
     }
     this.#retry.retain(sessionId);
@@ -295,6 +317,8 @@ export class SessionEventSubscriber {
     this.#retry.forget(sessionId);
     this.#lastCursorBySessionId.delete(sessionId);
     this.#resumingSessionIds.delete(sessionId);
+    this.#backoffBySessionId.get(sessionId)?.cancel();
+    this.#backoffBySessionId.delete(sessionId);
     const binding = this.#bindingBySessionId.get(sessionId);
     if (binding === undefined) {
       return;
@@ -347,6 +371,15 @@ export class SessionEventSubscriber {
     );
   }
 
+  #backoffFor(sessionId: string): ReopenBackoff {
+    let backoff = this.#backoffBySessionId.get(sessionId);
+    if (backoff === undefined) {
+      backoff = new ReopenBackoff(this.#clock);
+      this.#backoffBySessionId.set(sessionId, backoff);
+    }
+    return backoff;
+  }
+
   #buildDiagnostics(): SessionDiagnostics {
     return Object.freeze({
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
@@ -358,10 +391,11 @@ export class SessionEventSubscriber {
   }
 }
 
-/** One open stream: how to close it, and whether it delivered since it opened. */
+/** One open stream: how to close it, whether it delivered since it opened, and when it opened. */
 interface StreamBinding {
   release: Unsubscribe;
   hasDelivered: boolean;
+  readonly openedAt: number;
 }
 
 /** Capture a wire fact for diagnostics; it never reaches the screen or the tripwire. */

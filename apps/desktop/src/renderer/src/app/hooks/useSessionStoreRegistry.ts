@@ -100,7 +100,7 @@ function createWindowSessionPlumbing(
     // an open store would fold two events of one kind two ways.
     projectors: projectorRegistry.snapshot(),
   });
-  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge }) };
+  return { registry, subscriber: new SessionEventSubscriber({ registry, bridge, clock }) };
 }
 
 /**

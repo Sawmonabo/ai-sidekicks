@@ -18,6 +18,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
+import { REOPEN_WAITS_MS } from "../transport/reopen-backoff.js";
 import { createFixtureBridge } from "../platform/platform-bridge.fixture.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { SessionEventSubscriber } from "./session-event-subscriber.js";
@@ -104,7 +105,7 @@ function createResumeHarness(refuseResumedOpens = false): ResumeHarness {
     clock: engine.clock,
     refreshDebounceMs: 0,
   });
-  const subscriber = new SessionEventSubscriber({ registry, bridge });
+  const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });
   subscriber.attach();
   registry.open(SESSION_ID);
   return {
@@ -155,6 +156,26 @@ describe("SessionEventSubscriber: a stream that ends while its session is open",
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
     expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+
+    subscriber.dispose();
+  });
+
+  it("opens a stream that delivers and ends every time again only after growing waits", () => {
+    const { subscriber, engine, opens, sequencesDelivered } = createResumeHarness();
+    const beats = CONCURRENT_STREAMING_SCENARIO.beats;
+    engine.advance(beats[0]!.atMs);
+    opens[0]?.end(LINK_FAILED);
+    expect(opens).toHaveLength(2);
+
+    // The re-opened stream delivers and ends at once: the next open waits.
+    engine.advance(beats[1]!.atMs - beats[0]!.atMs);
+    const deliveredBeforeSecondEnd = sequencesDelivered.length;
+    expect(deliveredBeforeSecondEnd).toBeGreaterThan(0);
+    opens[1]?.end(LINK_FAILED);
+    engine.advance(REOPEN_WAITS_MS[1]! - 1);
+    expect(opens).toHaveLength(2);
+    engine.advance(1);
+    expect(opens).toHaveLength(3);
 
     subscriber.dispose();
   });

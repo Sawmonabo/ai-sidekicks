@@ -12,7 +12,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { REOPEN_WAITS_MS } from "#renderer/services/transport/reopening-subscription.js";
+import { REOPEN_WAITS_MS } from "#renderer/services/transport/reopen-backoff.js";
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { MachineSettingsStore, type MachineSettingsService } from "./machine-settings-store.js";
 import { effectiveSettings } from "./machine-settings-snapshot.js";
