@@ -9,7 +9,7 @@ import type {
   WorkflowEdgeItemCount,
   WorkflowRunReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { renderSettled } from "../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
