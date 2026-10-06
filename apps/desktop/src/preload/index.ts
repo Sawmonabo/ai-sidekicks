@@ -10,10 +10,6 @@ import { contextBridge } from "electron";
 import { FIXTURE_LAUNCH_GLOBAL, readFixtureLaunchSwitches } from "#shared/fixture-launch.js";
 import { createPreloadApi } from "./api.js";
 
-// Set by the `define` block in `electron.vite.config.ts`: `true` in the development and
-// fixtures builds, `false` in the release build, which folds the branch below away.
-declare const __FIXTURE_BUILD__: boolean;
-
 contextBridge.exposeInMainWorld("desktopBridge", createPreloadApi(process.argv));
 
 // The fixture launch gets a global of its own so the product bridge carries no fixture

@@ -82,10 +82,6 @@ startCrashReporter(
 // build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.
 declare const __SMOKE_BUILD__: boolean;
 
-// The fixture gate, substituted by the same `define` block: `true` in the development and
-// fixtures builds, `false` in every other, the release build included.
-declare const __FIXTURE_BUILD__: boolean;
-
 /**
  * The fixture launch this command line asks for, checked, or `undefined` for a normal launch.
  * The `if`/`else` shape lets a release bundle fold to the refusal alone: the catalog check,
