@@ -112,12 +112,17 @@ describe("the View menu's color scheme", () => {
 describe("About", () => {
   /** An installed app's resources folder, on no machine, so only a path built from it matches. */
   const installedResourcesFolder = "/sidekicks-installed-resources";
+  /** The resources folder the Electron mock gave the process, put back after each test. */
+  const mockResourcesPath = process.resourcesPath;
 
   afterEach(async () => {
     const { app } = await import("electron");
     vi.mocked(app.getName).mockReset();
     vi.mocked(app.getVersion).mockReset();
-    Reflect.deleteProperty(process, "resourcesPath");
+    Object.defineProperty(process, "resourcesPath", {
+      value: mockResourcesPath,
+      configurable: true,
+    });
   });
 
   /**

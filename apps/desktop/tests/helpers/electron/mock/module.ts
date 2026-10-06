@@ -56,6 +56,9 @@ export interface MenuTemplateItem {
  */
 const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
 
+/** Where the mock says an installed app's resources folder is, on no machine, as above. */
+const MOCK_RESOURCES_PATH = `${MOCK_APP_PATH_ROOT}/resources`;
+
 /** The work area of the one display the mocked `screen` reports until a test sets others. */
 const MOCK_PRIMARY_WORK_AREA: MockRectangle = { x: 0, y: 25, width: 1440, height: 875 };
 
@@ -195,6 +198,11 @@ class ElectronMockImpl implements ElectronMock {
   #readyPromise: Promise<void>;
 
   public constructor(options: ElectronMockOptions) {
+    // Electron sets `process.resourcesPath` before main runs, and plain Node leaves it unset.
+    Object.defineProperty(process, "resourcesPath", {
+      value: MOCK_RESOURCES_PATH,
+      configurable: true,
+    });
     this.#recordOrder = options.recordOrder ?? false;
     this.#initialPackaged = options.packaged ?? true;
     this.#packaged = this.#initialPackaged;
