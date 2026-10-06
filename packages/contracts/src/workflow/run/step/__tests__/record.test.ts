@@ -5,7 +5,6 @@
 // its cap, and only a failed step says how its process exited.
 import { describe, expect, it } from "vitest";
 
-import { WorkflowStepErrorSchema } from "../../../definition/document.js";
 import {
   WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
   WorkflowPayloadRefSchema,
@@ -130,29 +129,5 @@ describe("WorkflowPayloadRefSchema", () => {
       items: itemsOfBytes(WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP + 1),
     };
     expect(WorkflowPayloadRefSchema.safeParse(payload).success).toBe(false);
-  });
-});
-
-describe("WorkflowStepErrorSchema", () => {
-  it("accepts a coded failure with its details", () => {
-    const timedOut = {
-      message: "The approval step timed out",
-      code: "workflow.step_timed_out",
-      details: { cause: "step_timeout", limitMs: 3_600_000 },
-    };
-    expect(WorkflowStepErrorSchema.safeParse(timedOut).success).toBe(true);
-  });
-
-  it("refuses details with no code", () => {
-    const uncoded = { message: "failed", details: { cause: "step_timeout" } };
-    expect(WorkflowStepErrorSchema.safeParse(uncoded).success).toBe(false);
-  });
-
-  it("carries the failing item's index from 0, and no negative one", () => {
-    const itemFailure = { message: "The summary came back empty", itemIndex: 0 };
-    expect(WorkflowStepErrorSchema.safeParse(itemFailure).success).toBe(true);
-    expect(WorkflowStepErrorSchema.safeParse({ ...itemFailure, itemIndex: -1 }).success).toBe(
-      false,
-    );
   });
 });

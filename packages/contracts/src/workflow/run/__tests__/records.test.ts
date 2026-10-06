@@ -1,9 +1,10 @@
 // The run page, the runs table, the runs-needing-you section and the live stream read run
 // records. These tests hold the rules those readers depend on: the run read's chain and capture
 // facts, Review only on a finished run, a live step only on a going one, a waiting run carrying
-// the step that waits, the chain's question only on its first run, the runs table's filters, a row whose duration, live step and wait cause agree
-// with its status, a page that never outnumbers its total, account lines standing above the runs
-// that need a person, counted apart from them, and a removal that names its runs.
+// the step that waits, the chain's question only on its first run, the runs table's filters, a
+// row whose duration, live step and wait cause agree with its status, a page that never
+// outnumbers its total, account lines standing above the runs that need a person, counted apart
+// from them, and a removal that names its runs.
 import { describe, expect, it } from "vitest";
 
 import {
