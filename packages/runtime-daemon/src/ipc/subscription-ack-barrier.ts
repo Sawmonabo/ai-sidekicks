@@ -14,8 +14,8 @@
 //   promise microtasks, and `setTimeout(fn, 0)` has a 1 ms minimum. One `setImmediate` suffices.
 // * This relies on the dispatch path resolving the response within microtasks, with no
 //   `setImmediate` or `process.nextTick` deferral between handler return and the gateway's
-//   synchronous `socket.write`. The wire-frame-ordering tests in `handlers/__tests__` catch a
-//   change that adds one.
+//   synchronous `socket.write`. The subscribe handlers' wire-ordering tests catch a change that
+//   adds one.
 
 import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 

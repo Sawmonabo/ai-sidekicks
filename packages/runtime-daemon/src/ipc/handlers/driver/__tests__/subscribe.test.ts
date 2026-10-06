@@ -1,5 +1,6 @@
 // `driver.subscribeEvents` through the real method registry and streaming primitive: a
-// subscription loses no event, forwards only driver events, and tears its source down on cancel.
+// subscription loses no event, forwards only driver events, sends nothing when its source fails to
+// start, and tears its source down on cancel.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -104,7 +105,19 @@ describe("driver.subscribeEvents", () => {
     expect(frames).toHaveLength(3);
   });
 
-  it("tears the upstream source down when the subscription is cancelled", async () => {
+  it("a source that fails to start rejects the subscribe and sends no frame", async () => {
+    const { registry, frames } = buildSubscribeHarness(() => {
+      throw new Error("no such run");
+    });
+
+    await expect(
+      registry.dispatch("driver.subscribeEvents", { runId: TEST_RUN_ID }, TRANSPORT),
+    ).rejects.toThrow();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(frames).toStrictEqual([]);
+  });
+
+  it("tears the upstream source down when the subscription is canceled", async () => {
     const unsubscribe = vi.fn();
     const { registry } = buildSubscribeHarness(() => unsubscribe);
 

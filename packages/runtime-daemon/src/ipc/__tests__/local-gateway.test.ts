@@ -11,7 +11,12 @@ import * as path from "node:path";
 
 import type { Handler } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import {
+  JSON_RPC_ID_MAX_BYTES,
+  JSONRPC_VERSION,
+  JsonRpcErrorCode,
+  MAX_MESSAGE_BYTES,
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   encodeFrame,
   FramingError,
@@ -19,17 +24,11 @@ import {
 } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { bootstrap } from "../../bootstrap/index.js";
-import {
-  JSON_RPC_ID_MAX_BYTES,
-  LocalIpcGateway,
-  MAX_MESSAGE_BYTES,
-  sanitizeErrorMessage,
-  SANITIZED_MESSAGE_MAX_LEN,
-} from "../local-gateway.js";
+import { LocalIpcGateway } from "../local-gateway.js";
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
-import { connect, decodeFrames } from "../__fixtures__/local-socket-client.js";
+import { connect } from "../__fixtures__/local-socket-client.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
 
@@ -68,7 +67,8 @@ describe("Content-Length framing", () => {
     const waiting = { frame: null, consumed: 0 };
     expect(parseFrame(secondFrame.subarray(0, 10), MAX_MESSAGE_BYTES)).toEqual(waiting);
     expect(parseFrame(secondFrame.subarray(0, -5), MAX_MESSAGE_BYTES)).toEqual(waiting);
-    expect(decodeFrames(stream.subarray(head.consumed))).toStrictEqual([second]);
+    const tail = parseFrame(stream.subarray(head.consumed), MAX_MESSAGE_BYTES);
+    expect(JSON.parse(new TextDecoder().decode(tail.frame!))).toStrictEqual(second);
   });
 
   // A length two parsers could read differently desyncs the stream (request smuggling), and an
@@ -316,19 +316,6 @@ describe("LocalIpcGateway", () => {
     } finally {
       await client.close();
     }
-  });
-
-  it("sanitizeErrorMessage never throws and never exceeds its cap", () => {
-    // It runs inside the reply path: a throw there would be an unhandled rejection, and an
-    // uncapped message could make the reply too large to send.
-    const poison = {
-      toString(): string {
-        throw new Error("toString-poison");
-      },
-    };
-    expect(sanitizeErrorMessage(poison)).toBe("<unprintable thrown value>");
-    const huge = sanitizeErrorMessage(new Error("x".repeat(SANITIZED_MESSAGE_MAX_LEN * 2)));
-    expect(huge.length).toBeLessThanOrEqual(SANITIZED_MESSAGE_MAX_LEN);
   });
 });
 

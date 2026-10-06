@@ -287,9 +287,10 @@ export class StreamingPrimitive {
   }
 
   /**
-   * Cancels a subscription by id, firing its `onCancel` handlers, and returns whether it existed.
-   * Transport ownership is checked by the registered cancel handler, not here. Throws one
-   * `AggregateError` when a handler failed, after every handler ran.
+   * Cancels a subscription by id, firing its `onCancel` handlers but sending no end frame, and
+   * returns whether it existed: for a client's own cancel, and a subscribe that fails before its
+   * id reaches the client. Transport ownership is checked by the registered cancel handler, not
+   * here. Throws one `AggregateError` when a handler failed, after every handler ran.
    */
   cancelSubscription(subscriptionId: SubscriptionId): boolean {
     const entry = this.#subscriptions.get(subscriptionId);

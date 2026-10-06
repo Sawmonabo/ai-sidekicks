@@ -73,8 +73,9 @@ export function registerPresenceSubscribe(
       // Every way a subscription ends detaches the source here, so no watcher is left behind.
       sub.onCancel(unsubscribe);
     } catch (err) {
-      // The source failed to start: drop the subscription before the error reaches the client.
-      sub.cancel();
+      // The source failed to start: drop the subscription, with no end frame for an id the client
+      // never received, before the error reaches it.
+      deps.streamingPrimitive.cancelSubscription(sub.subscriptionId);
       throw err;
     }
     barrier.release();

@@ -1,5 +1,6 @@
 // `sanitizeFields` keeps filesystem paths and values the encoder cannot write out of an error's
-// `data.fields`, within size caps, and `mapJsonRpcError` puts every error on the wire through it.
+// `data.fields`, within size caps, `sanitizeErrorMessage` never throws or passes its cap, and
+// `mapJsonRpcError` puts every error on the wire through both.
 
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +9,12 @@ import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "../domain-error.js";
-import { mapJsonRpcError, sanitizeFields } from "../jsonrpc-error-mapping.js";
+import {
+  mapJsonRpcError,
+  sanitizeErrorMessage,
+  SANITIZED_MESSAGE_MAX_LEN,
+  sanitizeFields,
+} from "../jsonrpc-error-mapping.js";
 
 describe("sanitizeFields — path redaction (Unix / UNC / Windows-drive)", () => {
   it("redacts Unix absolute paths in string values", () => {
@@ -362,5 +368,20 @@ describe("mapJsonRpcError — DaemonDomainError wire projection", () => {
     expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(envelope.error.data?.type).toBe("repo.not_found");
     expect(envelope.error.data?.fields).toEqual({ repoId: "r-7" });
+  });
+});
+
+describe("sanitizeErrorMessage", () => {
+  it("never throws and never exceeds its cap", () => {
+    // It runs inside the reply path: a throw there would be an unhandled rejection, and an
+    // uncapped message could make the reply too large to send.
+    const poison = {
+      toString(): string {
+        throw new Error("toString-poison");
+      },
+    };
+    expect(sanitizeErrorMessage(poison)).toBe("<unprintable thrown value>");
+    const huge = sanitizeErrorMessage(new Error("x".repeat(SANITIZED_MESSAGE_MAX_LEN * 2)));
+    expect(huge.length).toBeLessThanOrEqual(SANITIZED_MESSAGE_MAX_LEN);
   });
 });

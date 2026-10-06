@@ -5,21 +5,7 @@ import * as net from "node:net";
 
 import type { JsonRpcMessage } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { encodeFrame, parseFrame } from "@ai-sidekicks/contracts/content-length-framing";
-
-/** Decodes every complete frame at the head of `bytes`. */
-export function decodeFrames(bytes: Buffer): unknown[] {
-  const envelopes: unknown[] = [];
-  let rest = bytes;
-  for (;;) {
-    const result = parseFrame(rest, MAX_MESSAGE_BYTES);
-    if (result.frame === null) {
-      return envelopes;
-    }
-    envelopes.push(JSON.parse(new TextDecoder().decode(result.frame)));
-    rest = rest.subarray(result.consumed);
-  }
-}
+import { encodeFrame, FrameAccumulator } from "@ai-sidekicks/contracts/content-length-framing";
 
 /** A connected raw socket client. */
 export interface Client {
@@ -40,7 +26,10 @@ export async function connect(socketPath: string): Promise<Client> {
     });
     socket.once("error", reject);
   });
-  const received: Buffer[] = [];
+  // Each chunk is framed as it arrives, so every reply is decoded once.
+  const frames = new FrameAccumulator(MAX_MESSAGE_BYTES);
+  const envelopes: unknown[] = [];
+  let framingFailure: unknown = null;
   let isClosed = false;
   let waiter: {
     readonly count: number;
@@ -52,17 +41,12 @@ export async function connect(socketPath: string): Promise<Client> {
     if (current === null) {
       return;
     }
-    let envelopes: unknown[];
-    try {
-      envelopes = decodeFrames(Buffer.concat(received));
-    } catch (framingError) {
+    if (framingFailure !== null) {
       waiter = null;
-      current.reject(framingError);
-      return;
-    }
-    if (envelopes.length >= current.count) {
+      current.reject(framingFailure);
+    } else if (envelopes.length >= current.count) {
       waiter = null;
-      current.resolve(envelopes);
+      current.resolve([...envelopes]);
     } else if (isClosed) {
       waiter = null;
       current.reject(
@@ -71,7 +55,14 @@ export async function connect(socketPath: string): Promise<Client> {
     }
   };
   socket.on("data", (chunk: Buffer) => {
-    received.push(chunk);
+    frames.append(chunk);
+    try {
+      for (let frame = frames.nextFrame(); frame !== null; frame = frames.nextFrame()) {
+        envelopes.push(JSON.parse(new TextDecoder().decode(frame)));
+      }
+    } catch (error) {
+      framingFailure = error;
+    }
     settle();
   });
   socket.on("close", () => {

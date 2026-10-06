@@ -93,8 +93,8 @@ export function registerDriverSubscribeEvents(
       });
       sub.onCancel(unsubscribe);
     } catch (thrown) {
-      // Otherwise the streaming-primitive entry would stay registered until the transport closed.
-      sub.cancel();
+      // Released at once, and with no end frame for an id the client never received.
+      deps.streamingPrimitive.cancelSubscription(sub.subscriptionId);
       translateDriverError(thrown);
     }
 

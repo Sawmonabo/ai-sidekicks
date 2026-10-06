@@ -210,7 +210,8 @@ export function registerSessionSubscribe(
       );
       sub.onCancel(unsubscribe);
     } catch (err) {
-      sub.cancel();
+      // The client never received this id, so the subscription goes without an end frame.
+      deps.streamingPrimitive.cancelSubscription(sub.subscriptionId);
       throw err;
     }
     barrier.release();

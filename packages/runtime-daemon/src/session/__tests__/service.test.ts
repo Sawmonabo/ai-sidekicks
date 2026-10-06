@@ -119,7 +119,7 @@ describe("SessionService — rebuildSession reads events by sequence ASC", () =>
 
 describe("SessionService — rebuildSession uses sequence not monotonic_ns", () => {
   it("orders events by sequence even when monotonic_ns goes backwards across rows", () => {
-    // monotonic_ns is in-daemon debug data; sequence is the rebuild key, so clock skew in
+    // monotonic_ns is in-daemon debug data; sequence is the order key, so clock skew in
     // monotonic_ns must not reorder the rebuild.
     const e0: StoredEvent = { ...makeCreatedEvent(), monotonicNs: 5_000_000_000n };
     const e1: StoredEvent = makeRenamedEvent(1, 1_000_000_000n, "Back Room");

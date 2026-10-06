@@ -142,7 +142,8 @@ export function registerMachineSettingsMethods(
       });
       subscription.onCancel(unsubscribe);
     } catch (error) {
-      subscription.cancel();
+      // The client never received this id, so the subscription goes without an end frame.
+      deps.streamingPrimitive.cancelSubscription(subscription.subscriptionId);
       throw error;
     }
     barrier.release();

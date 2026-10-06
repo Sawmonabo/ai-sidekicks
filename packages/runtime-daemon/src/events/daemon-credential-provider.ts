@@ -85,7 +85,8 @@ export interface DaemonCredentialProvider {
  * than returning empty headers so the person sees the real cause here, not a generic 401 from
  * the control plane.
  *
- * @consumedBy the daemon's startup wiring, until the daemon holds a signing identity
+ * @consumedBy the tests, and the startup check that refuses to leave this stand-in bound once the
+ * daemon signs its own control-plane calls
  */
 export class DeferredDaemonCredentialProvider implements DaemonCredentialProvider {
   mintForAttempt(attempt: DaemonCredentialAttempt): Promise<DaemonCredentialMaterial> {

@@ -1,6 +1,6 @@
 // `session.subscribe` through the method registry and streaming primitive: changes batch into
 // frames after the ack, a slow connection drops instead of waiting, a malformed event cancels the
-// subscription, and the upstream detaches with it.
+// subscription, a source that fails to start sends nothing, and the upstream detaches with it.
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -461,6 +461,24 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
     await crossAckBarrier();
     return { registry, primitive, unsubscribe, subscriptionId: result.subscriptionId };
   }
+
+  it("a source that fails to start rejects the subscribe and sends no frame", async () => {
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<SendFrame>();
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: new StreamingPrimitive({ registry, send }),
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: () => {
+        throw new Error("no such session");
+      },
+    });
+
+    await expect(
+      registry.dispatch("session.subscribe", { sessionId: TEST_SESSION_ID }, { transportId: 7 }),
+    ).rejects.toThrow("no such session");
+    await crossAckBarrier();
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it("a `$/subscription/cancel` from the same connection detaches the upstream", async () => {
     const stream = await subscribeCountingDetach(13);

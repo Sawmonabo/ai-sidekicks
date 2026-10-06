@@ -50,24 +50,6 @@ import { readSocketPathLimit } from "./socket-path-limit.js";
  */
 const CONNECTION_CLOSE_WAIT_MS = 500;
 
-/**
- * The largest accepted or emitted frame body, in bytes. The value lives in
- * `@ai-sidekicks/contracts` so a producer sizing a reply shares it with the framer; inbound
- * enforcement is only here, where the gateway hands it to `parseFrame` as the body limit, and the
- * shared `encodeFrame` refuses to emit an oversized body.
- */
-export { MAX_MESSAGE_BYTES };
-
-/**
- * The ceiling on a JSON-RPC `id`, in JSON-encoded bytes. The value lives in
- * `@ai-sidekicks/contracts` because a paged reply subtracts it from its own budget; the accept or
- * refuse decision is only here, at two sites. `#dispatchFrame` refuses an over-bound id as
- * `-32600` before dispatch. `extractIdSafely` drops one to `null`, because the earlier envelope
- * gates (`jsonrpc`, `method`) answer before the id gate and would otherwise echo the oversized id
- * into an error frame that cannot be sent.
- */
-export { JSON_RPC_ID_MAX_BYTES };
-
 // --------------------------------------------------------------------------
 // Supervision surface
 // --------------------------------------------------------------------------
@@ -107,86 +89,6 @@ export interface SupervisionHooks {
   onError(transport: SupervisionTransport, err: unknown): void;
   onListenerError(err: unknown): void;
 }
-
-// --------------------------------------------------------------------------
-// Error-message sanitization
-// --------------------------------------------------------------------------
-
-/**
- * Reduce any thrown value to a string safe to send as `error.message`. An `Error` contributes its
- * `.message` only, never `.stack`; anything else goes through `String(value)`. Unix, UNC and
- * Windows-drive paths become `<redacted-path>` (see {@link redactPathsFromString}), and the result
- * is capped at `SANITIZED_MESSAGE_MAX_LEN`.
- *
- * It never throws: a hostile value whose `toString` throws would otherwise escape as an unhandled
- * rejection, so it yields `"<unprintable thrown value>"`. It does not catch secrets that do not
- * look like paths; handler authors keep those out of messages. Because Windows and UNC segments
- * may contain spaces, prose that directly follows such a path can be over-redacted, which is the
- * safe direction.
- */
-export function sanitizeErrorMessage(value: unknown): string {
-  let raw: string;
-  if (value instanceof Error) {
-    // Never `.stack`: it leaks file paths, function names and module structure.
-    raw = value.message;
-  } else if (typeof value === "string") {
-    raw = value;
-  } else {
-    // `String(value)` is printable for null, undefined and plain objects without exposing
-    // structured fields, but it calls `toString`, which a hostile thrown object can make throw.
-    try {
-      raw = String(value);
-    } catch {
-      raw = "<unprintable thrown value>";
-    }
-  }
-
-  const sanitized = redactPathsFromString(raw);
-
-  if (sanitized.length > SANITIZED_MESSAGE_MAX_LEN) {
-    const truncationMarker = "…[truncated]";
-    const keptLength = SANITIZED_MESSAGE_MAX_LEN - truncationMarker.length;
-    return `${sanitized.slice(0, keptLength)}${truncationMarker}`;
-  }
-  return sanitized;
-}
-
-/**
- * Replace Unix absolute paths, UNC paths and Windows-drive paths with `<redacted-path>`. It is
- * shared by `sanitizeErrorMessage` and `sanitizeFields` so both channels redact the same way. Each
- * pattern accepts an optional `:line:col` trailer for stack-frame-shaped text.
- *
- * Unix segments exclude spaces, which end a path token. UNC hosts also exclude spaces, but UNC
- * share and path segments and Windows-drive segments allow them (`\\fs\Shared Drive\a.json`,
- * `C:\Program Files\a.exe`). It never throws and is idempotent, since `<redacted-path>` matches
- * none of the patterns. Each quantifier body is a bounded character class over disjoint segments,
- * so backtracking stays linear on pathological input such as `'/'.repeat(N)`.
- */
-export function redactPathsFromString(input: string): string {
-  // Unix: conservative character class, so it stops at whitespace, quotes and similar. A path
-  // starts at a token boundary, so a slash inside a name (`feature/login`) is not one.
-  let sanitized = input.replace(
-    /(?<![A-Za-z0-9_.-])(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?::\d+)?)?/g,
-    "<redacted-path>",
-  );
-  // UNC: the host has no spaces, the share and path segments may.
-  sanitized = sanitized.replace(
-    /\\\\[A-Za-z0-9_.-]+(?:\\[A-Za-z0-9_. -]+)+(?::\d+(?::\d+)?)?/g,
-    "<redacted-path>",
-  );
-  // Windows drive: segments may contain spaces; `-` is last in the class so it is not a range.
-  sanitized = sanitized.replace(
-    /[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::\d+(?::\d+)?)?/g,
-    "<redacted-path>",
-  );
-  return sanitized;
-}
-
-/**
- * Cap on a sanitized error message, so a pathological thrown string cannot push the response past
- * `MAX_MESSAGE_BYTES`.
- */
-export const SANITIZED_MESSAGE_MAX_LEN = 8192;
 
 // --------------------------------------------------------------------------
 // Internal: per-connection state
@@ -355,6 +257,7 @@ export class LocalIpcGateway {
     const state: ConnectionState = {
       transport,
       socket,
+      // The one inbound size check: a declared body over the cap ends the connection.
       frames: new FrameAccumulator(MAX_MESSAGE_BYTES),
       disposed: false,
     };

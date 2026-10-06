@@ -1,7 +1,8 @@
 // The settings file's three verbs through the registry against a real file and the real git: a
 // missing file reads as the defaults and is written with them, a broken one is repaired and says
 // so, a refused row or branch-name pattern writes nothing and says why in the page's words, and a
-// listener hears the file as it stands first and each change after.
+// listener hears the file as it stands first and each change after, and a subscribe that cannot
+// watch the file sends nothing.
 import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -258,6 +259,16 @@ describe("daemon.machineSettingsSubscribe", () => {
         voice: { mode: "tap", callVoice: null },
       },
     });
+  });
+
+  it("a file that cannot be watched rejects the subscribe and sends no frame", async () => {
+    vi.spyOn(settingsFile, "subscribe").mockRejectedValue(new Error("the file is unreadable"));
+
+    await expect(
+      registry.dispatch("daemon.machineSettingsSubscribe", {}, { transportId: TRANSPORT_ID }),
+    ).rejects.toThrow("the file is unreadable");
+    await nextTurn();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("detaches from the file and stops sending once the subscription is canceled", async () => {

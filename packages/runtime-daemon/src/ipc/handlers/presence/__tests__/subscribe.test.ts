@@ -1,6 +1,7 @@
 // `presence.subscribe` through the method registry and a real streaming primitive: the device
-// list is pushed after the `{subscriptionId}` response, a bad pushed value cancels the
-// subscription instead of crashing the daemon, and cancel or disconnect detaches the source.
+// list is pushed after the `{subscriptionId}` response, a source that fails to start sends nothing,
+// a bad pushed value cancels the subscription instead of crashing the daemon, and cancel or
+// disconnect detaches the source.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -91,6 +92,17 @@ async function nextCheckPhase(): Promise<void> {
 }
 
 describe("presence.subscribe — push slice round-trip + wire-frame emission", () => {
+  it("a source that fails to start rejects the subscribe and sends no frame", async () => {
+    const presence = setupPresence();
+    presence.subscribeToPresence.mockImplementation(() => {
+      throw new Error("presence is unavailable");
+    });
+
+    await expect(presence.subscribe(7)).rejects.toThrow("presence is unavailable");
+    await nextCheckPhase();
+    expect(presence.send).not.toHaveBeenCalled();
+  });
+
   it(
     "dispatches subscribe; returns `{subscriptionId}`; a pushed update routes as a " +
       "`$/subscription/notify` frame validated against MachinePresenceSchema",
