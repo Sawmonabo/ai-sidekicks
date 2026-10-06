@@ -107,8 +107,9 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
   return (
     <ol className="meridian-reasoning-surface__entries" aria-label="reasoning entries">
       {entries.map((entry) => (
-        <li key={entry.sequence} className="meridian-reasoning-surface__entry">
-          {entry.content}
+        <li key={entry.sequence}>
+          {/* Preformatted, so text copied out of it keeps its lines. */}
+          <pre className="meridian-reasoning-surface__entry">{entry.content}</pre>
         </li>
       ))}
     </ol>

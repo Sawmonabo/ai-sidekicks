@@ -2,6 +2,8 @@
 // and never from the tool's name. The kind itself is wire spelling and is not drawn. It renders
 // nothing when the row declares nothing or declares a kind this build does not know.
 
+import { Fragment } from "react";
+
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { type ToolKindReading } from "./tool-kinds.js";
 
@@ -19,13 +21,19 @@ export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
   if (reading === undefined || reading.kind === "unrecognized") {
     return null;
   }
+  // The spaces draw nothing between flex items; they keep the figures, and the summary after the
+  // badge, apart in text copied out of the row.
   return (
     <span className="meridian-tool-kind-badge">
       {reading.serverLabel === undefined ? null : (
-        <WireFigure value={reading.serverLabel} title="Server" />
+        <>
+          <WireFigure value={reading.serverLabel} title="Server" />{" "}
+        </>
       )}
       {reading.argumentSummary.map((argument) => (
-        <WireFigure key={argument} value={argument} title="Argument" />
+        <Fragment key={argument}>
+          <WireFigure value={argument} title="Argument" />{" "}
+        </Fragment>
       ))}
     </span>
   );

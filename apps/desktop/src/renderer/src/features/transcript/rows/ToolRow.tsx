@@ -66,6 +66,8 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
       authorLabel={props.row.actor ?? kind.label}
       isSuperseded={props.isSuperseded}
     >
+      {/* A space between two of the header's parts draws nothing in its flex row; it keeps them
+            apart in text copied out of it. */}
       <div className="meridian-tool-card__header">
         <Glyph name={kind.glyph} title={kind.label} />
         {/* Wire-verbatim, in mono. A missing name reads as absent, not "unknown", which the
@@ -76,7 +78,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           </span>
         ) : (
           <span className="meridian-tool-card__name">{toolName}</span>
-        )}
+        )}{" "}
         {/* Before the summary: the badge qualifies which tool ran, the summary says what it did.
               Draws nothing for a row that declares no tool kind. */}
         <ToolKindBadge reading={readDeclaredToolKind(payload)} />
@@ -84,9 +86,17 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           {elideText(props.row.summary, TOOL_SUMMARY_MAX_CHARACTERS, { atWordBoundary: true })}
         </span>
         {durationMs === undefined ? null : (
-          <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>
+          <>
+            {" "}
+            <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>
+          </>
         )}
-        {chip === undefined ? null : <Chip label={chip.label} tone={chip.tone} />}
+        {chip === undefined ? null : (
+          <>
+            {" "}
+            <Chip label={chip.label} tone={chip.tone} />
+          </>
+        )}
         {props.onDensityToggle === undefined ? null : (
           <button
             type="button"

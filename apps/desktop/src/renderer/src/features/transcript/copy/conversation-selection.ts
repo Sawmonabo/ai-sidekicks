@@ -2,9 +2,13 @@
 // read, joined by a blank line. A message row gives only its body, never its author line, stamp
 // or controls: a reply's part as the markdown rebuilt from what was selected, and the person's
 // own message or a reasoning aside as plain text. Any other row gives the text selected in it.
-// A formatted flavor rides beside the text whenever a reply is part of it.
+// Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
+// no control's label is ever part of it. A formatted flavor rides beside the text whenever a
+// reply is part of it.
 
+import { fromDom } from "hast-util-from-dom";
 import { toHtml } from "hast-util-to-html";
+import { toText } from "hast-util-to-text";
 
 import type { ClipboardContent } from "#shared/preload-api.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -60,13 +64,22 @@ interface SelectedPart {
 function selectedPartOf(range: Range, row: HTMLElement): SelectedPart {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   if (body === null) {
-    return { flavor: "text", text: clampedTo(range, row).toString() };
+    return { flavor: "text", text: toText(fromDom(selectedContentOf(clampedTo(range, row)))) };
   }
   // A selection holding only the row's author line or controls clamps to nothing here.
-  const part = clampedTo(range, body);
+  const part = selectedContentOf(clampedTo(range, body));
   return body.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
-    ? { flavor: "markdown", text: rebuildMarkdown(part.cloneContents()) }
-    : { flavor: "text", text: part.toString() };
+    ? { flavor: "markdown", text: rebuildMarkdown(part) }
+    : { flavor: "text", text: toText(fromDom(part)) };
+}
+
+/** What `part` holds, without the controls drawn among it: a button's label is no one's text. */
+function selectedContentOf(part: Range): DocumentFragment {
+  const content = part.cloneContents();
+  for (const control of content.querySelectorAll("button")) {
+    control.remove();
+  }
+  return content;
 }
 
 /** The part of `range` inside `element`. */

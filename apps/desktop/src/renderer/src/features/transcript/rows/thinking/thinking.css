@@ -36,6 +36,8 @@
 }
 
 .meridian-reasoning-surface__entry {
+  margin: 0;
+  font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

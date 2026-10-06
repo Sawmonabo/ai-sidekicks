@@ -76,8 +76,8 @@ function renderBodyText(
   }
   const strippedText = withoutResidualEscapes(body);
   if (kind === "plain-text") {
-    // Verbatim: no parse, no footnotes.
-    return <p className="meridian-machine-body__plain">{strippedText}</p>;
+    // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.
+    return <pre className="meridian-machine-body__plain">{strippedText}</pre>;
   }
   return (
     <StreamingMarkdown

@@ -77,9 +77,10 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
       <span className="meridian-transcript-row-layout__edge" style={edgeStyle} aria-hidden="true" />
       <div className="meridian-transcript-row-layout__gutter">
         {props.authorLabel === undefined ? null : (
-          <span className="meridian-transcript-row-layout__actor" id={actorId}>
+          // A line of its own, so text copied out of the row keeps the author off the time.
+          <div className="meridian-transcript-row-layout__actor" id={actorId}>
             {props.authorLabel}
-          </span>
+          </div>
         )}
         {timePlacement === "gutter" ? time : null}
       </div>
