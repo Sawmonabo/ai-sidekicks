@@ -5,7 +5,7 @@
 
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { RADIUS_SCALE_REM, SPACE_SCALE_REM, scaleStep } from "#renderer/styles/palette.js";
-import { TYPE_SCALE_REM } from "#renderer/styles/typography.js";
+import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
 /**
  * A node's ring, the stroke its state is drawn in, in canvas units. A stroke stays as drawn at
@@ -19,6 +19,11 @@ export const NODE_RING_WIDTH = 2;
  */
 export function readCanvasUnits(scale: Readonly<Record<string, number>>, stepName: string): number {
   return scaleStep(scale, stepName) * DEFAULT_APPEARANCE_RECORD.textSize;
+}
+
+/** One line box of a type step, such as `text-xs`, at the body line height, in canvas units. */
+export function readCanvasLineHeight(stepName: string): number {
+  return readCanvasUnits(TYPE_SCALE_REM, stepName) * BODY_LINE_HEIGHT;
 }
 
 /**

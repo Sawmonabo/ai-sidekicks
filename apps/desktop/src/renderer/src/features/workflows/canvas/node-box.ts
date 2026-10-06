@@ -9,13 +9,8 @@
 // set in.
 
 import { SPACE_SCALE_REM } from "#renderer/styles/palette.js";
-import {
-  BODY_LINE_HEIGHT,
-  MONO_ADVANCE_EM,
-  TYPE_SCALE_REM,
-  WIRE_FIGURE_SIZE_EM,
-} from "#renderer/styles/typography.js";
-import { NODE_RING_WIDTH, readCanvasUnits } from "./measures.js";
+import { NODE_RING_WIDTH, readCanvasLineHeight, readCanvasUnits } from "./measures.js";
+import { measureWireFigureWidth } from "./wire-figure-width.js";
 
 /** What one node's box must hold. */
 export interface NodeBoxContent {
@@ -40,34 +35,23 @@ export interface NodeBoxSize {
  * keeps more than this between two nodes in a column, so a box that grows never reaches the next.
  */
 export const NODE_EXTRA_LINE_HEIGHT: number =
-  readCanvasUnits(SPACE_SCALE_REM, "space-1") + lineHeight("text-xs");
+  readCanvasUnits(SPACE_SCALE_REM, "space-1") + readCanvasLineHeight("text-xs");
 
 /** The box that holds `content`, with the same size for every node of one kind and count. */
 export function deriveNodeBoxSize(content: NodeBoxContent): NodeBoxSize {
   const ring = 2 * NODE_RING_WIDTH;
   const kindRow =
-    wireFigureWidth(content.kindLabel) +
+    measureWireFigureWidth(content.kindLabel) +
     readCanvasUnits(SPACE_SCALE_REM, "space-2") +
-    wireFigureWidth(content.countFigure);
+    measureWireFigureWidth(content.countFigure);
   const width = ring + 2 * readCanvasUnits(SPACE_SCALE_REM, "space-3") + kindRow;
   const rows =
-    lineHeight("text-sm") +
-    2 * lineHeight("text-xs") +
+    readCanvasLineHeight("text-sm") +
+    2 * readCanvasLineHeight("text-xs") +
     2 * readCanvasUnits(SPACE_SCALE_REM, "space-1");
   const contentHeight = ring + 2 * readCanvasUnits(SPACE_SCALE_REM, "space-2") + rows;
   // Handles stand evenly spaced down a side, one slot apart and one slot from each end.
-  const handleHeight = ring + (content.handleCount + 1) * lineHeight("text-xs");
+  const handleHeight = ring + (content.handleCount + 1) * readCanvasLineHeight("text-xs");
   const height = Math.max(contentHeight, handleHeight);
   return { width, height: content.hasExtraLine ? height + NODE_EXTRA_LINE_HEIGHT : height };
-}
-
-/** One line box of a type step, in canvas units. */
-function lineHeight(stepName: string): number {
-  return readCanvasUnits(TYPE_SCALE_REM, stepName) * BODY_LINE_HEIGHT;
-}
-
-/** A wire figure set in a box's small text: its characters times the mono face's advance. */
-function wireFigureWidth(figure: string): number {
-  const figureSize = readCanvasUnits(TYPE_SCALE_REM, "text-xs") * WIRE_FIGURE_SIZE_EM;
-  return [...figure].length * MONO_ADVANCE_EM * figureSize;
 }

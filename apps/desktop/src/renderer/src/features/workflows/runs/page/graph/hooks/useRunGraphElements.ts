@@ -15,7 +15,9 @@ import {
   type RunGraphFlowNode,
 } from "../elements.js";
 import { placeRunGraphNodes, type CanvasPoint } from "../layout.js";
-import { flowingEdgeIds, liveNodeId, runGraphNodeViews, widestCountFigure } from "../model.js";
+import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../model.js";
+import { deriveColumnGap } from "#renderer/features/workflows/canvas/column-gap.js";
+import { pickWidestFigure } from "#renderer/features/workflows/canvas/wire-figure-width.js";
 
 /**
  * What the canvas hands the library, and where the live step stands.
@@ -31,7 +33,8 @@ export interface RunGraphElements {
 
 /**
  * The run's nodes and edges, each rebuilt only when what it reads moves: handles with the
- * document, places with it and the widest count the run reports, which every box keeps room for;
+ * document, places with it, the widest node count, which every box keeps room for, and the widest
+ * edge count, which every column gap keeps room for;
  * edges with the item counts and the steps they flow with; states with the steps and counts; the
  * mark with the selection. The library re-enters its store whenever an array's identity moves.
  */
@@ -51,14 +54,18 @@ export function useRunGraphElements(
     () => runGraphNodeViews(document, steps, edgeItemCounts, nowMs),
     [document, steps, edgeItemCounts, nowMs],
   );
-  // A string, so a step update that leaves the widest count as it was keeps every place.
-  const countFigure = widestCountFigure(views);
+  // Strings and a number, so a step update that leaves the widest counts as they were keeps
+  // every place.
+  const countFigure = pickWidestFigure(views.map((view) => view.outputCountFigure));
+  const columnGap = deriveColumnGap(pickWidestFigure(edges.map((edge) => edge.label)));
   const positions = useMemo(
     () =>
-      placeRunGraphNodes(document, (node) =>
-        runGraphNodeBox(node, handles.get(node.id) ?? NO_HANDLES, countFigure, false),
+      placeRunGraphNodes(
+        document,
+        (node) => runGraphNodeBox(node, handles.get(node.id) ?? NO_HANDLES, countFigure, false),
+        columnGap,
       ),
-    [document, handles, countFigure],
+    [document, handles, countFigure, columnGap],
   );
   const nodes = useMemo(
     () => toRunGraphFlowNodes(views, handles, positions, selectedNodeId, countFigure),

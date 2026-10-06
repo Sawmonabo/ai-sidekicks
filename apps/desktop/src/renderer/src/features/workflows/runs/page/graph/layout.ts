@@ -28,17 +28,16 @@ export interface CanvasPoint {
  */
 const RUN_GRAPH_NODE_GAP = 2 * NODE_EXTRA_LINE_HEIGHT;
 
-/** The gap between two columns, in canvas units: room for an edge to read as a connection. */
-const RUN_GRAPH_COLUMN_GAP = 72;
-
 /**
  * Every node's top-left corner, keyed by node id, the trigger included. Positions depend on the
- * document and each node's box before any extra line, `boxOf`, so a run moving from step to step
- * moves a node only when the widest count it reports gains a digit.
+ * document, each node's box before any extra line, `boxOf`, and the gap between two columns, in
+ * canvas units, so a run moving from step to step moves a node only when the widest count it
+ * reports on a node or an edge gains a digit.
  */
 export function placeRunGraphNodes(
   document: WorkflowDocument,
   boxOf: (node: WorkflowNode) => NodeBoxSize,
+  columnGap: number,
 ): ReadonlyMap<string, CanvasPoint> {
   const nodes = [document.trigger, ...document.nodes];
   const placed = document.layout?.nodes ?? {};
@@ -46,7 +45,7 @@ export function placeRunGraphNodes(
   for (const node of nodes) {
     const point = placed[node.id];
     if (point === undefined) {
-      return layOutLeftToRight(document, nodes, boxOf);
+      return layOutLeftToRight(document, nodes, boxOf, columnGap);
     }
     positions.set(node.id, { x: point.x, y: point.y });
   }
@@ -57,10 +56,11 @@ function layOutLeftToRight(
   document: WorkflowDocument,
   nodes: readonly WorkflowNode[],
   boxOf: (node: WorkflowNode) => NodeBoxSize,
+  columnGap: number,
 ): ReadonlyMap<string, CanvasPoint> {
   const boxes = new Map(nodes.map((node) => [node.id, boxOf(node)]));
   const graph = new graphlib.Graph();
-  graph.setGraph({ rankdir: "LR", nodesep: RUN_GRAPH_NODE_GAP, ranksep: RUN_GRAPH_COLUMN_GAP });
+  graph.setGraph({ rankdir: "LR", nodesep: RUN_GRAPH_NODE_GAP, ranksep: columnGap });
   // The layout reads a label on every edge; these carry nothing of their own.
   graph.setDefaultEdgeLabel(() => ({}));
   for (const [nodeId, box] of boxes) {

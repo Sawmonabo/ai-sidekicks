@@ -1,12 +1,17 @@
 // A run graph node's box is derived from its kind's row in canvas units, so at the largest text
 // size every line still fits inside it, its kind's label whole, and every node of a kind is one
-// width, wider where its kind's label is longer. This needs real layout: a DOM shim measures
-// every box as zero.
+// width, wider where its kind's label is longer. The gap between columns is derived from the
+// widest edge count, so a label never stands on a node. This needs real layout: a DOM shim
+// measures every box as zero.
 
+import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+import type {
+  WorkflowEdgeItemCount,
+  WorkflowRunReadResponse,
+} from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
 import { renderSettled } from "../helpers/app/harness.js";
@@ -39,6 +44,30 @@ function fixtureRun(runId: string): {
   return { run, workflowDocument };
 }
 
+/** The run's graph at the largest text size, once it is fitted and painted. */
+async function mountRunGraph(
+  workflowDocument: WorkflowDocument,
+  steps: WorkflowRunReadResponse["steps"],
+  edgeItemCounts: readonly WorkflowEdgeItemCount[],
+): Promise<HTMLElement> {
+  installMeridianTokens(document);
+  document.documentElement.style.fontSize = `${String(Math.max(...TEXT_SIZES))}px`;
+  const { container } = await renderSettled(
+    <div className="meridian-run-graph">
+      <RunGraphCanvas
+        document={workflowDocument}
+        steps={steps}
+        edgeItemCounts={edgeItemCounts}
+        selectedNodeId={undefined}
+        nowMs={WORKFLOW_FIXTURE_NOW_MS}
+        onSelectNode={() => undefined}
+      />
+    </div>,
+  );
+  await awaitRunGraphSettled(container);
+  return container;
+}
+
 describe("a run graph node at the largest text size", () => {
   // The failed run carries a node with its one extra line, the tallest box the graph draws; the
   // waiting-for-a-reply run carries the longest kind label, `human.wait-for-chat-reply`.
@@ -46,22 +75,7 @@ describe("a run graph node at the largest text size", () => {
     "holds every line whole, one width per kind (%s)",
     async (runId) => {
       const { run, workflowDocument } = fixtureRun(runId);
-      installMeridianTokens(document);
-      document.documentElement.style.fontSize = `${String(Math.max(...TEXT_SIZES))}px`;
-
-      const { container } = await renderSettled(
-        <div className="meridian-run-graph">
-          <RunGraphCanvas
-            document={workflowDocument}
-            steps={run.steps}
-            edgeItemCounts={run.edgeItemCounts}
-            selectedNodeId={undefined}
-            nowMs={WORKFLOW_FIXTURE_NOW_MS}
-            onSelectNode={() => undefined}
-          />
-        </div>,
-      );
-      await awaitRunGraphSettled(container);
+      const container = await mountRunGraph(workflowDocument, run.steps, run.edgeItemCounts);
 
       const nodes = [...container.querySelectorAll<HTMLElement>(".meridian-run-graph-node")];
       // Scroll sizes are layout sizes, untouched by the zoom's transform. A line clips its own
@@ -101,6 +115,49 @@ describe("a run graph node at the largest text size", () => {
     },
   );
 });
+
+describe("an edge's item count at the largest text size", () => {
+  // Every edge carries a count fifteen characters wide, past any count the fixtures hold. The
+  // release review's document carries no places of its own, so the page lays it out itself; a
+  // document the builder placed keeps the places its author gave.
+  it("stands clear of both nodes, however long", async () => {
+    const { run, workflowDocument } = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
+    const longCounts = workflowDocument.edges.map((edge) => ({
+      edgeId: edge.id,
+      itemCount: 123_456_789_012,
+    }));
+    const container = await mountRunGraph(workflowDocument, run.steps, longCounts);
+
+    // The library draws a label once it has measured its text, so the wait is on that state.
+    const labels = await waitFor(() => {
+      const drawn = [
+        ...container.querySelectorAll<SVGGElement>(".react-flow__edge-textwrapper"),
+      ].filter((label) => label.getAttribute("visibility") === "visible");
+      expect(drawn).toHaveLength(workflowDocument.edges.length);
+      return drawn;
+    });
+    expect(labels.map((label) => label.textContent)).toContain("123,456,789,012");
+    const nodeBoxes = [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map(
+      (node) => ({ id: node.dataset["id"], box: node.getBoundingClientRect() }),
+    );
+    const overlaps = labels.flatMap((label) => {
+      const labelBox = label.getBoundingClientRect();
+      return nodeBoxes
+        .filter(({ box }) => isOverlapping(labelBox, box))
+        .map(({ id }) => `${label.textContent} on ${String(id)}`);
+    });
+    expect(overlaps).toEqual([]);
+  });
+});
+
+function isOverlapping(first: DOMRect, second: DOMRect): boolean {
+  return (
+    first.left < second.right &&
+    second.left < first.right &&
+    first.top < second.bottom &&
+    second.top < first.bottom
+  );
+}
 
 function kindRowOf(node: HTMLElement): HTMLElement {
   const kindRow = node.querySelector<HTMLElement>(".meridian-run-graph-node__kind");

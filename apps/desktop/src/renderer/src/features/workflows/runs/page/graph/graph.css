@@ -201,11 +201,19 @@
   font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
-/* An edge's item count, read off the canvas's own background. */
+/*
+ * An edge's item count, a wire figure read off the canvas's own background. Set as a node's count
+ * is, so the column gap's worked-out width is the width drawn.
+ */
+.meridian-run-graph .react-flow__edge-textwrapper {
+  font-size: var(--meridian-workflow-canvas-text-xs);
+}
+
 .meridian-run-graph .react-flow__edge-text {
   fill: var(--meridian-text-muted);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-workflow-canvas-text-xs);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-figure-wire-size-default);
+  font-variant-numeric: tabular-nums;
 }
 
 .meridian-run-graph .react-flow__edge-textbg {

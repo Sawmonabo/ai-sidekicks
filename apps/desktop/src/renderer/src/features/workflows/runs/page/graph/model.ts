@@ -106,20 +106,6 @@ export function runGraphNodeViews(
 }
 
 /**
- * The widest first-output count figure the run reports, which every node's box keeps room for;
- * one digit before the run reports any.
- */
-export function widestCountFigure(views: readonly RunGraphNodeView[]): string {
-  let widest = formatCount(0);
-  for (const view of views) {
-    if (view.outputCountFigure !== undefined && view.outputCountFigure.length > widest.length) {
-      widest = view.outputCountFigure;
-    }
-  }
-  return widest;
-}
-
-/**
  * The node whose step is live: of the steps running, waiting or held for memory, the latest by
  * execution order. Absent once the run has nothing live, which is when the graph fits whole.
  */
