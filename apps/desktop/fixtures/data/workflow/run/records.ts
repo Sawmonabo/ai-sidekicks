@@ -13,10 +13,11 @@ import type {
   WorkflowItem,
   WorkflowNodeId,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type {
-  WorkflowRunStatus,
-  WorkflowStepStatus,
-  WorkflowWaitCause,
+import {
+  GOING_RUN_STATUSES,
+  type WorkflowRunStatus,
+  type WorkflowStepStatus,
+  type WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type {
@@ -688,9 +689,9 @@ export const WORKFLOW_DEFINITION_RECORDS: readonly WorkflowDefinitionRecord[] = 
   }),
 );
 
-/** Whether the run is still going: new, running or waiting. */
+/** Whether the run is still going, by the contract's set of going statuses. */
 export function isGoing(run: WorkflowRunRecord): boolean {
-  return run.read.state === "new" || run.read.state === "running" || run.read.state === "waiting";
+  return GOING_RUN_STATUSES.includes(run.read.state);
 }
 
 /** A run's row in the runs table, derived from its read the way the daemon's projection is. */
