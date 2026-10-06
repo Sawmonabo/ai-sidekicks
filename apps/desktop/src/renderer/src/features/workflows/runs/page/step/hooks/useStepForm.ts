@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
+  WorkflowHumanFormPathAnswer,
   WorkflowHumanFormReadResponse,
   WorkflowStepKey,
 } from "@ai-sidekicks/contracts/workflow/run/step";
@@ -58,7 +59,8 @@ export const DRAFT_SAVE_REST_MS = 600;
  * the daemon once typing rests so a half-filled form survives a reload and nothing is kept in the
  * window, and the submit that replaces the form with its receipt. Saves go one at a time, each on
  * the revision the one before it returned; a save still resting when the form goes is sent then;
- * a secret's answer is never saved. An answer the form refuses is said in place and sends nothing.
+ * a secret's answer is never saved. A picked folder or file is sent in `paths` at its dotted place,
+ * never in `fields`. An answer the form refuses is said in place and sends nothing.
  */
 export function useStepForm(
   bridge: PlatformBridge,
@@ -170,8 +172,11 @@ export function useStepForm(
   );
 
   const submission = useWorkflowCall(
-    (request: { readonly fields: Record<string, unknown>; readonly expectedRevision: number }) =>
-      callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
+    (request: {
+      readonly fields: Record<string, unknown>;
+      readonly paths: WorkflowHumanFormPathAnswer[];
+      readonly expectedRevision: number;
+    }) => callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
     (submitted) => {
       onAnswered(resolutionReceipt({ kind: "answered", at: submitted.submittedAt }, clock.now()));
     },
@@ -193,7 +198,11 @@ export function useStepForm(
       pendingSave.current = undefined;
     }
     queuedDraft.current = undefined;
-    submission.take({ fields: check.values, expectedRevision: form.formRevision });
+    submission.take({
+      fields: check.values,
+      paths: check.paths,
+      expectedRevision: form.formRevision,
+    });
   }, [answers, clock, form, submission]);
 
   const readAgain = useCallback(() => {

@@ -3,6 +3,7 @@
 // text, a JSON field its source), so the check is where text becomes the value that is sent.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
+import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step";
 
 /** The answers a form holds, keyed by field id. */
 export type ParamAnswers = Readonly<Record<string, unknown>>;
@@ -12,7 +13,12 @@ export type ParamIssues = Readonly<Record<string, string>>;
 
 /** What checking a form's answers found. */
 export type ParamAnswerCheck =
-  | { readonly kind: "valid"; readonly values: Record<string, unknown> }
+  | {
+      readonly kind: "valid";
+      readonly values: Record<string, unknown>;
+      /** Each answered `path` field, by its dotted place, carried beside `values`, never in it. */
+      readonly paths: WorkflowHumanFormPathAnswer[];
+    }
   | { readonly kind: "invalid"; readonly issues: ParamIssues };
 
 /**
@@ -65,16 +71,19 @@ export function isParamFieldShown(
 
 /**
  * Checks every shown field's answer. Valid answers carry the values to send, with empty
- * optional fields and hidden fields left out; otherwise one sentence per refused field, keyed
- * by its dotted path (`parent.child`, or `parent.0.child` inside a repeating collection).
+ * optional fields and hidden fields left out, and each `path` field's picked token apart in
+ * `paths`; otherwise one sentence per refused field. Both are keyed by the field's dotted place
+ * (`parent.child`, or `parent.0.child` inside a repeating collection).
  */
 export function checkParamAnswers(
   fields: readonly WorkflowParamSpec[],
   answers: ParamAnswers,
 ): ParamAnswerCheck {
-  const issues: Record<string, string> = {};
-  const values = checkFieldList(fields, answers, "", issues);
-  return Object.keys(issues).length === 0 ? { kind: "valid", values } : { kind: "invalid", issues };
+  const found: FoundAnswers = { issues: {}, paths: [] };
+  const values = checkFieldList(fields, answers, "", found);
+  return Object.keys(found.issues).length === 0
+    ? { kind: "valid", values, paths: found.paths }
+    : { kind: "invalid", issues: found.issues };
 }
 
 /**
@@ -108,6 +117,12 @@ export function draftParamAnswers(
 type LeafParamSpec = Exclude<WorkflowParamSpec, { type: "collection" }>;
 
 type CollectionParamSpec = Extract<WorkflowParamSpec, { type: "collection" }>;
+
+/** What a check gathers beside the values: the refusals and the `path` fields' answers. */
+interface FoundAnswers {
+  readonly issues: Record<string, string>;
+  readonly paths: WorkflowHumanFormPathAnswer[];
+}
 
 /** One leaf field's answer once checked. */
 type LeafOutcome =
@@ -159,22 +174,25 @@ function checkFieldList(
   fields: readonly WorkflowParamSpec[],
   answers: ParamAnswers,
   pathPrefix: string,
-  issues: Record<string, string>,
+  found: FoundAnswers,
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const field of fields) {
     if (!isParamFieldShown(field, answers, fields)) {
       continue;
     }
-    const path = `${pathPrefix}${field.id}`;
+    const place = `${pathPrefix}${field.id}`;
     const answer = answers[field.id];
     if (field.type === "collection") {
-      values[field.id] = checkCollection(field, answer, path, issues);
+      values[field.id] = checkCollection(field, answer, place, found);
       continue;
     }
     const outcome = checkLeaf(field, answer);
     if (outcome.kind === "refused") {
-      issues[path] = outcome.issue;
+      found.issues[place] = outcome.issue;
+    } else if (outcome.kind === "answered" && field.type === "path") {
+      // The picker's token, which main swaps for the path at this one member.
+      found.paths.push({ field: place, path: String(outcome.value) });
     } else if (outcome.kind === "answered") {
       values[field.id] = outcome.value;
     }
@@ -185,16 +203,16 @@ function checkFieldList(
 function checkCollection(
   field: CollectionParamSpec,
   answer: unknown,
-  path: string,
-  issues: Record<string, string>,
+  place: string,
+  found: FoundAnswers,
 ): unknown {
   if (field.multiple === true) {
     const entries: readonly unknown[] = Array.isArray(answer) ? answer : [];
     return entries.map((entry, index) =>
-      checkFieldList(field.fields, readRecord(entry) ?? {}, `${path}.${index}.`, issues),
+      checkFieldList(field.fields, readRecord(entry) ?? {}, `${place}.${index}.`, found),
     );
   }
-  return checkFieldList(field.fields, readRecord(answer) ?? {}, `${path}.`, issues);
+  return checkFieldList(field.fields, readRecord(answer) ?? {}, `${place}.`, found);
 }
 
 // No sentence echoes the answer, so a secret never reaches an issue.

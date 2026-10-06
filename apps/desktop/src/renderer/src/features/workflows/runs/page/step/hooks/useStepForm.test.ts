@@ -1,6 +1,7 @@
 // A step's form saves what was typed to the daemon, so a half-filled form survives a reload: saves
 // go one at a time, each on the revision the one before it returned; a save still resting when the
-// form goes is sent then; and a secret's answer never leaves the window.
+// form goes is sent then; and a secret's answer never leaves the window. A picked folder is sent
+// apart from the other answers, at its dotted place, where main swaps its token for the path.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -10,6 +11,7 @@ import type {
   WorkflowStepKey,
 } from "@ai-sidekicks/contracts/workflow/run/step";
 
+import type { FilePathRef } from "#shared/preload-api.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -126,5 +128,61 @@ describe("a step's form drafts", () => {
     expect(reloaded.current.answers).toMatchObject({ version: "2.2" });
     expect(reloaded.current.answers).not.toHaveProperty("token", "hunter2");
     reloaded.unmount();
+  });
+});
+
+describe("a step's form submit", () => {
+  it("sends a picked folder in paths at its dotted place, never in fields", async () => {
+    const { bridge, calls, engine } = bridgeAnswering(async (call, passThrough) => {
+      if (call.method === "workflow.humanFormRead") {
+        // The fixture form, asking for a repeating target with a folder and a note in each.
+        const form = (await passThrough()) as WorkflowHumanFormReadResponse;
+        return {
+          ...form,
+          fields: [
+            {
+              id: "target",
+              label: "Target",
+              type: "collection",
+              multiple: true,
+              fields: [
+                { id: "folder", label: "Folder", type: "path", required: true },
+                { id: "note", label: "Note", type: "string" },
+              ],
+            },
+          ],
+        };
+      }
+      return passThrough();
+    });
+    const { result } = renderHook(() => useStepForm(bridge, waitingFormStep(), () => undefined), {
+      wrapper: bridgeWrapper(bridge, engine.clock),
+    });
+    await act(async () => {
+      engine.advance(FORM_READ_DELAY_MS);
+      await crossMacrotaskBoundary();
+    });
+    expect(result.current.read.kind).toBe("read");
+
+    // What the folder chooser hands back: main's token for the picked folder.
+    const pickedFolder = "file-path-ref-1" as FilePathRef;
+    await act(async () => {
+      result.current.changeAnswers({ target: [{ folder: pickedFolder, note: "the app" }] });
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      result.current.submit();
+      await crossMacrotaskBoundary();
+    });
+
+    const submits = calls.filter((call) => call.method === "workflow.humanFormSubmit");
+    expect(submits).toHaveLength(1);
+    expect(submits[0]?.params).toMatchObject({
+      fields: { target: [{ note: "the app" }] },
+      paths: [{ field: "target.0.folder", path: pickedFolder }],
+    });
+    expect(JSON.stringify((submits[0]?.params as { fields: unknown }).fields)).not.toContain(
+      pickedFolder,
+    );
   });
 });

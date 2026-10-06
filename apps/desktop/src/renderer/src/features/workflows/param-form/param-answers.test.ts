@@ -85,6 +85,7 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
         token: "s3cret",
         reviewers: [{ name: "Ada" }],
       },
+      paths: [],
     });
   });
 });
