@@ -27,7 +27,7 @@ import {
   composeScriptBeats,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "./script.js";
+import type { Scenario } from "../scenario.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
 // identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id

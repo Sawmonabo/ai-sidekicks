@@ -18,7 +18,7 @@
 
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 
-import type { ScenarioBeat } from "../scenarios/script.js";
+import type { ScenarioBeat } from "../scenario.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
 export interface ScriptEntry {

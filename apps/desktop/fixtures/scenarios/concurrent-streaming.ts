@@ -45,7 +45,7 @@ import {
   findBeatCursor,
   newestBeatInstant,
 } from "../data/script-entries.js";
-import type { Scenario } from "./script.js";
+import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,

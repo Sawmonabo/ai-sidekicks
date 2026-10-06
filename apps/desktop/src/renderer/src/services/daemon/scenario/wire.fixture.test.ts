@@ -14,7 +14,7 @@ import {
   lastScriptedBeatMs,
   subscribeToSessionStream,
 } from "#test/helpers/fixture/bridge.js";
-import type { Scenario, ScenarioBeat } from "#fixtures/scenarios/script.js";
+import type { Scenario, ScenarioBeat } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /** The `session.subscribe` frame as the contract registers it, over the tolerant envelope. */

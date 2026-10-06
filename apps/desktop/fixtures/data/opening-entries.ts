@@ -9,7 +9,7 @@ import {
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
-import type { Scenario } from "../scenarios/script.js";
+import type { Scenario } from "../scenario.js";
 import type { ScriptEntry } from "./script-entries.js";
 
 /**

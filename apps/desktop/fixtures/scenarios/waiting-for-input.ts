@@ -45,7 +45,7 @@ import {
   createRunEntryBuilders,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "./script.js";
+import type { Scenario } from "../scenario.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are

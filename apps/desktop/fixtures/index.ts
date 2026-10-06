@@ -7,7 +7,7 @@ import { CONCURRENT_STREAMING_SCENARIO } from "./scenarios/concurrent-streaming.
 import { EMPTY_SESSION_SCENARIO } from "./scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "./scenarios/transcript-states.js";
 import { TERMINAL_LEASE_SCENARIO } from "./scenarios/terminal-lease.js";
-import type { Scenario } from "./scenarios/script.js";
+import type { Scenario } from "./scenario.js";
 
 /** Every scenario the fixture bridge can play. */
 export const SCENARIOS: readonly Scenario[] = [
