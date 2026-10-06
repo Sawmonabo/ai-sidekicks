@@ -15,7 +15,8 @@ export interface DatabaseConnections {
 
 /**
  * Opens the writer, which creates the file with its pragmas and schema, then the read-only
- * connection. Throws what either open threw, with nothing left open.
+ * connection. Throws what either open threw, with nothing left open; when closing the writer
+ * fails too, throws an `AggregateError` of both.
  */
 export async function openDatabaseConnections(
   options: DatabaseWriterOptions,
@@ -24,26 +25,40 @@ export async function openDatabaseConnections(
   let reader: DatabaseType;
   try {
     reader = new Database(options.databasePath, { readonly: true, fileMustExist: true });
-  } catch (error) {
-    await writer.close();
-    throw error;
+  } catch (openError) {
+    try {
+      await writer.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [openError, closeError],
+        "Opening the database's reader failed, and closing its writer after that failed too",
+        { cause: closeError },
+      );
+    }
+    throw openError;
   }
   return { reader, writer };
 }
 
 /**
- * Closes the reader, then the writer once every write taken has settled. The writer goes last, so
- * its connection's close checkpoints the write-ahead log into the file and removes it.
+ * Closes the reader, then the writer once every write taken has settled, or once `drainWithinMs`
+ * has passed; resolves with the number of writes the bound left unfinished, which failed. The
+ * writer goes last, so its connection's close checkpoints the write-ahead log into the file and
+ * removes it.
  */
-export async function closeDatabaseConnections(connections: DatabaseConnections): Promise<void> {
+export async function closeDatabaseConnections(
+  connections: DatabaseConnections,
+  drainWithinMs?: number,
+): Promise<number> {
   const failures: unknown[] = [];
   try {
     connections.reader.close();
   } catch (error) {
     failures.push(error);
   }
+  let unfinishedCount = 0;
   try {
-    await connections.writer.close();
+    unfinishedCount = await connections.writer.close(drainWithinMs);
   } catch (error) {
     failures.push(error);
   }
@@ -53,4 +68,5 @@ export async function closeDatabaseConnections(connections: DatabaseConnections)
   if (failures.length > 1) {
     throw new AggregateError(failures, "Closing the database's connections failed twice");
   }
+  return unfinishedCount;
 }

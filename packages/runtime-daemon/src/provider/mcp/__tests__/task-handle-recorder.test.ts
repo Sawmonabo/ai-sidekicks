@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 
 import {
   DRIVER_DIAGNOSTIC_COUNTER_NAMES,

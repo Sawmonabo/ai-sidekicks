@@ -25,8 +25,9 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { Statement, Transaction } from "better-sqlite3";
 
 import type { DatabaseConnections } from "../../database/connections.js";
-import type { WriteStatement } from "../../database/messages.js";
+import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
+import { KeyedLock } from "../../keyed-lock.js";
 import {
   assertValidCapabilityFlags,
   assertValidContractVersion,
@@ -157,26 +158,9 @@ const REFRESH_CLI_VERSION_PAIR_SQL = `
 /** The write seam a driver declares through: the writer narrowed to `declare`. */
 export type DriverCapabilityDeclarationSink = Pick<DriverCapabilitiesWriter, "declare">;
 
-// The tail of each driver's declares, a promise that settles when the last one queued has
-// written. Module-level so two writers over one database still take turns; an entry is deleted
-// once its queue drains.
-const declareTails = new Map<ProviderName, Promise<void>>();
-
-// Runs `declare` after every earlier declare of `driverName` has settled, whatever its outcome.
-async function inDeclareTurn<T>(driverName: ProviderName, declare: () => Promise<T>): Promise<T> {
-  const predecessor: Promise<void> = declareTails.get(driverName) ?? Promise.resolve();
-  const { promise: turnEnded, resolve: endTurn } = Promise.withResolvers<void>();
-  declareTails.set(driverName, turnEnded);
-  await predecessor;
-  try {
-    return await declare();
-  } finally {
-    endTurn();
-    if (declareTails.get(driverName) === turnEnded) {
-      declareTails.delete(driverName);
-    }
-  }
-}
+// Each driver's declares take turns, its write committing before the next one reads. Module-level
+// so two writers over one database still take turns.
+const declareLock = new KeyedLock<ProviderName>();
 
 /** Persists a driver's declared capabilities and hydrates them back without a provider call. */
 export class DriverCapabilitiesWriter {
@@ -285,7 +269,7 @@ export class DriverCapabilitiesWriter {
     };
 
     // `cliVersion` stays out of `newSnapshot`: it is cache currency, not a capability.
-    return inDeclareTurn(input.driverName, () =>
+    return declareLock.run(input.driverName, () =>
       this.#readDecideWrite(input.driverName, newSnapshot, declaredCliVersion),
     );
   }

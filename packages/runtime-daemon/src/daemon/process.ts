@@ -233,21 +233,38 @@ export class DaemonProcess {
         });
         await daemon.#listen(options.runFolder, sessionToken);
         return daemon;
-      } catch (error) {
-        await closeDatabaseConnections(database);
-        throw error;
+      } catch (startError) {
+        try {
+          await closeDatabaseConnections(database);
+        } catch (closeError) {
+          throw new AggregateError(
+            [startError, closeError],
+            "The daemon's start failed, and closing its database after that failed too",
+            { cause: closeError },
+          );
+        }
+        throw startError;
       }
-    } catch (error) {
-      dataFolderLock.release();
-      throw error;
+    } catch (startError) {
+      try {
+        dataFolderLock.release();
+      } catch (releaseError) {
+        throw new AggregateError(
+          [startError, releaseError],
+          "The daemon's start failed, and letting its data folder go after that failed too",
+          { cause: releaseError },
+        );
+      }
+      throw startError;
     }
   }
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
    * the drain bound, waits for the calls already under way and drains every terminal (each gets
-   * its graceful signal, then a kill); then waits for every write taken to commit, closes the
-   * database and lets the data folder go. Repeated calls share the first stop.
+   * its graceful signal, then a kill); then, in what is left of the bound, waits for every write
+   * taken to commit, failing any still unfinished, closes the database and lets the data folder go.
+   * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
     if (this.#stopping === undefined) {
@@ -312,6 +329,7 @@ export class DaemonProcess {
   // Each step runs even when an earlier one fails, so a stop never leaves terminals running, the
   // database open or the data folder held; the failures are thrown together once all have run.
   async #runStop(): Promise<void> {
+    const stopStartedAt = performance.now();
     const failures: unknown[] = [];
     try {
       await this.#gateway.stop();
@@ -337,9 +355,19 @@ export class DaemonProcess {
     } else {
       failures.push(drain.reason);
     }
-    // The writer's queue drains before its connection closes; the writes it holds never hang.
+    // The writer's queue drains in what is left of the drain bound, so the caller's signal never
+    // cuts a commit short; a write still unfinished then fails, and its batch rolls back whole.
+    const drainLeftMs = Math.max(
+      0,
+      DAEMON_STOP_DRAIN_BOUND_MS - (performance.now() - stopStartedAt),
+    );
     try {
-      await closeDatabaseConnections(this.#database);
+      const unfinishedCount = await closeDatabaseConnections(this.#database, drainLeftMs);
+      if (unfinishedCount > 0) {
+        this.#writeServiceLog(
+          `The stop's drain bound passed; writes never committed: ${String(unfinishedCount)}.`,
+        );
+      }
     } catch (error) {
       failures.push(error);
     }

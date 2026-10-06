@@ -15,7 +15,7 @@ import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import type { EventLogAppendReceipt } from "../../../events/log-service.js";
 import { RepoMountNotFoundError } from "../../../workspace/repo/errors.js";

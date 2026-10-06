@@ -13,7 +13,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   CLI_VERSION_REPORT,

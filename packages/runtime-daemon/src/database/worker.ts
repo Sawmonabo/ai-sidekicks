@@ -10,18 +10,16 @@ import { LRUCache } from "lru-cache";
 
 import { prepareSessionEventInsert } from "../events/session/insert.js";
 import { openDatabase } from "../session/migration-runner.js";
+import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
   CarriedError,
-  CheckpointMode,
-  CheckpointResult,
-  StatementResult,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
   WriterRequest,
   WriterWorkerData,
-  WriteStatement,
 } from "./messages.js";
+import type { StatementResult, WriteStatement } from "./statement.js";
 
 // Prepared statements kept per SQL text; bounded, since a caller may build its SQL.
 const PREPARED_STATEMENT_LIMIT = 256;
@@ -100,7 +98,7 @@ function serve(connection: Database): void {
     (job: WriteJob): WriteJobOutcome => ({
       status: "committed",
       statementResults: job.statements.map(runStatement),
-      sequence: job.event === undefined ? undefined : insertSessionEvent(job.event),
+      sequences: job.events.map((event) => insertSessionEvent(event)),
     }),
   );
 

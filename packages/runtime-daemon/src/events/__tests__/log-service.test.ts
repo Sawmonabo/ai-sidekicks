@@ -13,13 +13,10 @@ import {
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../log-service.js";
-import { withSessionAppendLock } from "../session/append-lock.js";
+import { sessionAppendLock } from "../session/append-lock.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
@@ -263,11 +260,11 @@ describe("EventLogService — the append lock", () => {
   });
 
   it("reuses an existing hold rather than deadlocking on it (owner-scoped reentry)", async () => {
-    // Producers read and decide under the lock, then append inside the same hold; a non-reentrant
-    // mutex would deadlock here.
+    // A producer holding the session appends inside the same hold; a non-reentrant mutex would
+    // deadlock here.
     const { service } = buildService();
 
-    const receipt = await withSessionAppendLock(SESSION, async () => {
+    const receipt = await sessionAppendLock.run(SESSION, async () => {
       return service.append(makeEnvelope());
     });
 
@@ -280,7 +277,7 @@ describe("EventLogService — the append lock", () => {
     const parked = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const holding = withSessionAppendLock(SESSION, async () => {
+    const holding = sessionAppendLock.run(SESSION, async () => {
       await parked;
     });
     await drainMicrotasks();
@@ -303,12 +300,12 @@ describe("EventLogService — the append lock", () => {
       releaseFirst = resolve;
     });
 
-    const first = withSessionAppendLock(SESSION, async () => {
+    const first = sessionAppendLock.run(SESSION, async () => {
       order.push("first-enter");
       await firstParked;
       order.push("first-exit");
     });
-    const second = withSessionAppendLock(SESSION, () => {
+    const second = sessionAppendLock.run(SESSION, () => {
       order.push("second-enter");
       return Promise.resolve();
     });
@@ -332,7 +329,7 @@ describe("EventLogService — the append lock", () => {
       failCriticalSection = reject;
     });
 
-    const rejecting = withSessionAppendLock(SESSION, () => criticalOutcome);
+    const rejecting = sessionAppendLock.run(SESSION, () => criticalOutcome);
     const queuedBehind = service.append(makeEnvelope());
     expect(await settlesWithin(queuedBehind, 2)).toBe(false);
 
@@ -354,9 +351,9 @@ describe("EventLogService — the append lock", () => {
     let innerRejectionCaught = false;
     let nestedCallProgressed = false;
 
-    const receipt = await withSessionAppendLock(SESSION, async () => {
+    const receipt = await sessionAppendLock.run(SESSION, async () => {
       try {
-        await withSessionAppendLock(SESSION, () => Promise.reject(new Error("inner leg failed")));
+        await sessionAppendLock.run(SESSION, () => Promise.reject(new Error("inner leg failed")));
       } catch {
         innerRejectionCaught = true;
       }
@@ -375,7 +372,7 @@ describe("EventLogService — the append lock", () => {
     expect(receipt).toMatchObject({ sequence: 0 });
 
     // Released exactly once, on the owner's settle: a fresh acquisition now proceeds.
-    const afterOwnerSettled = withSessionAppendLock(SESSION, () => Promise.resolve("free"));
+    const afterOwnerSettled = sessionAppendLock.run(SESSION, () => Promise.resolve("free"));
     expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
 

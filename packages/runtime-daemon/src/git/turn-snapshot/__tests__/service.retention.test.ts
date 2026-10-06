@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { runGitWithExecFile, type GitRunner } from "../../process.js";
 import type { TurnSnapshotService } from "../service.js";
 import {

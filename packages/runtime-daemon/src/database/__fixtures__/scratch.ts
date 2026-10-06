@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
@@ -17,13 +18,18 @@ export interface ScratchDatabase extends DatabaseConnections {
   readonly close: () => Promise<void>;
 }
 
-/** Opens a fresh database with its schema in a new temporary folder. */
-export async function openScratchDatabase(): Promise<ScratchDatabase> {
+/**
+ * Opens a fresh database with its schema in a new temporary folder; the writer's service log lines
+ * go to `writeServiceLog`, or nowhere.
+ */
+export async function openScratchDatabase(
+  writeServiceLog: ServiceLogWriter = () => {},
+): Promise<ScratchDatabase> {
   const folder = await mkdtemp(path.join(os.tmpdir(), "aisk-database-"));
   const databasePath = path.join(folder, "daemon.db");
   const connections = await openDatabaseConnections({
     databasePath,
-    writeServiceLog: () => {},
+    writeServiceLog,
   });
   return {
     ...connections,

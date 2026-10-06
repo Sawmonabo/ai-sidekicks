@@ -17,7 +17,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { SessionService } from "../../../session/service.js";
 import {

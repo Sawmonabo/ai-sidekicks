@@ -1,9 +1,11 @@
 // The database writer: every write the daemon makes goes through it to the one read-write
 // connection, which a worker thread of its own holds, so a commit's disk sync never stalls the
-// main thread. Writes wait in a bounded queue and go to the worker in batches of up to 50 events,
-// or after 10 ms, whichever comes first; each batch commits as one transaction, so the writes of
-// one turn of the event loop commit together. At the queue's cap a write waits for the next batch
-// to commit, except an assistant's thinking update, which is dropped and counted.
+// main thread. Writes wait in a bounded queue and go to the worker in batches of up to 50 entries,
+// or after 10 ms, whichever comes first. Each batch commits as one transaction and each write in
+// it runs under a savepoint of its own, so a refused write rolls back alone while a batch-level
+// failure fails every write in the batch. A write is never split across batches, so the events one
+// write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
+// the next batch to commit, except an assistant's thinking update, which is dropped and counted.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,23 +17,21 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
+import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
   CarriedError,
-  CheckpointMode,
-  CheckpointResult,
-  StatementResult,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
   WriterRequest,
   WriterWorkerData,
-  WriteStatement,
 } from "./messages.js";
+import type { StatementResult, WriteStatement } from "./statement.js";
 
-/** The most entries the queue holds; an event, or a write with no event, is one entry. */
+/** The most entries the queue holds; each event is one entry, and a write with none is one. */
 export const WRITE_QUEUE_CAPACITY = 10_000;
 // A batch goes to the worker once it holds this many entries, or once its oldest has waited
-// BATCH_WAIT_MS.
+// BATCH_WAIT_MS. A larger write goes alone.
 const BATCH_ENTRY_LIMIT = 50;
 const BATCH_WAIT_MS = 10;
 // The queue's depth is sampled this often while it holds anything; at ALERT_DEPTH a warning goes
@@ -66,8 +66,8 @@ export class WriteRefusedError extends Error {
   }
 }
 
-/** How an event append ended: stored at its sequence, or dropped at the full queue. */
-export type EventWriteOutcome =
+/** How an assistant's thinking update ended: stored at its sequence, or dropped at the full queue. */
+export type ThinkingUpdateOutcome =
   | { readonly isStored: true; readonly sequence: number }
   | { readonly isStored: false };
 
@@ -79,10 +79,16 @@ export interface DatabaseWriterOptions {
   readonly writeServiceLog: ServiceLogWriter;
 }
 
+// The session and category a backpressure warning names: the latest event that joined the queue.
+interface EventTags {
+  readonly sessionId: string;
+  readonly category: string;
+}
+
 interface QueueEntry {
   readonly job: WriteJob;
-  readonly sessionId: string | undefined;
-  readonly eventCategory: string | undefined;
+  /** The entries this write counts for against the cap and a batch. */
+  readonly size: number;
   /** Settles with the worker's answer for this write; what a flush waits on. */
   readonly outcome: Promise<WriteJobOutcome>;
   readonly resolve: (outcome: WriteJobOutcome) => void;
@@ -102,7 +108,7 @@ interface PendingReply {
  */
 export class DatabaseWriter {
   /**
-   * Resolves with the reason if the worker dies; from then on every write fails with it. Never
+   * Resolves with the reason if the worker fails; from then on every write fails with it. Never
    * settles otherwise.
    */
   readonly whenWorkerFailed: Promise<Error>;
@@ -118,16 +124,18 @@ export class DatabaseWriter {
   readonly #queued: QueueEntry[] = [];
   #inFlight: readonly QueueEntry[] | undefined;
   readonly #waiting: QueueEntry[] = [];
+  // Entries admitted, queued or at the worker; and those of them still queued.
+  #depth = 0;
+  #queuedSize = 0;
 
   #batchTimer: ReturnType<typeof setTimeout> | undefined;
   #isBatchDue = false;
   #flushCount = 0;
   #sampleTimer: ReturnType<typeof setInterval> | undefined;
-  // The write most recently offered, whose tags a backpressure warning carries.
-  #latestEntry: QueueEntry | undefined;
+  #latestEventTags: EventTags | undefined;
   readonly #droppedBySession = new Map<string, number>();
   #failure: Error | undefined;
-  #closing: Promise<void> | undefined;
+  #closing: Promise<number> | undefined;
 
   private constructor(worker: Worker, options: DatabaseWriterOptions) {
     this.#worker = worker;
@@ -139,7 +147,16 @@ export class DatabaseWriter {
       });
     });
     worker.on("message", (reply: WriterReply) => {
-      this.#pendingReplies.shift()?.accept(reply);
+      const pendingReply = this.#pendingReplies.shift();
+      if (pendingReply === undefined) {
+        this.#fail(
+          new Error(
+            `The database writer's worker answered "${reply.type}" with no request waiting`,
+          ),
+        );
+        return;
+      }
+      pendingReply.accept(reply);
     });
     worker.on("error", (error) => {
       this.#fail(error);
@@ -160,13 +177,18 @@ export class DatabaseWriter {
     const worker = new Worker(WORKER_URL, { workerData });
     const writer = new DatabaseWriter(worker, options);
     const reply = await writer.#awaitReply();
+    if (reply.type === "opened") {
+      return writer;
+    }
+    // The writer never opened, so its worker's end is no failure to report.
+    writer.#closing = writer.#exited.then(() => 0);
     if (reply.type === "open-failed") {
-      // The worker ends itself after a failed open; its exit is no failure to report.
-      writer.#closing = writer.#exited;
+      // The worker ends itself after a failed open.
       await writer.#exited;
       throw rebuildError(reply.error);
     }
-    return writer;
+    await worker.terminate();
+    throw unexpectedReply(reply);
   }
 
   /**
@@ -175,27 +197,46 @@ export class DatabaseWriter {
    * it expected, and with SQLite's error when a statement fails; either way none of it is kept.
    */
   async write(statements: readonly WriteStatement[]): Promise<readonly StatementResult[]> {
-    const outcome = await this.#enqueue({ statements }, undefined);
+    const outcome = await this.#enqueue({ statements, events: [] }, false);
     return outcome.statementResults;
   }
 
   /**
-   * Appends one event row at its session's next sequence, after `statements`, all as one write.
-   * Resolves once committed, or at once when the queue is full and the event may be dropped.
-   * Rejects as {@link write} does.
+   * Appends `events` in order, each at its session's next sequence, after `statements`, all as one
+   * write that never splits across batches; resolves with each event's sequence once committed.
+   * Throws for a thinking update, which goes through {@link appendThinkingUpdate}, and for a write
+   * larger than the queue; rejects as {@link write} does.
    */
-  async appendEvent(
-    event: SessionEventRow,
+  async appendEvents(
+    events: readonly SessionEventRow[],
     statements: readonly WriteStatement[] = [],
-  ): Promise<EventWriteOutcome> {
-    const outcome = await this.#enqueue({ statements, event }, event);
+  ): Promise<readonly number[]> {
+    if (events.some((event) => event.type === DROPPABLE_EVENT_TYPE)) {
+      throw new Error(
+        `An ${DROPPABLE_EVENT_TYPE} event goes through appendThinkingUpdate, which may drop it`,
+      );
+    }
+    const outcome = await this.#enqueue({ statements, events }, false);
+    return outcome.sequences;
+  }
+
+  /**
+   * Appends one assistant thinking update. Resolves once committed, or at once when the queue is
+   * full, which drops it. Throws for any other event type; rejects as {@link write} does.
+   */
+  async appendThinkingUpdate(event: SessionEventRow): Promise<ThinkingUpdateOutcome> {
+    if (event.type !== DROPPABLE_EVENT_TYPE) {
+      throw new Error(`appendThinkingUpdate takes only ${DROPPABLE_EVENT_TYPE}, not ${event.type}`);
+    }
+    const outcome = await this.#enqueue({ statements: [], events: [event] }, true);
     if (outcome === undefined) {
       return { isStored: false };
     }
-    if (outcome.sequence === undefined) {
+    const [sequence] = outcome.sequences;
+    if (sequence === undefined) {
       throw new Error("The database writer's worker answered an append with no sequence");
     }
-    return { isStored: true, sequence: outcome.sequence };
+    return { isStored: true, sequence };
   }
 
   /**
@@ -215,8 +256,14 @@ export class DatabaseWriter {
     }
   }
 
-  /** Runs a WAL checkpoint in `mode` on the writer's connection, between batches. */
+  /**
+   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches. Throws once the
+   * writer is closing or closed.
+   */
   async checkpoint(mode: CheckpointMode): Promise<CheckpointResult> {
+    if (this.#closing !== undefined) {
+      throw new Error("The database writer is closed; the checkpoint did not run");
+    }
     const reply = await this.#request({ type: "checkpoint", mode });
     switch (reply.type) {
       case "checkpointed":
@@ -230,63 +277,95 @@ export class DatabaseWriter {
 
   /**
    * Takes no new write, waits for every write taken to commit or fail, then closes the connection
-   * and ends the worker. Repeated calls share the first close.
+   * and ends the worker; resolves with the number of writes left unfinished. Given `drainWithinMs`,
+   * waits that long at most: the writes still unfinished then fail, the worker is ended, and a
+   * batch it had not committed rolls back whole. Repeated calls share the first close.
    */
-  close(): Promise<void> {
-    this.#closing ??= this.#runClose();
+  close(drainWithinMs?: number): Promise<number> {
+    this.#closing ??= this.#runClose(drainWithinMs);
     return this.#closing;
   }
 
-  async #runClose(): Promise<void> {
-    await this.flush();
+  async #runClose(drainWithinMs: number | undefined): Promise<number> {
+    const isDrained = await this.#drainWithin(drainWithinMs);
     this.#stopSampling();
     if (this.#failure !== undefined) {
       await this.#exited;
-      return;
+      return 0;
+    }
+    if (!isDrained) {
+      const unfinishedCount =
+        this.#waiting.length + this.#queued.length + (this.#inFlight?.length ?? 0);
+      this.#endWorker(
+        new Error("The database writer closed at its drain bound; this write was not committed"),
+      );
+      await this.#exited;
+      return unfinishedCount;
     }
     const reply = await this.#request({ type: "close" });
     if (reply.type !== "closed") {
       throw unexpectedReply(reply);
     }
     await this.#exited;
+    return 0;
   }
 
-  // Resolves with the write's outcome once committed, or `undefined` when the event was dropped.
-  #enqueue(job: WriteJob, event: SessionEventRow): Promise<CommittedOutcome | undefined>;
-  #enqueue(job: WriteJob, event: undefined): Promise<CommittedOutcome>;
-  async #enqueue(
-    job: WriteJob,
-    event: SessionEventRow | undefined,
-  ): Promise<CommittedOutcome | undefined> {
+  // Whether every write taken has settled within `boundMs`; with no bound, waits until they have.
+  async #drainWithin(boundMs: number | undefined): Promise<boolean> {
+    if (boundMs === undefined) {
+      await this.flush();
+      return true;
+    }
+    let boundTimer: ReturnType<typeof setTimeout> | undefined;
+    const boundPassed = new Promise<boolean>((resolve) => {
+      boundTimer = setTimeout(() => {
+        resolve(false);
+      }, boundMs);
+    });
+    try {
+      return await Promise.race([this.flush().then(() => true), boundPassed]);
+    } finally {
+      clearTimeout(boundTimer);
+    }
+  }
+
+  // Resolves with the write's outcome once committed, or `undefined` when it was dropped.
+  #enqueue(job: WriteJob, isDroppable: true): Promise<CommittedOutcome | undefined>;
+  #enqueue(job: WriteJob, isDroppable: false): Promise<CommittedOutcome>;
+  async #enqueue(job: WriteJob, isDroppable: boolean): Promise<CommittedOutcome | undefined> {
     if (this.#failure !== undefined) {
       throw this.#failure;
     }
     if (this.#closing !== undefined) {
       throw new Error("The database writer is closed; the write was not taken");
     }
-    const { promise, resolve, reject } = Promise.withResolvers<WriteJobOutcome>();
-    const entry: QueueEntry = {
-      job,
-      sessionId: event?.session_id,
-      eventCategory: event?.category,
-      outcome: promise,
-      resolve,
-      reject,
-    };
-    this.#latestEntry = entry;
-    if (this.#waiting.length === 0 && this.#hasRoom()) {
-      this.#admit(entry);
-    } else if (event?.type === DROPPABLE_EVENT_TYPE) {
-      this.#droppedBySession.set(
-        event.session_id,
-        (this.#droppedBySession.get(event.session_id) ?? 0) + 1,
+    const size = Math.max(1, job.events.length);
+    if (size > WRITE_QUEUE_CAPACITY) {
+      throw new Error(
+        `A write of ${String(size)} events is larger than the write queue's ` +
+          `${String(WRITE_QUEUE_CAPACITY)}; it was not taken`,
       );
+    }
+    const { promise, resolve, reject } = Promise.withResolvers<WriteJobOutcome>();
+    const entry: QueueEntry = { job, size, outcome: promise, resolve, reject };
+    if (this.#waiting.length === 0 && this.#depth + size <= WRITE_QUEUE_CAPACITY) {
+      this.#queued.push(entry);
+      this.#depth += size;
+      this.#queuedSize += size;
+    } else if (isDroppable) {
+      const sessionId = job.events[0]?.session_id ?? "";
+      this.#droppedBySession.set(sessionId, (this.#droppedBySession.get(sessionId) ?? 0) + 1);
       this.#startSampling();
       return undefined;
     } else {
       this.#waiting.push(entry);
-      this.#startSampling();
     }
+    const lastEvent = job.events.at(-1);
+    if (lastEvent !== undefined) {
+      this.#latestEventTags = { sessionId: lastEvent.session_id, category: lastEvent.category };
+    }
+    this.#startSampling();
+    this.#pump();
     const outcome = await promise;
     switch (outcome.status) {
       case "committed":
@@ -298,28 +377,13 @@ export class DatabaseWriter {
     }
   }
 
-  get #depth(): number {
-    return this.#queued.length + (this.#inFlight?.length ?? 0);
-  }
-
-  #hasRoom(): boolean {
-    return this.#depth < WRITE_QUEUE_CAPACITY;
-  }
-
-  #admit(entry: QueueEntry): void {
-    this.#queued.push(entry);
-    this.#startSampling();
-    this.#pump();
-  }
-
   // Sends the next batch when none is at the worker and the queued writes are due: the batch is
   // full, its wait has passed, or a flush is waiting.
   #pump(): void {
     if (this.#inFlight !== undefined || this.#queued.length === 0) {
       return;
     }
-    const isDue =
-      this.#queued.length >= BATCH_ENTRY_LIMIT || this.#isBatchDue || this.#flushCount > 0;
+    const isDue = this.#queuedSize >= BATCH_ENTRY_LIMIT || this.#isBatchDue || this.#flushCount > 0;
     if (!isDue) {
       this.#batchTimer ??= setTimeout(() => {
         this.#batchTimer = undefined;
@@ -331,24 +395,48 @@ export class DatabaseWriter {
     clearTimeout(this.#batchTimer);
     this.#batchTimer = undefined;
     this.#isBatchDue = false;
-    const batch = this.#queued.splice(0, BATCH_ENTRY_LIMIT);
+    const batch = this.#takeBatch();
     this.#inFlight = batch;
     void this.#sendBatch(batch);
+  }
+
+  // The oldest queued writes up to the batch limit, and always at least one, so a write larger
+  // than the limit goes whole and alone.
+  #takeBatch(): QueueEntry[] {
+    const batch: QueueEntry[] = [];
+    let batchSize = 0;
+    for (const entry of this.#queued) {
+      if (batch.length > 0 && batchSize + entry.size > BATCH_ENTRY_LIMIT) {
+        break;
+      }
+      batch.push(entry);
+      batchSize += entry.size;
+    }
+    this.#queued.splice(0, batch.length);
+    this.#queuedSize -= batchSize;
+    return batch;
   }
 
   async #sendBatch(batch: readonly QueueEntry[]): Promise<void> {
     let reply: WriterReply;
     try {
       reply = await this.#request({ type: "batch", jobs: batch.map((entry) => entry.job) });
-    } catch {
-      // Only a dead worker leaves a reply owed, and `#fail` has already rejected every write in
-      // this batch with its reason.
+    } catch (error) {
+      // A failed worker has already failed this batch with every other write.
+      if (error === this.#failure) {
+        return;
+      }
+      // The batch never reached the worker, since it held a value a thread cannot carry: only
+      // its own writes fail.
+      const sendFailure = error instanceof Error ? error : new Error(String(error));
+      this.#finishBatch(batch, (entry) => {
+        entry.reject(sendFailure);
+      });
       return;
     }
-    this.#inFlight = undefined;
     switch (reply.type) {
       case "batch-committed":
-        batch.forEach((entry, index) => {
+        this.#finishBatch(batch, (entry, index) => {
           const outcome = reply.outcomes[index];
           if (outcome === undefined) {
             entry.reject(new Error("The database writer's worker answered too few writes"));
@@ -356,27 +444,45 @@ export class DatabaseWriter {
             entry.resolve(outcome);
           }
         });
-        break;
+        return;
       case "batch-failed": {
-        const error = rebuildError(reply.error);
-        for (const entry of batch) {
-          entry.reject(error);
-        }
-        break;
+        const batchFailure = rebuildError(reply.error);
+        this.#finishBatch(batch, (entry) => {
+          entry.reject(batchFailure);
+        });
+        return;
       }
       default: {
-        const error = unexpectedReply(reply);
-        for (const entry of batch) {
-          entry.reject(error);
-        }
+        const outOfTurn = unexpectedReply(reply);
+        this.#finishBatch(batch, (entry) => {
+          entry.reject(outOfTurn);
+        });
       }
     }
-    // A committed batch frees room: the writes waiting at the cap go in, oldest first.
-    while (this.#waiting.length > 0 && this.#hasRoom()) {
-      const next = this.#waiting.shift();
-      if (next !== undefined) {
-        this.#queued.push(next);
+  }
+
+  // Settles the batch's writes, then lets the writes waiting at the cap in, oldest first, and
+  // sends what is due.
+  #finishBatch(
+    batch: readonly QueueEntry[],
+    settle: (entry: QueueEntry, index: number) => void,
+  ): void {
+    this.#inFlight = undefined;
+    batch.forEach((entry, index) => {
+      this.#depth -= entry.size;
+      settle(entry, index);
+    });
+    for (let next = this.#waiting[0]; next !== undefined; next = this.#waiting[0]) {
+      if (this.#depth + next.size > WRITE_QUEUE_CAPACITY) {
+        break;
       }
+      this.#waiting.shift();
+      this.#queued.push(next);
+      this.#depth += next.size;
+      this.#queuedSize += next.size;
+    }
+    if (this.#depth === 0 && this.#waiting.length === 0) {
+      this.#latestEventTags = undefined;
     }
     if (this.#queued.length > 0) {
       // Writes queued while the batch was out have waited long enough.
@@ -385,12 +491,18 @@ export class DatabaseWriter {
     this.#pump();
   }
 
+  // Sends `request`; a value the thread boundary cannot carry throws here, with no reply owed.
   #request(request: WriterRequest): Promise<WriterReply> {
     if (this.#failure !== undefined) {
       return Promise.reject(this.#failure);
     }
     const reply = this.#awaitReply();
-    this.#worker.postMessage(request);
+    try {
+      this.#worker.postMessage(request);
+    } catch (error) {
+      this.#pendingReplies.pop();
+      throw error;
+    }
     return reply;
   }
 
@@ -400,12 +512,21 @@ export class DatabaseWriter {
     return promise;
   }
 
-  // The worker is gone: every write waiting and every later one fails, and the daemon is told.
+  // The worker has failed: it is ended, every write waiting and every later one fails, and the
+  // daemon is told.
   #fail(error: Error): void {
     if (this.#failure !== undefined) {
       return;
     }
+    this.#endWorker(error);
+    this.#workerFailure.resolve(error);
+  }
+
+  // Ends the worker, failing every write taken, every request awaiting a reply and every later
+  // write with `error`.
+  #endWorker(error: Error): void {
     this.#failure = error;
+    void this.#worker.terminate();
     clearTimeout(this.#batchTimer);
     this.#stopSampling();
     for (const entry of [...this.#waiting, ...this.#queued, ...(this.#inFlight ?? [])]) {
@@ -414,10 +535,12 @@ export class DatabaseWriter {
     this.#waiting.length = 0;
     this.#queued.length = 0;
     this.#inFlight = undefined;
+    this.#depth = 0;
+    this.#queuedSize = 0;
+    this.#latestEventTags = undefined;
     for (const pendingReply of this.#pendingReplies.splice(0)) {
       pendingReply.reject(error);
     }
-    this.#workerFailure.resolve(error);
   }
 
   // Samples once a second while the queue holds anything or drops wait to be reported.
@@ -433,11 +556,11 @@ export class DatabaseWriter {
   }
 
   #sample(): void {
-    const depth = this.#depth + this.#waiting.length;
+    const depth = this.#waiting.reduce((total, entry) => total + entry.size, this.#depth);
     if (depth >= ALERT_DEPTH) {
       this.#writeServiceLog(
         `persistence_backpressure: the write queue holds ${String(depth)} of ` +
-          `${String(WRITE_QUEUE_CAPACITY)} entries${describeTags(this.#latestEntry)}.`,
+          `${String(WRITE_QUEUE_CAPACITY)} entries${describeTags(this.#latestEventTags)}.`,
       );
     }
     for (const [sessionId, count] of this.#droppedBySession) {
@@ -454,12 +577,8 @@ export class DatabaseWriter {
   }
 }
 
-function describeTags(entry: QueueEntry | undefined): string {
-  const tags = [
-    entry?.sessionId === undefined ? undefined : `session_id=${entry.sessionId}`,
-    entry?.eventCategory === undefined ? undefined : `event_category=${entry.eventCategory}`,
-  ].filter((tag) => tag !== undefined);
-  return tags.length === 0 ? "" : `; ${tags.join(" ")}`;
+function describeTags(tags: EventTags | undefined): string {
+  return tags === undefined ? "" : `; session_id=${tags.sessionId} event_category=${tags.category}`;
 }
 
 // A SQLite error comes back as better-sqlite3's own class, so a caller can test its code.

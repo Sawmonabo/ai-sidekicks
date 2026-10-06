@@ -2,8 +2,9 @@
 // owning user. Identity lives in SQLite, so `lookup` recovers it after a daemon
 // restart by reading the row.
 
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
+import type { DatabaseConnections } from "./database/connections.js";
 import type { DatabaseWriter } from "./database/writer.js";
 
 /** A `node_trust_state` row: one registration of a machine for its owning user. */
@@ -31,10 +32,7 @@ export class NodeRegistry {
   readonly #selectRegistrationStatement: Statement;
   readonly #now: () => string;
 
-  constructor(
-    database: { readonly reader: Database; readonly writer: Pick<DatabaseWriter, "write"> },
-    now: () => string = () => new Date().toISOString(),
-  ) {
+  constructor(database: DatabaseConnections, now: () => string = () => new Date().toISOString()) {
     this.#writer = database.writer;
     this.#now = now;
     this.#selectRegistrationStatement = database.reader.prepare(

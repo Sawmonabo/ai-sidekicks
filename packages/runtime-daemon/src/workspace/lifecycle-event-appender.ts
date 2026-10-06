@@ -10,7 +10,7 @@ import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contract
 import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import type { WriteStatement } from "../database/messages.js";
+import type { WriteStatement } from "../database/statement.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,

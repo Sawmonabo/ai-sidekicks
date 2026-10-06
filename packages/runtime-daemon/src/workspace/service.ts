@@ -26,8 +26,8 @@ import type {
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/repo/workspace";
 import type { DatabaseConnections } from "../database/connections.js";
-import type { WriteStatement } from "../database/messages.js";
-import { WriteRefusedError } from "../database/writer.js";
+import type { WriteStatement } from "../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { RepoMountNotFoundError } from "./repo/errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";
@@ -188,7 +188,7 @@ export class WorkspaceService {
   readonly #selectWorkspaceStmt: Statement;
   readonly #listWorkspacesStmt: Statement;
   readonly #listWorkspacesByMountStmt: Statement;
-  readonly #writer: DatabaseConnections["writer"];
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;

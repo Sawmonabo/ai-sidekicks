@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { SessionService } from "../../../session/service.js";
 import { ExecutionRootService } from "../../../workspace/execution-root-service.js";

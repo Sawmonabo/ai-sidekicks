@@ -3,10 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../database/__fixtures__/scratch.js";
 import type { NodeTrustStateRow } from "../node-registry.js";
 import { NodeRegistry } from "../node-registry.js";
 

@@ -37,6 +37,7 @@ import {
   type GitRunner,
 } from "../git/process.js";
 import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseWriter } from "../database/writer.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo/errors.js";
@@ -252,7 +253,7 @@ export class ExecutionRootService {
 
   readonly #selectWorkspaceStmt: Statement<WorkspaceLookupParams, WorkspaceRootRow>;
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
-  readonly #writer: DatabaseConnections["writer"];
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: ExecutionRootServiceDeps) {
     this.#workspaces = deps.workspaces;

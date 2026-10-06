@@ -16,10 +16,7 @@ import {
 import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { TrustEnvelopeViolationError } from "../repo/errors.js";

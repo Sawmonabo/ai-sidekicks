@@ -21,6 +21,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
@@ -523,14 +524,12 @@ describe("the lifecycle verbs over the socket", () => {
     const writer = writers[0]!;
     const { client, call } = await openSession();
 
-    // A slow write goes to the worker at once, so the next write waits in the queue behind it.
-    const slow = writer.write([
-      {
-        sql: `WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter
-              WHERE n < 10000000) SELECT COUNT(*) FROM counter`,
-      },
-    ]);
-    const kick = writer.flush();
+    // Another connection holds the write lock, so the write the flush sends waits at the worker.
+    const lockHolder = new Database(path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db"));
+    onTestFinished(() => {
+      lockHolder.close();
+    });
+    lockHolder.exec("BEGIN IMMEDIATE");
     let isQueuedCommitted = false;
     const queued = writer
       .write([
@@ -543,11 +542,20 @@ describe("the lifecycle verbs over the socket", () => {
       .then(() => {
         isQueuedCommitted = true;
       });
+    const flushed = call("daemon.flush").then((answer) => ({
+      answer,
+      isQueuedCommittedAtAnswer: isQueuedCommitted,
+    }));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 200);
+    });
+    lockHolder.exec("ROLLBACK");
 
-    expect(await call("daemon.flush")).toMatchObject({ result: { flushed: true } });
-
-    expect(isQueuedCommitted).toBe(true);
-    await Promise.all([slow, kick, queued]);
+    expect(await flushed).toMatchObject({
+      answer: { result: { flushed: true } },
+      isQueuedCommittedAtAnswer: true,
+    });
+    await queued;
     await client.close();
   });
 

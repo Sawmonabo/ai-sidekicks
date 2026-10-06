@@ -12,7 +12,7 @@ import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
+} from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import type { UnsequencedEventEnvelope } from "../../../events/log-service.js";
 import { WorktreeEventEmitter } from "../event-emitter.js";
@@ -82,7 +82,6 @@ function recordingEventLog(appended: UnsequencedEventEnvelope[]): LifecycleEvent
     append: (envelope) => {
       appended.push(envelope);
       return Promise.resolve({
-        isStored: true,
         id: envelope.id,
         sequence: appended.length - 1,
       });

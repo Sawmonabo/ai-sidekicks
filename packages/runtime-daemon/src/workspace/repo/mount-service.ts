@@ -33,6 +33,7 @@ import {
 } from "@ai-sidekicks/contracts/repo/mount";
 
 import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseWriter } from "../../database/writer.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
@@ -231,7 +232,7 @@ export class RepoMountService {
   readonly #now: () => string;
   readonly #newRepoMountId: () => string;
 
-  readonly #writer: DatabaseConnections["writer"];
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectMountStmt: Statement;
   readonly #selectActiveMountByRootStmt: Statement;
 

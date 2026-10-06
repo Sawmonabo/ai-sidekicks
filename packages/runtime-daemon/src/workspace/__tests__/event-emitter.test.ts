@@ -10,10 +10,7 @@ import { RepoWorkspaceLifecyclePayloadSchema } from "@ai-sidekicks/contracts/rep
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 

@@ -1,28 +1,29 @@
-// EventLogService: the only append path for `session_events`. Three obligations meet in
-// `append()`:
-// - Serialization: the database writer reads the session's head and writes the row in one step on
-//   its own connection, so two appends never share a sequence. `append()` takes
-//   `withSessionAppendLock` only to hand its row to the writer, so it lands behind a caller
-//   holding the session across its own read-decide-write, and lets the lock go before the commit,
-//   so a session's appends share batches.
+// EventLogService: the only append path for `session_events`. Three obligations meet here:
+// - Order: the database writer reads the session's head and writes the row in one step on its own
+//   connection, so two appends never share a sequence. An append takes the session's append lock
+//   only while its row joins the writer's queue, so a caller holding the session sees its rows
+//   land in the order it appended them, and lets it go before the commit, so a session's appends
+//   share batches. The lock orders writes and nothing more: a read that decides a write goes inside
+//   that write as a guarded statement in `transactionalPrelude`.
 // - Content: machine-authored prose is kept in `content_payload` beside the event, and the payload
 //   gains the members that describe it; both are written as a unit.
-// - Dual-write: `options.transactionalPrelude` holds statements committed in the same write just
-//   before the row. A producer whose event depends on its own row's state guards a statement with
-//   the row count it expects, so a moved state refuses the write and consumes no sequence.
+// - Dual-write: `transactionalPrelude` holds statements committed in the same write just before the
+//   row. A guarded statement carries the row count it expects, so a moved state refuses the write
+//   and consumes no sequence.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { WriteStatement } from "../database/messages.js";
-import type { DatabaseWriter, EventWriteOutcome } from "../database/writer.js";
+import type { WriteStatement } from "../database/statement.js";
+import type { DatabaseWriter } from "../database/writer.js";
 import { canonicalizeEvent, normalizeOccurredAt } from "./canonicalizer.js";
 import {
   assertNoSeededContentDescription,
   assertRegisteredVariantParses,
   composeContentRow,
 } from "./content/append.js";
-import { withSessionAppendLock } from "./session/append-lock.js";
+import { sessionAppendLock } from "./session/append-lock.js";
+import type { SessionEventRow } from "./session/insert.js";
 
 /**
  * The append input: an {@link EventEnvelope} without `sequence`, which the writer allocates; the
@@ -30,12 +31,17 @@ import { withSessionAppendLock } from "./session/append-lock.js";
  */
 export type UnsequencedEventEnvelope = Omit<EventEnvelope, "sequence">;
 
+/** What {@link EventLogService.append} returns once the event has committed; `id` is the input's. */
+export interface EventLogAppendReceipt {
+  readonly id: string;
+  readonly sequence: number;
+}
+
 /**
- * What {@link EventLogService.append} returns once the write has settled: the stored event's
- * sequence, or, for an assistant's thinking update met by a full write queue, that it was dropped.
- * `id` is echoed from the input.
+ * What {@link EventLogService.appendThinkingUpdate} returns: the stored update's sequence, or that
+ * the full write queue dropped it. `id` is the input's.
  */
-export type EventLogAppendReceipt =
+export type ThinkingUpdateReceipt =
   | { readonly isStored: true; readonly id: string; readonly sequence: number }
   | { readonly isStored: false; readonly id: string };
 
@@ -48,14 +54,8 @@ interface EventLogAppendContent {
   readonly body: string;
 }
 
-/** Options for one {@link EventLogService.append}. */
-export interface EventLogAppendOptions {
-  /**
-   * Statements committed in the same write just before the row. A statement whose row count is
-   * not the one it expects refuses the write with `WriteRefusedError`, and nothing of it is kept.
-   */
-  readonly transactionalPrelude?: readonly WriteStatement[];
-
+/** Options for one {@link EventLogService.appendThinkingUpdate}. */
+export interface ThinkingUpdateAppendOptions {
   /**
    * The content partition. Only the body-bearing types (`BODY_BEARING_EVENT_TYPES`) take one; any
    * other type is refused.
@@ -66,10 +66,19 @@ export interface EventLogAppendOptions {
   readonly monotonicNs?: bigint;
 }
 
+/** Options for one {@link EventLogService.append}. */
+export interface EventLogAppendOptions extends ThinkingUpdateAppendOptions {
+  /**
+   * Statements committed in the same write just before the row. A statement whose row count is
+   * not the one it expects refuses the write with `WriteRefusedError`, and nothing of it is kept.
+   */
+  readonly transactionalPrelude?: readonly WriteStatement[];
+}
+
 /** Construction dependencies. */
 export interface EventLogServiceDeps {
   /** The writer every append goes through. */
-  readonly writer: Pick<DatabaseWriter, "appendEvent">;
+  readonly writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
 }
@@ -79,7 +88,7 @@ const UNALLOCATED_SEQUENCE = 0;
 
 /** The sole append path for `session_events`; see the file header. */
 export class EventLogService {
-  readonly #writer: Pick<DatabaseWriter, "appendEvent">;
+  readonly #writer: Pick<DatabaseWriter, "appendEvents" | "appendThinkingUpdate">;
   readonly #monotonicNow: () => bigint;
 
   constructor(deps: EventLogServiceDeps) {
@@ -89,15 +98,48 @@ export class EventLogService {
 
   /**
    * Appends one event and resolves once it has committed, with its allocated `sequence`. Refuses
-   * with a seeded content description member, a content partition on a type that carries none, a
-   * failed strict-variant parse, or a payload with no canonical form. An event is never refused
-   * for its size.
+   * an assistant's thinking update, which goes through {@link appendThinkingUpdate}, a seeded
+   * content description member, a content partition on a type that carries none, a failed
+   * strict-variant parse, or a payload with no canonical form. An event is never refused for its
+   * size.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt> {
-    const sessionId: SessionId = envelope.sessionId;
+    const row = this.#composeRow(envelope, options);
+    const [sequence] = await this.#queueInSessionOrder(envelope.sessionId, () =>
+      this.#writer.appendEvents([row], options?.transactionalPrelude),
+    );
+    if (sequence === undefined) {
+      throw new Error("The database writer committed the event without a sequence");
+    }
+    return { id: row.id, sequence };
+  }
+
+  /**
+   * Appends one assistant thinking update, which a full write queue drops rather than waits on.
+   * Resolves once it has committed or been dropped; refuses any other type and refuses as
+   * {@link append} does.
+   */
+  async appendThinkingUpdate(
+    envelope: UnsequencedEventEnvelope,
+    options?: ThinkingUpdateAppendOptions,
+  ): Promise<ThinkingUpdateReceipt> {
+    const row = this.#composeRow(envelope, options);
+    const outcome = await this.#queueInSessionOrder(envelope.sessionId, () =>
+      this.#writer.appendThinkingUpdate(row),
+    );
+    return outcome.isStored
+      ? { isStored: true, id: row.id, sequence: outcome.sequence }
+      : { isStored: false, id: row.id };
+  }
+
+  // Composes the row exactly as it will be stored, checked and canonicalized.
+  #composeRow(
+    envelope: UnsequencedEventEnvelope,
+    options: ThinkingUpdateAppendOptions | undefined,
+  ): SessionEventRow {
     // Checked before `options.content` picks the branch: seeding `contentLength` without content
     // would otherwise take the plain branch and be stored as given. Runs for tolerant carriers too.
     assertNoSeededContentDescription(envelope.payload, "EventLogService.append");
@@ -117,9 +159,9 @@ export class EventLogService {
 
     // Everything bound comes from `composed`, never the caller's input: its envelope carries the
     // normalized `occurredAt` and the content members measured from the body it stores.
-    const row = {
+    return {
       id: composed.envelope.id,
-      session_id: sessionId,
+      session_id: envelope.sessionId,
       occurred_at: composed.envelope.occurredAt,
       monotonic_ns: options?.monotonicNs ?? this.#monotonicNow(),
       category: composed.envelope.category,
@@ -131,18 +173,15 @@ export class EventLogService {
       version: composed.envelope.version,
       content_payload: composed.storedBody ?? null,
     };
+  }
 
-    // The lock is held only while the row joins the writer's queue; the result is boxed so the
-    // lock's own promise settles before the commit does.
-    const queued = await withSessionAppendLock(sessionId, () =>
-      Promise.resolve({
-        outcome: this.#writer.appendEvent(row, options?.transactionalPrelude ?? []),
-      }),
+  // Hands the write to the writer under the session's append lock and waits for it outside the
+  // lock. The result is boxed so the lock's own promise settles before the commit does.
+  async #queueInSessionOrder<T>(sessionId: SessionId, queue: () => Promise<T>): Promise<T> {
+    const queued = await sessionAppendLock.run(sessionId, () =>
+      Promise.resolve({ result: queue() }),
     );
-    const outcome: EventWriteOutcome = await queued.outcome;
-    return outcome.isStored
-      ? { isStored: true, id: row.id, sequence: outcome.sequence }
-      : { isStored: false, id: row.id };
+    return queued.result;
   }
 }
 

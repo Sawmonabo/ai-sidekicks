@@ -1,8 +1,9 @@
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { WriteStatement } from "../database/messages.js";
+import type { DatabaseConnections } from "../database/connections.js";
+import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 
@@ -22,10 +23,7 @@ export class SessionDraftStore {
   readonly #now: () => Date;
   readonly #selectDraft: Statement<[string], { text: string }>;
 
-  constructor(
-    database: { readonly reader: Database; readonly writer: Pick<DatabaseWriter, "write"> },
-    now: () => Date = () => new Date(),
-  ) {
+  constructor(database: DatabaseConnections, now: () => Date = () => new Date()) {
     this.#writer = database.writer;
     this.#now = now;
     this.#selectDraft = database.reader.prepare(

@@ -13,10 +13,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureRejection, captureThrow } from "../../__fixtures__/capture-failure.js";
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {

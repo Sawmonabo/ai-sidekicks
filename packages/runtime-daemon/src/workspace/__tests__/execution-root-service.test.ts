@@ -8,10 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ExecutionMode, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../database/__fixtures__/scratch-file.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import {
   WorkspaceBranchMismatchError,

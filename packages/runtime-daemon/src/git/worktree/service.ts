@@ -17,8 +17,8 @@ import {
   type WorktreeState,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { DatabaseConnections } from "../../database/connections.js";
-import type { WriteStatement } from "../../database/messages.js";
-import { WriteRefusedError } from "../../database/writer.js";
+import type { WriteStatement } from "../../database/statement.js";
+import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { RepoMountNotFoundError } from "../../workspace/repo/errors.js";
 import {
   WorktreeBranchCollisionError,
@@ -258,7 +258,7 @@ export class WorktreeService {
   readonly #selectBusyHolderStmt: Statement<WorktreeLookupParams, HoldingWorkspaceRow>;
   readonly #selectSweepableStmt: Statement<[], WorktreeRetirementRow>;
   readonly #selectUncleanedRetiredStmt: Statement<[], WorktreeRootRow>;
-  readonly #writer: DatabaseConnections["writer"];
+  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;

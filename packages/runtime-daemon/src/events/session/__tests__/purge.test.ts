@@ -13,8 +13,8 @@ import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session
 import {
   openScratchDatabase,
   type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch-file.js";
-import { withSessionAppendLock } from "../append-lock.js";
+} from "../../../database/__fixtures__/scratch.js";
+import { sessionAppendLock } from "../append-lock.js";
 import {
   SessionPurge,
   type SessionPurgeEventLog,
@@ -53,9 +53,9 @@ class RecordingEventLog implements SessionPurgeEventLog {
     category: string;
     type: string;
     payload: Record<string, unknown>;
-  }): Promise<{ isStored: true; id: string; sequence: number }> {
+  }): Promise<{ id: string; sequence: number }> {
     this.appended.push({ ...envelope, payload: envelope.payload as ReceiptPayloadShape });
-    return Promise.resolve({ isStored: true, id: envelope.id, sequence: 0 });
+    return Promise.resolve({ id: envelope.id, sequence: 0 });
   }
 }
 
@@ -296,7 +296,7 @@ describe("SessionPurge — a purge entered inside an append-lock hold is refused
     const purge = buildPurge();
 
     for (const heldSession of [SESSION, SECOND_SESSION]) {
-      const insideHold = await withSessionAppendLock(heldSession, () => purge.purge([SESSION]));
+      const insideHold = await sessionAppendLock.run(heldSession, () => purge.purge([SESSION]));
       expect(insideHold.outcomes).toEqual([]);
       expect(insideHold.refusedReason).toContain("append-lock hold");
       expect(rowExists("session_events", candidate.id)).toBe(true);

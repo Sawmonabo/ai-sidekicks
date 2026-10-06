@@ -33,14 +33,14 @@ import type {
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { WriteStatement } from "../../database/messages.js";
+import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
 } from "../log-service.js";
-import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./append-lock.js";
+import { sessionAppendLock } from "./append-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 
 /** The category a purge never touches: maintenance records, its own receipt included. */
@@ -157,7 +157,7 @@ export class SessionPurge {
     const operationId: string = this.#operationIdFactory();
     const purgeInstant: Date = this.#now();
 
-    if (isWithinSessionAppendLockHold()) {
+    if (sessionAppendLock.isHeldHere()) {
       return {
         operationId,
         outcomes: [],
@@ -209,7 +209,7 @@ export class SessionPurge {
 
   async #purgeSession(sessionId: SessionId): Promise<SessionPurgeOutcome> {
     try {
-      return await withSessionAppendLock(sessionId, () => this.#deleteSessionRows(sessionId));
+      return await sessionAppendLock.run(sessionId, () => this.#deleteSessionRows(sessionId));
     } catch (error) {
       return { sessionId, rowsDeleted: 0, refusedReason: describeError(error) };
     }

@@ -472,7 +472,9 @@ export class RuntimeBindingStore {
     ]);
     const updated = result?.rows[0] as RuntimeBindingRow | undefined;
     if (updated === undefined) {
-      // Deleted, or rewritten, since the read: read it again and patch what is stored now.
+      // The row was deleted after the read, or its driver or spawn columns, which the daemon never
+      // changes, were edited outside it. Reading again answers `undefined` for the first and parses
+      // the record as now stored for the second, refusing it if it no longer reads.
       return this.update(id, patch);
     }
     // Reuses the columns the patch was gated on, so the result cannot disagree with them.
