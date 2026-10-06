@@ -16,7 +16,7 @@ import {
   buildSubscriptionNotify,
   createScriptedDaemon,
   TEST_CLIENT_OPTIONS,
-} from "./scripted-daemon.test-support.js";
+} from "../../tests/helpers/scripted-daemon.js";
 
 /** Low-entropy sentinel ids, so the secret scanner has nothing to flag. */
 const SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000011";

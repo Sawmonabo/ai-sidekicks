@@ -2,8 +2,8 @@
 // for the daemon: an unreachable socket fails with the canonical `transport.unavailable` envelope,
 // the handshake survives a reply split across reads and presents the session token read at each
 // connect, retrying once when a refused token was replaced, a frame that is no JSON-RPC envelope
-// ends the connection, a failed handshake closes the socket it opened, and an observer hears every
-// frame and the daemon's own close.
+// ends the connection, a failed or stopped handshake closes the socket it opened, and an observer
+// hears every frame and the daemon's own close.
 
 import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import * as net from "node:net";
@@ -42,8 +42,11 @@ const COMPATIBLE_HELLO = { compatible: true, protocolVersion: CURRENT_PROTOCOL_V
 let scratch: string;
 let runFolder: DaemonRunFolder;
 let server: net.Server | undefined;
+let handshakeAbort: AbortController;
+const HANDSHAKE_STOPPED = new Error("the supervisor's deadline passed");
 
 beforeEach(async () => {
+  handshakeAbort = new AbortController();
   scratch = await mkdtemp(path.join(os.tmpdir(), "aisk-sdk-"));
   runFolder = resolveDaemonRunFolder({
     platform: process.platform,
@@ -158,29 +161,6 @@ describe("connectToDaemon", () => {
     expect(daemon.requests).toHaveLength(0);
   });
 
-  it("rejects with the read's ENOENT and closes, observed, before the daemon writes its token", async () => {
-    // The daemon has bound its socket and not yet written this start's token.
-    await rm(runFolder.tokenPath);
-    const daemon = await serveStandInDaemon(() => undefined);
-    const closeReasons: Array<Error | undefined> = [];
-
-    const failure = await connectToDaemon({
-      runFolder,
-      maxQueuedValuesPerSubscription: 8,
-      observer: {
-        frameReceived: () => undefined,
-        closed: (reason) => {
-          closeReasons.push(reason);
-        },
-      },
-    }).catch((error: unknown) => error);
-
-    expect(failure).toMatchObject({ code: "ENOENT" });
-    expect(closeReasons).toStrictEqual([undefined]);
-    await daemon.connectionClosed;
-    expect(daemon.requests).toHaveLength(0);
-  });
-
   it("completes daemon.hello when the reply arrives split across reads", async () => {
     const daemon = await serveStandInDaemon((request, socket) => {
       const frame = encodeFrame({
@@ -211,7 +191,7 @@ describe("connectToDaemon", () => {
     await connection.close();
   });
 
-  it("reads the session token at every connect, so a restarted daemon's token is presented", async () => {
+  it("reads the token at every connect, so a restarted daemon's token is presented", async () => {
     const daemon = await serveStandInDaemon((request, socket) => {
       socket.write(
         encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: COMPATIBLE_HELLO }),
@@ -244,22 +224,72 @@ describe("connectToDaemon", () => {
     expect((failure as Error).cause).toMatchObject({ name: "ZodError" });
   });
 
-  it("closes the socket when the handshake fails", async () => {
-    const daemon = await serveStandInDaemon((request, socket) => {
-      socket.write(
-        encodeFrame({
-          jsonrpc: JSONRPC_VERSION,
-          id: request.id,
-          error: { code: JsonRpcErrorCode.InternalError, message: "the daemon failed" },
-        }),
-      );
-    });
+  // Each failure after the connect closes the socket it opened, and the observer hears the close.
+  it.each([
+    {
+      // The daemon has bound its socket and not yet written this start's token.
+      failureSource: "a token the daemon has not written yet",
+      prepare: () => rm(runFolder.tokenPath),
+      answer: () => undefined,
+      requestCount: 0,
+      expectFailure: (failure: unknown) => {
+        expect(failure).toMatchObject({ code: "ENOENT" });
+      },
+    },
+    {
+      failureSource: "a refused handshake",
+      prepare: () => Promise.resolve(),
+      answer: (request: JsonRpcRequest, socket: net.Socket) => {
+        socket.write(
+          encodeFrame({
+            jsonrpc: JSONRPC_VERSION,
+            id: request.id,
+            error: { code: JsonRpcErrorCode.InternalError, message: "the daemon failed" },
+          }),
+        );
+      },
+      requestCount: 1,
+      expectFailure: (failure: unknown) => {
+        expect(failure).toBeInstanceOf(JsonRpcRemoteError);
+      },
+    },
+    {
+      // A process that accepts the connection and never answers the hello.
+      failureSource: "a handshake stopped by its signal",
+      prepare: () => Promise.resolve(),
+      answer: () => {
+        handshakeAbort.abort(HANDSHAKE_STOPPED);
+      },
+      requestCount: 1,
+      expectFailure: (failure: unknown) => {
+        expect(failure).toBe(HANDSHAKE_STOPPED);
+      },
+    },
+  ])(
+    "closes the socket, observed, on $failureSource",
+    async ({ prepare, answer, requestCount, expectFailure }) => {
+      await prepare();
+      const daemon = await serveStandInDaemon(answer);
+      const closeReasons: Array<Error | undefined> = [];
 
-    await expect(
-      connectToDaemon({ runFolder, maxQueuedValuesPerSubscription: 8 }),
-    ).rejects.toBeInstanceOf(JsonRpcRemoteError);
-    await daemon.connectionClosed;
-  });
+      const failure = await connectToDaemon({
+        runFolder,
+        maxQueuedValuesPerSubscription: 8,
+        observer: {
+          frameReceived: () => undefined,
+          closed: (reason) => {
+            closeReasons.push(reason);
+          },
+        },
+        signal: handshakeAbort.signal,
+      }).catch((error: unknown) => error);
+
+      expectFailure(failure);
+      expect(closeReasons).toStrictEqual([undefined]);
+      await daemon.connectionClosed;
+      expect(daemon.requests).toHaveLength(requestCount);
+    },
+  );
 
   it("connects once more with the new token when the refused one was replaced", async () => {
     // The daemon writes its token just after it binds: the first hello presents the previous
@@ -326,7 +356,7 @@ describe("connectToDaemon", () => {
     expect(await closed).toBeInstanceOf(JsonRpcTransportPeerClosedError);
   });
 
-  it("refuses a call made while the connection is closing with the typed closed error", async () => {
+  it("refuses a call made while the connection closes with the typed closed error", async () => {
     await serveStandInDaemon((request, socket) => {
       socket.write(
         encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: COMPATIBLE_HELLO }),

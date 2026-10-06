@@ -29,7 +29,7 @@ import {
   type ScriptedDaemon,
   type ScriptedMethodTable,
   TEST_CLIENT_OPTIONS,
-} from "./scripted-daemon.test-support.js";
+} from "../../tests/helpers/scripted-daemon.js";
 
 type OutboundEnvelope = JsonRpcRequest | JsonRpcNotification;
 

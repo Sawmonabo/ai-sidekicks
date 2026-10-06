@@ -106,7 +106,7 @@ export interface DriverClient {
   /**
    * Open a subscription to one run's driver event stream.
    *
-   * The value type is `DriverEvent`, the contracts-owned union over the six driver-event
+   * The value type is `DriverEvent`, the contracts-owned union over the driver-event
    * categories, so a caller never has to handle an approval or audit event on a driver stream.
    * The daemon already filters non-driver events, so a refused value means its filter regressed
    * or a peer widened the stream; the subscription then ends in a `value`-phase

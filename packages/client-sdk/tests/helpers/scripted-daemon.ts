@@ -16,7 +16,7 @@ import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { ClientTransport, JsonRpcClientOptions } from "../transport/json-rpc.js";
+import type { ClientTransport, JsonRpcClientOptions } from "../../src/transport/json-rpc.js";
 
 /** The client options the tests use; the queue bound is far above any test's stream. */
 export const TEST_CLIENT_OPTIONS: JsonRpcClientOptions = {

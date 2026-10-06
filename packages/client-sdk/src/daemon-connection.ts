@@ -52,10 +52,16 @@ export interface DaemonConnectionOptions {
    * when the handshake fails and the connection it opened is closed.
    */
   readonly observer?: DaemonConnectionObserver;
+  /**
+   * Stops a connect still in progress: its socket closes and the connect rejects with the
+   * signal's reason. It has no effect once the connection is open.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** An open daemon connection: the client, the daemon's handshake answer, and its close. */
 export interface DaemonConnection {
+  /** The JSON-RPC client over this connection, past its handshake. */
   readonly client: JsonRpcClient;
   /**
    * The daemon's `daemon.hello` answer. When `compatible` is false the daemon refuses every
@@ -72,7 +78,8 @@ export interface DaemonConnection {
  * folder is not this user's alone, or, with no `runFolder` given, on Windows, which has none; the
  * token file's read error, `code` `ENOENT` when a daemon has bound its socket and not yet written
  * its token; and `JsonRpcRemoteError` with `auth.token_invalid` when the daemon refuses the token
- * and the token file still holds the one presented. Any failure after a connect closes it.
+ * and the token file still holds the one presented; and the signal's reason once it aborts. Any
+ * failure after a connect closes it.
  */
 export async function connectToDaemon(options: DaemonConnectionOptions): Promise<DaemonConnection> {
   const runFolder = options.runFolder ?? defaultDaemonRunFolder();
@@ -119,8 +126,13 @@ async function openDaemonConnection(
     protocolVersion: CURRENT_PROTOCOL_VERSION,
     maxQueuedValuesPerSubscription: options.maxQueuedValuesPerSubscription,
   });
+  // Closing the transport rejects the hello still in flight, so a daemon that never answers
+  // leaves no socket open.
+  const closeOnAbort = (): void => void transport.close();
+  options.signal?.addEventListener("abort", closeOnAbort, { once: true });
   try {
-    // Before a byte is sent: a folder another account made could hold its own socket and token,
+    options.signal?.throwIfAborted();
+    // Before a byte is sent: a folder another user made could hold its own socket and token,
     // and the token would then prove nothing.
     assertPrivateRunFolder(
       runFolder.folderPath,
@@ -143,7 +155,12 @@ async function openDaemonConnection(
     return { client, hello, close: () => transport.close() };
   } catch (error) {
     await transport.close();
+    if (options.signal?.aborted === true) {
+      throw options.signal.reason;
+    }
     throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", closeOnAbort);
   }
 }
 

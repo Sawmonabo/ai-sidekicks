@@ -21,7 +21,7 @@ import {
   createScriptedDaemon,
   type ScriptedDaemon,
   TEST_CLIENT_OPTIONS,
-} from "../../__tests__/scripted-daemon.test-support.js";
+} from "../../../tests/helpers/scripted-daemon.js";
 import {
   JsonRpcClient,
   JsonRpcRemoteError,

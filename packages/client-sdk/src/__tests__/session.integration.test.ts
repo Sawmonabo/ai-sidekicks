@@ -17,7 +17,7 @@ import {
   type ScriptedDaemon,
   type ScriptedMethodTable,
   TEST_CLIENT_OPTIONS,
-} from "./scripted-daemon.test-support.js";
+} from "../../tests/helpers/scripted-daemon.js";
 
 // Fixtures
 
@@ -94,9 +94,9 @@ function makeSessionCreatedEvent(id: string, sequence: number): SessionEvent {
   return buildSessionCreatedEvent({ id, sessionId: SESSION_ID, sequence });
 }
 
-async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
+async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
-  for await (const item of iter) out.push(item);
+  for await (const item of iterable) out.push(item);
   return out;
 }
 
@@ -104,9 +104,9 @@ async function drain<T>(iter: AsyncIterable<T>): Promise<T[]> {
  * Read the first `count` items, then break. A daemon subscription stays open
  * until canceled, and the break is what cancels it.
  */
-async function take<T>(iter: AsyncIterable<T>, count: number): Promise<T[]> {
+async function take<T>(iterable: AsyncIterable<T>, count: number): Promise<T[]> {
   const out: T[] = [];
-  for await (const item of iter) {
+  for await (const item of iterable) {
     out.push(item);
     if (out.length === count) break;
   }
@@ -124,15 +124,17 @@ describe("daemon subscribe with a pre-aborted signal does not call client.subscr
       // No scripted `session.subscribe`: a leaked request would fail on the unscripted path, and
       // the empty `sentEnvelopes` assertion catches it first.
       const harness = buildDaemonHarness({});
-      const sdk = createDaemonSessionClient(harness.client);
+      const sessionClient = createDaemonSessionClient(harness.client);
       // The spy calls through, so the pre-abort `return` in `daemonSubscribe` is what prevents the
       // wire side effect; the spy checks `client.subscribe` was never reached.
       const subscribeSpy = vi.spyOn(harness.client, "subscribe");
 
-      const ac = new AbortController();
-      ac.abort();
+      const abortController = new AbortController();
+      abortController.abort();
 
-      const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+      const events = await drain(
+        sessionClient.subscribe({ sessionId: SESSION_ID, signal: abortController.signal }),
+      );
 
       // The generator returned at the pre-abort check before producing anything.
       expect(events).toEqual([]);
@@ -154,9 +156,9 @@ describe("SessionSubscribe yields events in sequence ASC across reconnect", () =
       makeSessionCreatedEvent(EVENT_ID_3, 2),
     ];
     const { table, recorded } = scriptSessionStream(() => history);
-    const sdk = createDaemonSessionClient(buildDaemonHarness(table).client);
+    const sessionClient = createDaemonSessionClient(buildDaemonHarness(table).client);
 
-    const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 3);
+    const cold = await take(sessionClient.subscribe({ sessionId: SESSION_ID }), 3);
     expect(recorded.callCount).toBe(1);
     expect(recorded.afterCursor).toBeUndefined();
     expect(cold.map((e) => e.event.sequence)).toEqual([0, 1, 2]);
@@ -164,7 +166,10 @@ describe("SessionSubscribe yields events in sequence ASC across reconnect", () =
 
     // The reconnect sends the last cursor the consumer holds; the first event
     // it sees is the one strictly after that cursor.
-    const resumed = await take(sdk.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_2 }), 1);
+    const resumed = await take(
+      sessionClient.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_2 }),
+      1,
+    );
     expect(recorded.callCount).toBe(2);
     expect(recorded.afterCursor).toBe(CURSOR_2);
     expect(resumed.map((e) => e.event.sequence)).toEqual([2]);
@@ -181,9 +186,9 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
       makeSessionCreatedEvent(EVENT_ID_2, 1),
     ];
     const { table, recorded } = scriptSessionStream(() => history);
-    const sdk = createDaemonSessionClient(buildDaemonHarness(table).client);
+    const sessionClient = createDaemonSessionClient(buildDaemonHarness(table).client);
 
-    const cold = await take(sdk.subscribe({ sessionId: SESSION_ID }), 2);
+    const cold = await take(sessionClient.subscribe({ sessionId: SESSION_ID }), 2);
     expect(cold.map((e) => e.eventId)).toEqual([CURSOR_1, CURSOR_2]);
 
     // While the stream is lost, the daemon's projection revises the second
@@ -203,7 +208,7 @@ describe("Reconnect after lost stream restores from snapshot, not client cache",
     ];
 
     const reconnected = await take(
-      sdk.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_1 }),
+      sessionClient.subscribe({ sessionId: SESSION_ID, afterCursor: CURSOR_1 }),
       2,
     );
     expect(recorded.callCount).toBe(2);
@@ -227,9 +232,9 @@ describe("daemon subscribe re-checks AbortSignal after attaching abort listener"
       // No scripted subscribe: the mocked `client.subscribe` replaces the wire path; the harness
       // only supplies a real `JsonRpcClient` to spy on.
       const harness = buildDaemonHarness({});
-      const sdk = createDaemonSessionClient(harness.client);
+      const sessionClient = createDaemonSessionClient(harness.client);
 
-      const ac = new AbortController();
+      const abortController = new AbortController();
 
       // The fake's `next()` parks until `cancel()` and then settles as ended, as a real
       // subscription does after a cancel, so a wrong yield before the cancel shows as a hung test.
@@ -267,11 +272,13 @@ describe("daemon subscribe re-checks AbortSignal after attaching abort listener"
         .mockImplementation(((): typeof fakeSubscription => {
           // The generator has passed the pre-abort check and no listener is attached yet, so this
           // abort event is missed and only the re-check can catch it.
-          ac.abort();
+          abortController.abort();
           return fakeSubscription;
         }) as unknown as typeof harness.client.subscribe);
 
-      const events = await drain(sdk.subscribe({ sessionId: SESSION_ID, signal: ac.signal }));
+      const events = await drain(
+        sessionClient.subscribe({ sessionId: SESSION_ID, signal: abortController.signal }),
+      );
 
       // The generator returned from the re-check before its loop.
       expect(events).toEqual([]);
