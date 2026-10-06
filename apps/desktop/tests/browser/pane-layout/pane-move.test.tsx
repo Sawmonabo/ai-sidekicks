@@ -2,6 +2,7 @@
 // with its panels by on-screen position, which happy-dom cannot give it: every rect there is
 // zero, so a move that throws in Chromium passes under the unit tier.
 
+import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -72,8 +73,11 @@ describe("browser — moving a pane", () => {
     };
     window.addEventListener("error", recordError);
     try {
-      await userEvent.click(firstPaneButton);
-      await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+      // The move re-renders the layout and announces itself, so the presses run inside `act`.
+      await act(async () => {
+        await userEvent.click(firstPaneButton);
+        await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+      });
     } finally {
       window.removeEventListener("error", recordError);
     }
