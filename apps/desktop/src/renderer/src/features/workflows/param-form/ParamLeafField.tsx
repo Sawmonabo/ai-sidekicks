@@ -10,7 +10,7 @@ import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contrac
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { FilePathRef } from "#shared/preload-api.js";
+import type { PickedFolder } from "#shared/preload-api.js";
 import { ActionButton } from "../components/ActionButton.js";
 
 /** What the form hands one leaf field. */
@@ -27,7 +27,7 @@ export interface ParamLeafFieldProps {
    * Open the platform's folder chooser: the picked folder's token, or `null` when the person
    * canceled. A path field's `Browse…` presses it.
    */
-  readonly pickFolder: () => Promise<FilePathRef | null>;
+  readonly pickFolder: () => Promise<PickedFolder | null>;
 }
 
 /** A labeled control for one leaf parameter, its help under it and any issue below that. */
@@ -228,7 +228,7 @@ function FolderPicker(
       (folder) => {
         setIsChoosing(false);
         if (folder !== null) {
-          onAnswerChange(folder);
+          onAnswerChange(folder.ref);
         }
       },
       (failure: unknown) => {

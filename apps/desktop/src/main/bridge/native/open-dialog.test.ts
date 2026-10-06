@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OpenDialogResult } from "#shared/preload-api.js";
+import type { OpenDialogResult, PickedFolder } from "#shared/preload-api.js";
 import { FilePathRefs } from "../file-path/file-path-refs.js";
 import { pageOwner } from "../file-path/file-path-refs.test-support.js";
 import { showOpenDialog, type OpenDialogHost } from "./open-dialog.js";
@@ -53,17 +53,17 @@ describe("the open dialog", () => {
     expect(file === undefined ? undefined : refs.pathOf(owner, file.ref)).toBe(picked);
   });
 
-  it("answers a picked folder as one token, its path kept in main, or null on cancel", async () => {
+  it("answers a picked folder as one token and its name, its path kept in main, or null on cancel", async () => {
     const refs = new FilePathRefs();
     const owner = pageOwner(1);
 
-    const ref = await showOpenDialog(dialogPicking([folder]), refs, owner, {
+    const picked = (await showOpenDialog(dialogPicking([folder]), refs, owner, {
       purpose: "pickFolder",
-    });
+    })) as PickedFolder | null;
 
-    expect(typeof ref).toBe("string");
-    expect(ref).not.toContain(folder);
-    expect(typeof ref === "string" ? refs.pathOf(owner, ref) : undefined).toBe(folder);
+    expect(picked?.name).toBe(path.basename(folder));
+    expect(picked?.ref).not.toContain(folder);
+    expect(picked === null ? undefined : refs.pathOf(owner, picked.ref)).toBe(folder);
 
     const canceled: OpenDialogHost = {
       showOpenDialog: () => Promise.resolve({ canceled: true, filePaths: [] }),

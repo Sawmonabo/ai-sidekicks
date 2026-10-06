@@ -37,7 +37,7 @@ const OPEN_DIALOG_TOKEN_PURPOSES: Readonly<Record<OpenDialogPurpose, FilePathPur
 
 /**
  * Show the open dialog for a purpose and answer what was picked as tokens: files with their
- * name and size for `attachFiles` (several) and `importFile` (one), or one folder token
+ * name and size for `attachFiles` (several) and `importFile` (one), or one folder with its name
  * (`null` on cancel) for `pickFolder`. Throws a `TypeError` for an unknown purpose.
  */
 export async function showOpenDialog(
@@ -53,7 +53,9 @@ export async function showOpenDialog(
   }
   if (purpose === "pickFolder") {
     const [folder] = chosen.filePaths;
-    return folder === undefined ? null : filePathRefs.mint(owner, "folder", folder);
+    return folder === undefined
+      ? null
+      : { ref: filePathRefs.mint(owner, "folder", folder), name: basename(folder) };
   }
   const refs: PickedFile[] = [];
   for (const path of chosen.filePaths) {

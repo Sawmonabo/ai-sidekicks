@@ -58,8 +58,8 @@ export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 export interface OpenDialogResults {
   readonly attachFiles: OpenDialogResult;
   readonly importFile: OpenDialogResult;
-  /** The picked folder's token, or `null` when the person canceled. */
-  readonly pickFolder: FilePathRef | null;
+  /** The picked folder, or `null` when the person canceled. */
+  readonly pickFolder: PickedFolder | null;
 }
 
 /** What an open dialog is for. */
@@ -78,6 +78,12 @@ export interface PickedFile {
   readonly ref: FilePathRef;
   readonly name: string;
   readonly sizeBytes: number;
+}
+
+/** One folder a person picked: its token, and the folder's own name for the form to draw. */
+export interface PickedFolder {
+  readonly ref: FilePathRef;
+  readonly name: string;
 }
 
 /** The files a person picked, empty when they canceled. */

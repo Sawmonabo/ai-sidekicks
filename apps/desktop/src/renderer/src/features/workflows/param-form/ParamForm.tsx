@@ -4,7 +4,7 @@
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
-import type { FilePathRef } from "#shared/preload-api.js";
+import type { PickedFolder } from "#shared/preload-api.js";
 import { isParamFieldShown, seedParamAnswers } from "./param-answers.js";
 import type { ParamAnswers, ParamIssues } from "./param-answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";
@@ -22,7 +22,7 @@ export interface ParamFormProps {
   /** Prefix for the ids tying labels and issue text to their controls; unique per mounted form. */
   readonly idPrefix: string;
   /** Open the platform's folder chooser for a path field: the folder's token, `null` on cancel. */
-  readonly pickFolder: () => Promise<FilePathRef | null>;
+  readonly pickFolder: () => Promise<PickedFolder | null>;
 }
 
 /**
@@ -56,7 +56,7 @@ interface ParamFieldListProps {
   readonly idPrefix: string;
   /** The dotted path this level's field ids extend, empty at the top. */
   readonly pathPrefix: string;
-  readonly pickFolder: () => Promise<FilePathRef | null>;
+  readonly pickFolder: () => Promise<PickedFolder | null>;
 }
 
 function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
@@ -108,7 +108,7 @@ interface ParamCollectionFieldProps {
   readonly isDisabled: boolean;
   readonly idPrefix: string;
   readonly path: string;
-  readonly pickFolder: () => Promise<FilePathRef | null>;
+  readonly pickFolder: () => Promise<PickedFolder | null>;
 }
 
 function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Element {
