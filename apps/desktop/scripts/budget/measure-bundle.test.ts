@@ -8,8 +8,8 @@ import {
   RendererBundleOutputMissingError,
   rendererBundleAssetClassOf,
 } from "./measure-bundle.mts";
-import { plantRendererOutput } from "./measure-bundle.test-support.js";
-import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
+import { plantRendererOutput } from "./measure-bundle.test-support.ts";
+import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.ts";
 
 /** Every out-dir the cases plant, removed after each of them. */
 const plantedFixtures = new TemporaryDirectoryTrail();
