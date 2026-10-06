@@ -357,7 +357,9 @@ class ElectronMockImpl implements ElectronMock {
           }
           return `${MOCK_APP_PATH_ROOT}/${pathName}`;
         }),
-        // The build facts main reads after ready and hands every window.
+        // The build facts main reads after ready and hands every window. The name is the
+        // package's `productName`, which Electron reads packaged or not.
+        getName: vi.fn(() => "AI Sidekicks"),
         getVersion: vi.fn(() => "0.0.0"),
         getLocale: vi.fn(() => "en-US"),
         on: vi.fn((eventName: string, listener: (event: MockAppEvent) => void) => {
@@ -367,6 +369,7 @@ class ElectronMockImpl implements ElectronMock {
             listener,
           ]);
         }),
+        setAboutPanelOptions: vi.fn(),
         quit: vi.fn(() => {
           this.record("app.quit");
         }),

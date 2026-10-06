@@ -2,9 +2,12 @@
 // accelerators. The View menu carries the color-scheme choice with the one in force ticked, so the
 // template is rebuilt whenever the kept scheme changes, and again when a pick is not kept: Electron
 // ticks a radio row as it is clicked, and the tick goes back to the scheme in force while main's
-// diagnostic log says why and the window used last says so on its banner.
+// diagnostic log says why and the window used last says so on its banner. About is the platform's
+// own panel, filled once before the first install with the running app's name and version.
 
-import { Menu, type MenuItemConstructorOptions } from "electron";
+import path from "node:path";
+
+import { app, Menu, type MenuItemConstructorOptions } from "electron";
 
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appearance.js";
 
@@ -13,7 +16,8 @@ import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 
-const IS_MACOS = process.platform === "darwin";
+/** The About panel's icon. Windows and Linux take it from a file on disk; macOS from the bundle. */
+const ABOUT_ICON_FILE = "icon.png";
 
 /** The View menu's scheme rows, in the order the Appearance page lists them. */
 const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly label: string }[] = [
@@ -23,20 +27,29 @@ const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly lab
 ];
 
 /**
- * Builds and installs the application menu, and rebuilds it when the kept scheme changes. Call
- * once, inside `app.whenReady()`, after the renderer protocol is installed, so no accelerator can
- * fire against an uninstalled scheme. A pick that is not kept is written to `log` and announced
- * through `openWindows` to the console document.
+ * Fills the About panel, builds and installs the application menu, and rebuilds the menu when the
+ * kept scheme changes. Call once, inside `app.whenReady()`, after the renderer protocol is
+ * installed, so no accelerator can fire against an uninstalled scheme. A pick that is not kept is
+ * written to `log` and announced through `openWindows` to the console document.
  */
 export function installApplicationMenu(
   appearance: Pick<KeptAppearance, "scheme" | "chooseScheme" | "subscribe">,
   log: Pick<MainDiagnosticLog, "write">,
   openWindows: Pick<OpenWindows, "announceUnkeptScheme">,
 ): void {
+  const isMacOS = process.platform === "darwin";
+  // macOS shows `version` in parentheses; unset, a development build would show Electron's own.
+  app.setAboutPanelOptions({
+    applicationName: app.getName(),
+    applicationVersion: app.getVersion(),
+    ...(isMacOS ? { version: app.getVersion() } : { iconPath: aboutIconPath() }),
+  });
   let tickedScheme = appearance.scheme;
   const install = (): void => {
     tickedScheme = appearance.scheme;
-    Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(appearance, pick)));
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(applicationMenuTemplate(isMacOS, appearance, pick)),
+    );
   };
   const pick = (scheme: SchemePreference): void => {
     appearance.chooseScheme(scheme).catch((failure: unknown) => {
@@ -60,15 +73,35 @@ export function installApplicationMenu(
   });
 }
 
+// An installed app carries the icon beside its archive, since Linux's dialog cannot read inside it.
+function aboutIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, ABOUT_ICON_FILE)
+    : path.join(import.meta.dirname, "../../resources", ABOUT_ICON_FILE);
+}
+
 function applicationMenuTemplate(
+  isMacOS: boolean,
   appearance: Pick<KeptAppearance, "scheme">,
   pick: (scheme: SchemePreference) => void,
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
 
-  // Windows and Linux have no application menu; `fileMenu` carries Quit there.
-  if (IS_MACOS) {
-    template.push({ role: "appMenu" });
+  // Windows and Linux have no application menu; `fileMenu` carries Quit there. The roles are
+  // spelled out because Electron's own app menu adds Services.
+  if (isMacOS) {
+    template.push({
+      role: "appMenu",
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    });
   }
 
   template.push(
@@ -93,6 +126,14 @@ function applicationMenuTemplate(
     },
     { role: "windowMenu" },
   );
+
+  // On Windows and Linux the row names the app, since Electron's own reads a bare "About" on Linux.
+  if (!isMacOS) {
+    template.push({
+      role: "help",
+      submenu: [{ role: "about", label: `About ${app.getName()}` }],
+    });
+  }
 
   return template;
 }
