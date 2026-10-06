@@ -26,7 +26,7 @@ import type {
   DaemonParams,
   DaemonResult,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon/methods";
+} from "@ai-sidekicks/contracts/daemon/method-map";
 import type {
   MachineSettings,
   MachineSettingsChange,

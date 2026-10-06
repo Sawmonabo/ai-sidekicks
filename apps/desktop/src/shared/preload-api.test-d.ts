@@ -12,7 +12,7 @@ import type {
   DaemonEventPayload,
   DaemonMethod,
   DaemonResult,
-} from "@ai-sidekicks/contracts/daemon/methods";
+} from "@ai-sidekicks/contracts/daemon/method-map";
 
 import type { MainProcessState } from "./daemon/status-topic.js";
 import type { DaemonWire, PreloadApi, ServedDaemonCall, Unsubscribe } from "./preload-api.js";

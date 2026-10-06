@@ -17,7 +17,7 @@
 // (whose numeric `code` hides the dotted code at `data.type`) and turn `session.not_found` into
 // `call-rejected`.
 
-import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/methods";
+import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
 import {
   DAEMON_METHOD_BINDINGS,
   type RegisteredDaemonMethod,

@@ -7,7 +7,7 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonSubscribeParams,
-} from "@ai-sidekicks/contracts/daemon/methods";
+} from "@ai-sidekicks/contracts/daemon/method-map";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";

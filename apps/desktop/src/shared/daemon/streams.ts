@@ -6,7 +6,7 @@
 // The names are written as strings so the sandboxed preload loads none of the contract's schemas;
 // the set is checked against the daemon's method map, so each must be one of its subscriptions.
 
-import type { DaemonEvent } from "@ai-sidekicks/contracts/daemon/methods";
+import type { DaemonEvent } from "@ai-sidekicks/contracts/daemon/method-map";
 
 /** The subscription name for a session's whole event stream. */
 export const SESSION_EVENT_STREAM = "session.subscribe";

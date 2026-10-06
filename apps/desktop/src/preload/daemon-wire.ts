@@ -3,7 +3,7 @@
 // code and data crossing to the page. A subscription is named here, opened synchronously so its
 // open can throw, and fed by one listener for every value main pushes and one for every end.
 
-import type { DaemonMethod, DaemonResult } from "@ai-sidekicks/contracts/daemon/methods";
+import type { DaemonMethod, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
 
 import {
   BRIDGE_CHANNELS,

@@ -7,7 +7,7 @@ import type {
   DaemonMethod,
   DaemonParams,
   DaemonResult,
-} from "@ai-sidekicks/contracts/daemon/methods";
+} from "@ai-sidekicks/contracts/daemon/method-map";
 import { DAEMON_STATUS_TOPIC, type MainProcessState } from "#shared/daemon/status-topic.js";
 import type {
   DaemonWire,
