@@ -3,16 +3,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RustSidecarPtyHost } from "../sidecar/host.js";
-import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
+import { RustSidecarPtyHost } from "../../pty/sidecar/host.js";
+import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import {
   flushMicrotasks,
   frameEnvelope,
   makeFakeSidecarChild,
   parseFramesFromStdin,
   spawnReturning,
-} from "../__fixtures__/child-doubles.js";
-import type { Envelope, SpawnRequest } from "../host/protocol.js";
+} from "../../pty/__fixtures__/child-doubles.js";
+import type { Envelope, SpawnRequest } from "../../pty/host/protocol.js";
 
 interface PathFixture {
   readonly worktree: string;

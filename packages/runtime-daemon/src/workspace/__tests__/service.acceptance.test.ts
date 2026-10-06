@@ -70,7 +70,7 @@ beforeAll(async () => {
   // On macOS `os.tmpdir()` is under `/var/folders`, a symlink. The resolver canonicalizes, so
   // expectations built from the unresolved path would mismatch.
   const fixtureRoot: string = await realpath(
-    await mkdtemp(join(tmpdir(), "ai-sidekicks-repo-workspace-acceptance-")),
+    await mkdtemp(join(tmpdir(), "ai-sidekicks-workspace-service-acceptance-")),
   );
   const environment = buildFixtureEnvironment(fixtureRoot);
 
@@ -149,7 +149,7 @@ let harness: TestHarness;
 
 beforeEach(async () => {
   const tmpDir: string = await realpath(
-    await mkdtemp(join(tmpdir(), "ai-sidekicks-repo-workspace-acceptance-db-")),
+    await mkdtemp(join(tmpdir(), "ai-sidekicks-workspace-service-acceptance-db-")),
   );
   const dbPath = join(tmpDir, "test.db");
   const database: DatabaseType = openDatabase(dbPath);
