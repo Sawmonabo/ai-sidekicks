@@ -10,7 +10,12 @@ import { ApprovalDecisionSchema, type ApprovalDecision } from "../../approval.js
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/account.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/driver.js";
-import { SessionIdSchema, type SessionId } from "../../session/session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  wireFreeFormString,
+  type SessionId,
+} from "../../session/session.js";
 import { DeviceIdSchema, type DeviceId } from "../../trust-statement.js";
 import {
   WorkflowDefinitionIdSchema,
@@ -294,13 +299,25 @@ export const WorkflowHumanFormDraftSaveResponseSchema: z.ZodType<WorkflowHumanFo
     .strict();
 
 /**
+ * One `path` field's answer: the field, by its dotted place in the form (`parent.child`, or
+ * `parent.0.child` inside a repeating collection), and the path picked with the platform's own
+ * chooser. It sits beside `fields`, never in it, so the page's file token for the path is found
+ * at one fixed member whatever the form holds; a `json` answer can hold any key.
+ */
+export interface WorkflowHumanFormPathAnswer {
+  field: string;
+  path: string;
+}
+
+/**
  * The `workflow.humanFormSubmit` input. `expectedRevision` is the form's revision when
  * it was read. A submit carrying a stale revision is refused; it never overwrites an
- * answer that was already accepted. A location is a path, picked with the platform's
- * own chooser; a form has no artifact field.
+ * answer that was already accepted. Every answer but a `path` field's is in `fields`; a
+ * `path` field's is in `paths`, at most once per field. A form has no artifact field.
  */
 export interface WorkflowHumanFormSubmitRequest extends WorkflowStepKey {
   fields: Record<string, unknown>;
+  paths?: WorkflowHumanFormPathAnswer[] | undefined;
   expectedRevision: number;
 }
 /** Wire schema for {@link WorkflowHumanFormSubmitRequest}. */
@@ -311,6 +328,19 @@ export const WorkflowHumanFormSubmitRequestSchema: z.ZodType<
   .object({
     ...workflowStepKeyFields,
     fields: z.record(z.string(), z.unknown()),
+    paths: z
+      .array(
+        z
+          .object({
+            field: z.string().min(1),
+            path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorkflowHumanFormPathAnswer.path"),
+          })
+          .strict(),
+      )
+      .refine((answers) => new Set(answers.map((answer) => answer.field)).size === answers.length, {
+        message: "A path field is answered at most once.",
+      })
+      .optional(),
     expectedRevision: countSchema,
   })
   .strict();

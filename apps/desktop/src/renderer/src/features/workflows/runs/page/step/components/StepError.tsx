@@ -51,9 +51,10 @@ function failureLabel(
   return typeof why === "string" ? `${label} · ${codeWords(why, {})}` : label;
 }
 
-// The wire carries exactly one of the exit code and the signal; the signal is read first, so the
-// exit code is the one left. An exit code is a code, read as it was sent, not a count.
+// The wire carries exactly one of the exit code and the signal. An exit code is a code, read as
+// it was sent, not a count.
 function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
-  const { exitCode, signal } = processExit;
-  return signal === undefined ? `Exit code ${String(exitCode)}` : `Ended by ${signal}`;
+  return processExit.signal === undefined
+    ? `Exit code ${String(processExit.exitCode)}`
+    : `Ended by ${processExit.signal}`;
 }

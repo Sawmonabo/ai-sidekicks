@@ -92,6 +92,18 @@ describe("workflow.humanFormSubmit", () => {
     expect(WorkflowHumanFormSubmitRequestSchema.safeParse(submit).success).toBe(true);
   });
 
+  it("takes each path field's answer beside the fields, once per field", () => {
+    const answer = { field: "target.0.folder", path: "/Users/dev/code/ai-sidekicks" };
+    const submit = { ...STEP, fields: { summary: "Ship it" }, expectedRevision: 0 };
+    expect(
+      WorkflowHumanFormSubmitRequestSchema.safeParse({ ...submit, paths: [answer] }).success,
+    ).toBe(true);
+    expect(
+      WorkflowHumanFormSubmitRequestSchema.safeParse({ ...submit, paths: [answer, answer] })
+        .success,
+    ).toBe(false);
+  });
+
   it("refuses a submit that does not say which execution of the node it answers", () => {
     const { executionIndex: _dropped, ...withoutExecution } = STEP;
     const submit = { ...withoutExecution, fields: {}, expectedRevision: 0 };

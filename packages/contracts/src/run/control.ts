@@ -339,22 +339,24 @@ const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
  * turn, and a failed workflow step the process it ran. A process the daemon closed itself, or a
  * sleep, records none.
  */
-export interface ProcessExit {
-  exitCode?: number | undefined;
-  signal?: string | undefined;
-  outputTail: string;
-}
-/** Wire schema for {@link ProcessExit}. */
-export const ProcessExitSchema: z.ZodType<ProcessExit> = z
-  .object({
-    exitCode: z.number().int().optional(),
-    signal: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ProcessExit.signal").optional(),
-    outputTail: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "ProcessExit.outputTail"),
-  })
-  .strict()
-  .refine((exit) => (exit.exitCode === undefined) !== (exit.signal === undefined), {
-    message: "A process exits with a code or is ended by a signal, exactly one.",
-  });
+export type ProcessExit =
+  | { exitCode: number; signal?: undefined; outputTail: string }
+  | { signal: string; exitCode?: undefined; outputTail: string };
+
+const ProcessExitOutputTailSchema = wireFreeFormString(
+  DRIVER_FAILURE_DETAIL_MAX_LEN,
+  "ProcessExit.outputTail",
+);
+/** Wire schema for {@link ProcessExit}: a code or a signal, never both and never neither. */
+export const ProcessExitSchema: z.ZodType<ProcessExit> = z.union([
+  z.object({ exitCode: z.number().int(), outputTail: ProcessExitOutputTailSchema }).strict(),
+  z
+    .object({
+      signal: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "ProcessExit.signal"),
+      outputTail: ProcessExitOutputTailSchema,
+    })
+    .strict(),
+]);
 
 /**
  * One run state transition as `run.subscribeState` delivers it, with its new run version.
