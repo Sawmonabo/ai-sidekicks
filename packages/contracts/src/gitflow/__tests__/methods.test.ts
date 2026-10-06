@@ -4,7 +4,6 @@
 import { describe, it } from "vitest";
 
 import { GITFLOW_METHOD_DESCRIPTORS } from "../methods.js";
-import { WorkflowStepReviewPauseSchema } from "../../workflow/run/step/record.js";
 import { accepts, refuses } from "../../__tests__/safe-parse.test-support.js";
 
 const AGENT_ID = "6ba7b811-9dad-41d1-80b4-00c04fd430c8";
@@ -44,7 +43,7 @@ describe("gitflow.diffRead", () => {
     ],
   });
 
-  it("names an approval pause counted from 1, as the step's review pause does", () => {
+  it("names an approval pause counted from 1", () => {
     const request = (pauseNumber: number) => ({
       sessionId: SESSION_ID,
       scope: "workflow_run",
@@ -54,9 +53,6 @@ describe("gitflow.diffRead", () => {
     });
     accepts(diff.requestSchema, request(1));
     refuses(diff.requestSchema, request(0));
-    // The step hands its pinned review pause to this request, so both refuse the same numbers.
-    accepts(WorkflowStepReviewPauseSchema, { state: "pinned", epoch: 0, pauseNumber: 1 });
-    refuses(WorkflowStepReviewPauseSchema, { state: "pinned", epoch: 0, pauseNumber: 0 });
   });
 
   it("carries the old path exactly when a file was renamed", () => {

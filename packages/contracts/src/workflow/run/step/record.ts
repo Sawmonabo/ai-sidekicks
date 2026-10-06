@@ -36,6 +36,7 @@ import {
   type WorkflowWaitCause,
 } from "../status.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
+import { WorkflowRunEpochSchema, WorkflowRunPauseNumberSchema } from "../snapshot.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 /**
@@ -176,8 +177,8 @@ export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
     z
       .object({
         state: z.literal("pinned"),
-        epoch: countSchema,
-        pauseNumber: z.number().int().positive(),
+        epoch: WorkflowRunEpochSchema,
+        pauseNumber: WorkflowRunPauseNumberSchema,
       })
       .strict(),
     z.object({ state: z.literal("missing"), reason: z.string().min(1) }).strict(),

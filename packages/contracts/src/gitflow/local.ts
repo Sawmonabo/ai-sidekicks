@@ -18,6 +18,7 @@ import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/document.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/id.js";
+import { WorkflowRunEpochSchema, WorkflowRunPauseNumberSchema } from "../workflow/run/snapshot.js";
 import {
   ChangeRequestSummarySchema,
   GIT_HOST_KINDS,
@@ -172,20 +173,19 @@ export type WorkflowRunSnapshotPoint =
   | { epoch: number; point: "start" }
   | { epoch: number; point: "pause"; pauseNumber: number }
   | { epoch: number; point: "end" };
-const epochSchema = countSchema;
 const WorkflowRunSnapshotPointSchema: z.ZodType<
   WorkflowRunSnapshotPoint,
   WorkflowRunSnapshotPoint
 > = z.discriminatedUnion("point", [
-  z.object({ epoch: epochSchema, point: z.literal("start") }).strict(),
+  z.object({ epoch: WorkflowRunEpochSchema, point: z.literal("start") }).strict(),
   z
     .object({
-      epoch: epochSchema,
+      epoch: WorkflowRunEpochSchema,
       point: z.literal("pause"),
-      pauseNumber: z.number().int().positive(),
+      pauseNumber: WorkflowRunPauseNumberSchema,
     })
     .strict(),
-  z.object({ epoch: epochSchema, point: z.literal("end") }).strict(),
+  z.object({ epoch: WorkflowRunEpochSchema, point: z.literal("end") }).strict(),
 ]);
 
 /**
