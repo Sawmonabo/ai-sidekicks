@@ -45,7 +45,7 @@ Per [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deploymen
 - **The Workers relay, in the person's own Cloudflare account.** Cloudflare Workers and Durable Objects: nothing to keep running at home, and no open port. It counts requests on its sign-in routes in its per-identity Durable Object.
 - **The Compose relay, on the person's own server.** Node, Caddy and Postgres from one `docker-compose.yml`: everything on hardware the person holds. It counts requests on its sign-in routes in memory.
 
-The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-022](../specs/022-first-run-onboarding.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
+The person picks per setup and can switch a machine between them; the daemon points at its relay through config (`RELAY_URL=…` or `--relay-url=…`). Both relays run one protocol and serve the same features, with one difference the person sees: shared ports in the web client exist only on the Compose relay, and on the Workers relay the web client says so. A machine signs in to its relay from the command line with `sidekicks sign-in`, the device-code flow, and a first run has nothing to answer ([Spec-022](../specs/022-first-run.md)). Community-supported via GitHub Issues and Security Advisories; no SLA. A relay serving other people — a project-operated public relay, or a hosted service — is out of scope for one user.
 
 ## Platform Support (V1)
 
@@ -72,8 +72,8 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 | [Spec-017](../specs/017-notifications-and-attention-model.md) | Notifications and attention model |
 | [Spec-018](../specs/018-observability-and-failure-recovery.md) | Observability and failure recovery |
 | [Spec-019](../specs/019-rate-limiting-policy.md) | Rate limiting policy (both backends ship in V1) |
-| [Spec-020](../specs/020-data-retention-and-gdpr.md) | Data retention, export and deletion |
-| [Spec-022: First Run](../specs/022-first-run-onboarding.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
+| [Spec-020](../specs/020-data-retention-export-and-deletion.md) | Data retention, export and deletion |
+| [Spec-022: First Run](../specs/022-first-run.md) | First run: nothing to answer, and when the daemon pins a relay's TLS key |
 
 ## Spec Coverage Assessment
 

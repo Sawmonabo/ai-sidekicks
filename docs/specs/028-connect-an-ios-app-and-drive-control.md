@@ -1,14 +1,13 @@
 # Spec-028: Connect an iOS app and drive control
 
-| Field         | Value               |
-| ------------- | ------------------- |
-| **Status**    | `draft`             |
-| **NNN**       | `028`               |
-| **Slug**      | `ios-remote-client` |
-| **Date**      | `2026-09-11`        |
-| **Author(s)** | `Sawmon Abo`        |
-
-Its plan is [Plan-025 Phase 7](../plans/025-remote-control.md#phase-7--frontend).
+| Field | Value |
+| --- | --- |
+| **Status** | `draft` |
+| **NNN** | `028` |
+| **Slug** | `connect-an-ios-app-and-drive-control` |
+| **Date** | `2026-09-11` |
+| **Author(s)** | `Sawmon Abo` |
+| **Implementation Plan** | [Plan-025: Remote Control](../plans/025-remote-control.md) [Phase 7 — Frontend](../plans/025-remote-control.md#phase-7--frontend) |
 
 ## Goal
 

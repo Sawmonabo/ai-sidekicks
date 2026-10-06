@@ -157,7 +157,7 @@ The package is maintained, MIT-licensed, has no dependencies, runs on Node, Elec
 ## Identity Key Storage
 
 - **A machine** keeps its identity key, its channel key, its DPoP key and every other daemon secret each as its own item in the operating system's credential store, which opens unattended under the person's login: the login keychain on macOS, Credential Manager on Windows, the Secret Service on Linux, and one file readable only by the person where no Secret Service answers, as [ADR-020](./020-cli-identity-key-storage-custody.md) records. The CLI never holds a private key: it asks the daemon over the local socket. A key is never replaced silently: the machine's key changes only when a removed machine is linked again under its same machine id, and every device moves its pin only on the new `runtimenode.added` of that rejoin; from then on a statement the old key signs is refused, and the old key is never trusted again.
-- **A device** makes its identity key on the device and never exports it: P-256 in the iPhone's Secure Enclave, in the Android Keystore, and a non-extractable WebCrypto key in the web client ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope), [Spec-028](../specs/028-ios-remote-client.md)).
+- **A device** makes its identity key on the device and never exports it: P-256 in the iPhone's Secure Enclave, in the Android Keystore, and a non-extractable WebCrypto key in the web client ([Spec-027 §The encryption envelope](../specs/027-remote-control.md#the-encryption-envelope), [Spec-028](../specs/028-connect-an-ios-app-and-drive-control.md)).
 - No key is derived from a passkey.
 
 ## Related Domain Docs

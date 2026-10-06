@@ -62,7 +62,7 @@ The following invariants are **load-bearing** and MUST be preserved across all P
 
 ## Cross-Plan Obligations
 
-Plan-016 keeps no control-plane table, so it owes no Path-2 account-deletion reciprocal to [Plan-019](./019-data-retention-and-gdpr.md): a session's entries, delivery facts and `muted_at` are the machine's and go with the session. It relies on these plans for pieces it does not build:
+Plan-016 keeps no control-plane table, so it owes no Path-2 account-deletion reciprocal to [Plan-019](./019-data-retention-export-and-deletion.md): a session's entries, delivery facts and `muted_at` are the machine's and go with the session. It relies on these plans for pieces it does not build:
 
 - [Plan-001](./001-session-core.md): the session lifecycle serves `session.mute` and `session.unmute`, appends `session.muted` and `session.unmuted`, keeps `muted_at` and carries `muted` on `session.list` and `session.read`.
 - [Plan-020](./020-desktop-app-and-renderer.md): the machine's settings file and its `notifications` keys, `machineSettings.read`, `write` and `subscribe`, `native.getNotificationPermission`, the navigation member a notification click rides to the renderer, and the single-instance handoff banner mode uses.

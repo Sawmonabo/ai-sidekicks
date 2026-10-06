@@ -20,7 +20,7 @@ This spec covers in-app attention state, the operating system's notification on 
 
 ## Non-Goals
 
-- The phone apps, the web client's service worker and the push senders themselves ([Spec-027](027-remote-control.md), [Spec-028](028-ios-remote-client.md)); this spec decides which moment reaches which device and when
+- The phone apps, the web client's service worker and the push senders themselves ([Spec-027](027-remote-control.md), [Spec-028](028-connect-an-ios-app-and-drive-control.md)); this spec decides which moment reaches which device and when
 - Marketing or email campaigns; the email digest is a notification channel to the person's own address, never a campaign
 - A full on-call paging policy for the person
 

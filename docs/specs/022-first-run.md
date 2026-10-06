@@ -4,7 +4,7 @@
 | --- | --- |
 | **Status** | `approved` |
 | **NNN** | `022` |
-| **Slug** | `first-run-onboarding` |
+| **Slug** | `first-run` |
 | **Date** | `2026-04-17` |
 | **Author(s)** | `Claude (AI-assisted)` |
 | **Depends On** | [ADR-019: V1 Deployment Model and OSS License](../decisions/019-v1-deployment-model-and-oss-license.md), [Spec-006: Local IPC And Daemon Control](./006-local-ipc-and-daemon-control.md), [Spec-021: Desktop App And Renderer](./021-desktop-app-and-renderer.md), [Spec-025: Provider Accounts And Credential Homes](./025-provider-accounts-and-credential-homes.md), [Spec-027: Remote Control](./027-remote-control.md) |

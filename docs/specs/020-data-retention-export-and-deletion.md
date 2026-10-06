@@ -4,11 +4,11 @@
 | --- | --- |
 | **Status** | `approved` |
 | **NNN** | `020` |
-| **Slug** | `data-retention-and-gdpr` |
+| **Slug** | `data-retention-export-and-deletion` |
 | **Date** | `2026-04-15` |
 | **Author(s)** | `Codex` |
 | **Depends On** | [Data Architecture](../architecture/data-architecture.md), [Session Model](../domain/session-model.md) |
-| **Implementation Plan** | [Plan-019: Data Retention, Export And Deletion](../plans/019-data-retention-and-gdpr.md) |
+| **Implementation Plan** | [Plan-019: Data Retention, Export And Deletion](../plans/019-data-retention-export-and-deletion.md) |
 
 ## Purpose
 
@@ -112,7 +112,7 @@ The daemon verbs a Settings page calls are described with their shapes in [API P
 
 - `daemon.retentionRead` reads the retention bounds and, on the same reply, the counts `Delete old data` would remove; there is no separate preview verb. Built in [Plan-005](../plans/005-local-ipc-and-daemon-control.md) Phase R1.
 - `daemon.retentionUpdate` changes one bound. No bound covers a kept worktree. Built in Plan-005 Phase R1.
-- `daemon.retentionPurge` is `Delete old data`, the one purge (§Retention Policy): it marks the session `purge_requested`, deletes the files only this session names (the capture folder with its snapshot refs and base pins, a chat's managed workspace, and the provider's files for the session), then runs the one transaction that deletes the session's rows from every table with a `session_id`, with `secure_delete` on, and appends its `event.compacted` receipt, with the `TRUNCATE` checkpoint after it, retried until it succeeds and run even when nothing was deleted, and after that commit unlinks the artifact payloads no surviving manifest names; the scheduler starts a backup run after it. No event of the session records the purge, because the purge deletes every row of the session; its one record is the `event.compacted` receipt on the sentinel session ([Spec-005 §Event Maintenance](005-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance)). Built in Plan-005 Phase R1; the erasure step is [Plan-019](../plans/019-data-retention-and-gdpr.md) T22.3.1.
+- `daemon.retentionPurge` is `Delete old data`, the one purge (§Retention Policy): it marks the session `purge_requested`, deletes the files only this session names (the capture folder with its snapshot refs and base pins, a chat's managed workspace, and the provider's files for the session), then runs the one transaction that deletes the session's rows from every table with a `session_id`, with `secure_delete` on, and appends its `event.compacted` receipt, with the `TRUNCATE` checkpoint after it, retried until it succeeds and run even when nothing was deleted, and after that commit unlinks the artifact payloads no surviving manifest names; the scheduler starts a backup run after it. No event of the session records the purge, because the purge deletes every row of the session; its one record is the `event.compacted` receipt on the sentinel session ([Spec-005 §Event Maintenance](005-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance)). Built in Plan-005 Phase R1; the erasure step is [Plan-019](../plans/019-data-retention-export-and-deletion.md) T22.3.1.
 - The managed workspace is deleted whole inside the purge, through `ManagedWorkspaceService.delete`, and kept on archive, and the archive sweep skips a mount whose origin is managed. Built in [Plan-001](../plans/001-session-core.md) and [Plan-007](../plans/007-worktree-lifecycle-and-execution-modes.md), ordered before the rows' delete by Plan-019 T22.3.1.
 - `daemon.dataExport {destination}` returns a job and `daemon.dataExportSubscribe` carries its progress; `destination` is the path the save dialog hands back, or the command line's folder. Built in Plan-019 T22.2.1; `sidekicks export-data <folder>` in Plan-005 Phase R3.
 - `daemon.dataErase {}` is `Erase all data` (§Erasure Paths Path 1). Built in Plan-019 T22.2.2; `sidekicks erase-data`, refused while the service holds the data folder, in Plan-005 Phase R3.

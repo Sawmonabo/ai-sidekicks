@@ -420,7 +420,7 @@ For details beyond this vision document, see:
 - **Deployment topologies:** [Deployment Topology](./architecture/deployment-topology.md) (4 topologies: single-device local, the Workers relay, the Compose relay, relay-assisted remote access)
 - **Rate limiting:** [Spec-019](./specs/019-rate-limiting-policy.md), [Deployment Topology](./architecture/deployment-topology.md) (a per-identity Durable Object on the Workers relay, an in-memory counter on the Compose relay)
 - **Relay scaling:** [Deployment Topology](./architecture/deployment-topology.md) (one Durable Object for the account; Cloudflare publishes a 1,000 rps per-DO soft cap, and the object's sustained budget is 400 requests a second, 2.5× under it; a pre-launch load test of one account with two machines and three devices validates it)
-- **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-and-gdpr.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
+- **Deleting and exporting data:** [Spec-020](./specs/020-data-retention-export-and-deletion.md) (deletion with SQLite's `secure_delete`, data export, purge lifecycle)
 
 ## Strategic Conclusion
 

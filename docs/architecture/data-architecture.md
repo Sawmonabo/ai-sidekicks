@@ -59,7 +59,7 @@ V1 scopes event-sourcing to per-machine local event logs. Each session runs on o
 
 ## Privacy and Data Protection
 
-The person's messages and every queued message's body sit in the daemon's database as plain text, like every other column: a session event's personal fields, a steer's text on its `interventions` row, and a queue item's body on its `queue_items` row, whether a person's send or an orchestration-authored prompt. Nothing in the daemon's database is encrypted by the app, and no credential is kept in it. `Delete old data` deletes a session's rows with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log is checkpointed with `TRUNCATE` once the delete commits ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-and-gdpr.md#ordering-and-atomicity)). `Erase all data` deletes the app's credential-store items and the store.
+The person's messages and every queued message's body sit in the daemon's database as plain text, like every other column: a session event's personal fields, a steer's text on its `interventions` row, and a queue item's body on its `queue_items` row, whether a person's send or an orchestration-authored prompt. Nothing in the daemon's database is encrypted by the app, and no credential is kept in it. `Delete old data` deletes a session's rows with SQLite's `secure_delete` on, so the freed pages hold nothing readable, and the write-ahead log is checkpointed with `TRUNCATE` once the delete commits ([Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity)). `Erase all data` deletes the app's credential-store items and the store.
 
 ## Schema References
 

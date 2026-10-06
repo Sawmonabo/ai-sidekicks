@@ -102,7 +102,7 @@ State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (
 
 - [Session Core](../specs/001-session-core.md)
 - [Session Event Taxonomy And Audit Log](../specs/005-session-event-taxonomy-and-audit-log.md)
-- [Spec-020: deleting, erasing and exporting data](../specs/020-data-retention-and-gdpr.md)
+- [Spec-020: deleting, erasing and exporting data](../specs/020-data-retention-export-and-deletion.md)
 
 ## Related ADRs
 
