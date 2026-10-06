@@ -221,7 +221,7 @@ See [Local SQLite Schema §Driver and Runtime Binding Tables](../architecture/sc
 - Estimate: 1 PR
 
 - **T2.5** — Author Phase 2 integration tests (RuntimeBindingStore + ProviderRegistry + capability-writer round-trip).
-- Files: `packages/runtime-daemon/src/provider/capability/__tests__/gating-integration.test.ts` (new)
+- Files: `packages/runtime-daemon/src/provider/driver/__tests__/registry.acceptance.test.ts` (new)
 - **Spec coverage:** Spec-004 §Required Behavior (capability gating); Spec-004 §Required Behavior (resume-handle persistence)
 - **Verifies invariant:** I-003-1, I-003-2
 - Notes: Tests use the real SQLite client (better-sqlite3 in-memory), never a mocked database. The daemon's one schema is applied at test setup.

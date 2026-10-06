@@ -198,7 +198,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-007-15 (the daemon resolves every verdict)
 - **Consumes:** rows ← T1.3; response schema ← T1.2
 - **T2.5 — Acceptance suite on real git fixtures.**
-- **Files:** `packages/runtime-daemon/src/git/worktree/__tests__/lifecycle.acceptance.test.ts` (CREATE)
+- **Files:** `packages/runtime-daemon/src/git/worktree/__tests__/service.acceptance.test.ts` (CREATE)
 - Real temp-dir git repos (no mocks): full worktree lifecycle create→dirty→merged→retire; a repository's own `post-checkout` hook fires on `git worktree add` (D-007-10); derived-name collision suffixes; main-checkout content byte-identical before/after every failure path (I-007-6 ground truth).
 - **Tests:** the suite IS the tests (acceptance tier).
 - **Spec coverage:** [Spec-008 §Pitfalls To Avoid](../specs/008-worktree-lifecycle-and-execution-modes.md#pitfalls-to-avoid) (no hidden main-checkout mutation), [Spec-008 §Acceptance Criteria](../specs/008-worktree-lifecycle-and-execution-modes.md#acceptance-criteria) (a new project session starts in a worktree of its own at the service layer), [Spec-008 §Acceptance Criteria](../specs/008-worktree-lifecycle-and-execution-modes.md#acceptance-criteria) (creation failure blocks rather than mutating)

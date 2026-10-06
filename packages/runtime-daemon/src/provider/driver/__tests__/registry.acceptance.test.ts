@@ -16,10 +16,10 @@ import {
   expectHydrationHit,
   makeFlags,
   makeResult,
-} from "../__fixtures__/results.js";
-import { DriverCapabilitiesWriter } from "../../driver/capabilities-writer.js";
-import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../driver/registry.js";
-import type { GetCapabilitiesResult, ProviderDriver } from "../../driver/contract.js";
+} from "../../capability/__fixtures__/results.js";
+import { DriverCapabilitiesWriter } from "../capabilities-writer.js";
+import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../registry.js";
+import type { GetCapabilitiesResult, ProviderDriver } from "../contract.js";
 
 const DRIVER_NAME: ProviderName = "claude";
 
