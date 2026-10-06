@@ -187,12 +187,6 @@ describe("daemon.machineSettingsUpdate", () => {
       "Put {title} in the name once.",
     ],
     [
-      { branchNamePattern: "{session}/{session}/{title}" },
-      "daemon.branch_pattern_refused",
-      { reason: "session_not_once" },
-      "A branch-name pattern holds {session} at most once.",
-    ],
-    [
       { branchNamePattern: "sidekicks..{title}" },
       "daemon.branch_pattern_refused",
       { reason: "not_a_branch_name" },
@@ -218,14 +212,17 @@ describe("daemon.machineSettingsUpdate", () => {
     await expect(stat(settingsPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("negative control: writes a pattern git accepts", async () => {
-    await registry.dispatch(
-      "daemon.machineSettingsUpdate",
-      { change: { branchNamePattern: "sawmon/{title}" } },
-      {},
-    );
-    expect(await readSettingsFileJson()).toMatchObject({ branchNamePattern: "sawmon/{title}" });
-  });
+  it.each(["sawmon/{title}", "{session}/{session}/{title}"])(
+    "writes %s, a pattern git accepts",
+    async (branchNamePattern) => {
+      await registry.dispatch(
+        "daemon.machineSettingsUpdate",
+        { change: { branchNamePattern } },
+        {},
+      );
+      expect(await readSettingsFileJson()).toMatchObject({ branchNamePattern });
+    },
+  );
 });
 
 describe("daemon.machineSettingsSubscribe", () => {

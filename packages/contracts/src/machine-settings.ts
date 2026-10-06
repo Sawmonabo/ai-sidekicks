@@ -269,10 +269,7 @@ function countOccurrences(text: string, part: string): number {
 }
 
 /** Why a branch-name pattern is refused at save. */
-export type BranchPatternRefusalReason =
-  | "title_not_once"
-  | "session_not_once"
-  | "not_a_branch_name";
+export type BranchPatternRefusalReason = "title_not_once" | "not_a_branch_name";
 
 /**
  * A pattern refused at save, from `Every project`'s `Branch names` or one project's own pattern;
@@ -295,18 +292,14 @@ export type BranchPatternPlaceholderRefusalReason = Exclude<
 >;
 
 /**
- * `title_not_once` when the pattern does not hold `{title}` exactly once, `session_not_once` when
- * it holds `{session}` more than once, or `null`. Whether the filled-in name is a branch name is
- * git's check, which the service makes after this one.
+ * `title_not_once` when the pattern does not hold `{title}` exactly once, or `null`. Whether the
+ * filled-in name is a branch name is git's check, which the service makes after this one.
  */
 export function branchPatternPlaceholderRefusal(
   pattern: string,
 ): BranchPatternPlaceholderRefusalReason | null {
   if (countOccurrences(pattern, BRANCH_NAME_TITLE_PLACEHOLDER) !== 1) {
     return "title_not_once";
-  }
-  if (countOccurrences(pattern, BRANCH_NAME_SESSION_PLACEHOLDER) > 1) {
-    return "session_not_once";
   }
   return null;
 }
@@ -337,8 +330,7 @@ export const BranchNamePatternChangeSchema: z.ZodType<string, string> = wireFree
 
 /**
  * A saved branch-name pattern, for `Every project` and for one project's own override: a change's
- * pattern that also holds `{title}` exactly once and `{session}` at most once. A file holding any
- * other is repaired.
+ * pattern that also holds `{title}` exactly once. A file holding any other is repaired.
  */
 export const BranchNamePatternSchema: z.ZodType<string, string> =
   BranchNamePatternChangeSchema.superRefine((pattern, context) => {

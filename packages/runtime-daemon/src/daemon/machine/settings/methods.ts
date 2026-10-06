@@ -53,7 +53,6 @@ const ENVIRONMENT_NAME_REFUSAL_WORDS: Readonly<Record<EnvironmentNameRefusalReas
 const BRANCH_PATTERN_REFUSAL_WORDS: Readonly<Record<BranchPatternRefusalReason, string>> =
   Object.freeze({
     title_not_once: "Put {title} in the name once.",
-    session_not_once: "A branch-name pattern holds {session} at most once.",
     not_a_branch_name: "Git does not accept this as a branch name.",
   });
 
