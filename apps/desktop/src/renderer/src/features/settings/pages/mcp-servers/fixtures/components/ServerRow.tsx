@@ -4,6 +4,8 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type {
   McpServerBindingRef,
@@ -46,8 +48,11 @@ export function ServerRow(props: {
     <li className="meridian-mcp__row">
       <div className="meridian-mcp__row-identity">
         <WireFigure value={entry.serverName} />
-        <Chip label={entry.provider} mono />
-        <Chip label={entry.status} mono tone={toneForServerStatus(entry.status)} />
+        <Chip label={PROVIDER_LABELS[entry.provider]} />
+        <Chip
+          label={MCP_SERVER_STATUS_WORDS[entry.status]}
+          tone={toneForServerStatus(entry.status)}
+        />
         {entry.requiredServer === true ? <Chip label="required" tone="attention" /> : null}
       </div>
 

@@ -11,6 +11,7 @@ import {
   type FixtureBridge,
 } from "#renderer/services/platform/platform-bridge.fixture.js";
 import type { McpMutationResult, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpServerStatus } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Clock } from "#renderer/lib/clock.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
@@ -189,8 +190,37 @@ describe("McpFixtureBody", () => {
       [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
         (label) => label.textContent,
       );
-    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual(["codex", "needs-auth"]);
-    expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["needs-auth", "connected"]);
+    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual(["Codex", "Needs sign-in"]);
+    expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["Needs sign-in", "Connected"]);
+  });
+
+  it("draws every server state in the page's five words, and each provider by its name", async () => {
+    const drawn: readonly [McpServerInventoryEntry, McpServerStatus, string, string][] = [
+      [FILESYSTEM, "connected", "Claude Code", "Connected"],
+      [ISSUE_TRACKER, "starting", "Codex", "Starting"],
+      [FILESYSTEM, "needs-auth", "Claude Code", "Needs sign-in"],
+      [ISSUE_TRACKER, "failed", "Codex", "Failed"],
+      [FILESYSTEM, "unknown", "Claude Code", "Not known yet"],
+    ];
+    const { container } = await renderSettledMcpPage(
+      operationsServing(
+        drawn.map(([server, status]) => ({
+          ...server,
+          serverName: `server-${status}`,
+          status,
+          legs: [{ sessionId: SESSION_A, bindingId: `leg-${status}`, status }],
+        })),
+      ),
+    );
+    for (const [, status, providerName, word] of drawn) {
+      const row = rowNamed(container, `server-${status}`);
+      const chipLabels = (selector: string): readonly (string | null)[] =>
+        [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
+          (label) => label.textContent,
+        );
+      expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual([providerName, word]);
+      expect(chipLabels(".meridian-mcp__legs")).toStrictEqual([word]);
+    }
   });
 
   it("says where each binding applies in the add form's words, or the plugin that declared it", async () => {

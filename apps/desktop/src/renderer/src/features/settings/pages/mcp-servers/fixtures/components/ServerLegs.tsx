@@ -4,6 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { MCP_SERVER_STATUS_WORDS } from "#renderer/lib/mcp-server-status-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/mcp";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
@@ -36,7 +37,10 @@ export function ServerLegs(props: {
     <ul className="meridian-mcp__legs">
       {legs.map((leg) => (
         <li key={mcpLiveLegKeyOf(leg)} className="meridian-mcp__leg">
-          <Chip label={leg.status} mono tone={toneForServerStatus(leg.status)} />
+          <Chip
+            label={MCP_SERVER_STATUS_WORDS[leg.status]}
+            tone={toneForServerStatus(leg.status)}
+          />
           <span className="meridian-settings-page__aside">in session</span>
           <WireFigure value={leg.sessionId} />
           {leg.observedAt === undefined ? (
