@@ -69,7 +69,7 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
       </ol>
       {contents.unheldRowCount === 0 ? null : (
         <p className="meridian-run-group-body__unheld">
-          <span className="meridian-run-group-body__figure">{String(contents.unheldRowCount)}</span>
+          {String(contents.unheldRowCount)}
           {contents.unheldRowCount === 1
             ? " earlier entry is outside this window."
             : " earlier entries are outside this window."}

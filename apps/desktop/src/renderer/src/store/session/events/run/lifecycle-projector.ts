@@ -66,7 +66,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
 export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorTable = buildRunLifecycleProjectors();
 
 /** The owner the run-lifecycle kinds are registered under, so a conflicting claim names it. */
-export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session-events";
+export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session";
 
 function buildRunLifecycleProjectors(): EntityProjectorTable {
   const projectors: Record<string, EntityProjector> = {};

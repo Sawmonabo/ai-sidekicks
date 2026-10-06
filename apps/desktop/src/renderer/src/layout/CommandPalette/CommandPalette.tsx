@@ -97,7 +97,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
 
           {/* Must stay mounted: it is already a polite live region, and `Combobox.Status` below
               stays silent when the list is empty so one absence is not announced twice. */}
-          <Combobox.Empty className="command-palette__empty">
+          <Combobox.Empty>
             <PaletteEmptyState query={query} />
           </Combobox.Empty>
 
