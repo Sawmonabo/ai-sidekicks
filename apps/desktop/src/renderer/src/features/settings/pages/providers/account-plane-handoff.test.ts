@@ -13,5 +13,11 @@ describe("the account-plane router", () => {
     expect(accountPlaneHandoffFor("")).toBeUndefined();
     // A session asking for an account verb is not routed to a page that would change nothing.
     expect(accountPlaneHandoffFor("provideraccount.permission_denied")).toBeUndefined();
+    // Control: a code the contracts export is known, and a routed code reaches its page.
+    expect(isAccountPlaneRefusalCode("provideraccount.account_in_use")).toBe(true);
+    expect(accountPlaneHandoffFor("provideraccount.not_registered")).toStrictEqual({
+      section: "providers",
+      remedyKind: "register",
+    });
   });
 });

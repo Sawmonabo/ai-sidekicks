@@ -14,36 +14,38 @@
 // token the provider did not accept, an account a live run holds), so the table's value type
 // admits `null`.
 
+import {
+  PROVIDER_ACCOUNT_IN_USE_CODE,
+  PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+} from "@ai-sidekicks/contracts/provider/account/methods";
 import type {
   ProviderLoginExpiredRemedy,
   ProviderRemedy,
 } from "@ai-sidekicks/contracts/provider/account/record";
+import {
+  PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE,
+  PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE,
+} from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 
 /**
- * Every refusal code the account plane raises.
- *
- * Declared here because the contracts package declares no union of them; the codes appear there
- * only in tests. This tuple is the one place they are written.
+ * Every refusal code the account plane raises. The codes the contracts export are named through
+ * their constants; the router below is keyed by every one, so it is total.
  */
-export const ACCOUNT_PLANE_REFUSAL_CODES = [
-  "provideraccount.not_registered",
-  "provideraccount.no_default",
-  "provideraccount.unknown",
-  "provideraccount.credential_home_unavailable",
-  "provideraccount.not_authenticated",
-  "provideraccount.permission_denied",
-  "provideraccount.default_conflict",
-  "provideraccount.signin_unsupported",
-  "provideraccount.signin_in_flight",
-  "provideraccount.credential_seal_refused",
-  "provideraccount.token_not_accepted",
-  "provideraccount.account_in_use",
-] as const;
-
-/** One registered account-plane refusal. Derived from the tuple, never restated. */
-export type AccountPlaneRefusalCode = (typeof ACCOUNT_PLANE_REFUSAL_CODES)[number];
+export type AccountPlaneRefusalCode =
+  | "provideraccount.not_registered"
+  | "provideraccount.no_default"
+  | "provideraccount.unknown"
+  | "provideraccount.credential_home_unavailable"
+  | typeof PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE
+  | "provideraccount.permission_denied"
+  | "provideraccount.default_conflict"
+  | "provideraccount.signin_unsupported"
+  | "provideraccount.signin_in_flight"
+  | typeof PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE
+  | typeof PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE
+  | typeof PROVIDER_ACCOUNT_IN_USE_CODE;
 
 /** Where the act that closes a refusal lives, and which act it is. */
 export interface AccountPlaneHandoff {
@@ -63,7 +65,7 @@ interface AccountPlaneHandoffRoute {
 /**
  * The router, total over the registered codes.
  *
- * A record rather than a switch, so a new code cannot land in the tuple without someone
+ * A record rather than a switch, so a new code cannot land in the union without someone
  * deciding whether it routes anywhere.
  */
 const ACCOUNT_PLANE_HANDOFFS: Readonly<
@@ -80,7 +82,10 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   // A current-account move named an account whose login is gone; an undecided read never
   // raises it. The refusal carries that account's own remedy: the provider's sign-in, or a fresh
   // token on a token or API-key account.
-  "provideraccount.not_authenticated": { section: "providers", remedyKind: CARRIED_BY_REFUSAL },
+  [PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE]: {
+    section: "providers",
+    remedyKind: CARRIED_BY_REFUSAL,
+  },
   // A brokered sign-in is already running; the act is on the flow on the same page.
   "provideraccount.signin_in_flight": { section: "providers", remedyKind: "sign_in" },
   // Brokered sign-in is unavailable for this provider; the remedy is the out-of-band sign-in the
@@ -97,21 +102,21 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   "provideraccount.unknown": null,
   "provideraccount.permission_denied": null,
   "provideraccount.default_conflict": null,
-  "provideraccount.credential_seal_refused": null,
-  "provideraccount.token_not_accepted": null,
-  "provideraccount.account_in_use": null,
+  [PROVIDER_ACCOUNT_CREDENTIAL_SEAL_REFUSED_CODE]: null,
+  [PROVIDER_ACCOUNT_TOKEN_NOT_ACCEPTED_CODE]: null,
+  [PROVIDER_ACCOUNT_IN_USE_CODE]: null,
 };
 
 /** True when a wire string names a refusal this router knows. */
 export function isAccountPlaneRefusalCode(code: string): code is AccountPlaneRefusalCode {
-  return (ACCOUNT_PLANE_REFUSAL_CODES as readonly string[]).includes(code);
+  return Object.hasOwn(ACCOUNT_PLANE_HANDOFFS, code);
 }
 
 /**
  * Where a refusal is answered, or `undefined` when no console act answers it.
  *
  * Takes a bare `string` because a refusal carries a wire value, and a narrowed parameter would
- * push the same `includes` test to every call site. `carriedRemedy` is the remedy the refusal's
+ * push the same membership test to every call site. `carriedRemedy` is the remedy the refusal's
  * own data named; a code routed by it answers `undefined` without one.
  */
 export function accountPlaneHandoffFor(
