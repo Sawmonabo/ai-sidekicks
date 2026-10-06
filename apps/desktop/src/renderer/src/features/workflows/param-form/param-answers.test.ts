@@ -3,7 +3,7 @@
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import { describe, expect, it } from "vitest";
-import { checkParamAnswers, seedParamAnswers } from "./param-answers.js";
+import { checkParamAnswers, isParamFieldShown, seedParamAnswers } from "./param-answers.js";
 
 const FIELDS: readonly WorkflowParamSpec[] = [
   { id: "summary", label: "Summary", type: "string", required: true },
@@ -52,6 +52,19 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
         "reviewers.0.name": "This field is required.",
       },
     });
+  });
+
+  it("reads a number sibling as its number when deciding whether a field is shown", () => {
+    const fields: readonly WorkflowParamSpec[] = [
+      { id: "retries", label: "Retries", type: "number" },
+      { id: "reason", label: "Reason", type: "string", required: true, showWhen: { retries: [3] } },
+    ];
+
+    expect(checkParamAnswers(fields, { retries: " 3 ", reason: "" })).toEqual({
+      kind: "invalid",
+      issues: { reason: "This field is required." },
+    });
+    expect(isParamFieldShown(fields[1]!, { retries: "2" }, fields)).toBe(false);
   });
 
   it("answers valid with parsed values and leaves empty optional fields out", () => {

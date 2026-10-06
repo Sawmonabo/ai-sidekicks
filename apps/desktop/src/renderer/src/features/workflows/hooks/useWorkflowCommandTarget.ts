@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
+import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
 import type {
@@ -22,12 +23,9 @@ export function useWorkflowCommandTarget(
   isOffered = true,
 ): void {
   const ownerDocument = useOwnerWindow().document;
-  const pressRef = useRef(press);
-  useEffect(() => {
-    pressRef.current = press;
-  });
+  const pressRef = useLatestRef(press);
   useEffect(
     () => (isOffered ? act.adopt(() => pressRef.current(), ownerDocument, role) : undefined),
-    [act, ownerDocument, role, isOffered],
+    [act, ownerDocument, role, isOffered, pressRef],
   );
 }

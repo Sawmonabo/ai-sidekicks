@@ -1,10 +1,11 @@
 /*
- * The filled-accent treatment: the whole face is the accent and the label is `accent-ink`.
- * `accent-text` on `accent` is 1.53:1 in light and 1.48:1 in dark against the 4.5:1 text floor;
- * `styles/contrast.test.ts` measures the ink pair. It carries the fill, edge, corner, ink and
- * pointer response but no size, which comes from `styles/action-buttons.css`. The border matches
- * the fill so the edge stays definite on `surface-raised` and a swap from a bordered button
- * changes no geometry.
+ * The filled-accent treatment, the one face of a filled primary action: the whole face is the
+ * accent and the label is `accent-ink`. `accent-text` on `accent` is 1.53:1 in light and 1.48:1
+ * in dark against the 4.5:1 text floor; `styles/contrast.test.ts` measures the ink pair. It
+ * carries the fill, edge, corner, ink and pointer response but no size, which comes from
+ * `action-buttons.css`; a card or pane carries one control wearing it. The border matches the
+ * fill so the edge stays definite on `surface-raised` and a swap from a bordered button changes
+ * no geometry. A global sheet, loaded through `global-sheets.ts`.
  */
 .meridian-accent-fill {
   border: 1px solid var(--meridian-accent);

@@ -1,8 +1,9 @@
 import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { Switch } from "#renderer/components/Switch/Switch.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { WorkflowActState } from "../hooks/useWorkflowAct.js";
+import type { WorkflowCallState } from "../hooks/useWorkflowCall.js";
 import type { NextWaiting } from "../hooks/useWorkflowsScreen.js";
 import type { WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
 import { ActionButton } from "./ActionButton.js";
@@ -22,7 +23,7 @@ export function RunsStrip(props: {
   readonly isRunPageOpen: boolean;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly feedState: WorkflowNoticeFeedState;
-  readonly pauseAct: WorkflowActState<WorkflowRunsPauseState>;
+  readonly pauseAct: WorkflowCallState<WorkflowRunsPauseState>;
   readonly onSetPaused: (paused: boolean) => void;
 }): React.JSX.Element {
   const { nextWaiting, feedState, pauseAct } = props;
@@ -72,7 +73,7 @@ function nextWaitingWords(nextWaiting: NextWaiting): string {
 
 function PauseSwitch(props: {
   readonly pause: WorkflowRunsPauseState | undefined;
-  readonly act: WorkflowActState<WorkflowRunsPauseState>;
+  readonly act: WorkflowCallState<WorkflowRunsPauseState>;
   readonly onSetPaused: (paused: boolean) => void;
 }): React.JSX.Element {
   const { pause, act } = props;
@@ -83,21 +84,14 @@ function PauseSwitch(props: {
       : "";
   return (
     <span className="meridian-workflows-strip__pause">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={isPaused}
-        className="meridian-workflows-strip__switch"
+      <Switch
+        label={`Pause new runs${waiting}`}
+        checked={isPaused}
         // The hold is read from the stream, which opens with it; until it has, there is no state
         // to flip.
         disabled={pause === undefined || act.kind === "sending"}
-        onClick={() => {
-          props.onSetPaused(!isPaused);
-        }}
-      >
-        <span className="meridian-workflows-strip__switch-track" aria-hidden="true" />
-        {`Pause new runs${waiting}`}
-      </button>
+        onCheckedChange={props.onSetPaused}
+      />
       {act.kind === "refused" ? (
         <InlineRefusal code={act.refusal.code} detail={act.refusal.detail} />
       ) : null}

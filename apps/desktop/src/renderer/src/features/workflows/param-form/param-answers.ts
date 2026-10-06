@@ -43,15 +43,24 @@ export function seedParamAnswers(
 
 /**
  * Whether a field is drawn: always, unless its `showWhen` names siblings, in which case each
- * named sibling's current answer must be one of the values listed for it.
+ * named sibling's answer, read as it would be sent (a number field's text as its number), must
+ * be one of the values listed for it. `siblings` is the field list `field` belongs to.
  */
-export function isParamFieldShown(field: WorkflowParamSpec, answers: ParamAnswers): boolean {
+export function isParamFieldShown(
+  field: WorkflowParamSpec,
+  answers: ParamAnswers,
+  siblings: readonly WorkflowParamSpec[],
+): boolean {
   if (field.type === "collection" || field.showWhen === undefined) {
     return true;
   }
-  return Object.entries(field.showWhen).every(([siblingId, listedValues]) =>
-    listedValues.some((listedValue) => Object.is(listedValue, answers[siblingId])),
-  );
+  return Object.entries(field.showWhen).every(([siblingId, listedValues]) => {
+    const sentAnswer = sentValueOf(
+      siblings.find((sibling) => sibling.id === siblingId),
+      answers[siblingId],
+    );
+    return listedValues.some((listedValue) => Object.is(listedValue, sentAnswer));
+  });
 }
 
 /**
@@ -69,8 +78,9 @@ export function checkParamAnswers(
 }
 
 /**
- * The answers as a draft may keep them: every answer but a secret's, at every depth, so a secret
- * typed into a form never leaves the window until the form is sent.
+ * The answers as a draft may keep them: every answer but a secret's and a path's, at every depth.
+ * A secret typed into a form never leaves the window until the form is sent, and a path's answer
+ * is a folder token that holds only for the page that picked it.
  */
 export function draftParamAnswers(
   fields: readonly WorkflowParamSpec[],
@@ -78,7 +88,7 @@ export function draftParamAnswers(
 ): ParamAnswers {
   const draft: Record<string, unknown> = {};
   for (const field of fields) {
-    if (field.type === "secret" || !Object.hasOwn(answers, field.id)) {
+    if (field.type === "secret" || field.type === "path" || !Object.hasOwn(answers, field.id)) {
       continue;
     }
     const answer = answers[field.id];
@@ -153,7 +163,7 @@ function checkFieldList(
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const field of fields) {
-    if (!isParamFieldShown(field, answers)) {
+    if (!isParamFieldShown(field, answers, fields)) {
       continue;
     }
     const path = `${pathPrefix}${field.id}`;
@@ -210,6 +220,16 @@ function checkLeaf(field: LeafParamSpec, answer: unknown): LeafOutcome {
     default:
       return { kind: "answered", value: answer };
   }
+}
+
+// What a sibling's answer is sent as, which a `showWhen` list is written against; an answer the
+// check refuses, or a field the list does not hold, compares as it was typed.
+function sentValueOf(sibling: WorkflowParamSpec | undefined, answer: unknown): unknown {
+  if (sibling === undefined || sibling.type === "collection") {
+    return answer;
+  }
+  const outcome = checkLeaf(sibling, answer);
+  return outcome.kind === "answered" ? outcome.value : answer;
 }
 
 // A checkbox's `false` is an answer, not an empty one.

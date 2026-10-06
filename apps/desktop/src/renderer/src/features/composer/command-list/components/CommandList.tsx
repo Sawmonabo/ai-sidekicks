@@ -14,7 +14,6 @@ import { addressedProviderBinding } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 import { type ProviderCommandEnumeration } from "../provider-command/provider-command-enumeration.js";
 import { CommandListPopover } from "./CommandListPopover.js";
-import { useWorkflowStartPrefill } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 
 import "./CommandList.css";
 
@@ -44,9 +43,6 @@ export function CommandList(props: CommandListProps): React.JSX.Element | null {
     target,
     isOpen,
   });
-  // Contributes the palette entry that types the command word onto the line.
-  useWorkflowStartPrefill({ draftStore, draftKey });
-
   const readCommands = useCallback(() => readComposerCommands(route), [route]);
   const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   return isOpen ? (

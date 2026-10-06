@@ -1,0 +1,14 @@
+/* The replace question, one line above the draft: the sentence, then its two answers. */
+
+.meridian-workflow-start-prefill {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-workflow-start-prefill__question {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}

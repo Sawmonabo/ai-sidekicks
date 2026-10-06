@@ -14,7 +14,7 @@ import { CommandRegistry } from "#renderer/registries/commands/command-registry.
 import { parseChord } from "#renderer/registries/keybindings/chord.js";
 import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import { answerThisRunTarget, nextWaitingTarget } from "../workflow-command-target.js";
+import type { WorkflowCommandTargets } from "../workflow-command-target.js";
 import { mountWorkflowsScreen } from "../WorkflowsScreen.test-support.js";
 import { createWorkflowCommands } from "./commands.js";
 import { WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
@@ -44,13 +44,13 @@ async function pressChordOf(commandId: string, target: EventTarget): Promise<voi
   });
 }
 
-/** Register the workflows screen's commands under its real chords on `document`. */
-function installWorkflowChords(): () => void {
+/**
+ * Register the workflows screen's commands under its real chords on `document`, pressing the acts
+ * the mounted screen offers.
+ */
+function installWorkflowChords(commandTargets: WorkflowCommandTargets): () => void {
   const registry = new CommandRegistry();
-  for (const command of createWorkflowCommands({
-    nextWaiting: nextWaitingTarget,
-    answerThisRun: answerThisRunTarget,
-  })) {
+  for (const command of createWorkflowCommands(commandTargets)) {
     registry.register(command);
   }
   const table = new KeybindingTable({ registry, readContext: () => ({ onWorkflows: true }) });
@@ -67,7 +67,7 @@ describe("the workflows screen's chords", () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingApproval),
     });
-    const dispose = installWorkflowChords();
+    const dispose = installWorkflowChords(mounted.commandTargets);
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("button", { name: "Approve" })).toBeDefined();
     });
@@ -101,7 +101,7 @@ describe("the workflows screen's chords", () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingForm),
     });
-    const dispose = installWorkflowChords();
+    const dispose = installWorkflowChords(mounted.commandTargets);
     await advanceScenarioUntil(mounted.engine, () => {
       expect(mounted.calls.some((call) => call.method === "workflow.humanFormRead")).toBe(true);
     });

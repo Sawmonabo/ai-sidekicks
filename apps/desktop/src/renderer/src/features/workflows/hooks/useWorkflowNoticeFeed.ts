@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import type { Clock } from "#renderer/lib/clock.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { subscribeWorkflowNotices } from "#renderer/services/daemon/workflow-notices.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { WorkflowNoticeFeed, type WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
@@ -12,28 +14,30 @@ export interface WorkflowNoticeFeedHold {
 }
 
 /**
- * Open the machine's workflow stream once for the workflows screen, over this window's bridge,
- * while `isOpen` says something on screen draws from it, and close it when that ends, the screen
- * goes or the bridge is replaced. Closed, the feed stays `opening` and signals nothing. `clock`
- * times the waits between re-opens of a stream that ended.
+ * The workflows screen's one notice feed over this window's bridge, held for the screen's life so
+ * the reads built over it are never rebuilt: its stream is open while `isOpen` says something on
+ * screen draws from it and closed otherwise, and the feed is disposed when the screen goes or the
+ * bridge is replaced, and made again on a re-mount of the same screen. Closed, it reads `opening`
+ * and signals nothing. `clock` times the waits between re-opens of a stream that ended.
  */
 export function useWorkflowNoticeFeed(
   bridge: PlatformBridge,
   clock: Clock,
   isOpen: boolean,
 ): WorkflowNoticeFeedHold {
-  // `isOpen` keys the feed: each opening takes a fresh one, since a disposed feed never opens
-  // again, and a closed one is never started.
-  const feed = useMemo(
+  const { value: feed } = useSubjectScopedResource(
+    bridge,
+    undefined,
     () => new WorkflowNoticeFeed((onFrame) => subscribeWorkflowNotices(bridge, clock, onFrame)),
-    [bridge, clock, isOpen],
+    CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
-    if (isOpen) {
-      feed.start();
+    if (!isOpen) {
+      return undefined;
     }
+    feed.start();
     return () => {
-      feed.dispose();
+      feed.stop();
     };
   }, [feed, isOpen]);
   const subscribe = useCallback(

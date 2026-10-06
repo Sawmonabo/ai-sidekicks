@@ -37,6 +37,7 @@ describe("an inline confirm's Escape", () => {
             accountLabel={() => undefined}
             bridge={bridge}
             onOpenRun={() => undefined}
+            onRunDeleted={() => undefined}
             nowMs={engine.clock.now()}
           />
         </div>
@@ -44,18 +45,18 @@ describe("an inline confirm's Escape", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Delete run" }));
-    const rowConfirm = screen.getByRole("group", { name: "Delete this run" });
+    const rowConfirm = screen.getByRole("group", { name: "Delete this run?" });
     // The confirm takes focus as it opens, so the next key reaches it.
     expect(rowConfirm.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(document.activeElement ?? rowConfirm, { key: "Escape" });
-    expect(screen.queryByRole("group", { name: "Delete this run" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Delete this run?" })).toBeNull();
     expect(screen.getByRole("button", { name: "Delete run" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete runs older than…" }));
-    const choice = screen.getByRole("group", { name: "Delete runs older than" });
+    const choice = screen.getByRole("group", { name: "Delete runs older than…" });
     expect(choice.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(document.activeElement ?? choice, { key: "Escape" });
-    expect(screen.queryByRole("group", { name: "Delete runs older than" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Delete runs older than…" })).toBeNull();
     expect(screen.getByRole("button", { name: "Delete runs older than…" })).toBeTruthy();
 
     expect(screenEscape).not.toHaveBeenCalled();

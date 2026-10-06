@@ -187,7 +187,7 @@ function nodeView(
       : `${STEP_STATUS_WORDS[status]} on ${WAIT_CAUSE_WORDS[waitCause]}`;
   const isDisabled = node.disabled === true;
   const attemptWords =
-    step === undefined || step.attempt === 1 ? undefined : `Attempt ${String(step.attempt)}`;
+    step === undefined || step.attempt === 1 ? undefined : `Attempt ${formatCount(step.attempt)}`;
   const outputCount = step === undefined ? undefined : ownOutputCount(step, firstOutputEdgeCount);
   const outputCountWords = outputCount === undefined ? undefined : itemCountWords(outputCount);
   const errorLine = status === "failed" ? failureLine(step) : undefined;

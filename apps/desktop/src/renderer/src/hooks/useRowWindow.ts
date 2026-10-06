@@ -39,6 +39,11 @@ export interface RowWindowOptions {
    * selection is far down opens at the top; absent opens at the top.
    */
   readonly initialOffsetPx?: number;
+  /**
+   * A key that stays with its row when rows before it are added or removed, so a measured height
+   * stays with its row; the row's index when absent.
+   */
+  readonly rowKey?: (rowIndex: number) => number | string;
   /** Receives the window, for a caller outside the list that scrolls it to a row. */
   readonly rowWindowRef?: React.Ref<RowWindow | null>;
 }
@@ -94,6 +99,7 @@ export function useRowWindow(options: RowWindowOptions): RowWindow {
     count: options.rowCount,
     getScrollElement,
     estimateSize: options.estimateRowHeightPx,
+    ...(options.rowKey === undefined ? {} : { getItemKey: options.rowKey }),
     overscan: options.overscanRows,
     indexAttribute: WINDOWED_ROW_INDEX_ATTRIBUTE,
     // React 19 warns when a virtualizer flushes synchronously from a lifecycle method, and no

@@ -11,22 +11,23 @@ import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
-import { useWorkflowAct } from "#renderer/features/workflows/hooks/useWorkflowAct.js";
+import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { chainReceipt } from "../step/receipts.js";
 
 /** The chain question's two answers, in the order they stand, and the approval each one is. */
 const CHAIN_ANSWERS: readonly { readonly label: string; readonly decision: ApprovalDecision }[] = [
-  { label: "Keep going", decision: "approved" },
   { label: "Stop them all", decision: "rejected" },
+  { label: "Keep going", decision: "approved" },
 ];
 
 /**
- * The chain's question on its first run's page, naming the first run's workflow, the chain's run
- * count and the first run's start, with `Keep going` and `Stop them all`, answered as the approval
- * the engine raised on this run; `Keep going` is what `Answer this run` presses. Once answered it
- * is a one-line receipt with no way back, drawn at once and then from the daemon's record.
+ * The chain's question on its first run's page, under `Waiting on you`, naming the first run's
+ * workflow, the chain's run count and the first run's start, with `Stop them all` and
+ * `Keep going`, answered as the approval the engine raised on this run; `Keep going` is what
+ * `Answer this run` presses. Once answered it is a one-line receipt with no way back, drawn at
+ * once and then from the daemon's record.
  */
 export function ChainQuestion(props: {
   readonly question: WorkflowChainQuestion;
@@ -65,7 +66,7 @@ function OpenChainQuestion(props: {
 }): React.JSX.Element {
   const { chainRoot, bridge } = props;
   const [answered, setAnswered] = useState<AnsweredChainQuestion | undefined>();
-  const answer = useWorkflowAct(
+  const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
       callDaemon(bridge, "workflow.gateResolve", {
         workflowRunId: chainRoot.runId,
@@ -81,7 +82,8 @@ function OpenChainQuestion(props: {
       props.onAnswered();
     },
   );
-  useWorkflowCommandTarget(answerThisRunTarget, () => {
+  const commandTargets = useWorkflowCommandTargets();
+  useWorkflowCommandTarget(commandTargets.answerThisRun, () => {
     if (answer.state.kind === "idle" || answer.state.kind === "refused") {
       answer.take("approved");
     }
@@ -96,6 +98,9 @@ function OpenChainQuestion(props: {
     `${formatDayClock(chainRoot.startedAt, props.nowMs)} start. Keep going?`;
   return (
     <div className="meridian-workflow-run__chain-question" role="group" aria-label={sentence}>
+      <span className="meridian-workflow-run__eyebrow meridian-workflow-run__eyebrow--attention">
+        Waiting on you
+      </span>
       <p className="meridian-workflow-run__chain-sentence">{sentence}</p>
       <div className="meridian-workflow-run__chain-answers">
         {CHAIN_ANSWERS.map(({ label, decision }) => (

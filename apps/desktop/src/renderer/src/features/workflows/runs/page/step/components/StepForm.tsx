@@ -9,7 +9,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { ParamForm } from "#renderer/features/workflows/param-form/ParamForm.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { useStepForm } from "../hooks/useStepForm.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
@@ -29,8 +29,9 @@ export function StepForm(props: {
   const form = useStepForm(props.bridge, props.stepKey, props.onAnswered);
   const { read } = form;
   // The form is offered only once it has been read, so a press made while it loads waits for it.
+  const commandTargets = useWorkflowCommandTargets();
   useWorkflowCommandTarget(
-    answerThisRunTarget,
+    commandTargets.answerThisRun,
     () => {
       form.submit();
       return undefined;
@@ -69,6 +70,7 @@ export function StepForm(props: {
         issues={form.issues}
         isDisabled={isSending}
         idPrefix={idPrefix}
+        pickFolder={() => props.bridge.native.showOpenDialog({ purpose: "pickFolder" })}
       />
       {form.draftRefusal === undefined ? null : (
         <InlineRefusal code={form.draftRefusal.code} detail={form.draftRefusal.detail} />

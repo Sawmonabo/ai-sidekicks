@@ -7,8 +7,8 @@ import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
-import { useWorkflowAct } from "#renderer/features/workflows/hooks/useWorkflowAct.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
+import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { resolutionReceipt } from "../step/receipts.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
@@ -26,7 +26,7 @@ export function ApprovalAnswer(props: {
 }): React.JSX.Element {
   const { workflowRunId, nodeId, bridge } = props;
   const clock = useClock();
-  const answer = useWorkflowAct(
+  const answer = useWorkflowCall(
     (decision: ApprovalDecision) =>
       callDaemon(bridge, "workflow.gateResolve", { workflowRunId, nodeId, decision }),
     (resolved, decision) => {
@@ -34,7 +34,8 @@ export function ApprovalAnswer(props: {
     },
   );
   const isSending = answer.state.kind === "sending";
-  useWorkflowCommandTarget(answerThisRunTarget, () => {
+  const commandTargets = useWorkflowCommandTargets();
+  useWorkflowCommandTarget(commandTargets.answerThisRun, () => {
     if (!isSending) {
       answer.take("approved");
     }

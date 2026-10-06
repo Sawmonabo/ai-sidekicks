@@ -1,4 +1,7 @@
-/* A step payload's frame: which kind of payload it is, its count and its acts. */
+/*
+ * A step tab's frame, shared by the payload tabs and the cost and error tabs: what kind of payload
+ * it is, its count and its acts, and the JSON view: the stored text in mono, line breaks kept.
+ */
 
 .meridian-workflow-payload {
   display: flex;
@@ -18,4 +21,14 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-payload__json {
+  padding: var(--meridian-space-2);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--meridian-surface-sunken);
 }

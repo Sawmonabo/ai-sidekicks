@@ -1,11 +1,11 @@
 // The step panel over one node's step records: every pass and attempt of the node is reachable
 // and a retry stays in the pass it retried; the output reads the step's advisories above it, the
-// error reads its process's exit code and last lines under it, and the cost and the error read as
-// stored in the JSON view; `Pin this output` sends the output as stored, read from its artifact
-// where it was kept as one, and refuses output that carries a file or a node with more than one
-// main output; the acts keep their place on a node that has not run; a refused Keep says so in
-// the daemon's words; and `Fix in a fresh session` opens the run's fix session again once there
-// is one.
+// error reads its code in words with its reason, then its process's exit code and last lines,
+// and the cost and the error read as stored in the JSON view; `Pin this output as builder test
+// data` sends the output as stored, read from its artifact where it was kept as one, and refuses
+// output that carries a file or a node with more than one main output; the acts keep their place
+// on a node that has not run; a refused Keep says so in the daemon's words; and
+// `Fix in a fresh session` opens the run's fix session again once there is one.
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,10 @@ import type {
   WorkflowDocument,
   WorkflowItem,
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import {
+  WORKFLOW_STEP_THREAD_FAILED_CODE,
+  type WorkflowStep,
+} from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 
@@ -89,6 +92,7 @@ function renderPanel(
         run={run}
         document={options.document}
         nodeId="summary"
+        nodeKind={() => undefined}
         nodeName={(nodeId) => nodeId}
         accountLabel={() => undefined}
         bridge={bridge}
@@ -147,7 +151,12 @@ describe("the step panel", () => {
 
   it("reads advisories over the output, the exit under the error, and records as stored", () => {
     const failed = fixtureRun(WORKFLOW_RUN_IDS.failed);
-    const error = { message: "The suite exited with failures.", itemIndex: 0 };
+    const error = {
+      message: "The suite exited with failures.",
+      itemIndex: 0,
+      code: WORKFLOW_STEP_THREAD_FAILED_CODE,
+      details: { reason: "out_of_memory" },
+    };
     const cost = { usdMicros: 1_800, providerAccountId: WORKFLOW_PAYING_ACCOUNT };
     const run: WorkflowRunReadResponse = {
       ...failed,
@@ -164,7 +173,9 @@ describe("the step panel", () => {
     };
     renderPanel(run);
 
-    // A failed step opens on Error, its process's exit code and last lines under the failure.
+    // A failed step opens on Error: its code in words with its reason, then its process's exit
+    // code and last lines under the failure.
+    expect(screen.getByText("Step thread failed · Out of memory")).toBeDefined();
     expect(screen.getByText("Exit code 1")).toBeDefined();
     expect(screen.getByLabelText("Last log lines").textContent).toBe("2 of 40 tests failed");
 
@@ -199,7 +210,7 @@ describe("the step panel", () => {
     } as const;
 
     const calls = renderPanel(withOutput(artifactOutput), { artifactText: JSON.stringify(items) });
-    fireEvent.click(screen.getByRole("button", { name: "Pin this output" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin this output as builder test data" }));
     await waitFor(() => {
       expect(calls.filter((call) => call.method === "workflow.pinDataSet")).toStrictEqual([
         {
@@ -216,7 +227,7 @@ describe("the step panel", () => {
     const fileCalls = renderPanel(withOutput(artifactOutput), {
       artifactText: JSON.stringify(fileItems),
     });
-    fireEvent.click(screen.getByRole("button", { name: "Pin this output" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin this output as builder test data" }));
     expect(
       await screen.findByText("Output that carries a file cannot be pinned as test data."),
     ).toBeDefined();
@@ -224,10 +235,9 @@ describe("the step panel", () => {
     cleanup();
 
     renderPanel(withOutput({ kind: "inline", items: fileItems }));
-    expect(screen.getByRole("button", { name: "Pin this output" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      screen.getByRole("button", { name: "Pin this output as builder test data" }),
+    ).toHaveProperty("disabled", true);
     cleanup();
 
     const version = WORKFLOW_DEFINITION_RECORDS.flatMap((record) => record.versions)[0];
@@ -256,10 +266,9 @@ describe("the step panel", () => {
       "disabled",
       true,
     );
-    expect(screen.getByRole("button", { name: "Pin this output" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      screen.getByRole("button", { name: "Pin this output as builder test data" }),
+    ).toHaveProperty("disabled", true);
     expect(screen.getByRole("checkbox", { name: "Keep" })).toBeDefined();
     // The note and both refused acts say why.
     expect(screen.getAllByText("This step has not run.")).toHaveLength(3);

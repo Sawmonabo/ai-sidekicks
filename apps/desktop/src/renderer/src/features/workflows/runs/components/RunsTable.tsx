@@ -7,7 +7,7 @@ import { formatCount, formatDayClock, formatUnitDuration } from "#renderer/lib/w
 import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
-import { useWorkflowAct, type WorkflowActState } from "../../hooks/useWorkflowAct.js";
+import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
 import { costWithPayer } from "../cost.js";
 import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
@@ -24,6 +24,11 @@ export interface RunsTableProps {
   readonly accountLabel: (providerAccountId: string) => string | undefined;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
+  /**
+   * Called once a delete is served, so the list is read again and the row goes even while the
+   * workflow stream that would have said so is down.
+   */
+  readonly onRunDeleted: () => void;
   /** The instant a going run's time so far is counted to and its start's day is named from. */
   readonly nowMs: number;
 }
@@ -51,9 +56,8 @@ export function RunsTable(props: RunsTableProps): React.JSX.Element {
           <th scope="col">Duration</th>
           <th scope="col">Steps</th>
           <th scope="col">Cost</th>
-          <th scope="col">
-            <span className="meridian-visually-hidden">Act</span>
-          </th>
+          {/* The row's control column carries no heading; each control names its own act. */}
+          <td />
         </tr>
       </thead>
       <tbody>
@@ -76,11 +80,12 @@ function RunRow(
   const closeConfirm = useCallback(() => {
     setIsConfirming(false);
   }, []);
-  const remove = useWorkflowAct(() =>
-    callDaemon(props.bridge, "workflow.runDelete", { workflowRunId: run.workflowRunId }),
+  const remove = useWorkflowCall(
+    () => callDaemon(props.bridge, "workflow.runDelete", { workflowRunId: run.workflowRunId }),
+    props.onRunDeleted,
   );
-  // Once a delete is sent the confirm takes no second press; the row goes when the removal is
-  // heard and the list is read again.
+  // Once a delete is sent the confirm takes no second press; the row goes when the list is read
+  // again after the delete is served.
   const isDeleteSent = remove.state.kind === "sending" || remove.state.kind === "done";
   return (
     <tr>
@@ -125,6 +130,7 @@ function RunRow(
         {isConfirming ? (
           <DeleteRunConfirm
             workflowName={run.definitionName}
+            startedAt={formatDayClock(run.startedAt, props.nowMs)}
             isSent={isDeleteSent}
             act={isDeleteSent ? DELETE_SENT : remove.state}
             onCancel={closeConfirm}
@@ -152,14 +158,15 @@ function RunRow(
 }
 
 /**
- * `Delete run`'s confirm, asked once in place of the act: it names what goes — the run's steps,
- * their data, and any snapshot folder and repository pins holding what it changed — and Escape
- * closes it as `Cancel` does.
+ * `Delete run`'s confirm, asked once in place of the act: it names the run and what goes, says
+ * that the files it saved on purpose stay, and Escape closes it as `Cancel` does.
  */
 function DeleteRunConfirm(props: {
   readonly workflowName: string;
+  /** When the run started, as its row reads it. */
+  readonly startedAt: string;
   readonly isSent: boolean;
-  readonly act: WorkflowActState<unknown>;
+  readonly act: WorkflowCallState<unknown>;
   readonly onCancel: () => void;
   readonly onConfirm: () => void;
 }): React.JSX.Element {
@@ -169,13 +176,12 @@ function DeleteRunConfirm(props: {
       ref={confirm.ref}
       className="meridian-workflows-runs__confirm"
       role="group"
-      aria-label="Delete this run"
+      aria-label="Delete this run?"
       onKeyDown={confirm.onKeyDown}
     >
       <span>
-        {`Delete this run of ${props.workflowName}? Its steps and their data go too, and any ` +
-          "snapshots it pinned: its snapshot folder and their pins in the repository. " +
-          "This cannot be undone."}
+        {`${props.workflowName} · ${props.startedAt}. The row and its step data go. Files it ` +
+          "saved on purpose stay. This cannot be undone."}
       </span>
       <ActionButton disabled={props.isSent} onClick={props.onCancel}>
         Cancel
@@ -184,6 +190,7 @@ function DeleteRunConfirm(props: {
         label="Delete run"
         availability={{ kind: "allowed" }}
         act={props.act}
+        className="meridian-action-button--destructive"
         onPress={props.onConfirm}
       />
     </div>
@@ -196,4 +203,4 @@ function liveStepWords(liveStep: NonNullable<WorkflowRunSummary["liveStep"]>): s
 }
 
 /** The act state a sent delete holds its confirm in, from the send until the row goes. */
-const DELETE_SENT: WorkflowActState<unknown> = { kind: "sending" };
+const DELETE_SENT: WorkflowCallState<unknown> = { kind: "sending" };

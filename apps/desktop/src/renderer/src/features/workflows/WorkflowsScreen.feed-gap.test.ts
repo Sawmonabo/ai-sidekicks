@@ -18,7 +18,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { WORKFLOW_NOTICE_STREAM } from "#renderer/services/daemon/session/event/session-event-streams.js";
-import { mountWorkflowsScreen } from "./WorkflowsScreen.test-support.js";
+import { isRunsTableRead, mountWorkflowsScreen } from "./WorkflowsScreen.test-support.js";
 
 afterEach(cleanup);
 
@@ -51,7 +51,7 @@ describe("the workflows screen — a stream that ends and opens again", () => {
       route: workflowRunsRoute(undefined),
       answer: async (call, passThrough) => {
         const reply = await passThrough();
-        if (call.method !== "workflow.runList") {
+        if (!isRunsTableRead(call)) {
           return reply;
         }
         const page = reply as WorkflowRunListResponse;
@@ -111,8 +111,8 @@ describe("the workflows screen — a stream that ends and opens again", () => {
     });
     await advanceScenarioUntil(mounted.engine, () => {
       expect(
-        screen.getByRole<HTMLButtonElement>("switch", { name: /Pause new runs/u }).disabled,
-      ).toBe(false);
+        screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
+      ).not.toBe("true");
     });
     expect(screen.getByText("live through one subscription")).not.toBeNull();
 
@@ -128,8 +128,8 @@ describe("the workflows screen — a stream that ends and opens again", () => {
     isRefusing = false;
     await advanceScenarioUntil(mounted.engine, () => {
       expect(
-        screen.getByRole<HTMLButtonElement>("switch", { name: /Pause new runs/u }).disabled,
-      ).toBe(false);
+        screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
+      ).not.toBe("true");
     });
     expect(screen.queryByText(REOPEN_REFUSED_DETAIL)).toBeNull();
     expect(screen.getByText("live through one subscription")).not.toBeNull();
@@ -154,8 +154,8 @@ describe("the workflows screen — a stream that ends and opens again", () => {
     isRefusing = false;
     await advanceScenarioUntil(mounted.engine, () => {
       expect(
-        screen.getByRole<HTMLButtonElement>("switch", { name: /Pause new runs/u }).disabled,
-      ).toBe(false);
+        screen.getByRole("switch", { name: /Pause new runs/u }).getAttribute("aria-disabled"),
+      ).not.toBe("true");
     });
     expect(screen.queryByText(FIRST_OPEN_REFUSED_DETAIL)).toBeNull();
     mounted.unmount();

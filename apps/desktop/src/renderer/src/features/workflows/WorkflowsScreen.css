@@ -65,63 +65,6 @@
   margin-inline-start: auto;
 }
 
-.meridian-workflows-strip__switch {
-  display: inline-flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-  padding: 0;
-  font: inherit;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-
-.meridian-workflows-strip__switch:disabled {
-  cursor: default;
-  color: var(--meridian-text-faint);
-}
-
-.meridian-workflows-strip__switch-track {
-  position: relative;
-  inline-size: calc(var(--meridian-space-4) * 2);
-  block-size: var(--meridian-space-4);
-  background: var(--meridian-surface-sunken);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-space-4);
-}
-
-.meridian-workflows-strip__switch-track::after {
-  position: absolute;
-  inset-block-start: 1px;
-  inset-inline-start: 1px;
-  /* The track's inside less a hairline on either side, so the knob keeps its gap at any size. */
-  block-size: calc(100% - 2px);
-  aspect-ratio: 1;
-  content: "";
-  background: var(--meridian-text-muted);
-  border-radius: 50%;
-  transition: transform var(--meridian-motion-quick) var(--meridian-ease-settle);
-}
-
-.meridian-workflows-strip__switch[aria-checked="true"] .meridian-workflows-strip__switch-track {
-  background: var(--meridian-accent);
-  border-color: var(--meridian-accent);
-}
-
-.meridian-workflows-strip__switch[aria-checked="true"]
-  .meridian-workflows-strip__switch-track::after {
-  background: var(--meridian-accent-ink);
-  transform: translateX(var(--meridian-space-4));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .meridian-workflows-strip__switch-track::after {
-    transition: none;
-  }
-}
-
 /* --- the runs list ------------------------------------------------------------ */
 
 .meridian-workflows-runs {
@@ -391,23 +334,12 @@
   text-decoration: underline;
 }
 
+/* A run control and, after a refused press, the daemon's words beside it on the same line. */
 .meridian-workflow-run__control {
   display: inline-flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  align-items: flex-start;
-}
-
-.meridian-workflow-run__control-button--primary {
-  color: var(--meridian-accent-ink);
-  background: var(--meridian-accent);
-  border-color: var(--meridian-accent);
-}
-
-.meridian-workflow-run__control-reason {
-  max-inline-size: 24ch;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
 }
 
 .meridian-workflow-run__keep {

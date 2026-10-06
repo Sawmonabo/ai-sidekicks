@@ -3,6 +3,7 @@ import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/defini
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
@@ -26,7 +27,6 @@ export interface StepBlockerProps {
   readonly bridge: PlatformBridge;
   /** Called with the answer's receipt once the daemon has taken it. */
   readonly onAnswered: (receipt: string) => void;
-  readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }
 
@@ -52,6 +52,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
     case "approval":
       return (
         <div className="meridian-workflow-step__approval">
+          <WaitingEyebrow words="Waiting for you" />
           <ApprovalAnswer
             workflowRunId={step.workflowRunId}
             nodeId={step.nodeId}
@@ -59,22 +60,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
             onAnswered={props.onAnswered}
           />
           {reviewPause === undefined ? null : (
-            <OpenInReview
-              door={
-                reviewPause.state === "pinned"
-                  ? {
-                      state: "pinned",
-                      from: { epoch: reviewPause.epoch, point: "start" },
-                      to: {
-                        epoch: reviewPause.epoch,
-                        point: "pause",
-                        pauseNumber: reviewPause.pauseNumber,
-                      },
-                    }
-                  : reviewPause
-              }
-              onOpenReview={props.onOpenReview}
-            />
+            <OpenInReview snapshots={reviewPause} onOpenReview={props.onOpenReview} />
           )}
         </div>
       );
@@ -95,26 +81,28 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
         <ReplyAnswer question={step.question} bridge={props.bridge} onAnswered={props.onAnswered} />
       );
     case "chain":
-      return run.chainRoot.runId === run.workflowRunId ? (
-        <p className="meridian-workflow-step__note">
-          This step is holding the runs it started until the chain&apos;s question is answered.
-        </p>
-      ) : (
-        <p className="meridian-workflow-step__note">
-          This step is held behind its chain&apos;s question.{" "}
-          <button
-            type="button"
-            className="meridian-workflow-run__link"
-            onClick={() => {
-              props.onOpenRun(run.chainRoot.runId);
-            }}
-          >
-            Answer it on the chain&apos;s first run
-          </button>
-        </p>
+      // The chain's question is answered on its first run's page; a held step only says so.
+      return (
+        <div className="meridian-workflow-step__chain-hold">
+          <WaitingEyebrow words="Waiting on you" />
+          <p className="meridian-workflow-step__note">
+            {`${formatCount(run.chainRoot.runCount)} runs from one start`}
+          </p>
+          <p className="meridian-workflow-step__note">
+            Its next run waits for the chain&apos;s question on the first run&apos;s page.
+          </p>
+        </div>
       );
     case "account":
     case undefined:
       return null;
   }
+}
+
+function WaitingEyebrow(props: { readonly words: string }): React.JSX.Element {
+  return (
+    <span className="meridian-workflow-run__eyebrow meridian-workflow-run__eyebrow--attention">
+      {props.words}
+    </span>
+  );
 }

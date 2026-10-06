@@ -14,7 +14,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
-import { registerWorkflowScreens } from "#renderer/features/workflows/index.js";
+import {
+  createWorkflowCommandTargets,
+  registerWorkflowScreens,
+} from "#renderer/features/workflows/index.js";
 import {
   attentionOf,
   mountWorkflowsScreen,
@@ -172,7 +175,7 @@ describe("AppRouter — the screen across an address change", () => {
 
 describe("AppRouter — the workflows screen across a run's page", () => {
   beforeAll(async () => {
-    registerWorkflowScreens(screenRegistry);
+    registerWorkflowScreens(screenRegistry, createWorkflowCommandTargets());
     await screenRegistry.preload("workflows");
   });
 

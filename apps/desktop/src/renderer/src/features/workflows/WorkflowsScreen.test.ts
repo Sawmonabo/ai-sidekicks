@@ -21,6 +21,7 @@ import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-per
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   attentionOf,
+  isRunsTableRead,
   mountWorkflowsScreen,
   navigate,
   nextWaitingControl,
@@ -209,9 +210,9 @@ describe("the workflows screen — the runs table's filters", () => {
       await crossMacrotaskBoundary();
     });
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(
-        mounted.calls.filter((call) => call.method === "workflow.runList").at(-1)?.params,
-      ).toMatchObject({ status: ["succeeded"] });
+      expect(mounted.calls.filter(isRunsTableRead).at(-1)?.params).toMatchObject({
+        status: ["succeeded"],
+      });
       // The succeeded runs' answer is drawn, not the one it replaces.
       expect(
         document.querySelector(".meridian-workflows-runs__list")?.getAttribute("aria-busy"),
@@ -242,9 +243,9 @@ describe("the workflows screen — the runs table's filters", () => {
 
     await advanceScenarioUntil(reloaded.engine, () => {
       expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("failed");
-      expect(
-        reloaded.calls.filter((call) => call.method === "workflow.runList").at(-1)?.params,
-      ).toMatchObject({ status: ["failed"] });
+      expect(reloaded.calls.filter(isRunsTableRead).at(-1)?.params).toMatchObject({
+        status: ["failed"],
+      });
     });
   });
 
@@ -267,9 +268,9 @@ describe("the workflows screen — the runs table's filters", () => {
     });
 
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(
-        mounted.calls.filter((call) => call.method === "workflow.runList").at(-1)?.params,
-      ).toMatchObject({ status: ["failed"] });
+      expect(mounted.calls.filter(isRunsTableRead).at(-1)?.params).toMatchObject({
+        status: ["failed"],
+      });
       expect(document.querySelector(".meridian-workflows-runs .meridian-refusal")).not.toBeNull();
     });
     expect(screen.getByLabelText<HTMLSelectElement>("Status").value).toBe("failed");

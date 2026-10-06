@@ -5,7 +5,7 @@ import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "#renderer/styles/moti
 import { useLatestRef } from "./useLatestRef.js";
 
 /** How long a reorder glide runs: the chrome's settle. */
-const REORDER_GLIDE_MS = MOTION_DURATIONS_MS["motion-settle"] ?? 0;
+const REORDER_GLIDE_MS = MOTION_DURATIONS_MS["motion-settle"];
 
 /**
  * Holds one list's pointer reorder for the component's lifetime. `keys` is the order the component

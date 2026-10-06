@@ -8,7 +8,7 @@ import type {
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
 import { AWAITING_RESUME_WORDS, runCountWords, WAIT_CAUSE_WORDS } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
@@ -24,7 +24,8 @@ import { ActionButton } from "../../components/ActionButton.js";
 export function RunAttentionSection(props: {
   readonly state: PushDrivenReadState<WorkflowRunAttentionListResponse>;
   readonly readAgain: () => void;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  /** An account as a spent line names it, `the Codex account Work`, while the accounts are read. */
+  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** The instant the clock figures read against, which also names the part of the day. */
   readonly nowMs: number;
@@ -60,7 +61,7 @@ export function RunAttentionSection(props: {
             <li key={entryKey(entry)} className="meridian-workflows-attention__entry">
               <AttentionLine
                 entry={entry}
-                accountLabel={props.accountLabel}
+                accountNameFor={props.accountNameFor}
                 onOpenRun={props.onOpenRun}
                 nowMs={props.nowMs}
               />
@@ -74,19 +75,23 @@ export function RunAttentionSection(props: {
 
 function AttentionLine(props: {
   readonly entry: WorkflowRunAttentionEntry;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly nowMs: number;
 }): React.JSX.Element {
   const { entry } = props;
   if (entry.kind === "account") {
-    const label = props.accountLabel(entry.providerAccountId) ?? entry.providerAccountId;
-    const parked = `${runCountWords(entry.affectedRunCount)} ${entry.affectedRunCount === 1 ? "is" : "are"} parked on it`;
+    // An account the registry no longer lists is named by its id rather than dropped.
+    const account = props.accountNameFor(entry.providerAccountId) ?? entry.providerAccountId;
+    const runs = runCountWords(entry.affectedRunCount);
+    const parked = `${runs} ${entry.affectedRunCount === 1 ? "is" : "are"} parked on ${account}`;
     const resumes =
       entry.resumeAt === undefined
         ? AWAITING_RESUME_WORDS
         : `Resumes ${formatDayClock(entry.resumeAt, props.nowMs)}.`;
-    return <span>{`${label} is spent: ${parked}. ${resumes}`}</span>;
+    return (
+      <span>{`${parked} is spent — one entry, ${affectedRunWords(entry.affectedRunCount)}. ${resumes}`}</span>
+    );
   }
   return (
     <span>
@@ -113,6 +118,11 @@ function nothingWaiting(answeredCount: number, nowMs: number): string {
   }
   const runs = runCountWords(answeredCount);
   return `Nothing waiting · you answered ${runs} this ${partOfDayAt(nowMs)}`;
+}
+
+/** `1 affected run`, `3 affected runs`. */
+function affectedRunWords(count: number): string {
+  return `${formatCount(count)} affected ${count === 1 ? "run" : "runs"}`;
 }
 
 function entryKey(entry: WorkflowRunAttentionEntry): string {

@@ -26,7 +26,11 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import {
+  createWorkflowCommandTargets,
+  type WorkflowCommandTargets,
+} from "#renderer/features/workflows/workflow-command-target.js";
+import { withCommandTargets } from "#renderer/features/workflows/workflow-command-target.test-support.js";
 import { StepBlocker } from "./StepBlocker.js";
 
 /** How long the fixture daemon takes to answer `question.resolve`. */
@@ -50,6 +54,8 @@ interface BlockerRecord {
   readonly receipts: readonly string[];
   /** Move the fixture daemon's clock, so a reply it delays settles. */
   readonly advance: (deltaMs: number) => Promise<void>;
+  /** The keyed acts the blocker is drawn under, which a chord presses. */
+  readonly commandTargets: WorkflowCommandTargets;
 }
 
 /** The kind of `nodeId` in the version the fixture run pinned. */
@@ -78,6 +84,7 @@ function renderBlocker(
   const nodeKind = fixtureNodeKind(run, nodeId);
   const { bridge, calls, engine } = bridgeAnswering(async (_call, passThrough) => passThrough());
   const receipts: string[] = [];
+  const commandTargets = createWorkflowCommandTargets();
   render(
     <StepBlocker
       run={run}
@@ -89,12 +96,11 @@ function renderBlocker(
       onAnswered={(receipt) => {
         receipts.push(receipt);
       }}
-      onOpenRun={() => undefined}
       onOpenReview={(from, to) => {
         reviews.push([from, to]);
       }}
     />,
-    { wrapper: bridgeWrapper(bridge, engine.clock) },
+    { wrapper: withCommandTargets(bridgeWrapper(bridge, engine.clock), commandTargets) },
   );
   const advance = async (deltaMs: number): Promise<void> => {
     await act(async () => {
@@ -102,7 +108,7 @@ function renderBlocker(
       await Promise.resolve();
     });
   };
-  return { calls, receipts, advance };
+  return { calls, receipts, advance, commandTargets };
 }
 
 describe("a step's blocker", () => {
@@ -144,7 +150,11 @@ describe("a step's blocker", () => {
 
   it("opens Review to the approval's pause, and Answer this run presses Approve", async () => {
     const reviews: (readonly [WorkflowRunSnapshotPoint, WorkflowRunSnapshotPoint])[] = [];
-    const { calls } = renderBlocker(WORKFLOW_RUN_IDS.waitingApproval, "approve", reviews);
+    const { calls, commandTargets } = renderBlocker(
+      WORKFLOW_RUN_IDS.waitingApproval,
+      "approve",
+      reviews,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Open in Review" }));
     expect(reviews).toStrictEqual([
@@ -154,7 +164,7 @@ describe("a step's blocker", () => {
       ],
     ]);
 
-    expect(answerThisRunTarget.press(document)).toBeUndefined();
+    expect(commandTargets.answerThisRun.press(document)).toBeUndefined();
     await waitFor(() => {
       expect(calls).toStrictEqual([
         {
@@ -177,19 +187,25 @@ describe("a step's blocker", () => {
       reviewPause: { state: "missing", reason },
     }));
 
-    const door = screen.getByRole("button", { name: "Open in Review" });
-    expect(door).toHaveProperty("disabled", true);
+    const openInReview = screen.getByRole("button", { name: "Open in Review" });
+    expect(openInReview).toHaveProperty("disabled", true);
     expect(screen.getByText(reason)).toBeDefined();
-    fireEvent.click(door);
+    fireEvent.click(openInReview);
     expect(reviews).toStrictEqual([]);
   });
 
   it("answers a reply through its question, refusing Answer this run while empty", async () => {
-    const { calls, receipts, advance } = renderBlocker(WORKFLOW_RUN_IDS.waitingReply, "ask");
+    const { calls, receipts, advance, commandTargets } = renderBlocker(
+      WORKFLOW_RUN_IDS.waitingReply,
+      "ask",
+    );
     const field = screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt);
 
-    expect(answerThisRunTarget.press(document)?.code).toBe("workflows.reply_empty");
-    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(commandTargets.answerThisRun.press(document)?.code).toBe("workflows.reply_empty");
+    // The reply's one control is `Answer`: a reply wait has no `Skip`.
+    expect(screen.getAllByRole("button").map((button) => button.textContent)).toStrictEqual([
+      "Answer",
+    ]);
     fireEvent.change(field, { target: { value: "  needs-triage " } });
     fireEvent.click(screen.getByRole("button", { name: "Answer" }));
     await waitFor(() => {

@@ -14,12 +14,13 @@ export function PayloadTable(props: {
   readonly items: readonly WorkflowItem[];
   readonly label: string;
 }): React.JSX.Element {
-  const { rows, readString } = usePayloadTableRows(props.items);
+  const { rows, readString, rowKey } = usePayloadTableRows(props.items);
   return (
     <PayloadRowWindow
       rowCount={rows.length}
       label={props.label}
       className="meridian-workflow-payload__table"
+      rowKey={rowKey}
       estimateRowHeightPx={(rowIndex) => {
         const row = rows[rowIndex];
         return row?.kind === "unread" ? unreadRowHeightPx(row.lineCount) : PAYLOAD_ROW_ESTIMATE_PX;
@@ -79,9 +80,7 @@ function ValuePlace(props: {
   }
   return (
     <div className="meridian-workflow-payload__member">
-      <span className="meridian-workflow-payload__key">
-        {props.place.key === undefined ? null : <WireFigure value={props.place.key} />}
-      </span>
+      <span>{props.place.key === undefined ? null : <WireFigure value={props.place.key} />}</span>
       <div className="meridian-workflow-payload__cell">{props.children}</div>
     </div>
   );

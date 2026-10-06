@@ -8,7 +8,7 @@ import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { RUN_GRAPH_NODE_WIDTH, runGraphNodeHeight, type CanvasPoint } from "./layout.js";
+import { runGraphNodeHeight, type CanvasPoint, type RunGraphMetrics } from "./layout.js";
 import { itemCountWords } from "#renderer/features/workflows/words.js";
 import type { RunGraphNodeView } from "./model.js";
 
@@ -47,9 +47,12 @@ export function toRunGraphFlowNodes(
   handlesByNode: ReadonlyMap<string, NodeHandleIds>,
   positions: ReadonlyMap<string, CanvasPoint>,
   selectedNodeId: string | undefined,
+  metrics: RunGraphMetrics,
 ): RunGraphFlowNode[] {
+  const width = metrics.nodeWidth;
   return views.map((view) => {
     const height = runGraphNodeHeight(
+      metrics,
       view.errorLine !== undefined || view.resumeLine !== undefined,
     );
     const handles = handlesByNode.get(view.node.id) ?? { inputs: [], outputs: [] };
@@ -57,9 +60,9 @@ export function toRunGraphFlowNodes(
       id: view.node.id,
       type: RUN_GRAPH_NODE_TYPE,
       position: positions.get(view.node.id) ?? { x: 0, y: 0 },
-      width: RUN_GRAPH_NODE_WIDTH,
+      width,
       height,
-      measured: { width: RUN_GRAPH_NODE_WIDTH, height },
+      measured: { width, height },
       handles: [
         ...handles.inputs.map((id, index) => ({
           id,
@@ -74,7 +77,7 @@ export function toRunGraphFlowNodes(
           id,
           type: "source" as const,
           position: Position.Right,
-          x: RUN_GRAPH_NODE_WIDTH,
+          x: width,
           y: handleOffset(height, index, handles.outputs.length),
           width: 0,
           height: 0,

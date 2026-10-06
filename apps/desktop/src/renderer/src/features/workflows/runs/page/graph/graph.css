@@ -8,7 +8,7 @@
  * failure, and the accent only for a running step.
  *
  * A run's own motion, the running node's breathing ring and the edge flowing into it, holds
- * still while the canvas is scrolled out of view (`data-in-view`, written by `useInViewRef`).
+ * still while the canvas is scrolled out of view (`data-in-view`, written by `useInViewMarks`).
  * Reduced motion needs nothing here: the generated token sheet collapses every animation.
  */
 

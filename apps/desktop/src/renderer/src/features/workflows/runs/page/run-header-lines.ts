@@ -1,8 +1,7 @@
 // What a run's header says in words: the two lines it opens with — what happened, then what it
 // needs — and, while the run is going, the live line at its foot. Both are composed from the
-// run's status and its blocking or failing step, named by its node's kind, so every kind of stop
-// is written the same way and none is kept by hand. A waiting run's cause is read in the first
-// line and nowhere else.
+// run's status and its blocking or failing step, so every kind of stop is written the same way
+// and none is kept by hand. A waiting run's cause is read in the first line and nowhere else.
 
 import {
   WORKFLOW_STEP_TIMED_OUT_CODE,
@@ -13,9 +12,10 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { costFigure } from "../cost.js";
-import { AWAITING_RESUME_WORDS, WAIT_CAUSE_WORDS } from "../../words.js";
+import { WAIT_CAUSE_WORDS } from "../../words.js";
 import { isGoing } from "../controls.js";
 import { isPersonWaitCause, latestStepWith } from "../steps.js";
+import { isPersonWaitKind } from "./step/receipts.js";
 
 /** The header's two opening lines. */
 export interface RunHeaderLines {
@@ -29,39 +29,54 @@ export interface RunLiveLinePart {
   readonly isAttention: boolean;
 }
 
-/** A waiting step's next move, in the header's second line. */
-const WAIT_NEEDS: Readonly<Record<Exclude<WorkflowWaitCause, "account">, string>> = {
-  approval: "Approve or reject it in the step panel",
-  form: "Answer its form in the step panel",
-  reply: "Reply in the step panel or in its session",
-  chain: "Keep the chain going or stop the runs it started",
-};
+/** What the header's lines name a run's steps and the run itself by. */
+export interface RunHeaderNames {
+  /** A step's node kind in the pinned version, `undefined` until the version is read. */
+  readonly nodeKind: (nodeId: string) => string | undefined;
+  /** A step's node name in the pinned version. */
+  readonly nodeName: (nodeId: string) => string;
+  /** The workflow's name, once it has been read. */
+  readonly workflowName: string | undefined;
+}
+
+/** What a failed run needs, unless the failure was a person's wait running out. */
+const FIX_AND_RESUME = "Fix it and press Resume, or cancel the run.";
+
+/** What a run that has nothing left to do needs. */
+const NOTHING_FINISHED = "Nothing — this run is finished.";
 
 /**
- * The two lines a run's header opens with. `nodeKind` reads a step's node kind from the pinned
- * version, which names the step (`The approval step timed out`); `undefined` until it is read.
- * `nowMs` is the instant a resume time's day is counted from.
+ * The two lines a run's header opens with, such as `The run tests step failed twice.` over
+ * `Fix it and press Resume, or cancel the run.` A stopped step is named by its node's kind; the
+ * run by its workflow's name.
  */
 export function runHeaderLines(
   run: WorkflowRunReadResponse,
-  nodeKind: (nodeId: string) => string | undefined,
-  nowMs: number,
+  names: RunHeaderNames,
 ): RunHeaderLines {
+  // Until the workflow's name is read the run goes by "This run".
+  const runName = names.workflowName ?? "This run";
   switch (run.state) {
     case "new":
-      return { happened: "This run is starting", needs: "Nothing is needed" };
+      return {
+        happened: `${runName} has not started yet.`,
+        needs: "Nothing — it starts on its own.",
+      };
     case "running":
-      return { happened: "This run is running", needs: "Nothing is needed" };
+      return { happened: `${runName} is running.`, needs: "Nothing — it is still going." };
     case "waiting":
-      return waitingLines(latestStepWith(run.steps, "waiting"), nodeKind, nowMs);
+      return waitingLines(run, latestStepWith(run.steps, "waiting"), names, runName);
     case "failed":
-      return failedLines(run, latestStepWith(run.steps, "failed"), nodeKind);
+      return failedLines(run, latestStepWith(run.steps, "failed"), names);
     case "succeeded":
-      return { happened: "This run succeeded", needs: "Nothing is needed" };
+      return { happened: `${runName} finished every step.`, needs: NOTHING_FINISHED };
     case "canceled":
-      return { happened: "This run was canceled", needs: "Nothing is needed" };
+      return { happened: `${runName} was canceled.`, needs: NOTHING_FINISHED };
     case "crashed":
-      return { happened: "This run crashed", needs: "Re-run it to start again" };
+      return {
+        happened: `${runName} stopped when the machine went down.`,
+        needs: "Nothing — re-run it when you want it again.",
+      };
   }
 }
 
@@ -88,7 +103,7 @@ export function runLiveLine(
   if (waiting?.waitCause !== undefined) {
     parts.push(...waitingParts(run, waiting, waiting.waitCause, nowMs));
   } else if (holding !== undefined) {
-    parts.push(plain("waiting for memory"));
+    parts.push(plain("waiting for memory"), plain("starts itself when memory frees up"));
   } else if (run.liveStep !== undefined) {
     parts.push(plain(run.liveStep.nodeName));
   }
@@ -97,43 +112,81 @@ export function runLiveLine(
 }
 
 function waitingLines(
+  run: WorkflowRunReadResponse,
   step: WorkflowStep | undefined,
-  nodeKind: (nodeId: string) => string | undefined,
-  nowMs: number,
+  names: RunHeaderNames,
+  runName: string,
 ): RunHeaderLines {
-  if (step?.waitCause === undefined) {
-    return { happened: "This run is waiting", needs: "Nothing is needed until it resumes" };
+  switch (step?.waitCause) {
+    case undefined:
+      return { happened: `${runName} is waiting.`, needs: "Nothing until it resumes." };
+    case "account":
+      return {
+        happened: `${stepSubject(names.nodeKind(step.nodeId))} is waiting on a spent account.`,
+        needs: "Nothing until the account can run again.",
+      };
+    case "approval": {
+      // The approval asks about what the step before it did, so that step is named.
+      const feeder = step.source.find((source) => source !== null);
+      const asker = feeder === undefined ? runName : names.nodeName(feeder.nodeId);
+      return {
+        happened: `${asker} finished and asked for your approval.`,
+        needs: "Approve it or reject it in the step that is waiting.",
+      };
+    }
+    case "chain":
+      // The chain's question stands on its first run's page and nowhere else.
+      return run.chainRoot.runId === run.workflowRunId
+        ? {
+            happened:
+              `This run has started ${formatCount(run.chainRoot.runCount)} runs, itself ` +
+              "included, and the next one is waiting.",
+            needs: "Answer the question below: keep going, or stop them all.",
+          }
+        : {
+            happened:
+              `${names.nodeName(step.nodeId)} is holding its next run behind the chain's ` +
+              "question.",
+            needs: "Answer it on the first run's page.",
+          };
+    case "form":
+    case "reply": {
+      const subject = stepSubject(names.nodeKind(step.nodeId));
+      return {
+        happened: `${subject} is waiting on ${WAIT_CAUSE_WORDS[step.waitCause]}.`,
+        needs:
+          step.waitCause === "form"
+            ? "Answer its form in the step panel."
+            : "Reply in the step panel or in its session.",
+      };
+    }
   }
-  const subject = stepSubject(nodeKind(step.nodeId));
-  if (step.waitCause === "account") {
-    return {
-      happened: `${subject} is waiting on a spent account`,
-      needs:
-        step.resumeAt === undefined
-          ? AWAITING_RESUME_WORDS
-          : `It resumes itself at ${formatDayClock(step.resumeAt, nowMs)}, or press Resume`,
-    };
-  }
-  return {
-    happened: `${subject} is waiting on ${WAIT_CAUSE_WORDS[step.waitCause]}`,
-    needs: WAIT_NEEDS[step.waitCause],
-  };
 }
 
 function failedLines(
   run: WorkflowRunReadResponse,
   step: WorkflowStep | undefined,
-  nodeKind: (nodeId: string) => string | undefined,
+  names: RunHeaderNames,
 ): RunHeaderLines {
-  const needs = "Fix it and press Resume, or cancel the run";
   if (step === undefined) {
-    return { happened: run.failureReason ?? "This run failed", needs };
+    return { happened: run.failureReason ?? "This run failed.", needs: FIX_AND_RESUME };
   }
-  const subject = stepSubject(nodeKind(step.nodeId));
+  const kind = names.nodeKind(step.nodeId);
+  const subject = stepSubject(kind);
   if (step.error?.code === WORKFLOW_STEP_TIMED_OUT_CODE) {
-    return { happened: `${subject} timed out`, needs };
+    // A person's wait that ran out is waited on again from the same input.
+    return {
+      happened: `${subject} timed out.`,
+      needs:
+        kind !== undefined && isPersonWaitKind(kind)
+          ? "Press Retry from this step to wait for your answer again."
+          : FIX_AND_RESUME,
+    };
   }
-  return { happened: `${subject} ${failedTimes(step.attempt)}`, needs };
+  if (step.resolution?.kind === "declined") {
+    return { happened: `${subject} was declined.`, needs: FIX_AND_RESUME };
+  }
+  return { happened: `${subject} failed ${failedTimes(step.attempt)}.`, needs: FIX_AND_RESUME };
 }
 
 /**
@@ -148,17 +201,19 @@ function stepSubject(kind: string | undefined): string {
   return `The ${word} step`;
 }
 
-/** `failed`, `failed twice`, `failed three times`, then the count in figures. */
+/** `once`, `twice`, `three times`, `four times`, then the count in figures. */
 function failedTimes(attempt: number): string {
   switch (attempt) {
     case 1:
-      return "failed";
+      return "once";
     case 2:
-      return "failed twice";
+      return "twice";
     case 3:
-      return "failed three times";
+      return "three times";
+    case 4:
+      return "four times";
     default:
-      return `failed ${formatCount(attempt)} times`;
+      return `${formatCount(attempt)} times`;
   }
 }
 

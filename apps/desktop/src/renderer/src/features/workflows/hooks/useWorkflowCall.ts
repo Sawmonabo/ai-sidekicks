@@ -4,29 +4,29 @@ import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
 
-/** Where one act on a run stands: not taken, in flight, refused in the daemon's words, or done. */
-export type WorkflowActState<TResult> =
+/** Where one call stands: not sent, in flight, refused in the daemon's words, or done. */
+export type WorkflowCallState<TResult> =
   | { readonly kind: "idle" }
   | { readonly kind: "sending" }
   | { readonly kind: "refused"; readonly refusal: Refusal }
   | { readonly kind: "done"; readonly result: TResult };
 
-/** One act's state and the press that takes it. */
-export interface WorkflowAct<TRequest, TResult> {
-  readonly state: WorkflowActState<TResult>;
-  /** Send the act; a press while one is in flight is ignored, so one press is one call. */
+/** One call's state and the press that sends it. */
+export interface WorkflowCall<TRequest, TResult> {
+  readonly state: WorkflowCallState<TResult>;
+  /** Send the call; a press while one is in flight is ignored, so one press is one call. */
   readonly take: (request: TRequest) => void;
 }
 
 /**
- * Hold one act on a run: the call it sends, and how it settled. A settlement after the view is
- * gone sets nothing. `onDone` runs once per served answer, after the state is set.
+ * Hold one daemon call a person's press sends on the workflows screen, and how it settled. A
+ * settlement after the view is gone sets nothing. `onDone` runs once per served answer, after the state is set.
  */
-export function useWorkflowAct<TRequest, TResult>(
+export function useWorkflowCall<TRequest, TResult>(
   send: (request: TRequest) => Promise<DaemonReply<TResult>>,
   onDone?: (result: TResult, request: TRequest) => void,
-): WorkflowAct<TRequest, TResult> {
-  const [state, setState] = useState<WorkflowActState<TResult>>({ kind: "idle" });
+): WorkflowCall<TRequest, TResult> {
+  const [state, setState] = useState<WorkflowCallState<TResult>>({ kind: "idle" });
   const isMounted = useRef(true);
   const isSending = useRef(false);
   const latestSend = useLatestRef(send);

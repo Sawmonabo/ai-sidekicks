@@ -14,11 +14,10 @@ import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
-import { useStepForm, type StepFormHold } from "./useStepForm.js";
+import { DRAFT_SAVE_REST_MS, useStepForm, type StepFormHold } from "./useStepForm.js";
 
-/** How long the fixture daemon takes to read a form, and how long typing rests before a save. */
+/** How long the fixture daemon takes to read a form. */
 const FORM_READ_DELAY_MS = 120;
-const DRAFT_SAVE_REST_MS = 600;
 
 function waitingFormStep(): WorkflowStepKey {
   const run = WORKFLOW_RUN_RECORDS.find(

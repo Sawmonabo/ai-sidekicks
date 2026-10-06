@@ -15,25 +15,34 @@ import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../run-f
 const ANY = "";
 
 /**
- * The runs table's four filters — workflow, status, trigger and date range — each one choice.
- * They narrow the table alone; what stands above it never moves under them.
+ * The runs table's four filters — workflow, status, trigger and date range — each one choice,
+ * labeled for a screen reader alone. They narrow the table alone; what stands above it never
+ * moves under them. A workflow filter the saved workflows do not list (still being read, or a
+ * deleted workflow whose runs remain) keeps its own option, so the control never reads
+ * `Every workflow` while the table is narrowed.
  */
 export function RunFilterBar(props: {
   readonly filters: RunFilters;
   readonly definitions: readonly WorkflowDefinitionSummary[];
+  /** The narrowed workflow's name where a drawn run carries it, for a filter not listed. */
+  readonly filteredWorkflowName: string | undefined;
   readonly onChange: (next: RunFilters) => void;
 }): React.JSX.Element {
   const idPrefix = useId();
-  const { filters, onChange } = props;
+  const { filters, definitions, onChange } = props;
+  const { definitionId } = filters;
+  const isUnlisted =
+    definitionId !== undefined && !definitions.some((definition) => definition.id === definitionId);
   return (
-    <div className="meridian-workflows-filters" role="group" aria-label="Filter runs">
+    <div className="meridian-workflows-filters">
       <FilterSelect
         id={`${idPrefix}-workflow`}
         label="Workflow"
-        value={filters.definitionId ?? ANY}
+        value={definitionId ?? ANY}
         options={[
           { value: ANY, label: "Every workflow" },
-          ...props.definitions.map((definition) => ({
+          ...(isUnlisted ? [{ value: definitionId, label: props.filteredWorkflowName ?? "" }] : []),
+          ...definitions.map((definition) => ({
             value: definition.id,
             label: definition.name,
           })),
@@ -92,8 +101,10 @@ export function RunFilterBar(props: {
           label: RUN_DATE_RANGE_WORDS[range].label,
         }))}
         onChange={(value) => {
-          const dateRange = RUN_DATE_RANGES.find((candidate) => candidate === value) ?? "any";
-          onChange({ ...filters, dateRange });
+          const dateRange = RUN_DATE_RANGES.find((candidate) => candidate === value);
+          if (dateRange !== undefined) {
+            onChange({ ...filters, dateRange });
+          }
         }}
       />
     </div>
@@ -109,7 +120,7 @@ function FilterSelect(props: {
 }): React.JSX.Element {
   return (
     <span className="meridian-workflows-filters__filter meridian-form__field">
-      <label htmlFor={props.id} className="meridian-form__label">
+      <label htmlFor={props.id} className="meridian-visually-hidden">
         {props.label}
       </label>
       <select

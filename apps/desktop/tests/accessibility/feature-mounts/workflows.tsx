@@ -39,6 +39,7 @@ import { WindowStore } from "#renderer/store/window/window-store.js";
 import { SessionStore } from "#renderer/store/session/session-store.js";
 import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import {
+  createWorkflowCommandTargets,
   registerWorkflowPanes,
   registerWorkflowScreens,
 } from "#renderer/features/workflows/index.js";
@@ -109,7 +110,9 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * name instead of the audit passing over an empty box.
  */
 async function screenBodyComponent(): Promise<FunctionComponent<{ context: ScreenContext }>> {
-  const render = await resolvedScreenBody("workflows", registerWorkflowScreens);
+  const render = await resolvedScreenBody("workflows", (registry) => {
+    registerWorkflowScreens(registry, createWorkflowCommandTargets());
+  });
   return ({ context }) => render(context);
 }
 

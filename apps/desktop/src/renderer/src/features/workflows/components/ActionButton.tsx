@@ -26,6 +26,6 @@ export function ActionButton(
 
 const TONE_CLASSES: Record<ActionButtonTone, string> = {
   outline: "meridian-action-button--outline",
-  primary: "meridian-workflow-run__control-button--primary",
+  primary: "meridian-accent-fill",
   raised: "meridian-action-button--raised",
 };

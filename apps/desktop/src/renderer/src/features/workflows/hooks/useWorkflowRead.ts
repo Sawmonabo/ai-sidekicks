@@ -1,5 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
+import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
+import type { SubjectKey } from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+import type { SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import type {
   PushDrivenRead,
@@ -12,23 +15,31 @@ import {
   type ReadTriggerTarget,
 } from "#renderer/store/reads/triggers.js";
 
+/** A workflows read and the state it publishes; `read` is absent while nothing draws it. */
+export interface WorkflowReadHold<TValue> {
+  readonly read: PushDrivenRead<TValue> | undefined;
+  readonly state: PushDrivenReadState<TValue>;
+}
+
 /**
- * Hold one workflows read for the life of the view that draws it: the window's triggers start it
- * on mount and read it again when the window regains focus or the transport comes back, and it is
- * disposed when the view goes or the read is replaced. No session event bears on a workflows read;
- * the notice feed it subscribes to is its live tail. The read is constructed by the caller, never
- * in a render body. With no read, while nothing on screen draws it, nothing is asked and the state
- * stays `not-loaded`.
+ * Hold one workflows read for as long as `subject` and `key` name it: `open` builds it, the
+ * window's triggers start it on mount and read it again when the window regains focus or the
+ * transport comes back, and it is disposed when the view goes or `subject` or `key` moves, and
+ * built again on a re-mount of the same view. No session event bears on a workflows read; the
+ * notice feed it subscribes to is its live tail. An `open` answering `undefined`, while nothing
+ * on screen draws the read, asks nothing and leaves the state `not-loaded`.
  */
 export function useWorkflowRead<TValue>(
-  read: PushDrivenRead<TValue> | undefined,
   bridge: PlatformBridge,
-): PushDrivenReadState<TValue> {
-  useEffect(
-    () => () => {
-      read?.dispose();
-    },
-    [read],
+  subject: object,
+  key: SubjectKey,
+  open: () => PushDrivenRead<TValue> | undefined,
+): WorkflowReadHold<TValue> {
+  const { value: read } = useSubjectScopedResource<PushDrivenRead<TValue> | undefined>(
+    subject,
+    key,
+    open,
+    WORKFLOW_READ_DISPOSAL,
   );
   const triggerTarget = useMemo<ReadTriggerTarget>(
     () => ({
@@ -40,5 +51,13 @@ export function useWorkflowRead<TValue>(
     [read],
   );
   useWindowReadTriggers(triggerTarget, bridge.transportReconnect);
-  return usePushDrivenRead(read);
+  return { read, state: usePushDrivenRead(read) };
 }
+
+/** A read ends with its view, and a disposed one is replaced rather than reused. */
+const WORKFLOW_READ_DISPOSAL: SubjectScopedDisposal<PushDrivenRead<unknown> | undefined> = {
+  dispose: (read) => {
+    read?.dispose();
+  },
+  isClosed: (read) => read?.isDisposed === true,
+};

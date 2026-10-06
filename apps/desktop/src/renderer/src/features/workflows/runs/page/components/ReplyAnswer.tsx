@@ -8,12 +8,12 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { refuse } from "#renderer/lib/refusal/refusal.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
-import { useWorkflowAct } from "#renderer/features/workflows/hooks/useWorkflowAct.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
-import { resolutionReceipt } from "../step/receipts.js";
+import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
+import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
+import { receiptNow } from "../step/receipts.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
-/** What `Answer this run` says over a reply door with nothing typed in it. */
+/** What `Answer this run` says over a reply wait with nothing typed in it. */
 const REPLY_EMPTY_REFUSAL = refuse(
   "workflows",
   "workflows.reply_empty",
@@ -37,7 +37,7 @@ export function ReplyAnswer(props: {
   const fieldId = useId();
   const clock = useClock();
   const [text, setText] = useState("");
-  const answer = useWorkflowAct(
+  const answer = useWorkflowCall(
     (typed: string) =>
       callDaemon(bridge, "question.resolve", {
         questionId: question.questionId,
@@ -45,17 +45,12 @@ export function ReplyAnswer(props: {
       }),
     () => {
       // The question's answer carries no instant; the daemon's own record replaces this one.
-      const answeredAtMs = clock.now();
-      props.onAnswered(
-        resolutionReceipt(
-          { kind: "answered", at: new Date(answeredAtMs).toISOString() },
-          answeredAtMs,
-        ),
-      );
+      props.onAnswered(receiptNow("answered", clock.now()));
     },
   );
   const isSending = answer.state.kind === "sending";
-  useWorkflowCommandTarget(answerThisRunTarget, () => {
+  const commandTargets = useWorkflowCommandTargets();
+  useWorkflowCommandTarget(commandTargets.answerThisRun, () => {
     if (text.trim() === "") {
       return REPLY_EMPTY_REFUSAL;
     }

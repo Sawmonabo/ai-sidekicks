@@ -224,7 +224,18 @@ export function formatDayClock(iso: string, nowMilliseconds: number, locale?: st
   if (instant.kind === "malformed") {
     return UNREADABLE_FIGURE;
   }
-  const atMilliseconds = instant.epochMilliseconds;
+  return formatDayClockAt(instant.epochMilliseconds, nowMilliseconds, locale);
+}
+
+/**
+ * {@link formatDayClock} for an instant this machine's own clock read, in epoch milliseconds,
+ * which has no wire string to parse.
+ */
+export function formatDayClockAt(
+  atMilliseconds: number,
+  nowMilliseconds: number,
+  locale?: string,
+): string {
   const days = calendarDaysBetween(nowMilliseconds, atMilliseconds);
   if (days === 0) {
     return dateTimeFormatFor("clockMinute", locale).format(atMilliseconds);

@@ -7,6 +7,10 @@
 // A subscription that cannot open is the feed's failed state, rendered where the hold switch
 // stands; the reads beside it still answer, they only stop refreshing. So is a stream that ended
 // and could not open again, until a re-open works: the hold it opens with sets the feed open.
+//
+// The feed lives as long as the screen and its reads: the stream is closed while nothing on
+// screen draws from it and opened again when something does, and each opening after the first
+// signals every run, since anything may have moved while it was closed.
 
 import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
@@ -45,6 +49,7 @@ export class WorkflowNoticeFeed {
   readonly #runSignals = new Emitter<WorkflowRunSignal>("workflow run signal");
   #state: WorkflowNoticeFeedState = { kind: "opening" };
   #release: Unsubscribe | undefined;
+  #hasOpened = false;
   #disposed = false;
 
   public constructor(subscribe: SubscribeWorkflowNotices) {
@@ -54,6 +59,11 @@ export class WorkflowNoticeFeed {
   /** The current state; a stable reference between changes, for `useSyncExternalStore`. */
   public get state(): WorkflowNoticeFeedState {
     return this.#state;
+  }
+
+  /** Whether {@link dispose} has run, so a holder re-mounting this feed opens a fresh one. */
+  public get isDisposed(): boolean {
+    return this.#disposed;
   }
 
   /** Be told when the state changes. */
@@ -66,7 +76,10 @@ export class WorkflowNoticeFeed {
     return this.#runSignals.subscribe(listener);
   }
 
-  /** Open the stream. Idempotent while it is open; a no-op once disposed. */
+  /**
+   * Open the stream, signaling every run when it opens again after a close. Idempotent while it
+   * is open; a no-op once disposed.
+   */
   public start(): void {
     if (this.#disposed || this.#release !== undefined) {
       return;
@@ -83,6 +96,21 @@ export class WorkflowNoticeFeed {
     if (this.#state.kind === "opening") {
       this.#settle({ kind: "open", pause: undefined });
     }
+    if (this.#hasOpened) {
+      this.#runSignals.emit({ scope: "all" });
+    }
+    this.#hasOpened = true;
+  }
+
+  /** Close the stream and go back to `opening`, keeping every listener for the next start. */
+  public stop(): void {
+    const release = this.#release;
+    if (release === undefined) {
+      return;
+    }
+    this.#release = undefined;
+    release();
+    this.#settle({ kind: "opening" });
   }
 
   /** Close the stream and drop every listener. Terminal. */

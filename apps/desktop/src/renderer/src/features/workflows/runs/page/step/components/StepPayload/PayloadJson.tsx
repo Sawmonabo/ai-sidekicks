@@ -1,5 +1,3 @@
-import "./PayloadJson.css";
-
 import { memo } from "react";
 
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
@@ -11,7 +9,7 @@ import { PayloadRowWindow } from "./PayloadRowWindow.js";
 /**
  * A payload in the JSON view: the items exactly as stored, one item to a row, windowed to the
  * rows in view. The rows read together are the stored JSON, line breaks included; an item is
- * stringified only while its row is drawn.
+ * stringified only while its row is drawn. Drawn inside `StepPayload`, whose sheet holds its class.
  */
 export function PayloadJson(props: {
   readonly items: readonly WorkflowItem[];

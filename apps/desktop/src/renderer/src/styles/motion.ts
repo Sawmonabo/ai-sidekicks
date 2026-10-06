@@ -16,7 +16,9 @@
  * alive rather than as an alarm. Here rather than in `palette.ts`, which answers "what color is
  * this?".
  */
-export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
+export const MOTION_DURATIONS_MS: Readonly<
+  Record<"motion-quick" | "motion-settle" | "motion-thread" | "motion-breath", number>
+> = {
   "motion-quick": 120,
   "motion-settle": 180,
   "motion-thread": 240,

@@ -46,6 +46,7 @@ import {
   registerTranscriptCommands,
 } from "#renderer/features/transcript/index.js";
 import {
+  createWorkflowCommandTargets,
   registerWorkflowCommands,
   registerWorkflowPanes,
   registerWorkflowScreens,
@@ -68,6 +69,8 @@ export interface ContributionRegistries {
  */
 export function registerFeatureContributions(registries: ContributionRegistries): void {
   const { commands, projectors, screens, panes, inlineCards } = registries;
+  // The workflows screen's keyed acts: its commands press them and its screen offers them.
+  const workflowCommandTargets = createWorkflowCommandTargets();
 
   // The rail's chords first: the chord table's first match wins, so a feature registered
   // earlier could take `$mod+1` from the rail.
@@ -75,7 +78,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   registerComposerCommands(commands);
   registerComposerKeybindings(commands);
   registerTranscriptCommands(commands);
-  registerWorkflowCommands(commands);
+  registerWorkflowCommands(commands, workflowCommandTargets);
   registerPaneLayoutCommands(commands);
 
   projectors.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
@@ -84,7 +87,7 @@ export function registerFeatureContributions(registries: ContributionRegistries)
   registerTranscriptScreens(screens, { sessionScreen: SessionScreen });
   registerSessionsFlyout(screens);
   registerSettingsScreen(screens);
-  registerWorkflowScreens(screens);
+  registerWorkflowScreens(screens, workflowCommandTargets);
 
   registerTranscriptPanes(panes);
   registerInspectorPane(panes);

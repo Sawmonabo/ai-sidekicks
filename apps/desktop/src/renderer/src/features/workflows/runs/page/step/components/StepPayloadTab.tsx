@@ -39,6 +39,13 @@ export function StepPayloadTab(props: {
         />
       );
     case "read":
-      return <StepPayload payload={read.payload} view={props.view} label={props.label} />;
+      return (
+        <StepPayload
+          items={read.items}
+          storage={read.storage}
+          view={props.view}
+          label={props.label}
+        />
+      );
   }
 }

@@ -1,7 +1,6 @@
-import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+import { useId } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import {
   DELETE_OLDER_THAN_DAYS,
@@ -13,10 +12,11 @@ import { runCountWords } from "../../words.js";
 import { ActionButton } from "../../components/ActionButton.js";
 
 /**
- * `Delete runs older than…` above the runs table: it names how many runs would go and that their
- * snapshot folders and repository pins go with them, says that a run marked Keep stays and a run
- * waiting on a person is never touched, and asks once. Escape closes the choice and the confirm as
- * their `Cancel` does. Nothing it deletes can be brought back.
+ * `Delete runs older than…` above the runs table: it opens in place on `30 days`, names how many
+ * runs that age would delete and says that a run marked Keep stays and a run waiting on a person
+ * is never touched, with `Cancel` first and the delete after it in the destructive face, so
+ * nothing is deleted by a stray Enter. Escape closes it as `Cancel` does. Nothing it deletes can
+ * be brought back.
  */
 export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): React.JSX.Element {
   const act = useDeleteOlderRuns(props.bridge);
@@ -24,103 +24,90 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
   switch (state.kind) {
     case "closed":
       return <ActionButton onClick={act.open}>Delete runs older than…</ActionButton>;
-    case "choosing":
-      return (
-        <ConfirmGroup label="Delete runs older than" onCancel={act.close}>
-          <span>Delete runs older than</span>
-          {DELETE_OLDER_THAN_DAYS.map((days) => (
-            <ActionButton
-              key={days}
-              onClick={() => {
-                act.choose(days);
-              }}
-            >
-              {daysWords(days)}
-            </ActionButton>
-          ))}
-          <ActionButton onClick={act.close}>Cancel</ActionButton>
-        </ConfirmGroup>
-      );
-    case "previewing":
-    case "deleting":
-      return (
-        <p className="meridian-workflows-delete-older" role="status">
-          {state.kind === "previewing"
-            ? `Counting the runs older than ${daysWords(state.days)}…`
-            : `Deleting the runs older than ${daysWords(state.days)}…`}
-        </p>
-      );
-    case "confirming":
-      return (
-        <ConfirmGroup label="Confirm the delete" onCancel={act.close}>
-          <span>{confirmSentence(state.days, state.preview)}</span>
-          {state.preview.deleteCount === 0 ? null : (
-            <ActionButton onClick={act.confirm}>
-              {`Delete ${runCountWords(state.preview.deleteCount)}`}
-            </ActionButton>
-          )}
-          <ActionButton onClick={act.close}>
-            {state.preview.deleteCount === 0 ? "Close" : "Cancel"}
-          </ActionButton>
-        </ConfirmGroup>
-      );
     case "deleted":
       return (
-        <p className="meridian-workflows-delete-older" role="status">
-          {`Deleted ${runCountWords(state.deletedCount)}`}
-          <ActionButton onClick={act.close}>Close</ActionButton>
-        </p>
+        <span className="meridian-workflows-delete-older">
+          <ActionButton onClick={act.open}>Delete runs older than…</ActionButton>
+          <span role="status">
+            {`${runCountWords(state.deletedCount)} deleted · runs marked Keep stayed`}
+          </span>
+        </span>
       );
-    case "refused":
+    case "open": {
+      const deleteCount = state.preview?.deleteCount;
       return (
-        <div className="meridian-workflows-delete-older">
-          <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />
-          <ActionButton onClick={act.close}>Close</ActionButton>
-        </div>
+        <DeleteOlderChoice days={state.days} onChoose={act.choose} onCancel={act.close}>
+          {deleteCount === undefined ? null : (
+            <span>
+              {`${runCountWords(deleteCount)} would go. A run marked Keep stays, and a run ` +
+                "waiting on a person is never touched."}
+            </span>
+          )}
+          {state.refusal === undefined ? null : (
+            <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />
+          )}
+          <ActionButton onClick={act.close}>Cancel</ActionButton>
+          <ActionButton
+            className="meridian-action-button--destructive"
+            disabled={deleteCount === undefined || deleteCount === 0 || state.isDeleting}
+            onClick={act.confirm}
+          >
+            {`Delete ${runCountWords(deleteCount ?? 0)}`}
+          </ActionButton>
+        </DeleteOlderChoice>
       );
+    }
   }
 }
 
-/** A step of the act drawn in place, which takes focus and closes on Escape. */
-function ConfirmGroup(props: {
-  readonly label: string;
+/** The ages' words, as the age list reads them. */
+const DELETE_OLDER_THAN_WORDS: Readonly<Record<DeleteOlderThanDays, string>> = {
+  30: "30 days",
+  90: "90 days",
+  365: "a year",
+};
+
+/**
+ * The act drawn in place: the age list under `Older than`, which takes focus when it opens so the
+ * next key reaches it, and closes on Escape.
+ */
+function DeleteOlderChoice(props: {
+  readonly days: DeleteOlderThanDays;
+  readonly onChoose: (days: DeleteOlderThanDays) => void;
   readonly onCancel: () => void;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
+  const ageId = useId();
   const confirm = useInlineConfirm(props.onCancel);
   return (
     <div
       ref={confirm.ref}
       className="meridian-workflows-delete-older"
       role="group"
-      aria-label={props.label}
+      aria-label="Delete runs older than…"
       onKeyDown={confirm.onKeyDown}
     >
+      <label htmlFor={ageId}>Older than</label>
+      <select
+        id={ageId}
+        className="meridian-form__input"
+        value={props.days}
+        onChange={(event) => {
+          const days = DELETE_OLDER_THAN_DAYS.find(
+            (candidate) => String(candidate) === event.currentTarget.value,
+          );
+          if (days !== undefined) {
+            props.onChoose(days);
+          }
+        }}
+      >
+        {DELETE_OLDER_THAN_DAYS.map((days) => (
+          <option key={days} value={days}>
+            {DELETE_OLDER_THAN_WORDS[days]}
+          </option>
+        ))}
+      </select>
       {props.children}
     </div>
   );
-}
-
-/** The confirm's one sentence: what goes, and what stays and why. */
-function confirmSentence(
-  days: DeleteOlderThanDays,
-  preview: WorkflowRunsDeletePreviewResponse,
-): string {
-  const stays =
-    "A run marked Keep stays, and a run waiting on a person is never touched" +
-    (preview.keptCount + preview.waitingCount === 0
-      ? "."
-      : ` (${formatCount(preview.keptCount)} kept, ${formatCount(preview.waitingCount)} waiting).`);
-  return preview.deleteCount === 0
-    ? `No run older than ${daysWords(days)} can be deleted. ${stays}`
-    : `${deleteQuestion(preview.deleteCount, days)} Their steps and data go with them, and any ` +
-        `snapshot folders and repository pins they hold. ${stays} This cannot be undone.`;
-}
-
-function deleteQuestion(deleteCount: number, days: DeleteOlderThanDays): string {
-  return `Delete ${runCountWords(deleteCount)} older than ${daysWords(days)}?`;
-}
-
-function daysWords(days: DeleteOlderThanDays): string {
-  return `${formatCount(days)} days`;
 }

@@ -1,4 +1,4 @@
-// One definition's row in the Workflows tab's table.
+// One saved workflow's row in the Workflows tab's table.
 
 import "./DefinitionListItem.css";
 
@@ -24,27 +24,29 @@ export const DefinitionListItem: React.MemoExoticComponent<
 > = memo(function DefinitionListItem(props: DefinitionListItemProps): React.JSX.Element {
   const { definition, onOpenDefinition } = props;
   return (
-    <li className="meridian-definition-row">
-      {onOpenDefinition === undefined ? (
-        <span className="meridian-definition-row__name">{definition.name}</span>
-      ) : (
-        <button
-          type="button"
-          className="meridian-definition-row__name meridian-definition-row__open"
-          onClick={() => {
-            onOpenDefinition(definition);
-          }}
-        >
-          {definition.name}
-        </button>
-      )}
-      <span className="meridian-definition-row__version">
+    <tr>
+      <th scope="row" className="meridian-definition-row__name">
+        {onOpenDefinition === undefined ? (
+          definition.name
+        ) : (
+          <button
+            type="button"
+            className="meridian-definition-row__open"
+            onClick={() => {
+              onOpenDefinition(definition);
+            }}
+          >
+            {definition.name}
+          </button>
+        )}
+      </th>
+      <td className="meridian-definition-row__version">
         version{" "}
         <WireFigure
           value={formatCount(definition.latestVersionNumber)}
           title={`${definition.latestVersionNumber}`}
         />
-      </span>
-    </li>
+      </td>
+    </tr>
   );
 });

@@ -21,6 +21,8 @@ export interface PayloadRowWindowProps {
   readonly className: string;
   /** A row's height before it is measured, in CSS pixels; one line of small text when absent. */
   readonly estimateRowHeightPx?: (rowIndex: number) => number;
+  /** A key that stays with its row when rows before it are added; the row's index when absent. */
+  readonly rowKey?: (rowIndex: number) => number;
   readonly renderRow: (rowIndex: number) => React.ReactNode;
 }
 
@@ -35,6 +37,7 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
     estimateRowHeightPx: props.estimateRowHeightPx ?? (() => PAYLOAD_ROW_ESTIMATE_PX),
     overscanRows: PAYLOAD_WINDOW_OVERSCAN_ROWS,
     initialViewportHeightPx: PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX,
+    ...(props.rowKey === undefined ? {} : { rowKey: props.rowKey }),
   });
   const virtualRows = virtualizer.getVirtualItems();
   return (
@@ -52,7 +55,7 @@ export function PayloadRowWindow(props: PayloadRowWindowProps): React.JSX.Elemen
         <div style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}>
           {virtualRows.map((virtualRow) => (
             <div
-              key={virtualRow.index}
+              key={virtualRow.key}
               {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: virtualRow.index }}
               ref={virtualizer.measureElement}
               className="meridian-workflow-payload__row"
@@ -73,7 +76,7 @@ export const PAYLOAD_ROW_ESTIMATE_PX = 24;
 const PAYLOAD_WINDOW_OVERSCAN_ROWS = 8;
 
 /**
- * The viewport height assumed before the scroll box is measured. Near the box's largest height,
- * so the first frame draws about what the measured one will.
+ * The viewport height assumed before the scroll box is measured: the box's `60vh` cap in the
+ * 720 px tall window the app opens at, so the first frame draws about what the measured one will.
  */
-const PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX = 480;
+const PAYLOAD_VIEWPORT_FALLBACK_HEIGHT_PX = 432;

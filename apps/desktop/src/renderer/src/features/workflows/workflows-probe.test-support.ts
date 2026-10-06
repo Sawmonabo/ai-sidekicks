@@ -1,9 +1,9 @@
-// Shared by the workflows suites: the identities and a definition-row factory.
+// The accessibility tier's workflows mount: the session it addresses and a saved-workflow factory.
 
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
-/** The session every workflows suite addresses. */
+/** The session the workflows mount addresses. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
 /** One definition, as the enumeration carries it. Override only what a case asserts on. */

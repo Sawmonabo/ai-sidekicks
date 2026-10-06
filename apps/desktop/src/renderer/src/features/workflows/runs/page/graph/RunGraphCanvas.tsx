@@ -25,6 +25,7 @@ import { RunGraphNode } from "./RunGraphNode.js";
 import { useLiveStepFollow } from "./hooks/useLiveStepFollow.js";
 import { useRunGraphElements } from "./hooks/useRunGraphElements.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
+import { useInViewMarks } from "../../hooks/useInViewMarks.js";
 
 /** What the canvas draws: the workflow's document, the run's steps and counts, the selection. */
 export interface RunGraphCanvasProps {
@@ -84,6 +85,20 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     nowMs,
   );
   const follow = useLiveStepFollow(liveCenter, canvasRef);
+  const markInView = useInViewMarks();
+  // The canvas is held for the follow and marked in view or out of it, so the sheet holds its
+  // flowing edges still while it is scrolled away.
+  const attachCanvas = useCallback(
+    (element: HTMLDivElement | null) => {
+      canvasRef.current = element;
+      const unmark = markInView(element);
+      return () => {
+        canvasRef.current = null;
+        unmark?.();
+      };
+    },
+    [markInView],
+  );
   const { stopFollowing, revealPoint } = follow;
 
   const selectClickedNode = useCallback<NodeMouseHandler>(
@@ -120,7 +135,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
 
   return (
     <div
-      ref={canvasRef}
+      ref={attachCanvas}
       className="meridian-run-graph__canvas"
       onKeyDown={handleCanvasKey}
       onFocus={revealFocusedNode}

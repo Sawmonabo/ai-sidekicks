@@ -6,6 +6,7 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
@@ -21,12 +22,13 @@ import {
   createAttentionRead,
   createDefinitionListRead,
   createProviderAccountRead,
+  createRunCountRead,
   createRunListRead,
   type WorkflowReadSources,
 } from "../reading.js";
-import { nextWaitingTarget } from "../workflow-command-target.js";
+import type { WorkflowCommandTarget } from "../workflow-command-target.js";
 import { useWorkflowCommandTarget } from "./useWorkflowCommandTarget.js";
-import { useWorkflowAct, type WorkflowActState } from "./useWorkflowAct.js";
+import { useWorkflowCall, type WorkflowCallState } from "./useWorkflowCall.js";
 import { useWorkflowNoticeFeed } from "./useWorkflowNoticeFeed.js";
 import { useWorkflowRead } from "./useWorkflowRead.js";
 
@@ -48,6 +50,8 @@ export interface WorkflowsScreenHold {
   /** What the runs table asks for now; the answer drawn may still be for an earlier ask. */
   readonly listAsk: RunListAsk;
   readonly listState: PushDrivenReadState<RunListAnswer>;
+  /** How many runs there are under no filter, which the tab's count reads. */
+  readonly runCountState: PushDrivenReadState<number>;
   readonly readListAgain: () => void;
   /** Read one more page of older runs into the table. */
   readonly loadEarlierRuns: () => void;
@@ -61,10 +65,12 @@ export interface WorkflowsScreenHold {
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
   readonly accountLabel: (providerAccountId: string) => string | undefined;
+  /** An account as a spent line names it, `the Codex account Work`, while the accounts are read. */
+  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly nextWaiting: NextWaiting;
-  readonly pauseAct: WorkflowActState<WorkflowRunsPauseState>;
+  readonly pauseAct: WorkflowCallState<WorkflowRunsPauseState>;
   readonly setPaused: (paused: boolean) => void;
   /**
    * How many runs a person answered since this screen opened, each once, on their pages or on a
@@ -91,13 +97,17 @@ export interface WorkflowsScreenHold {
 
 /**
  * The workflows screen's state: the one notice feed, the runs list under the person's filters,
- * the attention list, the saved workflows and accounts the screen names, the start hold, and what
- * this sitting has answered. The reads live as long as the screen does, so the strip and the list
- * stay drawn while one run's page is open. Away from the Runs tab only the runs list is read, for
- * the tab's count: the stream, the attention list, the saved workflows and the accounts are opened
- * only while the Runs tab draws them.
+ * the count of every run, the attention list, the saved workflows and accounts the screen names,
+ * the start hold, and what this sitting has answered. The feed, the runs list and the count live
+ * as long as the screen does, so the strip and the list stay drawn while one run's page is open
+ * and moving between tabs never reads the list from nothing. The stream, the attention list, the
+ * saved workflows and the accounts are opened only while the Runs tab draws them. `nextWaitingAct`
+ * is the keyed `Next waiting` act the screen offers while mounted.
  */
-export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold {
+export function useWorkflowsScreen(
+  context: ScreenContext,
+  nextWaitingAct: WorkflowCommandTarget,
+): WorkflowsScreenHold {
   const { bridge, frameStore, uiStateStore, route } = context;
   const clock = useClock();
   const isOnRunsTab = route.kind === "workflows" && route.tab === "runs";
@@ -116,33 +126,48 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
   // One list read for the screen's life, asking what this ref holds when it reads: a new ask
   // refreshes it in place, so the rows already drawn stay until the new answer replaces them.
   const listAskRef = useRef(listAsk);
-  const listRead = useMemo(() => createRunListRead(sources, () => listAskRef.current), [sources]);
+  const { read: listRead, state: listState } = useWorkflowRead(bridge, sources, undefined, () =>
+    createRunListRead(sources, () => listAskRef.current),
+  );
   useEffect(() => {
     if (listAskRef.current === listAsk) {
       return;
     }
     listAskRef.current = listAsk;
-    listRead.refresh("user-request");
+    listRead?.refresh("user-request");
   }, [listAsk, listRead]);
-  const listState = useWorkflowRead(listRead, bridge);
-  const attentionRead = useMemo(
+  // The count of every run, apart from the filtered list, so the tab's count never moves under
+  // the filters.
+  const { state: runCountState } = useWorkflowRead(bridge, sources, undefined, () =>
+    createRunCountRead(sources),
+  );
+  // Read only while the Runs tab draws them; the key moving opens or drops each one.
+  const runsTabKey = isOnRunsTab ? RUNS_TAB_KEY : undefined;
+  const { read: attentionRead, state: attentionState } = useWorkflowRead(
+    bridge,
+    sources,
+    runsTabKey,
     () => (isOnRunsTab ? createAttentionRead(sources) : undefined),
-    [isOnRunsTab, sources],
   );
-  const attentionState = useWorkflowRead(attentionRead, bridge);
-  const definitionsRead = useMemo(
-    () => (isOnRunsTab ? createDefinitionListRead(sources) : undefined),
-    [isOnRunsTab, sources],
+  const { state: definitionsState } = useWorkflowRead(bridge, sources, runsTabKey, () =>
+    isOnRunsTab ? createDefinitionListRead(sources) : undefined,
   );
-  const definitionsState = useWorkflowRead(definitionsRead, bridge);
-  const accountsRead = useMemo(
-    () => (isOnRunsTab ? createProviderAccountRead(bridge, clock) : undefined),
-    [isOnRunsTab, bridge, clock],
+  const { state: accountsState } = useWorkflowRead(bridge, sources, runsTabKey, () =>
+    isOnRunsTab ? createProviderAccountRead(bridge, clock) : undefined,
   );
-  const accountsState = useWorkflowRead(accountsRead, bridge);
 
   const openRunId = workflowsRunId(route);
+  // `That run is not here.` stands on the list the missing run's address fell back to, and goes
+  // as soon as the screen moves anywhere else: a run opened by any route, or another tab.
   const [missingRun, setMissingRun] = useState(false);
+  const routePlace = `${String(isOnRunsTab)}/${openRunId ?? ""}`;
+  const [shownPlace, setShownPlace] = useState(routePlace);
+  if (shownPlace !== routePlace) {
+    setShownPlace(routePlace);
+    if (missingRun && (openRunId !== undefined || !isOnRunsTab)) {
+      setMissingRun(false);
+    }
+  }
   const [answeredRunIds, setAnsweredRunIds] = useState<ReadonlySet<string>>(() => new Set());
   const countAnswered = useCallback((workflowRunId: string) => {
     setAnsweredRunIds((runIds) =>
@@ -161,13 +186,25 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
     [feed, countAnswered],
   );
 
-  const accountLabel = useCallback(
+  const accountFor = useCallback(
     (providerAccountId: string) =>
       accountsState.kind === "loaded"
         ? accountsState.value.accounts.find((account) => account.accountId === providerAccountId)
-            ?.displayLabel
         : undefined,
     [accountsState],
+  );
+  const accountLabel = useCallback(
+    (providerAccountId: string) => accountFor(providerAccountId)?.displayLabel,
+    [accountFor],
+  );
+  const accountNameFor = useCallback(
+    (providerAccountId: string) => {
+      const account = accountFor(providerAccountId);
+      return account === undefined
+        ? undefined
+        : `the ${PROVIDER_LABELS[account.provider]} account ${account.displayLabel}`;
+    },
+    [accountFor],
   );
   const definitions = useMemo(
     () => (definitionsState.kind === "loaded" ? definitionsState.value.definitions : []),
@@ -180,7 +217,6 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
   );
   const openRun = useCallback(
     (workflowRunId: string) => {
-      setMissingRun(false);
       frameStore.navigate(workflowRunsRoute(workflowRunId));
     },
     [frameStore],
@@ -240,12 +276,12 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
       countAnswered(openRunId);
     }
   }, [openRunId, countAnswered]);
-  const pause = useWorkflowAct((paused: boolean) =>
+  const pause = useWorkflowCall((paused: boolean) =>
     callDaemon(bridge, "workflow.runsPauseSet", { paused }),
   );
 
   const nextWaiting = nextWaitingOf(attentionState, openRunId);
-  useWorkflowCommandTarget(nextWaitingTarget, () => {
+  useWorkflowCommandTarget(nextWaitingAct, () => {
     if (!isOnRunsTab) {
       return RUNS_TAB_NOT_OPEN_REFUSAL;
     }
@@ -268,8 +304,9 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
     feedState,
     listAsk,
     listState,
+    runCountState,
     readListAgain: () => {
-      listRead.refresh("user-request");
+      listRead?.refresh("user-request");
     },
     loadEarlierRuns: () => {
       setPagesAsked({ filters: filters.filters, pageCount: pageCount + 1 });
@@ -287,6 +324,7 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
           : undefined,
     filters,
     accountLabel,
+    accountNameFor,
     definitionNameFor,
     nextWaiting,
     pauseAct: pause.state,
@@ -304,12 +342,11 @@ export function useWorkflowsScreen(context: ScreenContext): WorkflowsScreenHold 
   };
 }
 
+/** The key the reads only the Runs tab draws are held under while it is open. */
+const RUNS_TAB_KEY = "runs-tab";
+
 /** What `Next waiting` says when no run waits on a person. */
-const NOTHING_WAITING_REFUSAL = refuse(
-  "workflows",
-  "workflows.nothing_waiting",
-  "Nothing is waiting on you.",
-);
+const NOTHING_WAITING_REFUSAL = refuse("workflows", "workflows.nothing_waiting", "Nothing waiting");
 
 /** What `Next waiting` says away from the Runs tab, where what is waiting is not read. */
 const RUNS_TAB_NOT_OPEN_REFUSAL = refuse(

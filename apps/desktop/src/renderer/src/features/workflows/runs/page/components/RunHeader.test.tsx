@@ -6,7 +6,7 @@
 // never reaches the daemon, a failed run parked on its step offers Resume and Cancel and one that
 // ended refuses both; Re-run asks the daemon to re-run that very run and opens the run it
 // starts; and only a finished run opens Review, on its own start and end snapshots,
-// its door staying in place saying why when the end snapshot could not be taken.
+// `Open in Review` staying in place saying why when the end snapshot could not be taken.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -68,6 +68,7 @@ function renderHeader(
       workflowName="Nightly digest"
       versionNumber={2}
       nodeKind={nodeKind}
+      nodeName={(nodeId) => nodeId}
       accountLabel={() => undefined}
       bridge={bridge}
       onOpenRun={(workflowRunId) => {
@@ -108,10 +109,10 @@ describe("a run's header", () => {
     renderHeader(run, [], [], undefined, new ManualClock(dayBeforeMs));
 
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The run step is waiting on a spent account",
+      "The run step is waiting on a spent account.",
     );
+    expect(screen.getByText("Nothing until the account can run again.")).toBeDefined();
     const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs);
-    expect(screen.getByText(`It resumes itself at ${resumes}, or press Resume`)).toBeDefined();
     expect(screen.getByText(`resumes itself at ${resumes}`)).toBeDefined();
     cleanup();
 
@@ -121,7 +122,6 @@ describe("a run's header", () => {
       ...run,
       steps: run.steps.map((step) => (step === waiting ? unarmed : step)),
     });
-    expect(screen.getByText("Awaiting resume — no instant is armed.")).toBeDefined();
     expect(screen.getByText("awaiting resume — no instant is armed")).toBeDefined();
     cleanup();
 
@@ -141,9 +141,9 @@ describe("a run's header", () => {
     const failed = fixtureRun(WORKFLOW_RUN_IDS.failed);
     renderHeader(failed);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The run tests step failed twice",
+      "The run tests step failed twice.",
     );
-    expect(screen.getByText("Fix it and press Resume, or cancel the run")).toBeDefined();
+    expect(screen.getByText("Fix it and press Resume, or cancel the run.")).toBeDefined();
     cleanup();
 
     const timedOut: WorkflowRunReadResponse = {
@@ -160,12 +160,16 @@ describe("a run's header", () => {
     };
     renderHeader(timedOut);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The approval step timed out",
+      "The approval step timed out.",
     );
+    // A person's wait that ran out is waited on again, not fixed.
+    expect(
+      screen.getByText("Press Retry from this step to wait for your answer again."),
+    ).toBeDefined();
     cleanup();
 
     renderHeader(failed, [], [], () => undefined);
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("A step failed twice");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("A step failed twice.");
   });
 
   it("reads a going run's time so far each second, and a finished run's duration", async () => {
@@ -195,7 +199,7 @@ describe("a run's header", () => {
       WORKFLOW_FIXTURE_NOW_MS,
     )}`;
     const startedBy = screen.getByText("Started by", { selector: "dt" }).nextElementSibling;
-    expect(startedBy?.textContent).toBe(`A file event · ${chainLink}`);
+    expect(startedBy?.textContent).toBe(`a file event · ${chainLink}`);
     fireEvent.click(screen.getByRole("button", { name: chainLink }));
     expect(openedRuns).toStrictEqual([chained.chainRoot.runId]);
   });
@@ -206,9 +210,9 @@ describe("a run's header", () => {
     const endedResume = control("Resume");
     expect(endedCancel).toHaveProperty("disabled", true);
     expect(endedCancel.getAttribute("aria-describedby")).not.toBeNull();
-    expect(screen.getByText("This run has already ended.")).toBeDefined();
+    expect(screen.getByText("Cancel · this run has already finished")).toBeDefined();
     expect(endedResume).toHaveProperty("disabled", true);
-    expect(screen.getByText("This run has ended.")).toBeDefined();
+    expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     // A new run of the pinned version can start beside a run in any state.
     expect(control("Re-run")).toHaveProperty("disabled", false);
     fireEvent.click(endedCancel);
@@ -218,7 +222,7 @@ describe("a run's header", () => {
 
     const goingCalls = renderHeader(fixtureRun(WORKFLOW_RUN_IDS.running)).calls;
     expect(control("Resume")).toHaveProperty("disabled", true);
-    expect(screen.getByText("This run is not waiting on anything.")).toBeDefined();
+    expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
     expect(goingCalls.map((call) => call.method)).toStrictEqual(["workflow.runCancel"]);
@@ -239,8 +243,8 @@ describe("a run's header", () => {
     const endedFailedCalls = renderHeader({ ...parked, endedAt: parked.startedAt }).calls;
     expect(control("Resume")).toHaveProperty("disabled", true);
     expect(control("Cancel")).toHaveProperty("disabled", true);
-    expect(screen.getByText("This run has ended.")).toBeDefined();
-    expect(screen.getByText("This run has already ended.")).toBeDefined();
+    expect(screen.getByText("Resume · this run is not parked")).toBeDefined();
+    expect(screen.getByText("Cancel · this run has already finished")).toBeDefined();
     fireEvent.click(control("Resume"));
     fireEvent.click(control("Cancel"));
     expect(endedFailedCalls.map((call) => call.method)).toStrictEqual([]);
@@ -280,10 +284,10 @@ describe("a run's header", () => {
       { ...fixtureRun(WORKFLOW_RUN_IDS.succeeded), review: { state: "missing", reason } },
       reviews,
     );
-    const door = control("Open in Review");
-    expect(door).toHaveProperty("disabled", true);
+    const openInReview = control("Open in Review");
+    expect(openInReview).toHaveProperty("disabled", true);
     expect(screen.getByText(reason)).toBeDefined();
-    fireEvent.click(door);
+    fireEvent.click(openInReview);
     expect(reviews).toHaveLength(1);
   });
 });

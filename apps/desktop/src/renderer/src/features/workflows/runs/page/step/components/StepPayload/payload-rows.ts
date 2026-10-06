@@ -54,31 +54,43 @@ export type PayloadTableRow =
  * `src/__init__.py` is never read as emphasis. Any other string goes to the markdown parser: it
  * draws as markdown when the parser finds any (a heading, a list, code, emphasis, a link), and
  * otherwise as the text it is, line breaks kept. Item numbers count from 0, as an expression
- * reads them (`$input.all()[0]`), so an item's number and its pairing agree.
+ * reads them (`$input.all()[0]`), so an item's number and its pairing agree. A read replaces only
+ * its own string's row; every other row stays the object it was.
  */
 export class PayloadTableRows {
-  readonly #items: readonly WorkflowItem[];
   readonly #parseMarkdown: (text: string) => ParsedMarkdownDocument;
-  /** The strings to read as markdown or text, in the order the rows meet them. */
-  readonly #strings: string[] = [];
-  /** Each string read so far, by its place among `#strings`: markdown, or text. */
-  readonly #readings = new Map<number, ParsedMarkdownDocument | "text">();
-  #rows: readonly PayloadTableRow[];
+  /** Each string to read as markdown or text, with its place, in the order the rows meet them. */
+  readonly #strings: { readonly text: string; readonly place: PayloadValuePlace }[] = [];
+  /** Where each string's rows begin, by its place among `#strings`. */
+  readonly #stringRowStarts: number[] = [];
+  /** The strings read so far, by their place among `#strings`. */
+  readonly #readStrings = new Set<number>();
+  readonly #rows: PayloadTableRow[] = [];
+  /** Each row's key, given the first time it is asked for and kept while the row stands. */
+  readonly #rowKeys = new WeakMap<PayloadTableRow, number>();
+  #nextRowKey = 0;
 
   public constructor(
     items: readonly WorkflowItem[],
     parseMarkdown: (text: string) => ParsedMarkdownDocument,
   ) {
-    this.#items = items;
     this.#parseMarkdown = parseMarkdown;
-    for (const item of items) {
-      forEachValue(item.json, (value) => {
-        if (isReadableString(value)) {
-          this.#strings.push(value);
+    items.forEach((item, index) => {
+      this.#rows.push({ kind: "item", heading: itemHeadWords(index, item) });
+      forEachValue(item.json, (value, place) => {
+        if (!isReadableString(value)) {
+          this.#rows.push({ kind: "value", place, text: valueText(value) });
+          return;
         }
+        const stringIndex = this.#strings.length;
+        this.#strings.push({ text: value, place });
+        this.#stringRowStarts.push(this.#rows.length);
+        this.#rows.push({ kind: "unread", place, stringIndex, lineCount: lineCountOf(value) });
       });
-    }
-    this.#rows = this.#buildRows();
+      for (const file of Object.values(item.binary ?? {})) {
+        this.#rows.push({ kind: "file", line: fileLine(file) });
+      }
+    });
   }
 
   /** The rows as far as the payload has been read. */
@@ -86,56 +98,54 @@ export class PayloadTableRows {
     return this.#rows;
   }
 
+  /**
+   * A key for the row at `rowIndex` that stays with that row while reads before it move it down,
+   * so the list window keeps each drawn row's measured height. `-1` past the last row.
+   */
+  public rowKey(rowIndex: number): number {
+    const row = this.#rows[rowIndex];
+    if (row === undefined) {
+      return -1;
+    }
+    let key = this.#rowKeys.get(row);
+    if (key === undefined) {
+      key = this.#nextRowKey;
+      this.#nextRowKey += 1;
+      this.#rowKeys.set(row, key);
+    }
+    return key;
+  }
+
   /** Read one drawn string as markdown or text. Answers whether the rows changed. */
   public readString(stringIndex: number): boolean {
-    if (this.#readings.has(stringIndex)) {
+    const string = this.#strings[stringIndex];
+    const start = this.#stringRowStarts[stringIndex];
+    if (string === undefined || start === undefined || this.#readStrings.has(stringIndex)) {
       return false;
     }
-    const text = this.#strings[stringIndex];
-    if (text === undefined) {
-      return false;
+    this.#readStrings.add(stringIndex);
+    const read = this.#readRows(string.text, string.place);
+    this.#rows.splice(start, 1, ...read);
+    // The strings after it begin as many rows later as this one grew.
+    for (let later = stringIndex + 1; later < this.#stringRowStarts.length; later += 1) {
+      this.#stringRowStarts[later] = (this.#stringRowStarts[later] ?? 0) + read.length - 1;
     }
-    const document = this.#parseMarkdown(text);
-    this.#readings.set(stringIndex, document.holdsMarkdown ? document : "text");
-    this.#rows = this.#buildRows();
     return true;
   }
 
-  #buildRows(): PayloadTableRow[] {
-    const rows: PayloadTableRow[] = [];
-    let stringIndex = 0;
-    const addValue = (value: unknown, place: PayloadValuePlace): void => {
-      if (!isReadableString(value)) {
-        rows.push({ kind: "value", place, text: valueText(value) });
-        return;
-      }
-      const reading = this.#readings.get(stringIndex);
-      if (reading === undefined) {
-        rows.push({ kind: "unread", place, stringIndex, lineCount: lineCountOf(value) });
-      } else if (reading === "text") {
-        rows.push({ kind: "value", place, text: value });
-      } else {
-        reading.rows.forEach((row, index) => {
-          rows.push({
-            kind: "markdown",
-            // The member is named once, beside the document's first row.
-            place:
-              index === 0 || place.kind === "whole" ? place : { kind: "member", key: undefined },
-            row,
-            context: reading.context,
-          });
-        });
-      }
-      stringIndex += 1;
-    };
-    this.#items.forEach((item, index) => {
-      rows.push({ kind: "item", heading: itemHeadWords(index, item) });
-      forEachValue(item.json, addValue);
-      for (const file of Object.values(item.binary ?? {})) {
-        rows.push({ kind: "file", line: fileLine(file) });
-      }
-    });
-    return rows;
+  /** A string's rows once read: one block of markdown to a row, or the text as one row. */
+  #readRows(text: string, place: PayloadValuePlace): PayloadTableRow[] {
+    const document = this.#parseMarkdown(text);
+    if (!document.holdsMarkdown) {
+      return [{ kind: "value", place, text }];
+    }
+    return document.rows.map((row, index) => ({
+      kind: "markdown",
+      // The member is named once, beside the document's first row.
+      place: index === 0 || place.kind === "whole" ? place : { kind: "member", key: undefined },
+      row,
+      context: document.context,
+    }));
   }
 }
 

@@ -9,7 +9,7 @@ import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { RunStatusChip } from "#renderer/features/workflows/components/RunStatusChip.js";
 import { useRunTimesNow } from "#renderer/features/workflows/hooks/useRunTimesNow.js";
-import { useWorkflowAct } from "#renderer/features/workflows/hooks/useWorkflowAct.js";
+import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { runDurationWords } from "../../duration.js";
 import { costWithPayer } from "../../cost.js";
 import { TRIGGER_KIND_WORDS, startedByWords } from "#renderer/features/workflows/words.js";
@@ -28,6 +28,8 @@ export interface RunHeaderProps {
   readonly versionNumber: number | undefined;
   /** A step's node kind in the pinned version, which names the step; `undefined` until read. */
   readonly nodeKind: (nodeId: string) => string | undefined;
+  /** A step's node name in the pinned version. */
+  readonly nodeName: (nodeId: string) => string;
   readonly accountLabel: (providerAccountId: string) => string | undefined;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
@@ -50,14 +52,14 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   const workflowRunId = run.workflowRunId;
   const { review, startedBy } = run;
   // The daemon starts the new run from this run's own version, input and mode.
-  const rerun = useWorkflowAct(
+  const rerun = useWorkflowCall(
     () => callDaemon(bridge, "workflow.runRerun", { workflowRunId }),
     (started) => {
       props.onOpenRun(started.workflowRunId);
     },
   );
-  const cancel = useWorkflowAct(() => callDaemon(bridge, "workflow.runCancel", { workflowRunId }));
-  const resume = useWorkflowAct(() => callDaemon(bridge, "workflow.runResume", { workflowRunId }));
+  const cancel = useWorkflowCall(() => callDaemon(bridge, "workflow.runCancel", { workflowRunId }));
+  const resume = useWorkflowCall(() => callDaemon(bridge, "workflow.runResume", { workflowRunId }));
   const isChained = run.chainRoot.runId !== workflowRunId;
   const isTicking = isGoing(run.state);
   // The day words move at midnight and a going run's time so far every second.
@@ -67,7 +69,11 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
     namesDays: true,
     isPartOfDayShown: false,
   });
-  const lines = runHeaderLines(run, props.nodeKind, nowMs);
+  const lines = runHeaderLines(run, {
+    nodeKind: props.nodeKind,
+    nodeName: props.nodeName,
+    workflowName: props.workflowName,
+  });
   const liveLine = runLiveLine(run, nowMs);
   const durationWords = runDurationUntil(run, isTicking, nowMs);
   const waiting = latestStepWith(run.steps, "waiting");
@@ -76,7 +82,9 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
   return (
     <header className="meridian-workflow-run__header">
       <div className="meridian-workflow-run__lines">
+        <span className="meridian-workflow-run__eyebrow">What happened</span>
         <h2 className="meridian-workflow-run__happened">{lines.happened}</h2>
+        <span className="meridian-workflow-run__eyebrow">What it needs</span>
         <p className="meridian-workflow-run__needs">{lines.needs}</p>
       </div>
       <dl className="meridian-workflow-run__facts">
@@ -110,7 +118,6 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
           ) : null}
         </Fact>
         <Fact term="Cost">{costWithPayer(run.cost, props.accountLabel)}</Fact>
-        {run.failureReason === undefined ? null : <Fact term="Reason">{run.failureReason}</Fact>}
       </dl>
       <div className="meridian-workflow-run__links">
         <HeaderLink
@@ -121,7 +128,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         />
         {startedBy.kind === "parentWorkflow" ? (
           <HeaderLink
-            label="Open the run that called it"
+            label="Open the parent run"
             onPress={() => {
               props.onOpenRun(startedBy.parentWorkflowRunId);
             }}
@@ -137,7 +144,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         ) : null}
         {run.fixSessionId === undefined ? null : (
           <HeaderLink
-            label="Open the fix session"
+            label={fixSessionLinkWords(run, props.nodeName)}
             onPress={() => {
               if (run.fixSessionId !== undefined) {
                 props.onOpenSession(run.fixSessionId);
@@ -172,18 +179,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
           }}
         />
         {review === undefined ? null : (
-          <OpenInReview
-            door={
-              review.state === "pinned"
-                ? {
-                    state: "pinned",
-                    from: { epoch: review.epoch, point: "start" },
-                    to: { epoch: review.epoch, point: "end" },
-                  }
-                : review
-            }
-            onOpenReview={props.onOpenReview}
-          />
+          <OpenInReview snapshots={review} onOpenReview={props.onOpenReview} />
         )}
       </div>
       {liveLine === undefined ? null : (
@@ -227,6 +223,20 @@ function HeaderLink(props: {
       {props.label}
     </button>
   );
+}
+
+/**
+ * The link to the session fixing a failed step, naming the step, which is the run's latest
+ * failure: a fix session is opened from a failed step, and its record stays on the run.
+ */
+function fixSessionLinkWords(
+  run: WorkflowRunReadResponse,
+  nodeName: (nodeId: string) => string,
+): string {
+  const fixed = latestStepWith(run.steps, "failed");
+  return fixed === undefined
+    ? "Open the fix session"
+    : `Open the session fixing ${nodeName(fixed.nodeId)}`;
 }
 
 /**

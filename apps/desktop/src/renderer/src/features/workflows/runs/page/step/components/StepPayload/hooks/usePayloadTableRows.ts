@@ -10,6 +10,8 @@ import { PayloadTableRows, type PayloadTableRow } from "../payload-rows.js";
 export interface PayloadTableRowsBinding {
   readonly rows: readonly PayloadTableRow[];
   readonly readString: (stringIndex: number) => void;
+  /** A key that stays with its row as reads before it add rows. */
+  readonly rowKey: (rowIndex: number) => number;
 }
 
 /**
@@ -32,5 +34,6 @@ export function usePayloadTableRows(items: readonly WorkflowItem[]): PayloadTabl
     },
     [model],
   );
-  return { rows: model.rows, readString };
+  const rowKey = useCallback((rowIndex: number) => model.rowKey(rowIndex), [model]);
+  return { rows: model.rows, readString, rowKey };
 }

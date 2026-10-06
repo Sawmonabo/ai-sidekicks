@@ -1,6 +1,6 @@
 // The reads the workflows screens draw from, each a `PushDrivenRead` refreshed by the one notice
-// feed: the runs table under its filters, the attention list, the saved workflows the filter
-// names, the accounts that pay, and one run's record. Every call goes through `callDaemon`, so
+// feed: the runs table under its filters, the count of every run, the attention list, the saved
+// workflows the filter names, the accounts that pay, and one run's record. Every call goes through `callDaemon`, so
 // each reply is parsed against its method's registered shape; a refusal rejects the read and
 // becomes its failed state.
 
@@ -31,6 +31,23 @@ export interface WorkflowReadSources {
   readonly bridge: PlatformBridge;
   readonly clock: Clock;
   readonly feed: WorkflowNoticeFeed;
+}
+
+/**
+ * How many runs there are under no filter at all, the figure the Runs tab's count reads, so what
+ * stands above the table never moves under its filters. One `workflow.runList` call asking for a
+ * single row answers it, since the reply carries the total, read again whenever any run moves.
+ */
+export function createRunCountRead(sources: WorkflowReadSources): PushDrivenRead<number> {
+  const { bridge, clock, feed } = sources;
+  return new PushDrivenRead({
+    clock,
+    origin: "workflow-run-count",
+    read: async (signal) =>
+      unwrapDaemonReply(await callDaemon(bridge, "workflow.runList", { limit: 1 }, { signal }))
+        .totalCount,
+    subscribe: (onChange) => feed.onRunSignal(onChange),
+  });
 }
 
 /**

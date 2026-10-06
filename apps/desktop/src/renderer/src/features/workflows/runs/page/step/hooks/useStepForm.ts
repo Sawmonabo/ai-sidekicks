@@ -13,9 +13,9 @@ import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import {
-  useWorkflowAct,
-  type WorkflowActState,
-} from "#renderer/features/workflows/hooks/useWorkflowAct.js";
+  useWorkflowCall,
+  type WorkflowCallState,
+} from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import {
   checkParamAnswers,
   draftParamAnswers,
@@ -38,7 +38,7 @@ export interface StepFormHold {
   readonly issues: ParamIssues;
   readonly changeAnswers: (next: ParamAnswers) => void;
   readonly submit: () => void;
-  readonly submitState: WorkflowActState<unknown>;
+  readonly submitState: WorkflowCallState<unknown>;
   /** A draft the daemon refused to save, said in place; typing goes on. */
   readonly draftRefusal: Refusal | undefined;
   readonly readAgain: () => void;
@@ -50,8 +50,8 @@ interface TypedAnswers {
   readonly answers: ParamAnswers;
 }
 
-/** How long typing rests before what was typed is saved to the daemon. */
-const DRAFT_SAVE_REST_MS = 600;
+/** How long typing rests before what was typed is saved to the daemon, in milliseconds. */
+export const DRAFT_SAVE_REST_MS = 600;
 
 /**
  * A step waiting on a form: the daemon's form read, the answers as they are typed, each saved to
@@ -169,7 +169,7 @@ export function useStepForm(
     [clock, form, saveDraft, typed],
   );
 
-  const submission = useWorkflowAct(
+  const submission = useWorkflowCall(
     (request: { readonly fields: Record<string, unknown>; readonly expectedRevision: number }) =>
       callDaemon(bridge, "workflow.humanFormSubmit", { ...stepKey, ...request }),
     (submitted) => {

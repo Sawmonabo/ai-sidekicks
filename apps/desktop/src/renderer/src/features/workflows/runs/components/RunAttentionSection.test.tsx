@@ -60,14 +60,14 @@ const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
     waitingOnPersonCount: 2,
   });
 
-const ACCOUNT_LABELS: Readonly<Record<string, string>> = { "pa-0001": "Work account" };
+const ACCOUNT_NAMES: Readonly<Record<string, string>> = { "pa-0001": "the Codex account Work" };
 
 describe("the attention list", () => {
   it("draws the daemon's account and run lines in the order the daemon gave them", () => {
     render(
       <RunAttentionSection
         state={{ kind: "loaded", value: DAEMON_GROUPING }}
-        accountLabel={(providerAccountId) => ACCOUNT_LABELS[providerAccountId]}
+        accountNameFor={(providerAccountId) => ACCOUNT_NAMES[providerAccountId]}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
         clock={new ManualClock(NOW_MS)}
@@ -79,8 +79,10 @@ describe("the attention list", () => {
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);
     expect(lines).toStrictEqual([
       // An account no label is known for is named by its id rather than dropped.
-      "pa-0002 is spent: 1 run is parked on it. Awaiting resume — no instant is armed.",
-      `Work account is spent: 3 runs are parked on it. Resumes ${formatDayClock(RESUME_AT, NOW_MS)}.`,
+      "1 run is parked on pa-0002 is spent — one entry, 1 affected run. " +
+        "Awaiting resume — no instant is armed.",
+      "3 runs are parked on the Codex account Work is spent — one entry, 3 affected runs. " +
+        `Resumes ${formatDayClock(RESUME_AT, NOW_MS)}.`,
       `Release · waiting on your approval · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
       "Weekly notes · waiting on your answer to a form · since 8:30 AM",
     ]);
@@ -91,7 +93,7 @@ describe("the attention list", () => {
     const section = (state: React.ComponentProps<typeof RunAttentionSection>["state"]) => (
       <RunAttentionSection
         state={state}
-        accountLabel={() => undefined}
+        accountNameFor={() => undefined}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
         clock={clock}

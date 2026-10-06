@@ -1,7 +1,7 @@
 // A run's page under the window's route: a failed run opens on its failed step's error, Escape
 // closes the step panel before it leaves for the list and leaves a text field's Escape alone,
-// `Answer this run` refuses on a run that waits on no one here, and a reply wait answered through
-// its session's card gives way to the receipt here too, since both doors answer one question.
+// `Answer this run` refuses on a run that waits on no one here, and a reply wait answered on this
+// page or through its session's card gives way to its receipt, since both answer one question.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,8 +13,12 @@ import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "#fixtures/data/workfl
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import { answerThisRunTarget } from "../../workflow-command-target.js";
-import { mountWorkflowsScreen, navigate, openRunId } from "../../WorkflowsScreen.test-support.js";
+import {
+  mountWorkflowsScreen,
+  navigate,
+  openRunId,
+  press,
+} from "../../WorkflowsScreen.test-support.js";
 
 afterEach(cleanup);
 
@@ -85,7 +89,7 @@ describe("a run's page", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("heading", { level: 2 })).toBeDefined();
     });
-    expect(answerThisRunTarget.press(document)).toMatchObject({
+    expect(mounted.commandTargets.answerThisRun.press(document)).toMatchObject({
       code: "workflows.nothing_to_answer",
     });
     expect(stepPanel()).toBeNull();
@@ -93,23 +97,48 @@ describe("a run's page", () => {
     // A run held behind another run's chain question is answered there, not here.
     await navigate(mounted, workflowRunsRoute(WORKFLOW_RUN_IDS.chainHeld));
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText(/held behind its chain/u)).toBeDefined();
+      expect(screen.getByText(/holding its next run behind the chain's question/u)).toBeDefined();
     });
-    expect(answerThisRunTarget.press(document)).toMatchObject({
+    expect(mounted.commandTargets.answerThisRun.press(document)).toMatchObject({
       code: "workflows.nothing_to_answer",
     });
     mounted.unmount();
   });
 
-  it("replaces a reply wait with its receipt when its session's card answers the question", async () => {
+  it("settles a reply wait with its receipt through either answer: this page's or its session card's", async () => {
+    // Answered here: the reply goes to the session's question, and the receipt stands in its place.
+    const answeredHere = await mountWorkflowsScreen({
+      route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingReply),
+    });
+    await advanceScenarioUntil(answeredHere.engine, () => {
+      expect(screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt)).toBeDefined();
+    });
+    fireEvent.change(screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt), {
+      target: { value: "needs-triage" },
+    });
+    await press("Answer");
+    await advanceScenarioUntil(answeredHere.engine, () => {
+      expect(screen.getByText(/^Answered at /u)).toBeDefined();
+    });
+    expect(answeredHere.calls.filter((call) => call.method === "question.resolve")).toStrictEqual([
+      {
+        method: "question.resolve",
+        params: {
+          questionId: WORKFLOW_REPLY_QUESTION.questionId,
+          answers: [{ kind: "typed", text: "needs-triage" }],
+        },
+      },
+    ]);
+    expect(screen.queryByLabelText(WORKFLOW_REPLY_QUESTION.prompt)).toBeNull();
+    answeredHere.unmount();
+
+    // Answered on the session's card: the same question record, through the same daemon.
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingReply),
     });
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt)).toBeDefined();
     });
-
-    // The session's card answers the same question record, through the same daemon.
     await act(async () => {
       void mounted.bridge.daemon.call("question.resolve", {
         questionId: WORKFLOW_REPLY_QUESTION.questionId,

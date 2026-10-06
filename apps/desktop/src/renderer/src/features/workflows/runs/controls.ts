@@ -74,19 +74,21 @@ function isParked(run: WorkflowRunReadResponse): boolean {
 }
 
 function cancelAvailability(run: WorkflowRunReadResponse): RunControlAvailability {
-  if (isGoing(run.state) || isParked(run)) {
-    return ALLOWED;
-  }
-  return run.state === "canceled"
-    ? { kind: "refused", reason: "This run is already canceled." }
-    : { kind: "refused", reason: "This run has already ended." };
+  return isGoing(run.state) || isParked(run) ? ALLOWED : CANCEL_REFUSED;
 }
 
 function resumeAvailability(run: WorkflowRunReadResponse): RunControlAvailability {
-  if (isParked(run)) {
-    return ALLOWED;
-  }
-  return isGoing(run.state)
-    ? { kind: "refused", reason: "This run is not waiting on anything." }
-    : { kind: "refused", reason: "This run has ended." };
+  return isParked(run) ? ALLOWED : RESUME_REFUSED;
 }
+
+/** Why `Cancel` cannot act on a run that has finished, canceled or not. */
+const CANCEL_REFUSED: RunControlAvailability = {
+  kind: "refused",
+  reason: "Cancel · this run has already finished",
+};
+
+/** Why `Resume` cannot act on a run that is not parked, going or ended. */
+const RESUME_REFUSED: RunControlAvailability = {
+  kind: "refused",
+  reason: "Resume · this run is not parked",
+};

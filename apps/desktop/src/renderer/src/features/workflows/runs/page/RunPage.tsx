@@ -2,6 +2,8 @@
 // step is picked. Everything the run has to say is in one of the three, and picking a step
 // replaces what the panel holds rather than making the page longer.
 
+import "./RunPage.css";
+
 import { useRef } from "react";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
@@ -20,6 +22,7 @@ import { ChainQuestion } from "./components/ChainQuestion.js";
 import { RunHeader } from "./components/RunHeader.js";
 import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
+import { findDocumentNode } from "./document-node.js";
 import { RunGraph } from "./graph/RunGraph.js";
 import { ActionButton } from "../../components/ActionButton.js";
 
@@ -86,7 +89,9 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
   const run = runState.value;
   const documentRead = page.document.read;
   const document = documentRead.kind === "read" ? documentRead.document : undefined;
-  const nodeName = nodeNamer(document);
+  const nodeKind = (nodeId: string): string | undefined => findDocumentNode(document, nodeId)?.kind;
+  // Until the document is read a step goes by its node id.
+  const nodeName = (nodeId: string): string => findDocumentNode(document, nodeId)?.name ?? nodeId;
   const openReview = (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint): void => {
     props.onOpenReview({ sessionId: run.sessionId, workflowRunId: run.workflowRunId, from, to });
   };
@@ -109,7 +114,8 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         run={run}
         workflowName={workflowNameOf(run, props.definitionNameFor(run.definitionId), document)}
         versionNumber={documentRead.kind === "read" ? documentRead.versionNumber : undefined}
-        nodeKind={nodeKindOf(document)}
+        nodeKind={nodeKind}
+        nodeName={nodeName}
         accountLabel={props.accountLabel}
         bridge={props.sources.bridge}
         onOpenRun={props.onOpenRun}
@@ -157,6 +163,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
             run={run}
             document={document}
             nodeId={page.selectedNodeId}
+            nodeKind={nodeKind}
             nodeName={nodeName}
             accountLabel={props.accountLabel}
             bridge={props.sources.bridge}
@@ -178,27 +185,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
 
 function TryAgain(props: { readonly onPress: () => void }): React.JSX.Element {
   return <ActionButton onClick={props.onPress}>Try again</ActionButton>;
-}
-
-/** A step's kind from the pinned document, or `undefined` until the document is read. */
-function nodeKindOf(
-  document: WorkflowDocument | undefined,
-): (nodeId: string) => string | undefined {
-  return (nodeId) =>
-    document === undefined
-      ? undefined
-      : [document.trigger, ...document.nodes].find((candidate) => candidate.id === nodeId)?.kind;
-}
-
-/** A step's name from the pinned document, or its node id until the document is read. */
-function nodeNamer(document: WorkflowDocument | undefined): (nodeId: string) => string {
-  return (nodeId) => {
-    if (document === undefined) {
-      return nodeId;
-    }
-    const node = [document.trigger, ...document.nodes].find((candidate) => candidate.id === nodeId);
-    return node?.name ?? nodeId;
-  };
 }
 
 /**

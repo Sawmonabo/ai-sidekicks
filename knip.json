@@ -160,7 +160,7 @@
         "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
         "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
         "src/renderer/src/features/composer/attachments/composer-attachment-chip.ts",
-        // The definitions a `/workflow start` name autocompletes over.
+        // The definitions a `/workflow run` name autocompletes over.
         "src/renderer/src/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",

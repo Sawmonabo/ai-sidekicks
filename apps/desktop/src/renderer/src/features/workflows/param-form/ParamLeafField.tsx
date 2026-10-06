@@ -1,8 +1,17 @@
 // One leaf parameter drawn as the control its type calls for, with its label, help line and
 // issue. A number keeps the typed text and a select stores the option's real value; turning
-// either into what is sent is the check's job.
+// either into what is sent is the check's job. A path is never typed: `Browse…` opens the
+// platform's folder chooser, and the answer is the token it hands back, since the page never
+// holds a path.
+
+import { useState } from "react";
 
 import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow/kind";
+
+import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { FilePathRef } from "#shared/preload-api.js";
+import { ActionButton } from "../components/ActionButton.js";
 
 /** What the form hands one leaf field. */
 export interface ParamLeafFieldProps {
@@ -14,6 +23,11 @@ export interface ParamLeafFieldProps {
   readonly isDisabled: boolean;
   /** The control's id; the help line and issue take it as their prefix. */
   readonly controlId: string;
+  /**
+   * Open the platform's folder chooser: the picked folder's token, or `null` when the person
+   * canceled. A path field's `Browse…` presses it.
+   */
+  readonly pickFolder: () => Promise<FilePathRef | null>;
 }
 
 /** A labeled control for one leaf parameter, its help under it and any issue below that. */
@@ -78,13 +92,13 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
   }
 
   if (field.type === "path") {
-    // A path is never typed: it is picked through the platform's folder chooser, and no text box
-    // stands in for that chooser.
+    const labelId = `${controlId}-label`;
     return (
       <div className="meridian-workflow-param-form__field meridian-form__field">
-        <span className="meridian-form__label">
+        <span id={labelId} className="meridian-form__label">
           <FieldLabelText field={field} />
         </span>
+        <FolderPicker {...props} labelId={labelId} describedBy={describedBy} />
         {notes}
       </div>
     );
@@ -196,6 +210,56 @@ function FieldControl(
     />
   );
 }
+
+// While the chooser is open the button waits; a chooser that could not open says why beside it.
+function FolderPicker(
+  props: ParamLeafFieldProps & {
+    readonly labelId: string;
+    readonly describedBy: string | undefined;
+  },
+): React.JSX.Element {
+  const [isChoosing, setIsChoosing] = useState(false);
+  const [refusal, setRefusal] = useState<Refusal | undefined>(undefined);
+  const { onAnswerChange, pickFolder } = props;
+  const browse = (): void => {
+    setIsChoosing(true);
+    setRefusal(undefined);
+    pickFolder().then(
+      (folder) => {
+        setIsChoosing(false);
+        if (folder !== null) {
+          onAnswerChange(folder);
+        }
+      },
+      (failure: unknown) => {
+        setIsChoosing(false);
+        setRefusal(failure instanceof RefusalError ? failure.refusal : FOLDER_CHOOSER_FAILED);
+      },
+    );
+  };
+  return (
+    <div className="meridian-workflow-param-form__choice">
+      <ActionButton
+        id={props.controlId}
+        aria-labelledby={`${props.labelId} ${props.controlId}`}
+        aria-describedby={props.describedBy}
+        aria-invalid={props.issue === undefined ? undefined : true}
+        disabled={props.isDisabled || isChoosing}
+        onClick={browse}
+      >
+        Browse…
+      </ActionButton>
+      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+    </div>
+  );
+}
+
+/** What `Browse…` says when main could not show the folder chooser and named no reason. */
+const FOLDER_CHOOSER_FAILED = refuse(
+  "workflows",
+  "workflows.folder_chooser_failed",
+  "The folder chooser could not open.",
+);
 
 function MultiselectChoices(props: ParamLeafFieldProps): React.JSX.Element {
   const options = props.field.options ?? [];

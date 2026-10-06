@@ -69,7 +69,7 @@ const ROW_HEIGHT_PX = 24;
 function renderPayload(view: StepPayloadView, items: WorkflowItem[] = ITEMS): HTMLElement {
   render(
     <LiveAnnouncerProvider>
-      <StepPayload payload={{ kind: "inline", items }} view={view} label={LABEL} />
+      <StepPayload items={items} storage={{ kind: "inline" }} view={view} label={LABEL} />
     </LiveAnnouncerProvider>,
     { wrapper: liveBridgeWrapper() },
   );

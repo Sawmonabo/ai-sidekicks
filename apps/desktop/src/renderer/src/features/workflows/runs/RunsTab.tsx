@@ -1,10 +1,11 @@
 // The Runs tab's list: the attention section, the four filters, the note that the list is live
 // while the workflow stream is open, `Delete runs older than…` and the runs table. A filter set
-// matching nothing is not an empty list: the table gives way to a note in the filters' own words
-// with `Clear filters`, and `No runs yet` stands only when there is no run and no filter on. The
-// table reads a page at a time, `Load earlier` at its foot reading the next, and a change of
-// filters keeps the rows drawn until the new answer replaces them. A page `Load earlier` could
-// not read keeps the rows above it, with its error and `Try again` below them.
+// matching nothing is not an empty list: the table gives way to a note in the filters' own words,
+// with `Clear filters` where the filters differ from the ones the tab opens on, and `No runs yet`
+// stands only when there is no run at all. The table reads a page at a time, `Load earlier` at
+// its foot reading the next, and a change of filters keeps the rows drawn until the new answer
+// replaces them. A page `Load earlier` could not read keeps the rows above it, with its error and
+// `Try again` below them.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
@@ -39,6 +40,8 @@ export interface RunsTabProps {
   /** What the table asks for now; the answer drawn may still be for an earlier ask. */
   readonly listAsk: RunListAsk;
   readonly listState: PushDrivenReadState<RunListAnswer>;
+  /** How many runs there are under no filter; `No runs yet` stands only on zero. */
+  readonly runCountState: PushDrivenReadState<number>;
   readonly readListAgain: () => void;
   readonly onLoadEarlier: () => void;
   readonly attentionState: PushDrivenReadState<WorkflowRunAttentionListResponse>;
@@ -48,6 +51,8 @@ export interface RunsTabProps {
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
   readonly accountLabel: (providerAccountId: string) => string | undefined;
+  /** An account as a spent line names it, while the accounts are read. */
+  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** How many runs a person answered since this screen opened. */
@@ -62,7 +67,7 @@ export interface RunsTabProps {
 export function RunsTab(props: RunsTabProps): React.JSX.Element {
   const { filters, listState, attentionState } = props;
   const clock = useClock();
-  useSettlementAnnouncement(runsSettlementSentence(listState));
+  useSettlementAnnouncement(runsSettlementSentence(listState, props.runCountState));
   const attentionEntries =
     attentionState.kind === "loaded" ? attentionState.value.entries : NO_ATTENTION_ENTRIES;
   const runs = listState.kind === "loaded" ? listState.value.response.runs : NO_RUNS;
@@ -83,7 +88,7 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
       <RunAttentionSection
         state={attentionState}
         readAgain={props.readAttentionAgain}
-        accountLabel={props.accountLabel}
+        accountNameFor={props.accountNameFor}
         onOpenRun={props.onOpenRun}
         nowMs={nowMs}
         clock={clock}
@@ -93,6 +98,9 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
         <RunFilterBar
           filters={filters.filters}
           definitions={props.definitions}
+          filteredWorkflowName={
+            runs.find((run) => run.definitionId === filters.filters.definitionId)?.definitionName
+          }
           onChange={filters.setFilters}
         />
         <span className="meridian-workflows-runs__toolbar-end">
@@ -152,6 +160,7 @@ function RunsList(
           accountLabel={props.accountLabel}
           bridge={props.bridge}
           onOpenRun={props.onOpenRun}
+          onRunDeleted={props.readListAgain}
           nowMs={props.nowMs}
         />
         {listState.value.earlierRefusal === undefined ? (
@@ -172,14 +181,22 @@ function RunsList(
       </div>
     );
   }
-  if (hasRunFilters(ask.filters)) {
-    const definitionId = ask.filters.definitionId;
-    const workflowName = props.definitions.find(
-      (definition) => definition.id === definitionId,
-    )?.name;
+  if (isWithoutRuns(props.runCountState)) {
     return (
-      <div className="meridian-workflows-runs__no-match" role="status" aria-busy={isReplacing}>
-        <p>{noRunMatchSentence(ask.filters, workflowName)}</p>
+      <Nothing
+        kind="empty"
+        placement="block"
+        title="No runs yet"
+        detail="A run appears here the moment a workflow starts."
+      />
+    );
+  }
+  const definitionId = ask.filters.definitionId;
+  const workflowName = props.definitions.find((definition) => definition.id === definitionId)?.name;
+  return (
+    <div className="meridian-workflows-runs__no-match" role="status" aria-busy={isReplacing}>
+      <p>{noRunMatchSentence(ask.filters, workflowName)}</p>
+      {hasRunFilters(ask.filters) ? (
         <ActionButton
           onClick={() => {
             filters.setFilters(NO_RUN_FILTERS);
@@ -187,35 +204,36 @@ function RunsList(
         >
           Clear filters
         </ActionButton>
-      </div>
-    );
-  }
-  return (
-    <Nothing
-      kind="empty"
-      placement="block"
-      title="No runs yet"
-      detail="A run appears here the moment a workflow starts."
-    />
+      ) : null}
+    </div>
   );
 }
 
+/** Whether the daemon holds no run at all, as the count of every run reads it. */
+function isWithoutRuns(runCountState: PushDrivenReadState<number>): boolean {
+  return runCountState.kind === "loaded" && runCountState.value === 0;
+}
+
 /**
- * What a screen reader hears once the runs are read: how many are listed, `No runs yet`, or why
- * they could not be read. A filter matching nothing says so in its own status line instead.
+ * What a screen reader hears once the runs are read: how many are listed, `No runs yet` where
+ * there is no run at all, or why they could not be read. A filter matching nothing says so in its
+ * own status line instead.
  */
-function runsSettlementSentence(listState: PushDrivenReadState<RunListAnswer>): string | undefined {
+function runsSettlementSentence(
+  listState: PushDrivenReadState<RunListAnswer>,
+  runCountState: PushDrivenReadState<number>,
+): string | undefined {
   switch (listState.kind) {
     case "not-loaded":
       return undefined;
     case "failed":
       return listState.refusal.detail;
     case "loaded": {
-      const { ask, response } = listState.value;
+      const { response } = listState.value;
       if (response.runs.length > 0) {
         return `${runCountWords(response.totalCount)} listed.`;
       }
-      return hasRunFilters(ask.filters) ? undefined : "No runs yet";
+      return isWithoutRuns(runCountState) ? "No runs yet" : undefined;
     }
   }
 }

@@ -31,14 +31,20 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { WindowStore } from "#renderer/store/window/window-store.js";
+import {
+  createWorkflowCommandTargets,
+  type WorkflowCommandTargets,
+} from "./workflow-command-target.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
- * A mounted workflows screen: the window store it routes by, what it asked the daemon, and the
- * bridge it asks through, which another door onto the same daemon (a session's card) may use too.
+ * A mounted workflows screen: the window store it routes by, what it asked the daemon, the bridge
+ * it asks through, which another door onto the same daemon (a session's card) may use too, and
+ * the keyed acts it offers, which a chord presses.
  */
 export interface MountedWorkflowsScreen {
   readonly frameStore: WindowStore;
+  readonly commandTargets: WorkflowCommandTargets;
   readonly bridge: PlatformBridge;
   readonly calls: readonly RecordedDaemonCall[];
   readonly engine: ScenarioEngine;
@@ -74,6 +80,7 @@ export async function mountWorkflowsScreen(
       ? answering.bridge
       : withDaemonSubscribe(answering.bridge, options.openStream);
   const frameStore = new WindowStore({ initialRoute: options.route });
+  const commandTargets = createWorkflowCommandTargets();
   const context: Omit<ScreenContext, "route"> = {
     bridge,
     frameStore,
@@ -96,14 +103,17 @@ export async function mountWorkflowsScreen(
         <LiveAnnouncerProvider>
           <RoutedScreen
             context={context}
-            mount={options.mount ?? ((routed) => <WorkflowsScreen context={routed} />)}
+            mount={
+              options.mount ??
+              ((routed) => <WorkflowsScreen context={routed} commandTargets={commandTargets} />)
+            }
           />
         </LiveAnnouncerProvider>
       </Host>,
     ).unmount;
     await crossMacrotaskBoundary();
   });
-  return { frameStore, bridge, calls, engine, unmount };
+  return { frameStore, commandTargets, bridge, calls, engine, unmount };
 }
 
 /** Move the window to `route` the way a link on the screen does. */
@@ -130,6 +140,17 @@ export function nextWaitingControl(): HTMLButtonElement {
   return screen.getByRole<HTMLButtonElement>("button", {
     name: /^(Next waiting|Nothing waiting)/u,
   });
+}
+
+/**
+ * Whether a call is one of the runs table's reads rather than the tab count's: the table always
+ * asks within a date range, the count under no filter at all.
+ */
+export function isRunsTableRead(call: RecordedDaemonCall): boolean {
+  return (
+    call.method === "workflow.runList" &&
+    (call.params as { readonly startedAfter?: string }).startedAfter !== undefined
+  );
 }
 
 /** The run a screen's window has open, or `undefined` on the list. */

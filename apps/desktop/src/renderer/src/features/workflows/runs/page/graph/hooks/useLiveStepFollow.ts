@@ -5,7 +5,6 @@ import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import { MOTION_DURATIONS_MS } from "#renderer/styles/motion.js";
 import type { CanvasPoint } from "../layout.js";
-import { useInViewRef } from "./useInViewRef.js";
 
 /** Whether the view follows the live step, and the ways a person stops and restarts it. */
 export interface LiveStepFollow {
@@ -41,13 +40,14 @@ const OPEN_ON_LIVE_STEP_ZOOM = 1;
 const ON_LIVE_STEP_TOLERANCE_PX = 1;
 
 /** How long the view takes to slide to the live step, in milliseconds. */
-const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"] ?? 0;
+const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"];
 
 /**
  * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the
  * run moves, and fitting the whole graph while nothing is live. A pan, a zoom or a key a person
  * makes stops it, and only `resumeFollowing` starts it again. The slide runs only while the
- * canvas is on screen and never under reduced motion; otherwise the view jumps.
+ * canvas is on screen, as its `data-in-view` mark says, and never under reduced motion; otherwise
+ * the view jumps.
  */
 export function useLiveStepFollow(
   liveCenter: CanvasPoint | undefined,
@@ -58,7 +58,6 @@ export function useLiveStepFollow(
   const canvasHeight = useStore((state) => state.height);
   const [isFollowing, setIsFollowing] = useState(true);
   const hasPlacedRef = useRef(false);
-  const isInViewRef = useInViewRef(canvasRef);
   const ownerWindow = useOwnerWindow();
   const liveX = liveCenter?.x;
   const liveY = liveCenter?.y;
@@ -74,9 +73,14 @@ export function useLiveStepFollow(
     );
   });
 
+  // The canvas's `data-in-view` mark is read at the moment a slide would start; until the first
+  // reading arrives it is unset, so a canvas mounted in view never waits on it.
   const slideMs = useCallback(
-    () => (isInViewRef.current && !prefersReducedMotion(ownerWindow) ? FOLLOW_SLIDE_MS : 0),
-    [isInViewRef, ownerWindow],
+    () =>
+      canvasRef.current?.dataset["inView"] !== "false" && !prefersReducedMotion(ownerWindow)
+        ? FOLLOW_SLIDE_MS
+        : 0,
+    [canvasRef, ownerWindow],
   );
 
   useEffect(() => {

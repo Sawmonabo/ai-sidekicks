@@ -101,8 +101,8 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // fill above 4.5 * (L + 0.05) - 0.05. Even a pure-black ink puts that at 0.175 and the light
   // accent's luminance is 0.198, so no ink buys a visibly darker press. The light leg takes the
   // deepest face the floor admits, L 0.565 at 4.57:1, with chroma up against the sRGB edge so it
-  // reads deeper rather than dimmer; `features/composer/accent-fill.css` carries the rest of the
-  // press on the control's boundary. The dark leg can afford a real deepening: L 0.68 at 6.18:1.
+  // reads deeper rather than dimmer; `accent-fill.css` carries the rest of the press on the
+  // control's boundary. The dark leg can afford a real deepening: L 0.68 at 6.18:1.
   //
   // Both legs clear the 3:1 non-text floor on all four grounds (3.58 light, 5.83 dark) and are
   // measured there, because a pressed control's face is still the boundary a person must find.

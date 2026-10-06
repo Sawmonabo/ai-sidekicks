@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   WORKFLOW_NOT_FOUND_CODE,
@@ -12,7 +12,7 @@ import { refuse } from "#renderer/lib/refusal/refusal.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
-import { answerThisRunTarget } from "#renderer/features/workflows/workflow-command-target.js";
+import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";
 import { createRunRead, type WorkflowReadSources } from "#renderer/features/workflows/reading.js";
 import { isPersonWaitCause, latestStepWith } from "../../steps.js";
 import { stepKeyText } from "../step/key-text.js";
@@ -58,11 +58,12 @@ export function useRunPage(options: {
   readonly onAnswered: () => void;
 }): RunPageHold {
   const { sources, workflowRunId, onRunMissing, onAnswered } = options;
-  const runRead = useMemo(
+  const { read: runRead, state: runState } = useWorkflowRead(
+    sources.bridge,
+    sources,
+    workflowRunId,
     () => createRunRead(sources, workflowRunId as WorkflowRunId),
-    [sources, workflowRunId],
   );
-  const runState = useWorkflowRead(runRead, sources.bridge);
   const run = runState.kind === "loaded" ? runState.value : undefined;
   const document = useRunDocument(sources.bridge, run?.definitionId, run?.workflowVersionId);
   // `undefined` until a person picks or closes, so the page opens on its default.
@@ -75,7 +76,7 @@ export function useRunPage(options: {
       setOpened({ nodeId: openingNode(run) });
     }
   }, [run, opened]);
-  const [receipts, setReceipts] = useState<ReadonlyMap<string, string>>(new Map());
+  const [receipts, setReceipts] = useState<ReadonlyMap<string, string>>(() => new Map());
 
   const isMissing = runState.kind === "failed" && runState.refusal.code === WORKFLOW_NOT_FOUND_CODE;
   useEffect(() => {
@@ -89,8 +90,9 @@ export function useRunPage(options: {
   }, []);
   // `Answer this run` with no answer on screen opens the panel on the step waiting on a person,
   // and the press goes on to that step's answer once it is offered.
+  const commandTargets = useWorkflowCommandTargets();
   useWorkflowCommandTarget(
-    answerThisRunTarget,
+    commandTargets.answerThisRun,
     () => {
       const waitingNode = personWaitNode(run);
       // A chain wait is answered on the chain's question, which offers its own answer.
@@ -114,7 +116,7 @@ export function useRunPage(options: {
   return {
     runState,
     readRunAgain: () => {
-      runRead.refresh("user-request");
+      runRead?.refresh("user-request");
     },
     document,
     selectedNodeId: (picked ?? opened ?? { nodeId: openingNode(run) }).nodeId,

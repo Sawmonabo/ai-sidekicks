@@ -1,18 +1,13 @@
-/* A definition's row in the definitions list, imported by `DefinitionListItem.tsx`. */
+/* A definition's row in the Workflows tab's table, imported by `DefinitionListItem.tsx`. */
 
-.meridian-definition-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-  align-items: baseline;
+.meridian-definition-row__name,
+.meridian-definition-row__version {
   padding: var(--meridian-space-2) var(--meridian-space-3);
-  border-radius: var(--meridian-radius-sm);
 }
 
 .meridian-definition-row__name {
-  flex: 1;
-  min-inline-size: 0;
   font-family: var(--meridian-font-sans);
+  font-weight: 400;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
   text-align: start;
@@ -24,6 +19,8 @@
  */
 .meridian-definition-row__open {
   padding: 0;
+  font: inherit;
+  color: inherit;
   cursor: pointer;
   background: none;
   border: none;

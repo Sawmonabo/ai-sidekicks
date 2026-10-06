@@ -1,41 +1,52 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
+import type { WorkflowStepReviewPause } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunReview } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { WorkflowActState } from "#renderer/features/workflows/hooks/useWorkflowAct.js";
+import type { WorkflowCallState } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { RunControl } from "#renderer/features/workflows/components/RunControl.js";
 
-/** One of a run's doors into Review: the two snapshots it compares, or why it cannot open. */
-export type ReviewDoor =
-  | {
-      readonly state: "pinned";
-      readonly from: WorkflowRunSnapshotPoint;
-      readonly to: WorkflowRunSnapshotPoint;
-    }
-  | { readonly state: "missing"; readonly reason: string };
+/**
+ * The snapshots `Open in Review` compares, or why they could not be taken: the run's own, from
+ * its start to its end, or an approval step's, from the run's start to that pause.
+ */
+export type ReviewSnapshots = WorkflowRunReview | WorkflowStepReviewPause;
 
-/** The act state of a door, which sends nothing of its own. */
-const NOTHING_SENT: WorkflowActState<unknown> = { kind: "idle" };
+/** The press sends nothing of its own. */
+const NOTHING_SENT: WorkflowCallState<unknown> = { kind: "idle" };
 
 /**
- * `Open in Review`, the run page's one name for opening what the run changed. A door whose
- * snapshot could not be taken stays in place, disabled, saying why it cannot open.
+ * `Open in Review`, the run page's one name for opening what the run changed: from the run's start
+ * to its end on the header, to the pause on an approval step. Where a snapshot could not be taken
+ * it stays in place, disabled, saying why it cannot open.
  */
 export function OpenInReview(props: {
-  readonly door: ReviewDoor;
+  readonly snapshots: ReviewSnapshots;
   readonly onOpenReview: (from: WorkflowRunSnapshotPoint, to: WorkflowRunSnapshotPoint) => void;
 }): React.JSX.Element {
-  const { door } = props;
+  const { snapshots } = props;
   return (
     <RunControl
       label="Open in Review"
       availability={
-        door.state === "pinned" ? { kind: "allowed" } : { kind: "refused", reason: door.reason }
+        snapshots.state === "pinned"
+          ? { kind: "allowed" }
+          : { kind: "refused", reason: snapshots.reason }
       }
       act={NOTHING_SENT}
       onPress={() => {
-        if (door.state === "pinned") {
-          props.onOpenReview(door.from, door.to);
+        if (snapshots.state === "pinned") {
+          props.onOpenReview({ epoch: snapshots.epoch, point: "start" }, comparedEnd(snapshots));
         }
       }}
     />
   );
+}
+
+/** Where the comparison ends: the approval's pause, or the run's end. */
+function comparedEnd(
+  snapshots: Extract<ReviewSnapshots, { state: "pinned" }>,
+): WorkflowRunSnapshotPoint {
+  return "pauseNumber" in snapshots
+    ? { epoch: snapshots.epoch, point: "pause", pauseNumber: snapshots.pauseNumber }
+    : { epoch: snapshots.epoch, point: "end" };
 }

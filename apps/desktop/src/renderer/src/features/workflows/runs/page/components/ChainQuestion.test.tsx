@@ -17,6 +17,8 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
+import { createWorkflowCommandTargets } from "#renderer/features/workflows/workflow-command-target.js";
+import { withCommandTargets } from "#renderer/features/workflows/workflow-command-target.test-support.js";
 import { ChainQuestion } from "./ChainQuestion.js";
 
 /** How long the fixture daemon takes to answer `workflow.gateResolve`. */
@@ -48,7 +50,12 @@ describe("the chain's question", () => {
         nowMs={NEXT_DAY_MS}
         onAnswered={onAnswered}
       />,
-      { wrapper: bridgeWrapper(bridge, engine.clock) },
+      {
+        wrapper: withCommandTargets(
+          bridgeWrapper(bridge, engine.clock),
+          createWorkflowCommandTargets(),
+        ),
+      },
     );
 
     expect(
@@ -93,7 +100,7 @@ describe("the chain's question", () => {
         nowMs={NEXT_DAY_MS}
         onAnswered={() => undefined}
       />,
-      { wrapper: bridgeWrapper(bridge) },
+      { wrapper: withCommandTargets(bridgeWrapper(bridge), createWorkflowCommandTargets()) },
     );
 
     expect(screen.getByText("Stopped at 100 runs")).toBeDefined();

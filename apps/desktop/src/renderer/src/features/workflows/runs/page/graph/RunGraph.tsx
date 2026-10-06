@@ -4,12 +4,12 @@
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
+import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 import type { RunGraphCanvasProps } from "./RunGraphCanvas.js";
-import { runGraphLoader } from "./loader.js";
-import { useRunGraphModule, type RunGraphModuleState } from "./hooks/useRunGraphModule.js";
+import { runGraphLoader, type RunGraphModule } from "./loader.js";
 
 /**
  * What the run page hands the graph: the workflow's document, the run's steps, the selected
@@ -20,7 +20,7 @@ export type RunGraphProps = RunGraphCanvasProps;
 /** One run on its workflow's canvas, read-only, drawn once the canvas chunk arrives. */
 export function RunGraph(props: RunGraphProps): React.JSX.Element {
   const clock = useClock();
-  const { state: graphModule, retry: retryChunk } = useRunGraphModule(runGraphLoader);
+  const { state: graphModule, retry: retryChunk } = useChunkLoad(runGraphLoader, "run-graph-chunk");
 
   if (graphModule.status !== "loaded") {
     return (
@@ -46,7 +46,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
  * be missing exactly when the chunk failed.
  */
 function renderUnloadedCanvas(
-  graphModule: Exclude<RunGraphModuleState, { status: "loaded" }>,
+  graphModule: Exclude<ChunkLoadState<RunGraphModule>, { status: "loaded" }>,
   retryChunk: () => void,
   clock: Clock,
 ): React.JSX.Element {

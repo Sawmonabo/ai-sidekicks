@@ -1,3 +1,5 @@
+import "./StepPayload.css";
+
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { usePayloadJsonCopy } from "./StepPayload/hooks/usePayloadJsonCopy.js";
 import type { StepPayloadView } from "./StepPayload.js";

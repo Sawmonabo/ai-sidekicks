@@ -1,8 +1,10 @@
-// The form drawn from a kind's parameter list: a step waiting on a person shows it, and the
-// builder's inspector reuses it. It holds no state; the answers and the last check's issues
-// come from the caller, which seeds them and checks them with `param-answers.ts`.
+// The form drawn from a kind's parameter list, as a step waiting on a person shows it. It holds
+// no state; the answers and the last check's issues come from the caller, which seeds them and
+// checks them with `param-answers.ts`.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
+
+import type { FilePathRef } from "#shared/preload-api.js";
 import { isParamFieldShown, seedParamAnswers } from "./param-answers.js";
 import type { ParamAnswers, ParamIssues } from "./param-answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";
@@ -19,6 +21,8 @@ export interface ParamFormProps {
   readonly isDisabled?: boolean;
   /** Prefix for the ids tying labels and issue text to their controls; unique per mounted form. */
   readonly idPrefix: string;
+  /** Open the platform's folder chooser for a path field: the folder's token, `null` on cancel. */
+  readonly pickFolder: () => Promise<FilePathRef | null>;
 }
 
 /**
@@ -36,6 +40,7 @@ export function ParamForm(props: ParamFormProps): React.JSX.Element {
         isDisabled={props.isDisabled === true}
         idPrefix={props.idPrefix}
         pathPrefix=""
+        pickFolder={props.pickFolder}
       />
     </div>
   );
@@ -51,13 +56,14 @@ interface ParamFieldListProps {
   readonly idPrefix: string;
   /** The dotted path this level's field ids extend, empty at the top. */
   readonly pathPrefix: string;
+  readonly pickFolder: () => Promise<FilePathRef | null>;
 }
 
 function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
   return (
     <>
       {props.fields
-        .filter((field) => isParamFieldShown(field, props.answers))
+        .filter((field) => isParamFieldShown(field, props.answers, props.fields))
         .map((field) => {
           const path = `${props.pathPrefix}${field.id}`;
           const answer = props.answers[field.id];
@@ -74,6 +80,7 @@ function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
               isDisabled={props.isDisabled}
               idPrefix={props.idPrefix}
               path={path}
+              pickFolder={props.pickFolder}
             />
           ) : (
             <ParamLeafField
@@ -84,6 +91,7 @@ function ParamFieldList(props: ParamFieldListProps): React.JSX.Element {
               issue={props.issues[path]}
               isDisabled={props.isDisabled}
               controlId={`${props.idPrefix}-${path}`}
+              pickFolder={props.pickFolder}
             />
           );
         })}
@@ -100,6 +108,7 @@ interface ParamCollectionFieldProps {
   readonly isDisabled: boolean;
   readonly idPrefix: string;
   readonly path: string;
+  readonly pickFolder: () => Promise<FilePathRef | null>;
 }
 
 function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Element {
@@ -118,6 +127,7 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
           isDisabled={props.isDisabled}
           idPrefix={props.idPrefix}
           pathPrefix={`${props.path}.`}
+          pickFolder={props.pickFolder}
         />
       </fieldset>
     );
@@ -149,6 +159,7 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
                   isDisabled={props.isDisabled}
                   idPrefix={props.idPrefix}
                   pathPrefix={`${props.path}.${index}.`}
+                  pickFolder={props.pickFolder}
                 />
                 <ActionButton
                   className="meridian-workflow-param-form__entry-action"

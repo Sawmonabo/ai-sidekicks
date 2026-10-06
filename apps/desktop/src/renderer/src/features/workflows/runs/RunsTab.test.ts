@@ -13,7 +13,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import { mountWorkflowsScreen, press } from "../WorkflowsScreen.test-support.js";
+import { isRunsTableRead, mountWorkflowsScreen, press } from "../WorkflowsScreen.test-support.js";
 import { RUNS_PAGE_SIZE } from "./list-pages.js";
 import { RunListDaemon, mintedRunId, playbackRunRows } from "./run-list-daemon.test-support.js";
 
@@ -70,7 +70,7 @@ describe("the runs table's pages", () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded));
     });
     const pageReads = mounted.calls
-      .filter((call) => call.method === "workflow.runList")
+      .filter(isRunsTableRead)
       .map((call) => (call.params as { readonly cursor?: string }).cursor);
     expect(pageReads.at(-1)).toBe(loaded[RUNS_PAGE_SIZE - 1]?.workflowRunId);
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
@@ -105,7 +105,7 @@ describe("the runs table's pages", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded.slice(0, RUNS_PAGE_SIZE)));
     });
-    const pageReads = () => mounted.calls.filter((call) => call.method === "workflow.runList");
+    const pageReads = () => mounted.calls.filter(isRunsTableRead);
     const readsBefore = pageReads().length;
 
     await act(async () => {

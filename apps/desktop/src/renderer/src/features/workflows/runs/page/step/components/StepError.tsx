@@ -1,12 +1,13 @@
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { codeWords } from "#renderer/features/workflows/words.js";
+import { codeWords } from "#renderer/lib/code-words.js";
+import { WORKFLOW_CODE_LABELS } from "#renderer/features/workflows/words.js";
 
 /**
- * The Error tab's table view: the failure's code in words, the item it failed on, its message,
- * and, where the step's process ended on its own, its exit code or signal over the last lines it
- * printed.
+ * The Error tab's table view: the failure's code in words with its reason, the item it failed on,
+ * its message, and, where the step's process ended on its own, its exit code or signal over the
+ * last lines it printed.
  */
 export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Element {
   const { error, processExit } = props.step;
@@ -16,7 +17,9 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
   return (
     <div className="meridian-workflow-step__error">
       {error.code === undefined ? null : (
-        <p className="meridian-workflow-step__error-label">{codeWords(error.code)}</p>
+        <p className="meridian-workflow-step__error-label">
+          {failureLabel(error.code, error.details)}
+        </p>
       )}
       {error.itemIndex === undefined ? null : (
         <p className="meridian-workflow-step__error-item">{`Item ${formatCount(error.itemIndex)}`}</p>
@@ -34,9 +37,23 @@ export function StepError(props: { readonly step: WorkflowStep }): React.JSX.Ele
   );
 }
 
+/**
+ * The failure's code in words, with its closed reason or cause after it where the code carries
+ * one: `workflow.step_thread_failed` with reason `out_of_memory` reads
+ * `Step thread failed · Out of memory`.
+ */
+function failureLabel(
+  code: string,
+  details: Readonly<Record<string, unknown>> | undefined,
+): string {
+  const label = codeWords(code, WORKFLOW_CODE_LABELS);
+  const why = details?.["reason"] ?? details?.["cause"];
+  return typeof why === "string" ? `${label} · ${codeWords(why, {})}` : label;
+}
+
+// The wire carries exactly one of the exit code and the signal; the signal is read first, so the
+// exit code is the one left. An exit code is a code, read as it was sent, not a count.
 function exitWords(processExit: NonNullable<WorkflowStep["processExit"]>): string {
-  if (processExit.exitCode !== undefined) {
-    return `Exit code ${formatCount(processExit.exitCode)}`;
-  }
-  return processExit.signal === undefined ? "Exited" : `Ended by ${processExit.signal}`;
+  const { exitCode, signal } = processExit;
+  return signal === undefined ? `Exit code ${String(exitCode)}` : `Ended by ${signal}`;
 }

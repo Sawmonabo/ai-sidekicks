@@ -7,11 +7,7 @@ import { type CommandContributionRegistry } from "#renderer/registries/commands/
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "#renderer/registries/commands/types.js";
-import {
-  answerThisRunTarget,
-  nextWaitingTarget,
-  type WorkflowCommandTarget,
-} from "../workflow-command-target.js";
+import type { WorkflowCommandTarget, WorkflowCommandTargets } from "../workflow-command-target.js";
 import { WHEN_ON_WORKFLOWS, WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
@@ -19,10 +15,9 @@ import { WORKFLOWS_OWNER } from "./panes.js";
 const WORKFLOWS_COMMAND_GROUP = "Workflows";
 
 /** Build the workflows commands over the two acts they press. */
-export function createWorkflowCommands(acts: {
-  readonly nextWaiting: WorkflowCommandTarget;
-  readonly answerThisRun: WorkflowCommandTarget;
-}): readonly CommandDefinition[] {
+export function createWorkflowCommands(
+  commandTargets: WorkflowCommandTargets,
+): readonly CommandDefinition[] {
   return [
     {
       id: "workflows.nextWaiting",
@@ -31,7 +26,7 @@ export function createWorkflowCommands(acts: {
       when: WHEN_ON_WORKFLOWS,
       keywords: ["run", "approval", "blocked"],
       run: () => {
-        pressAct(acts.nextWaiting);
+        pressAct(commandTargets.nextWaiting);
       },
     },
     {
@@ -41,23 +36,24 @@ export function createWorkflowCommands(acts: {
       when: WHEN_ON_WORKFLOWS,
       keywords: ["approve", "submit", "keep going"],
       run: () => {
-        pressAct(acts.answerThisRun);
+        pressAct(commandTargets.answerThisRun);
       },
     },
   ];
 }
 
 /**
- * Contribute the workflows commands and chords to a window, under the feature's owner. Takes
- * the registry so a test contributes into one it owns.
+ * Contribute the workflows commands and chords to a window, under the feature's owner, pressing
+ * the acts the workflows screen is handed. Takes the registry so a test contributes into one it
+ * owns.
  */
-export function registerWorkflowCommands(registry: CommandContributionRegistry): void {
+export function registerWorkflowCommands(
+  registry: CommandContributionRegistry,
+  commandTargets: WorkflowCommandTargets,
+): void {
   registry.contribute({
     owner: WORKFLOWS_OWNER,
-    commands: createWorkflowCommands({
-      nextWaiting: nextWaitingTarget,
-      answerThisRun: answerThisRunTarget,
-    }),
+    commands: createWorkflowCommands(commandTargets),
     keyBindings: WORKFLOW_KEY_BINDINGS,
   });
 }

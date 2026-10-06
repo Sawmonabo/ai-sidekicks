@@ -4,8 +4,11 @@
 // control offers the act, a fallback — the open run's page — takes the press: it opens the step
 // that waits, and the press then goes to that step's control once it is offered, so a form still
 // being read is answered when it is ready. Release is by identity, so a strict-mode double mount
-// or a route change cannot leave a gone one adopted. One target serves every window, so each
-// adopter names the document it is drawn in and a press reaches only its own window's.
+// or a route change cannot leave a gone one adopted. The targets are built once per composition,
+// so one serves every window: each adopter names the document it is drawn in and a press reaches
+// only its own window's.
+
+import { createContext, type Context } from "react";
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
@@ -16,6 +19,16 @@ export type WorkflowCommandPress = () => Refusal | undefined;
 
 /** What an adopter is to the act: a control that performs it, or the fallback behind them all. */
 export type WorkflowCommandRole = "control" | "fallback";
+
+/**
+ * The screen's two keyed acts: `nextWaiting`, what pressing `Next waiting (N)` on the Runs tab's
+ * strip does, and `answerThisRun`, the main answer the open run's blocking step offers, `Approve`
+ * for one.
+ */
+export interface WorkflowCommandTargets {
+  readonly nextWaiting: WorkflowCommandTarget;
+  readonly answerThisRun: WorkflowCommandTarget;
+}
 
 /** One keyed act and the mounted controls that offer it, in mount order. */
 export class WorkflowCommandTarget {
@@ -94,22 +107,31 @@ export class WorkflowCommandTarget {
   }
 }
 
+/**
+ * The two acts, built once per composition and handed to both the commands that press them and
+ * the screen that offers them.
+ */
+export function createWorkflowCommandTargets(): WorkflowCommandTargets {
+  return {
+    nextWaiting: new WorkflowCommandTarget(
+      refuse("workflows", "workflows.not_open", "Workflows is not open. Open it and try again."),
+    ),
+    answerThisRun: new WorkflowCommandTarget(
+      refuse(
+        "workflows",
+        "workflows.no_answer_open",
+        "No run waiting on you is open. Open one and try again.",
+      ),
+    ),
+  };
+}
+
 /** One adopter's press and the document of the window it is drawn in. */
 interface AdoptedPress {
   readonly press: WorkflowCommandPress;
   readonly ownerDocument: Document;
 }
 
-/** `Next waiting`: what pressing `Next waiting (N)` on the Runs tab's strip does. */
-export const nextWaitingTarget: WorkflowCommandTarget = new WorkflowCommandTarget(
-  refuse("workflows", "workflows.not_open", "Workflows is not open. Open it and try again."),
-);
-
-/** `Answer this run`: the main answer the open run's blocking step offers, `Approve` for one. */
-export const answerThisRunTarget: WorkflowCommandTarget = new WorkflowCommandTarget(
-  refuse(
-    "workflows",
-    "workflows.no_answer_open",
-    "No run waiting on you is open. Open one and try again.",
-  ),
-);
+/** The acts the screen's controls offer, provided by the screen to everything it draws. */
+export const WorkflowCommandTargetsContext: Context<WorkflowCommandTargets | undefined> =
+  createContext<WorkflowCommandTargets | undefined>(undefined);

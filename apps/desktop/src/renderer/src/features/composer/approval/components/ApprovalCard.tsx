@@ -11,7 +11,6 @@ import type {
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { isHTMLElement } from "@floating-ui/utils/dom";
-import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { clampedRowIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
@@ -231,7 +230,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
   const base = `${APPROVAL_CARD_ACTION_CLASS} ${REGULAR_ACTION_BUTTON_CLASS}`;
   return action === PRIMARY_ACTION
-    ? `${base} ${ACCENT_FILL_CLASS}`
+    ? `${base} meridian-accent-fill`
     : `${base} meridian-action-button--outline`;
 }
 

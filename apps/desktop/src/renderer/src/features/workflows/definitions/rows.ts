@@ -1,4 +1,4 @@
-// What a definitions list row's open control does, in a leaf module so the list that supplies it
+// What a definitions table row's open control does, in a leaf module so the table that supplies it
 // and `DefinitionListItem.tsx` that calls it need not import each other.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
