@@ -14,6 +14,7 @@ import {
   UI_STATE_DATABASE_NAME,
   UI_STATE_STORE_NAME,
 } from "#renderer/store/persistence/indexeddb-adapter.js";
+import { KEPT_WINDOWS_KEY } from "#renderer/store/window/layout/kept.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { clickViewMenuScheme, readPageScheme } from "./color-scheme/access.js";
@@ -26,9 +27,6 @@ const bundleIsBuilt = fixtureBundleExists();
 
 /** How long each window's frames are counted for. */
 const FRAME_COUNT_SPAN_MS = 500;
-
-/** The UI-state key the console keeps its window layout under. */
-const KEPT_WINDOWS_KEY = "windows";
 
 const SECOND_WINDOW_ID = consoleWindowId("end-to-end-second");
 const THIRD_WINDOW_ID = consoleWindowId("end-to-end-third");

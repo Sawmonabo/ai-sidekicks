@@ -23,7 +23,7 @@ export interface KeptWindow {
 }
 
 /** The global key the kept window layout is stored under. */
-const KEPT_WINDOWS_KEY = "windows";
+export const KEPT_WINDOWS_KEY = "windows";
 
 /** The kept windows, in the order they were kept; empty when none were. */
 export async function readKeptWindows(uiStateStore: UiStateStore): Promise<readonly KeptWindow[]> {
