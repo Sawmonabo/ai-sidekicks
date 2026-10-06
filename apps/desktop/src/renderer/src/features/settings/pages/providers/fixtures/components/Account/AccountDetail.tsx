@@ -64,8 +64,7 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
       definition: (
         <span>
           About <DerivedFigure text={formatDayDuration(horizonInDays)} /> after sign-in. An estimate
-          from the provider’s published issuance interval, not a deadline this machine can vouch
-          for.
+          from the provider’s published issuance interval, not a set deadline.
         </span>
       ),
     });

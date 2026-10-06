@@ -252,7 +252,10 @@ function allowLabelFor(record: ApprovalProjectionRow): string {
   return `Always allow ${record.subject} ${RULE_SCOPE_LABELS.session}`;
 }
 
-/** `Decline`'s arrow, on a network ask only: a host is the one subject a refusal is kept for. */
+/**
+ * `Decline`'s arrow, on a network ask only: a host is the one subject a refusal is kept for, for
+ * the session or, where a project rule may be written, for the project.
+ */
 function declineArrowFor(
   record: ApprovalProjectionRow,
   answer: ApprovalAnswerPress,
@@ -270,6 +273,17 @@ function declineArrowFor(
           answer("rejected", ruleFor(record, "session", "block"));
         },
       },
+      ...(record.projectScopeOffered
+        ? [
+            {
+              label: `Always in ${RULE_SCOPE_LABELS.project}`,
+              isFacePress: false,
+              onPress: () => {
+                answer("rejected", ruleFor(record, "project", "block"));
+              },
+            },
+          ]
+        : []),
     ],
   };
 }

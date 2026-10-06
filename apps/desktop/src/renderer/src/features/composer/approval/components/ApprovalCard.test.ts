@@ -130,6 +130,36 @@ describe("a network ask's Decline can block the host", () => {
     expect(isAcceptedAnswer(requests[0])).toBe(true);
   });
 
+  it("blocks the host for the whole project from the arrow's second row, only where offered", () => {
+    const requests = renderCard(
+      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+    );
+    pressArrowRow("Other ways to decline", "Always in this project");
+    expect(requests[0]?.decision).toBe("rejected");
+    expect(requests[0]?.rememberedScope).toStrictEqual({
+      kind: "project",
+      pattern: "api.example.com",
+      sense: "block",
+    });
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
+  });
+
+  it("offers no project block where no project rule may be written", () => {
+    renderCard(
+      pendingRecord({
+        category: "network_access",
+        subject: "api.example.com",
+        projectScopeOffered: false,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Other ways to decline" }));
+    expect(screen.queryByRole("menuitem", { name: "Always in this project" })).toBeNull();
+    // Negative control: the session block stays.
+    expect(
+      screen.getByRole("menuitem", { name: "Block api.example.com this session" }),
+    ).toBeTruthy();
+  });
+
   it("negative control: a file write's Decline keeps its single press", () => {
     renderCard(pendingRecord());
     expect(screen.queryByRole("button", { name: "Other ways to decline" })).toBeNull();
