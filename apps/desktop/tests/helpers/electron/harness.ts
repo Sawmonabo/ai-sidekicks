@@ -147,6 +147,8 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
       ? (await startIsolatedService(deadline.remainingMs(POST_READINESS_RESERVE_MS))).environment
       : {};
   const profile = createLaunchProfile();
+  // Watching from before the spawn, so a failure main writes before the handover is kept.
+  const mainOutput = new MainProcessOutput(profile.directory);
   let application: ElectronApplication;
   try {
     application = await electron.launch({
@@ -174,10 +176,10 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     // `remove()` throwing here would replace the launch failure with a sentence about a
     // directory.
     throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
+  } finally {
+    mainOutput.stopWatching();
   }
 
-  // Read from the launch on, so a failure before the window is ready carries main's own words.
-  const mainOutput = new MainProcessOutput(application.process(), profile.directory);
   const cleanup = new BoundedCleanup(
     {
       close: () => application.close(),
@@ -222,6 +224,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   };
 
   try {
+    mainOutput.handedOver(application.process());
     const { window, consolePage } = await awaitPaintingAppWindow(application, deadline);
     return { application, window, consolePage, close };
   } catch (error: unknown) {
