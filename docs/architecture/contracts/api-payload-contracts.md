@@ -163,8 +163,8 @@ type PermissionLevel = "readonly" | "ask" | "reviewed" | "sandboxed" | "yolo";
 
 // Where a session's work runs. `bound-root` works in the root already bound to the workspace — the
 // project's own checkout, or a chat's managed workspace — and makes nothing; `provisioned-worktree`
-// works in a worktree the daemon's worktree lifecycle made or reused (reuse accepts only a worktree this
-// daemon created).
+// works in a new worktree the daemon's worktree lifecycle made for it. A session moves into another
+// tree only through `session.setWorkingFolder`.
 type ExecutionMode = "bound-root" | "provisioned-worktree";
 // `preparing` covers both modes while the root is made ready (`repo.executionRootPrepare`); it is a
 // different fact from the session state `provisioning` and never appears on screen.
