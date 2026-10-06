@@ -22,7 +22,7 @@ Four things in the console are dragged:
 3. the panes of a session view, each dragged by its header, which is no window drag region ([Spec-021 §The session screen](../specs/021-desktop-app-and-renderer.md#the-session-screen));
 4. the session views themselves, each dragged by its title — the session's name in the view's header, whose empty space stays the window's own drag region, as a browser's empty tab strip moves its window while a tab tears off — which swap places in a window, dock into another window, and tear off onto the desktop as a window of their own.
 
-The requirement is that a drag is smooth and has no resistance: the item sits under the pointer at every frame, its neighbors glide apart rather than jump, the drop glides into place, and a session view torn out of its window is a window that follows the pointer live, not one that appears where the drag ended. On Linux under Wayland Electron offers no way to do that, and the view's window appears at the drag's end instead (§Decision).
+The requirement is that a drag is smooth and has no resistance: the item sits under the pointer at every frame, its neighbors glide apart rather than jump, the drop glides into place, and a session view torn out of its window is a window that follows the pointer live, not one that appears where the drag ended. On Linux under Wayland Electron offers no way to do that, and the view's window opens where the compositor places it once the drag ends, not under the pointer (§Decision).
 
 ## Problem Statement
 
@@ -50,14 +50,6 @@ A session view holds a row of any number of panes that reorder by their headers,
 - **No library covers the cross-window half.** No drag library surveyed offers docking between windows or a live tear-off. VS Code, the one well-known app on the same one-realm model, uses native drag with listeners per window, keeps the dragged item in shared memory, and opens a new window where a drag ends outside every window; its window does not follow the pointer during the drag. Chrome is the precedent for a live tear-off: the torn-off window follows the pointer, moved per mouse-drag event on macOS, by the native move loop on Windows, and through `xdg_toplevel_drag` on Wayland.
 - **The cross-window path is fast enough to be invisible.** Pointer capture kept delivering `pointermove` outside the window to the screen's edge, and a window main moved on each move followed about 10 px behind at about 650 px/s, about one refresh. Main's hit test took 0.2 ms, and the target window drew its indicator at its next frame: 8.8 ms median, 17.4 ms at the 95th percentile.
 - **The code is small.** The in-window core has no dependency and, measured in the built renderer, came out smaller than the `@atlaskit/pragmatic-drag-and-drop` element adapter measured the same way ([Spec-021 §References](../specs/021-desktop-app-and-renderer.md#references)).
-
-### Antithesis — The Strongest Case Against [T2]
-
-Not required for a Type 1 decision.
-
-### Synthesis — Why It Still Holds [T2]
-
-Not required for a Type 1 decision.
 
 ---
 
@@ -114,15 +106,7 @@ None offers docking between windows or a live tear-off.
 
 ---
 
-## Assumptions Audit [T2]
-
-Not required for a Type 1 decision.
-
 ---
-
-## Failure Mode Analysis [T2]
-
-Not required for a Type 1 decision.
 
 ## Reversibility Assessment
 
@@ -151,10 +135,6 @@ Not required for a Type 1 decision.
 - On Wayland, how a release over the desktop is told apart from a drag canceled with Escape, since both end the native drag with no drop. Measured with the Linux leg.
 
 ---
-
-## Decision Validation [T2]
-
-Not required for a Type 1 decision.
 
 ---
 
