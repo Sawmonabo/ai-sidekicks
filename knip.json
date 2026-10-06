@@ -305,6 +305,9 @@
         // The machine's `presence.read` binding, which nothing registers until Remote Control
         // reports the devices connected to this machine.
         "src/ipc/handlers/presence/read.ts",
+        // `session.create`'s binding, which nothing registers until the daemon's startup binds the
+        // session methods onto its registry.
+        "src/ipc/handlers/session/create.ts",
         // The input schemas of the workflow agent tools, read by their handlers once the daemon
         // serves them.
         "src/workflow/agent-tools/inputs.ts"
