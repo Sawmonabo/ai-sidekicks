@@ -24,14 +24,14 @@ import {
   type WorkflowDefinitionSummary,
 } from "../definition/methods.js";
 import {
+  GOING_RUN_STATUSES,
   WORKFLOW_WAIT_CAUSES,
-  WorkflowRunIdSchema,
   WorkflowRunStatusSchema,
   WorkflowWaitCauseSchema,
-  type WorkflowRunId,
   type WorkflowRunStatus,
   type WorkflowWaitCause,
 } from "./status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
 import {
   WorkflowCostSchema,
   WorkflowSpentAccountSchema,
@@ -49,9 +49,6 @@ import {
   type WorkflowTriggerKind,
 } from "./trigger.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
-
-/** The statuses of a run that is still going: new, running or waiting. */
-export const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
 
 // workflow.runRead
 

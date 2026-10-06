@@ -7,7 +7,7 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { WORKFLOW_REPLY_QUESTION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";

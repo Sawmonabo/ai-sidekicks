@@ -21,7 +21,7 @@ import type {
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type {
   WorkflowRunCancelResponse,

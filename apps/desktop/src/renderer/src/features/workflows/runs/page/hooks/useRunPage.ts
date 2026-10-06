@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  type WorkflowRunId,
-  type WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow/run/status";
+import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
+import { type WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";

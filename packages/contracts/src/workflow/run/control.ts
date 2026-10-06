@@ -17,12 +17,8 @@ import {
   type WorkflowItem,
   type WorkflowNodeId,
 } from "../definition/document.js";
-import {
-  WORKFLOW_RUN_STATUSES,
-  WorkflowRunIdSchema,
-  type WorkflowRunId,
-  type WorkflowRunStatus,
-} from "./status.js";
+import { WORKFLOW_RUN_STATUSES, type WorkflowRunStatus } from "./status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
 import {
   WORKFLOW_RUN_MODES,
   WorkflowRunModeSchema,

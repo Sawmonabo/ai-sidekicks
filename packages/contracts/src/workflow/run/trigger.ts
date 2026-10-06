@@ -10,7 +10,7 @@ import {
   type SessionId,
 } from "../../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../../trust-statement.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "./status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
 
 /** How a run was started, which is a different question from who started it. */
 export const WORKFLOW_RUN_MODES = [

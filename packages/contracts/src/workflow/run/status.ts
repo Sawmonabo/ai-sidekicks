@@ -1,20 +1,8 @@
-// A workflow run's id and the statuses every run method and event shares: the run's, each step's,
-// and what a waiting step waits on. The run methods build on this file, and it imports none of
+// The statuses every workflow run method and event shares: the run's, each step's, and what a
+// waiting step waits on. The run methods build on this file, and it imports none of
 // them: `workflow/run/control.ts` acts on a run, `workflow/run/records.ts` reads, lists and keeps
 // run records, and `workflow/run/step/` holds the step record, one step's methods and its events.
 import { z } from "zod";
-
-import { brandedUuidIdSchema } from "../../internal/branded.js";
-
-// Ids
-
-/** A workflow run's id: a UUID the daemon mints; a client never builds one. */
-export type WorkflowRunId = string & { readonly __brand: "WorkflowRunId" };
-/** Wire schema for {@link WorkflowRunId}. */
-export const WorkflowRunIdSchema: z.ZodType<WorkflowRunId, WorkflowRunId> =
-  brandedUuidIdSchema<WorkflowRunId>("WorkflowRunId");
-
-// Closed vocabularies
 
 /**
  * A run's status; no screen shows any other. `waiting` covers a run held by a
@@ -36,11 +24,15 @@ export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
 export const WorkflowRunStatusSchema: z.ZodType<WorkflowRunStatus, WorkflowRunStatus> =
   z.enum(WORKFLOW_RUN_STATUSES);
 
+/** The statuses of a run that is still going: new, running or waiting. */
+export const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
+
 /**
  * The status of one step, meaning one execution of one node. `waiting` is a step held
  * for a person, a chain's question or a spent account; `waiting-memory` is a step the
  * memory gate has not started yet, which needs nobody. `canceled` is a step that was
- * running or waiting when its run ended failed or canceled.
+ * running or waiting when its run ended failed or canceled, or a branch a first-to-arrive merge
+ * stopped.
  */
 export const WORKFLOW_STEP_STATUSES = [
   "pending",

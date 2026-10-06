@@ -17,7 +17,7 @@ import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/document.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/id.js";
 import {
   ChangeRequestSummarySchema,
   GIT_HOST_KINDS,

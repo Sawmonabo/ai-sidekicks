@@ -6,7 +6,7 @@
 import "./DiffPane.css";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";

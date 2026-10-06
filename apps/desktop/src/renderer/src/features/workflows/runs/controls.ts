@@ -6,10 +6,8 @@
 
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
-import {
-  GOING_RUN_STATUSES,
-  type WorkflowRunReadResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+import { type WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
+import { GOING_RUN_STATUSES } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import { isLaterStep } from "./steps.js";
 

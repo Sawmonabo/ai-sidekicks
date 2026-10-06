@@ -19,11 +19,11 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
-  WorkflowRunId,
   WorkflowRunStatus,
   WorkflowStepStatus,
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type {
   WorkflowCost,
   WorkflowPayloadRef,

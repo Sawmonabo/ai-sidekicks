@@ -7,7 +7,7 @@ import type {
   WorkflowRunListResponse,
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { WORKFLOW_RUN_RECORDS, summaryOfRun } from "#fixtures/data/workflow/run/records.js";
 import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";

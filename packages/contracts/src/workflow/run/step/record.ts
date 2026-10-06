@@ -30,13 +30,12 @@ import {
   type WorkflowStepError,
 } from "../../definition/document.js";
 import {
-  WorkflowRunIdSchema,
   WorkflowStepStatusSchema,
   WorkflowWaitCauseSchema,
-  type WorkflowRunId,
   type WorkflowStepStatus,
   type WorkflowWaitCause,
 } from "../status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 /**

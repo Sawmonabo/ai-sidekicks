@@ -10,12 +10,8 @@ import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../free-form-string.js";
-import {
-  WorkflowRunIdSchema,
-  WorkflowRunStatusSchema,
-  type WorkflowRunId,
-  type WorkflowRunStatus,
-} from "../run/status.js";
+import { WorkflowRunStatusSchema, type WorkflowRunStatus } from "../run/status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../run/id.js";
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,

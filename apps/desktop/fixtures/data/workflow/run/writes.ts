@@ -6,7 +6,7 @@
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { RequestStampReader } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type {
   WorkflowStep,
   WorkflowStepResolutionKind,

@@ -18,7 +18,7 @@ import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../../../free-form-string
 import { SessionIdSchema, type SessionId } from "../../../session/id.js";
 import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../../definition/document.js";
 import { WorkflowParamSpecSchema, type WorkflowParamSpec } from "../../kind.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../status.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../id.js";
 import { countSchema, isoDateTimeSchema } from "../../../internal/wire-scalars.js";
 
 // workflow.stepRead

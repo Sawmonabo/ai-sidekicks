@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "#renderer/store/window/store.js";

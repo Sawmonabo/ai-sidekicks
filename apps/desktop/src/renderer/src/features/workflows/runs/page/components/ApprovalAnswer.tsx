@@ -1,6 +1,6 @@
 import type { ApprovalDecision } from "@ai-sidekicks/contracts/approval";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";

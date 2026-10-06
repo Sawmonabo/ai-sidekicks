@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { composeAppLink, parseAppLink } from "../app-link.js";
 import type { SessionId } from "../session/id.js";
-import type { WorkflowRunId } from "../workflow/run/status.js";
+import type { WorkflowRunId } from "../workflow/run/id.js";
 
 const SESSION_ID = "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6e" as SessionId;
 const WORKFLOW_RUN_ID = "0199a0c2-7d3e-7b1f-9c4a-8f3a1b2c5d6f" as WorkflowRunId;
