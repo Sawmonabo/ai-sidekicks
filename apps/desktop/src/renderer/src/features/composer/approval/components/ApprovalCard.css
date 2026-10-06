@@ -152,3 +152,9 @@
 .meridian-approval-card__scope-row[data-highlighted] {
   background: var(--meridian-surface-sunken);
 }
+
+/* The optional `why not` line a first press on `Decline` opens, the full width under the faces. */
+.meridian-approval-card__decline-reason {
+  width: 100%;
+  min-width: 0;
+}

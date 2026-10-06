@@ -24,23 +24,27 @@ export function isApprovalAnswerable(
   if (record.state !== "pending") {
     return false;
   }
-  return refusalRemedyFor(refusal?.code ?? "")?.settled !== true;
+  return refusal === undefined || refusalRemedyFor(refusal.code)?.settled !== true;
 }
 
 /**
  * The answer one press sends. It names no `effectiveScope`, so the daemon applies the scope the
  * ask was raised with. Each press mints its own `clientResolutionId`, which the daemon echoes on
- * the resolution event. `rememberedScope` is present only on a press whose label names a rule.
+ * the resolution event. `rememberedScope` is present only on a press whose label names a rule,
+ * and `declineReason` only on a decline whose `why not` line holds words, sent trimmed.
  */
 export function approvalAnswer(
   record: ApprovalProjectionRow,
   decision: ApprovalDecision,
   rememberedScope: RememberedScope | undefined,
+  declineReason?: string,
 ): ApprovalResolveRequest {
+  const reason = declineReason?.trim() ?? "";
   return {
     approvalRequestId: record.id,
     decision,
     clientResolutionId: crypto.randomUUID(),
     ...(rememberedScope === undefined ? {} : { rememberedScope }),
+    ...(reason === "" ? {} : { declineReason: reason }),
   };
 }

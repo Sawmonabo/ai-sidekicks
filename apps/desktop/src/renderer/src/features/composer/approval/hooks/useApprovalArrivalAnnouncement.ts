@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts/approval";
 
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { APPROVAL_CATEGORY_LABELS } from "#renderer/lib/approval-vocabulary.js";
 
 import { findApprovalCardAction } from "../components/ApprovalCard.js";
 
@@ -40,7 +41,7 @@ export function useApprovalArrivalAnnouncement(
     }
     setAnnouncement(
       arrived.length === 1
-        ? `A decision is waiting: ${first.category} requested by ${first.requestedBy}.`
+        ? `A decision is waiting: ${APPROVAL_CATEGORY_LABELS[first.category]}.`
         : `${String(arrived.length)} decisions are waiting.`,
     );
     const focused = ownerDocument.activeElement;

@@ -27,6 +27,8 @@ export interface ScopedAnswerProps {
   readonly label: string;
   /** The classes the face wears; the arrow wears the same look. */
   readonly faceClassName: string;
+  /** Which answer the face gives, for a reader that finds it on the card. */
+  readonly answerName?: string | undefined;
   readonly isDisabled: boolean;
   readonly onPress: () => void;
   readonly arrow?: ScopedAnswerArrow | undefined;
@@ -41,6 +43,7 @@ export function ScopedAnswer(props: ScopedAnswerProps): React.JSX.Element {
     <button
       type="button"
       className={`${APPROVAL_CARD_ACTION_CLASS} ${props.faceClassName}`}
+      data-approval-answer={props.answerName}
       disabled={props.isDisabled}
       onClick={props.onPress}
     >
@@ -63,10 +66,7 @@ export function ScopedAnswer(props: ScopedAnswerProps): React.JSX.Element {
         >
           <Glyph name="chevron-down" size={GLYPH_SIZE_ROW} />
         </Menu.Trigger>
-        <OverlayMenuPopup
-          positionerClassName="meridian-approval-card__scope-positioner"
-          className="meridian-approval-card__scope-menu"
-        >
+        <OverlayMenuPopup className="meridian-approval-card__scope-menu">
           {arrow.rows.map((row) => (
             <Menu.Item
               key={row.label}

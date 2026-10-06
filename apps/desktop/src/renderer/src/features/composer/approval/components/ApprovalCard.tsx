@@ -4,7 +4,9 @@
 // carry a standing allow. On a network ask `Decline` carries an arrow that blocks the host for the
 // session. `Approve once` and a plain `Decline` send no `rememberedScope`. The answer names no
 // scope, so the daemon applies the one the ask was raised with. The faces are a `toolbar` walked
-// with arrows and `h`/`l`, both suppressing page scroll.
+// with arrows and `h`/`l`, both suppressing page scroll. The first press on a plain `Decline`
+// opens one optional `why not` line under the faces; a second press, or Enter in the line,
+// declines with what is typed there, and every decline sends that line while it is open.
 
 import type {
   ApprovalDecision,
@@ -12,7 +14,7 @@ import type {
   ApprovalResolveRequest,
   RememberedScope,
 } from "@ai-sidekicks/contracts/approval";
-import { useCallback, useId, useRef } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { isHTMLElement } from "@floating-ui/utils/dom";
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -58,8 +60,8 @@ export interface ApprovalCardProps {
  */
 const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 
-/** The class only `Approve once` wears, where an arriving card's focus lands. */
-const APPROVE_ONCE_CLASS = "meridian-approval-card__approve-once";
+/** The attribute naming which answer a face gives; `Approve once` is where arriving focus lands. */
+const APPROVAL_ANSWER_ATTRIBUTE = "data-approval-answer";
 
 /** The faces' shared size; each adds its own look. */
 const ANSWER_FACE_CLASS = "meridian-action-button meridian-action-button--regular";
@@ -81,7 +83,7 @@ export function findApprovalCardAction(
     if (card.getAttribute(APPROVAL_CARD_ID_ATTRIBUTE) !== approvalRequestId) {
       continue;
     }
-    const action = card.querySelector(`.${APPROVE_ONCE_CLASS}`);
+    const action = card.querySelector(`[${APPROVAL_ANSWER_ATTRIBUTE}="approve-once"]`);
     return isHTMLElement(action) ? action : undefined;
   }
   return undefined;
@@ -97,12 +99,27 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   // the actions off the card and the same two rows out of the palette.
   const answerable = isApprovalAnswerable(record, props.refusal);
 
+  // The `why not` line's text, or `undefined` while the line is closed.
+  const [declineReason, setDeclineReason] = useState<string | undefined>(undefined);
+
   const answer = useCallback<ApprovalAnswerPress>(
     (decision, remembered) => {
-      onResolve(approvalAnswer(record, decision, remembered));
+      onResolve(
+        approvalAnswer(
+          record,
+          decision,
+          remembered,
+          decision === "rejected" ? declineReason : undefined,
+        ),
+      );
     },
-    [onResolve, record],
+    [onResolve, record, declineReason],
   );
+
+  // Focused once, as the line opens, without scrolling the conversation.
+  const focusDeclineReason = useCallback((input: HTMLInputElement | null) => {
+    input?.focus({ preventScroll: true });
+  }, []);
 
   const onActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const step = movementStep(event.key);
@@ -179,7 +196,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {props.children}
 
-      <Collapsible.Root className="meridian-approval-card__disclosure">
+      <Collapsible.Root>
         <Collapsible.Trigger className="meridian-disclosure-trigger">
           What was asked for
         </Collapsible.Trigger>
@@ -189,43 +206,73 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       </Collapsible.Root>
 
       {answerable ? (
-        <div
-          className="meridian-approval-card__actions"
-          ref={actionRowRef}
-          role="toolbar"
-          aria-label="Answer this request"
-          aria-orientation="horizontal"
-          onKeyDown={onActionKeyDown}
-        >
-          <ScopedAnswer
-            label="Decline"
-            faceClassName={`${ANSWER_FACE_CLASS} ${DECLINE_FACE_CLASS}`}
-            isDisabled={props.isResolving}
-            onPress={() => {
-              answer("rejected", undefined);
-            }}
-            arrow={declineArrowFor(record, answer)}
-          />
-          {record.standingAllowOffered ? (
+        <>
+          <div
+            className="meridian-approval-card__actions"
+            ref={actionRowRef}
+            role="toolbar"
+            aria-label="Answer this request"
+            aria-orientation="horizontal"
+            onKeyDown={onActionKeyDown}
+          >
             <ScopedAnswer
-              label={allowLabelFor(record)}
-              faceClassName={`${ANSWER_FACE_CLASS} meridian-action-button--outline`}
+              label="Decline"
+              faceClassName={`${ANSWER_FACE_CLASS} ${DECLINE_FACE_CLASS}`}
               isDisabled={props.isResolving}
               onPress={() => {
-                answer("approved", ruleFor(record, "session", "allow"));
+                if (declineReason === undefined) {
+                  setDeclineReason("");
+                  return;
+                }
+                answer("rejected", undefined);
               }}
-              arrow={allowArrowFor(record, answer)}
+              arrow={declineArrowFor(record, answer)}
             />
-          ) : null}
-          <ScopedAnswer
-            label="Approve once"
-            faceClassName={`${ANSWER_FACE_CLASS} meridian-accent-fill ${APPROVE_ONCE_CLASS}`}
-            isDisabled={props.isResolving}
-            onPress={() => {
-              answer("approved", undefined);
-            }}
-          />
-        </div>
+            {record.standingAllowOffered ? (
+              <ScopedAnswer
+                label={allowLabelFor(record)}
+                faceClassName={`${ANSWER_FACE_CLASS} meridian-action-button--outline`}
+                isDisabled={props.isResolving}
+                onPress={() => {
+                  answer("approved", ruleFor(record, "session", "allow"));
+                }}
+                arrow={allowArrowFor(record, answer)}
+              />
+            ) : null}
+            <ScopedAnswer
+              label="Approve once"
+              faceClassName={`${ANSWER_FACE_CLASS} meridian-accent-fill`}
+              answerName="approve-once"
+              isDisabled={props.isResolving}
+              onPress={() => {
+                answer("approved", undefined);
+              }}
+            />
+          </div>
+          {declineReason === undefined ? null : (
+            <input
+              ref={focusDeclineReason}
+              type="text"
+              className="meridian-form__input meridian-approval-card__decline-reason"
+              placeholder="why not"
+              aria-label="why not"
+              autoComplete="off"
+              spellCheck={false}
+              value={declineReason}
+              disabled={props.isResolving}
+              onChange={(event) => {
+                setDeclineReason(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") {
+                  return;
+                }
+                event.preventDefault();
+                answer("rejected", undefined);
+              }}
+            />
+          )}
+        </>
       ) : null}
 
       {props.refusal === undefined ? null : <RefusalWithRemedy refusal={props.refusal} />}

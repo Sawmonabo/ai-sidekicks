@@ -1,9 +1,10 @@
 // What an answer sends: an answer the contract accepts, no second press while one is in flight,
 // the three answers in their fixed order with the standing allow absent where none is offered, a
 // rule made only by the press whose label names it, the project scope and the host block only
-// where offered, a keyboard-walkable row, and the requested resource shown in full before the
-// person answers. The card and the palette rows withdraw together on a settled refusal. Payload
-// assertions drive the real `onResolve`, so they check the wire request.
+// where offered, the `why not` line riding a decline, a keyboard-walkable row, and the requested
+// resource shown in full before the person answers. The card and the palette rows withdraw
+// together on a settled refusal. Payload assertions drive the real `onResolve`, so they check the
+// wire request.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -27,6 +28,18 @@ function pressArrowRow(arrowLabel: string, rowLabel: string): void {
   fireEvent.click(screen.getByRole("menuitem", { name: rowLabel }));
 }
 
+/** Opens the `why not` line and then declines with it empty. */
+function pressDeclineTwice(): void {
+  const decline = screen.getByRole("button", { name: "Decline" });
+  fireEvent.click(decline);
+  fireEvent.click(decline);
+}
+
+/** Types into the open `why not` line. */
+function typeWhyNot(text: string): void {
+  fireEvent.change(screen.getByRole("textbox", { name: "why not" }), { target: { value: text } });
+}
+
 describe("what an answer sends", () => {
   it("sends Approve once as an answer the contract accepts, naming no scope and no rule", () => {
     const requests = renderCard(pendingRecord());
@@ -44,10 +57,69 @@ describe("what an answer sends", () => {
     // Two presses sharing an id would be two answers the daemon cannot tell apart.
     const requests = renderCard(pendingRecord());
     fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
-    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    pressDeclineTwice();
     expect(requests[1]?.decision).toBe("rejected");
     expect(requests[1] && "rememberedScope" in requests[1]).toBe(false);
     expect(requests[0]?.clientResolutionId).not.toBe(requests[1]?.clientResolutionId);
+  });
+});
+
+describe("Decline's why not line", () => {
+  it("opens the line on the first press and sends nothing yet", () => {
+    const requests = renderCard(pendingRecord());
+    expect(screen.queryByRole("textbox", { name: "why not" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(requests).toHaveLength(0);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "why not" }));
+  });
+
+  it("sends what is typed, trimmed, as the decline's reason on the second press", () => {
+    const requests = renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    typeWhyNot("  use the staging branch  ");
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.decision).toBe("rejected");
+    expect(requests[0]?.declineReason).toBe("use the staging branch");
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
+  });
+
+  it("negative control: an empty or blank line sends a bare decline", () => {
+    // An empty reason is one the contract refuses, so it must not be sent at all.
+    const requests = renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    typeWhyNot("   ");
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "declineReason" in requests[0]).toBe(false);
+    expect(isAcceptedAnswer(requests[0])).toBe(true);
+  });
+
+  it("declines on Enter in the line", () => {
+    const requests = renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    typeWhyNot("not this file");
+    const enterHandled = fireEvent.keyDown(screen.getByRole("textbox", { name: "why not" }), {
+      key: "Enter",
+    });
+    expect(enterHandled).toBe(false);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.declineReason).toBe("not this file");
+  });
+
+  it("rides a host block pressed while the line is open, and never an approval", () => {
+    const requests = renderCard(
+      pendingRecord({ category: "network_access", subject: "api.example.com" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    typeWhyNot("an unknown host");
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    pressArrowRow("Other ways to decline", "Block api.example.com this session");
+    expect(requests[0]?.decision).toBe("approved");
+    expect(requests[0] && "declineReason" in requests[0]).toBe(false);
+    expect(requests[1]?.rememberedScope?.sense).toBe("block");
+    expect(requests[1]?.declineReason).toBe("an unknown host");
+    expect(requests.every(isAcceptedAnswer)).toBe(true);
   });
 });
 
