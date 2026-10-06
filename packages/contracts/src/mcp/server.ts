@@ -14,13 +14,13 @@
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import type { IdempotencyClass } from "../provider/driver/tools.js";
+import { IDEMPOTENCY_CLASSES, type IdempotencyClass } from "../provider/driver/tools.js";
 import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
 } from "../provider/driver/length-limits.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
+import { pluginTokenSchema } from "../plugin.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
@@ -37,7 +37,7 @@ export const MCP_SERVER_STATUS_SEVERITY_ORDER = [
   "starting",
   "connected",
 ] as const;
-/** Connection state of one MCP server. Servers only: support is not visibility of its tools. */
+/** A server's connection state; it says nothing about which of its tools a session can see. */
 export type McpServerStatus = (typeof MCP_SERVER_STATUS_SEVERITY_ORDER)[number];
 
 /** A server's name as a binding and an event carry it. */
@@ -131,7 +131,7 @@ const localBindingShape = {
 const pluginBindingShape = {
   provider: ProviderNameSchema,
   scope: z.literal("plugin"),
-  scopeRef: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "McpServerBindingRef.scopeRef"),
+  scopeRef: pluginTokenSchema("McpServerBindingRef.scopeRef"),
   serverName: McpServerNameSchema,
 };
 
@@ -526,7 +526,11 @@ export const McpToolNameSchema: z.ZodString = wireFreeFormString(
 const McpAssignableIdempotencyClassSchema: z.ZodType<
   McpAssignableIdempotencyClass,
   McpAssignableIdempotencyClass
-> = z.enum(["idempotent", "compensable"]);
+> = z.enum(
+  IDEMPOTENCY_CLASSES.filter(
+    (value): value is McpAssignableIdempotencyClass => value !== "manual_reconcile_only",
+  ),
+);
 
 /** Parses an {@link McpToolOverride}; an override that sets no facet is refused. */
 export const McpToolOverrideSchema: z.ZodType<McpToolOverride, McpToolOverride> = z

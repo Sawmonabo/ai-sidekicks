@@ -1,6 +1,7 @@
-// What a driver offers a client: its models and modes, its capability flags and contract version,
-// and the execution posture a run runs under. The driver already normalized these returns, so none
-// is a Zod schema; the driver interface and the shapes only the daemon reads are in the daemon.
+// What a driver offers a client (its models and modes, its capability flags and contract version)
+// and the execution posture a driver spawns and runs a turn under. The schemas that parse the
+// first three on the `driver.list*` replies are in `./methods.ts`, beside those replies; the driver
+// interface and the shapes only the daemon reads are in the daemon.
 import type { PermissionLevel } from "../../session/controls/methods.js";
 
 /** One selectable model of one provider, normalized at the driver's boundary (`listModels`). */
@@ -66,9 +67,8 @@ export const DRIVER_CAPABILITY_FLAGS = [
 export type DriverCapabilityFlag = (typeof DRIVER_CAPABILITY_FLAGS)[number];
 
 /**
- * A driver's capability flag matrix and contract semver. Driver-normalized, so the contract layer
- * does not re-parse it; `contractVersion` is bounded (semver, length) where it is persisted to
- * `driver_contract_meta.contract_version`.
+ * A driver's capability flag matrix and contract semver, parsed on its reply by
+ * `DriverCapabilitiesSchema`. `contractVersion` is bounded (semver, length) where it is persisted.
  */
 export interface DriverCapabilities {
   flags: Record<DriverCapabilityFlag, boolean>;
