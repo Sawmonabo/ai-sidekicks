@@ -13,7 +13,7 @@
 // - An unmapped method gets an `unmapped_wire_kind` diagnostic from
 //   `resolveCodexFrameEmissionRoute`; the frame is never dropped silently.
 
-import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";

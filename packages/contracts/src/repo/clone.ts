@@ -2,7 +2,7 @@
 // clone live: git's progress, the question git asks and the person's answer, a failure with git's
 // last line, cancel, and pulling large files afterwards.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose imports reach it,
+// This module imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import { z } from "zod";
 

@@ -8,7 +8,7 @@
 // and each emission carries the whole list, so a late subscriber needs no resend and a dropped
 // frame costs nothing.
 //
-// This module imports nothing from `./event/session-event.js` and nothing that reaches it, because
+// This module imports nothing from `./event/session.js` and nothing that reaches it, because
 // an import cycle among eager Zod initializers throws at import time and `tsc` does not flag it.
 import { z } from "zod";
 

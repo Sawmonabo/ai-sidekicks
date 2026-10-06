@@ -3,9 +3,9 @@
 // without a position to resume from.
 import { describe, expect, it } from "vitest";
 
-import { SessionEventSchema } from "../../event/session-event.js";
+import { SessionEventSchema } from "../../event/session.js";
 import { SessionStreamFrameSchema } from "../methods.js";
-import { buildSessionCreatedEvent } from "../../event/__tests__/session-event.test-support.js";
+import { buildSessionCreatedEvent } from "../../event/__tests__/session.test-support.js";
 
 describe("SessionStreamFrameSchema (each `session.subscribe` notify's value)", () => {
   const FrameSchema = SessionStreamFrameSchema(SessionEventSchema);

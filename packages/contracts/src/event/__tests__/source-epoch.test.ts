@@ -10,7 +10,7 @@ import {
   SourcePositionSchema,
   withEpochStamp,
 } from "../envelope.js";
-import { SessionEventSchema } from "../session-event.js";
+import { SessionEventSchema } from "../session.js";
 
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 

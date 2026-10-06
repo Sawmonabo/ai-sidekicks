@@ -5,7 +5,7 @@
 // and stays `submitted` (Claude Code's). The shape is split by kind so neither carries the
 // other's states.
 //
-// Nothing imported here may reach `./event/session-event.js`, which imports the task update payload
+// Nothing imported here may reach `./event/session.js`, which imports the task update payload
 // from this module: a cycle among eager module-scope schemas throws at load.
 import { z } from "zod";
 

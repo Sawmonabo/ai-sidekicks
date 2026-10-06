@@ -5,7 +5,7 @@
 // composed: the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it,
 // so a `session:sequence` key would resolve for no caller.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,

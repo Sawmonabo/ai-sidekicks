@@ -4,11 +4,11 @@
 import { describe, expect, it } from "vitest";
 
 import { DriverEventSchema } from "../event.js";
-import { SessionEventSchema } from "../../../event/session-event.js";
+import { SessionEventSchema } from "../../../event/session.js";
 import {
   buildAssistantMessageEvent,
   buildSessionCreatedEvent,
-} from "../../../event/__tests__/session-event.test-support.js";
+} from "../../../event/__tests__/session.test-support.js";
 
 // One driver-category fixture and one non-driver one: the minimum that separates "refuses
 // non-driver events" from "refuses everything".

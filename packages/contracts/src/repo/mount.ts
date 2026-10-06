@@ -4,7 +4,7 @@
 // are in `repo/folders.ts`. The other `repo.*` contract files import these definitions and never
 // redefine them; this module imports none of them.
 //
-// This module imports nothing that reaches `../event/session-event.js`: `event/session-event.ts`
+// This module imports nothing that reaches `../event/session.js`: `event/session.ts`
 // imports the lifecycle payload schema from here, and a cycle among module-scope Zod initializers
 // throws at import time, which `tsc` does not flag.
 import { z } from "zod";

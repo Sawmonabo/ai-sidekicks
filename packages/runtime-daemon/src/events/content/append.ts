@@ -9,10 +9,7 @@ import {
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
-import {
-  SESSION_EVENT_TYPES,
-  SessionEventSchema,
-} from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_TYPES, SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 
 import { findUnpairedSurrogateIndex } from "../canonicalizer.js";
 

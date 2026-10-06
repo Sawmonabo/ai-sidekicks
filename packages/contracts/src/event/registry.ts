@@ -1,8 +1,8 @@
 // The closed list of session event types, grouped by category. Each type's category is
-// `SESSION_EVENT_CATEGORY_BY_TYPE` in `event/session-event.ts`.
+// `SESSION_EVENT_CATEGORY_BY_TYPE` in `event/session.ts`.
 
 import type { EventCategory } from "./envelope.js";
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "./session-event.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "./session.js";
 
 // A type string is an immutable wire identifier, never renamed. Its category is its entry in the
 // category map, not its prefix: `relay.pin_refused` is `security_events`, `plan.*` is

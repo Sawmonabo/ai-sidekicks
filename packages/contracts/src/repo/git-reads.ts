@@ -1,7 +1,7 @@
 // Git read contracts for the panes: the branch list both base pickers use, reading a file's lines
 // by path or by blob, and the signal that a session's working folder changed.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose imports reach it,
+// This module imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import { z } from "zod";
 

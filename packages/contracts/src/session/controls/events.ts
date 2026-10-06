@@ -1,7 +1,7 @@
 // The payloads of the flow rows a session's controls write, and the live frame of Codex's safety
 // hold on a turn.
 //
-// Must not import `../../event/session-event.js`: it registers the payloads below as event
+// Must not import `../../event/session.js`: it registers the payloads below as event
 // variants, so an import back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 

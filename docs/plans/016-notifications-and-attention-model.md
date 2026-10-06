@@ -145,7 +145,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T1.4 — The mute's contract
 
-- **Files:** the session contracts in `packages/contracts/src/session/methods.ts` and the event union in `packages/contracts/src/event/session-event.ts`.
+- **Files:** the session contracts in `packages/contracts/src/session/methods.ts` and the event union in `packages/contracts/src/event/session.ts`.
 - **Step:** Add `session.mute {sessionId}` and `session.unmute {sessionId}` answering `{}`, the events `session.muted {sessionId, at}` and `session.unmuted {sessionId, at}`, and `muted` on the `session.list` and `session.read` entries.
 - **Test:** none of its own; the mute's behavior is verified at T2.4.
 - **Spec coverage:** Spec-017 §Interfaces And Contracts (the mute verbs and events)

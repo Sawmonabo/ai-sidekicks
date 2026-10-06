@@ -13,7 +13,7 @@ import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contract
 import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { DriverClient } from "../provider.js";

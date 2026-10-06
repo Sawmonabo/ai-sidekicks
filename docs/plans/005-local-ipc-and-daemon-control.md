@@ -9,7 +9,7 @@
 | **Author(s)** | `Codex` |
 | **Spec** | [Spec-006: Local IPC And Daemon Control](../specs/006-local-ipc-and-daemon-control.md) |
 | **Required ADRs** | [ADR-002](../decisions/002-local-execution-shared-control-plane.md), [ADR-008](../decisions/008-default-transports-and-relay-boundaries.md), [ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-014](../decisions/014-v1-feature-scope-definition.md) |
-| **Dependencies** | **Partial / remainder split** — Plan-005-partial ([Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) substrate + `session.*` namespace + SDK Zod layer) ships first to unblock [Plan-001](./001-session-core.md) Phase 5; Plan-005-remainder ships after it. See §Execution Windows (V1 Carve-Out) below. **Partial phase-level imports.** Phase 3 imports [Plan-001](./001-session-core.md) Phase 2 (`packages/contracts/src/session/methods.ts` + `packages/contracts/src/event/session-event.ts` Zod schemas) — Plan-005 Phase 3 PR cannot open until Plan-001 Phase 2 has merged. |
+| **Dependencies** | **Partial / remainder split** — Plan-005-partial ([Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) substrate + `session.*` namespace + SDK Zod layer) ships first to unblock [Plan-001](./001-session-core.md) Phase 5; Plan-005-remainder ships after it. See §Execution Windows (V1 Carve-Out) below. **Partial phase-level imports.** Phase 3 imports [Plan-001](./001-session-core.md) Phase 2 (`packages/contracts/src/session/methods.ts` + `packages/contracts/src/event/session.ts` Zod schemas) — Plan-005 Phase 3 PR cannot open until Plan-001 Phase 2 has merged. |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 | **Owned Spec-023 Rows** | 3, 4, 7a, 7b, 9 (daemon-side secure-default enforcement — see [Spec-023 §Required Behavior](../specs/023-self-host-secure-defaults.md#required-behavior)) |
 
@@ -193,7 +193,7 @@ A JSON-RPC request whose `id` exceeds `JSON_RPC_ID_MAX_BYTES` once JSON-encoded 
 - [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md) declares the `protocolVersion` field type: an ISO 8601 `YYYY-MM-DD` date string, matching [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format), with the substrate at `packages/contracts/src/jsonrpc/message.ts` typed `string` rather than `number | string`. The method-namespace registry (`MethodRegistry`) and the `LocalSubscriptionProducer<T>` streaming primitive have their canonical shapes in `packages/contracts/src/jsonrpc/registry.ts` and `packages/contracts/src/jsonrpc/streaming.ts`.
 - [error-contracts.md §JSON-RPC Wire Mapping](../architecture/contracts/error-contracts.md#json-rpc-wire-mapping) declares the JSON-RPC numeric error space (`-32700` / `-32600` / `-32601` / `-32602` / `-32603`) ↔ project dotted-namespace `data.type` two-layer envelope
 - The `session.subscribe` streaming-primitive shape is canonical in `packages/contracts/src/jsonrpc/streaming.ts` (`LocalSubscriptionProducer<EventEnvelope>`, shipped at Plan-005 Phase 3)
-- [Plan-001](./001-session-core.md) Phase 2 schemas merged (`packages/contracts/src/session/methods.ts` + `packages/contracts/src/event/session-event.ts`) — Phase 3 builds on them
+- [Plan-001](./001-session-core.md) Phase 2 schemas merged (`packages/contracts/src/session/methods.ts` + `packages/contracts/src/event/session.ts`) — Phase 3 builds on them
 
 Target paths below assume the canonical implementation topology defined in [Container Architecture](../architecture/container-architecture.md).
 

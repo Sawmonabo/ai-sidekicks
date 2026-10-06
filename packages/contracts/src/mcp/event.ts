@@ -1,11 +1,11 @@
 // The MCP governance stream: the session events of the `mcp_governance` category, the live notices
 // of an edit to a binding and of a status change, and the `mcp.subscribe` method that carries them.
-// A leaf below `event/session-event.ts`, because the MCP contract files are imported by
-// `event/session-event.ts` and cannot import it back.
+// A leaf below `event/session.ts`, because the MCP contract files are imported by
+// `event/session.ts` and cannot import it back.
 import { z } from "zod";
 
 import { MCP_GOVERNANCE_EVENT_TYPES } from "../event/registry.js";
-import { SessionEventSchema } from "../event/session-event.js";
+import { SessionEventSchema } from "../event/session.js";
 import type { SessionEvent } from "../event/variant-types.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {

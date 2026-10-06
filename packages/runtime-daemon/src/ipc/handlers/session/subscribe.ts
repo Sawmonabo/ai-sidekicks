@@ -29,7 +29,7 @@ import type {
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import {
   SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,

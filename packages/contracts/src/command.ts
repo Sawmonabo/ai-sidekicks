@@ -6,7 +6,7 @@
 // subscription as it prints and is never stored; the stored `command.ended` event settles a
 // row after a reload.
 //
-// This file imports nothing from `event/session-event.ts`, which imports the event payload from
+// This file imports nothing from `event/session.ts`, which imports the event payload from
 // here.
 import { z } from "zod";
 

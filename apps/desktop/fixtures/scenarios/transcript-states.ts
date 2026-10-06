@@ -17,7 +17,7 @@
 // Every beat is a registered event with its registered payload.
 // `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session-event.ts`, and `fixtures/data/script-entries.ts` carries
+// `packages/contracts/src/event/session.ts`, and `fixtures/data/script-entries.ts` carries
 // the payload builders so a member cannot drift between two beats of one kind.
 //
 // Deliberately not scripted:

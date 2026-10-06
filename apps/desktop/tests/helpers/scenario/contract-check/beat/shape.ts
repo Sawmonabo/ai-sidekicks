@@ -29,7 +29,7 @@ import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SessionEventSchema,
-} from "@ai-sidekicks/contracts/event/session-event";
+} from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import { describeSchemaIssue } from "../defect.js";
@@ -45,7 +45,7 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
     return (
       `"${beat.event.kind}" is not a registered event type, so no daemon emits it. ` +
       "Script the registered type this beat means instead — the census is " +
-      "`SESSION_EVENT_CATEGORY_BY_TYPE` in `packages/contracts/src/event/session-event.ts`."
+      "`SESSION_EVENT_CATEGORY_BY_TYPE` in `packages/contracts/src/event/session.ts`."
     );
   }
   const semantics = describeRunAndQueueSemanticsDefect(beat);

@@ -5,7 +5,7 @@
 //   * No sequence number, chain hash or signature: the append path owns them.
 //   * The append receipt is returned as is, not examined.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
 import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";

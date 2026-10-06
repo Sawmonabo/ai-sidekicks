@@ -4,7 +4,7 @@
 // session is, so nothing here names a session by one. The transcript draws every goal row from
 // the two events; there is no separate goal store.
 //
-// Must not import `../event/session-event.js`: it registers the two payloads below as event
+// Must not import `../event/session.js`: it registers the two payloads below as event
 // variants, so an import back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 

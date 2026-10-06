@@ -4,7 +4,7 @@
 // spent account the attention list groups by exactly when the wait is on an account.
 import { describe, expect, it } from "vitest";
 
-import { SessionEventSchema } from "../../../event/session-event.js";
+import { SessionEventSchema } from "../../../event/session.js";
 import {
   WorkflowGateResolveRequestSchema,
   WorkflowGateResolveResponseSchema,
@@ -13,7 +13,7 @@ import {
   WorkflowHumanFormSubmitRequestSchema,
   WorkflowStepReadRequestSchema,
 } from "../step.js";
-import { buildSessionCreatedEvent } from "../../../event/__tests__/session-event.test-support.js";
+import { buildSessionCreatedEvent } from "../../../event/__tests__/session.test-support.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";

@@ -86,7 +86,7 @@ export function compareEventEnvelopeVersion(
 // Two layers. `EventEnvelopeSchema` is the version-tolerant envelope: a newer producer's unknown
 // `type` is stored as a version stub and its unknown payload fields are kept verbatim, but the
 // category set and the top-level members stay closed. `SessionEventSchema` in
-// `event/session-event.ts` is the strict layer, where an unknown type or a category/type mismatch
+// `event/session.ts` is the strict layer, where an unknown type or a category/type mismatch
 // fails to parse. Free-form fields use `wireFreeFormString`, which bounds length and refuses blank
 // and NUL values.
 

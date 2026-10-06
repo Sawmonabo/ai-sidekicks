@@ -7,7 +7,7 @@
 // Every method here names the session it acts on, and every setting it changes belongs to that
 // session alone: Settings, other sessions and future sessions are untouched.
 //
-// Must not import `../../event/session-event.js`: it registers the payloads in `./events.ts`, which
+// Must not import `../../event/session.js`: it registers the payloads in `./events.ts`, which
 // import this module, as event variants, so an import back closes a module-scope cycle that throws
 // at load time.
 import { z } from "zod";

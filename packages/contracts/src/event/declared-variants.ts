@@ -1,6 +1,6 @@
 // Session events whose payload this package declares itself: session, workspace and worktree
 // lifecycle, event compaction, and assistant and tool activity. Each has an event interface here;
-// `SessionEventSchema` in event/session-event.ts parses them.
+// `SessionEventSchema` in event/session.ts parses them.
 
 import { z } from "zod";
 import { EVENT_FIELD_MAX_LEN } from "./version.js";

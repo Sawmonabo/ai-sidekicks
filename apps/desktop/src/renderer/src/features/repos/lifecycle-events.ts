@@ -4,7 +4,7 @@
 // `workspace.archived`), and `worktree.*` frames change the execution roots. Watching more kinds
 // costs nothing: one transition is one request, which the scheduler coalesces.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 /** The namespaces of the two entities a session's stream announces: workspace and worktree. */

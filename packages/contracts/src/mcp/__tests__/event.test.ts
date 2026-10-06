@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { McpGovernanceEventSchema } from "../event.js";
-import { buildSessionCreatedEvent } from "../../event/__tests__/session-event.test-support.js";
+import { buildSessionCreatedEvent } from "../../event/__tests__/session.test-support.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 

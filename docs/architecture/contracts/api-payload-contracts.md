@@ -33,7 +33,7 @@ Package-local typed surfaces are **canonical in code**, not in this file. Exampl
 - `LocalSubscriptionProducer<T>` streaming primitive — `packages/contracts/src/jsonrpc/streaming.ts` (the client-side consumer shape is `LocalSubscriptionConsumer<T>` at `packages/client-sdk/src/transport/contract.ts`)
 - `SecureDefaults` config + effective-settings — `packages/runtime-daemon/src/bootstrap/secure-defaults.ts`
 - LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `packages/contracts/src/jsonrpc/streaming.ts`
-- `SessionEvent` discriminated-union schema — `packages/contracts/src/event/session-event.ts`
+- `SessionEvent` discriminated-union schema — `packages/contracts/src/event/session.ts`
 - The daemon's method and event map — the `DaemonMethod` union, the method-to-params and method-to-result maps (`DaemonParams`, `DaemonResult`) and the `DaemonEvent` union with its event-to-payload map (`DaemonEventPayload`), built from the contracts' own method descriptors — `packages/contracts/src/daemon/method-map.ts`. The preload bridge's `daemon.call` and `daemon.subscribe` are typed by it, and the renderer's daemon client takes its types from it rather than restating them.
 
 This file does **NOT** maintain doc-side mirrors of those types. A consumer searching for the canonical runtime type reads the code path directly; this file's role for those surfaces is to cite the code location and explain cross-cutting consistency, not to redefine them. The Zod schema in code is the source of truth, and divergence between this file's prose and the Zod schema is resolved in favor of the schema.
@@ -2887,7 +2887,7 @@ type EventCategory =
 // Payload variants authored in packages/contracts/src/event/declared-variants.ts
 // (event.compacted and the event_maintenance base) and
 // packages/contracts/src/event/variant-types.ts (usage.model_rerouted, its
-// schema in packages/contracts/src/event/session-event.ts), which Plan-004
+// schema in packages/contracts/src/event/session.ts), which Plan-004
 // owns, rather than imported from an emitting plan's module (contrast the
 // repo/workspace/worktree family, authored in repo/mount.ts / worktree/lifecycle.ts under
 // emitter-authors-payload); Plan-004 T1.10 registers event.compacted.

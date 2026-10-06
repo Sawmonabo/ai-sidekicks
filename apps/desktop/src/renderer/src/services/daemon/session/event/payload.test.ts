@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";

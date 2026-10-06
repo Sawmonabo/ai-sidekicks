@@ -1,7 +1,7 @@
 // Worktree event payloads beyond the shared lifecycle payload: worktree created and retired, a
 // session swept back to the repository root, and a session's branch changed.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose import closure
+// This module imports nothing from `../event/session.js` and nothing whose import closure
 // reaches it, for the module-cycle reason in the header of `repo/mount.ts`.
 import { z } from "zod";
 

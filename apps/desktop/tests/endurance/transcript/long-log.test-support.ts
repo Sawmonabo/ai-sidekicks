@@ -16,7 +16,7 @@
 //
 // The beats use the registered vocabulary the picker scenarios play (the census
 // `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer `SessionEventSchema`, both in
-// `packages/contracts/src/event/session-event.ts`), so a reading is taken over rows the daemon
+// `packages/contracts/src/event/session.ts`), so a reading is taken over rows the daemon
 // could send.
 
 import { composeOpeningEntry, composeResolvedAgent } from "#fixtures/data/opening-entries.js";

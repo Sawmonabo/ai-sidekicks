@@ -24,7 +24,7 @@ import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { DRIVER_EVENT_TYPES } from "@ai-sidekicks/contracts/provider/driver/event";
 import { DriverSubscribeEventsParamsSchema } from "@ai-sidekicks/contracts/provider/driver/methods";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
+import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { StreamingPrimitive } from "../../streaming-primitive.js";

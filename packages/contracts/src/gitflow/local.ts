@@ -4,7 +4,7 @@
 // progress, Generate, and the payload of `git.settled`, the one event that records a
 // commit, a push, a pull, an opened change request or a posted review.
 //
-// This module imports nothing that reaches `../event/session-event.js`: `event/session-event.ts`
+// This module imports nothing that reaches `../event/session.js`: `event/session.ts`
 // imports `GitSettledPayloadSchema` from here, and a cycle among module-scope zod schemas throws at
 // load time.
 import { z } from "zod";

@@ -11,7 +11,7 @@
 // it lists the session's own answers and the project's rule files, and a rule holds at every
 // level that asks.
 //
-// This file imports nothing from `event/session-event.ts`: that module imports the payload schemas
+// This file imports nothing from `event/session.ts`: that module imports the payload schemas
 // below, and an import back would close an eager module cycle.
 import { z } from "zod";
 

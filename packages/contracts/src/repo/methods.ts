@@ -1,6 +1,6 @@
 // The `repo.*` method table: every method's name, procedure type, mutating flag and schemas. It
 // imports every `repo.*` contract file and none imports it, so it sees the whole namespace without
-// a cycle. It imports nothing from `../event/session-event.js` and nothing whose imports reach it,
+// a cycle. It imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import {
   defineMethodDescriptors,

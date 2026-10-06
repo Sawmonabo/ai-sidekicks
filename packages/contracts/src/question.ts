@@ -11,7 +11,7 @@
 // no projection and no artifact, and the person's turn records only that a secret
 // was answered.
 //
-// This file imports nothing from `event/session-event.ts`: that module imports the payload
+// This file imports nothing from `event/session.ts`: that module imports the payload
 // schema below, and an import back would close an eager module cycle.
 import { z } from "zod";
 

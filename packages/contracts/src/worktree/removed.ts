@@ -1,7 +1,7 @@
 // Removed-worktree contracts: the copies `Discard and remove` keeps, listing them, putting one back
 // and deleting one.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose imports reach it,
+// This module imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import { z } from "zod";
 

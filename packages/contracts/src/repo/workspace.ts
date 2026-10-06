@@ -2,7 +2,7 @@
 // them (`repo.workspaceBind` and `repo.workspaceList`). The ids and enums they compose live in
 // repo/mount.ts, and the mount pairs in repo/folders.ts.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose import closure
+// This module imports nothing from `../event/session.js` and nothing whose import closure
 // reaches it, for the module-cycle reason in the header of `repo/mount.ts`.
 import { z } from "zod";
 

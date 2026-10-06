@@ -2,7 +2,7 @@
 // provenance the daemon stamps, and the switcher's read never lists a retired tree.
 import { describe, expect, it } from "vitest";
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../../event/session-event.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../../event/session.js";
 import type { SessionEvent } from "../../event/variant-types.js";
 import {
   ExecutionRootPrepareRequestSchema,

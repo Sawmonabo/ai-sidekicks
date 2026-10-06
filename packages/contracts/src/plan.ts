@@ -6,7 +6,7 @@
 // messages survive a reload. The first answer settles the plan everywhere; a later answer reads
 // back the state it settled to rather than applying again.
 //
-// This file imports nothing from `event/session-event.ts`: that module imports the payload schemas
+// This file imports nothing from `event/session.ts`: that module imports the payload schemas
 // below, and an import back would close an eager module cycle.
 import { z } from "zod";
 

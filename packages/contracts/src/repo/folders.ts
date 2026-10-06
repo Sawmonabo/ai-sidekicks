@@ -3,7 +3,7 @@
 // attach, read and detach (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
 // folder the service cannot reach.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose imports reach it,
+// This module imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import { z } from "zod";
 

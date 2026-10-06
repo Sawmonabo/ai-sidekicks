@@ -2,8 +2,8 @@
 // and response pairs of the worktree methods on the `repo.*` namespace. They are daemon JSON-RPC
 // only, since worktrees are local filesystem state.
 //
-// This module must import nothing from `../event/session-event.js`, directly or through any module
-// that reaches it. `event/session-event.ts` imports this module's payload schema, so a back-import
+// This module must import nothing from `../event/session.js`, directly or through any module
+// that reaches it. `event/session.ts` imports this module's payload schema, so a back-import
 // closes an eager module-scope Zod cycle that throws `ReferenceError` at import time and that `tsc`
 // does not flag. Check a new import's closure before adding it.
 import { z } from "zod";

@@ -8,7 +8,7 @@
 // Approval beats carry the full registered payload of each variant.
 // `tests/helpers/scenario/contract-check/all-axes.ts` holds the beats to the census
 // (`SESSION_EVENT_CATEGORY_BY_TYPE`) and strict payload layer (`SessionEventSchema`) in
-// `packages/contracts/src/event/session-event.ts`.
+// `packages/contracts/src/event/session.ts`.
 //
 // Ids are UUIDs, as the contracts' branded ids require, and a short readable id would render
 // narrower than a real one in a fixture that is measured.

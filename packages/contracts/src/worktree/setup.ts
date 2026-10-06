@@ -1,6 +1,6 @@
 // Worktree setup contracts: the setup card's live status and its retry.
 //
-// This module imports nothing from `../event/session-event.js` and nothing whose import closure
+// This module imports nothing from `../event/session.js` and nothing whose import closure
 // reaches it, for the module-cycle reason in the header of `repo/mount.ts`.
 import { z } from "zod";
 

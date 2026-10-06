@@ -2,17 +2,14 @@
 // written or read back, so a wrong row never reaches the log or a reader.
 import { describe, expect, it } from "vitest";
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../session-event.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE, SessionEventSchema } from "../session.js";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
   compareEventEnvelopeVersion,
 } from "../envelope.js";
-import {
-  buildAssistantMessageEvent,
-  buildSessionCreatedEvent,
-} from "./session-event.test-support.js";
+import { buildAssistantMessageEvent, buildSessionCreatedEvent } from "./session.test-support.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const VERSION = "1.0";

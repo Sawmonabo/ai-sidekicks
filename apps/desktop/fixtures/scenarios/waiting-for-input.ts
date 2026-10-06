@@ -7,7 +7,7 @@
 // Every beat is a registered event with its registered payload, and every id is the UUID its
 // branded type declares. `tests/helpers/scenario/contract-check/all-axes.ts` holds the
 // beats to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict payload layer
-// (`SessionEventSchema`) in `packages/contracts/src/event/session-event.ts`. So:
+// (`SessionEventSchema`) in `packages/contracts/src/event/session.ts`. So:
 //
 //   - `session.created` carries the lead, so the `agents` projection rebuilds from the log
 //     alone. The reviewer takes part only when a run names it.
