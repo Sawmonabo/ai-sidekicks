@@ -19,6 +19,9 @@ import { RENDERER_HOST, RENDERER_ORIGIN, RENDERER_SCHEME } from "../../services/
 /** Reserved path serving the generated load-failure document. */
 export const LOAD_FAILURE_PATH = "/-/load-failure";
 
+/** The failure document's title and heading. */
+const LOAD_FAILURE_TITLE = "The app's window could not load.";
+
 /** Query parameter carrying the reason onto the failure document. */
 const LOAD_FAILURE_REASON_PARAMETER = "reason";
 
@@ -107,7 +110,7 @@ export function renderLoadFailureDocument(reason: string): string {
     '<html lang="en">',
     "<head>",
     '<meta charset="utf-8">',
-    "<title>The app could not be loaded</title>",
+    `<title>${LOAD_FAILURE_TITLE}</title>`,
     "<style>",
     "html{color-scheme:light dark}",
     "body{margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;",
@@ -121,11 +124,9 @@ export function renderLoadFailureDocument(reason: string): string {
     "</head>",
     "<body>",
     "<main>",
-    "<h1>The app could not be loaded</h1>",
-    "<p>The application window is running, but its interface could not be served.</p>",
+    `<h1>${LOAD_FAILURE_TITLE}</h1>`,
     `<p><code>${escapeHtmlText(shown)}</code></p>`,
-    "<p>Close this window and start the application again. If it keeps happening, the",
-    "installed files may be incomplete — reinstall the application.</p>",
+    "<p>Quit the app and open it again. If it still does not load, reinstall the app.</p>",
     "</main>",
     "</body>",
     "</html>",

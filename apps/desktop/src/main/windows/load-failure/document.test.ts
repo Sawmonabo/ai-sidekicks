@@ -30,6 +30,21 @@ describe("buildLoadFailureUrl", () => {
 });
 
 describe("renderLoadFailureDocument", () => {
+  it("says the window could not load, then the reason, then what to do, and nothing more", () => {
+    const document = renderLoadFailureDocument("ERR_FILE_NOT_FOUND (-6)");
+    const text = (pattern: RegExp): string[] =>
+      [...document.matchAll(pattern)].map((match) => match[1] ?? "");
+
+    expect(text(/<title>(.*?)<\/title>/g)).toStrictEqual(["The app's window could not load."]);
+    expect(text(/<h1>(.*?)<\/h1>/g)).toStrictEqual(["The app's window could not load."]);
+    expect(text(/<p>(.*?)<\/p>/g)).toStrictEqual([
+      "<code>ERR_FILE_NOT_FOUND (-6)</code>",
+      "Quit the app and open it again. If it still does not load, reinstall the app.",
+    ]);
+    expect(document).not.toMatch(/application/i);
+    expect(renderLoadFailureDocument("")).toContain("<code>No reason was reported.</code>");
+  });
+
   // The reason comes from an error message that remote input can shape, so it must arrive as
   // text even when it is markup.
   it("escapes a reason that is markup", () => {

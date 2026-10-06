@@ -136,7 +136,7 @@ describe("the load-failure document over the handler", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 
     const body = await response.text();
-    expect(body).toContain("The app could not be loaded");
+    expect(body).toContain("<h1>The app's window could not load.</h1>");
     expect(body).toContain("ERR_FILE_NOT_FOUND (-6)");
   });
 
