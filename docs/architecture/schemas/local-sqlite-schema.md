@@ -687,7 +687,7 @@ A run's `executionPosture.credentialPolicyRef` is a plain reference naming the c
 
 ## Workflow Tables (Plan-014)
 
-Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I7), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
+Full workflow-engine schema. Its tables hold the definitions and their version chain, the runs, the append-only gate history (C-13/I5), a form step's draft, the per-step record, the armed triggers, the webhook tokens, the per-node key-value store and the workflow secrets' records ([Spec-015 §Interfaces And Contracts](../../specs/015-workflow-authoring-and-execution.md#interfaces-and-contracts)). `session_events` remains canonical truth; tables 3, 5 and 6 are rebuildable projections, 1, 2 and 4 are immutable truth, and 7 to 10 are MUTABLE truth: what this machine is armed to do next, and which secrets it holds, are facts no event history can reconstruct, so the durable row is the truth and the in-process timer is only a cache over it, re-armed from the row after a restart ([Spec-015 §Truth vs projection vs ephemeral (SA-24)](../../specs/015-workflow-authoring-and-execution.md#truth-vs-projection-vs-ephemeral-sa-24)). One column on the projection tier is truth as well: a waiting step's `wait_deadline_at` is written when the step starts waiting, and the deadline timer is a cache over it.
 
 The normalized-table-over-blob shape and the rebuildable-projection split align with industry persistence precedents: durable-execution engines persist normalized state per run rather than monolithic blobs ([Restate — What is Durable Execution](https://restate.dev/what-is-durable-execution)); and large-engine persistence tiers separate hot live state from cold archive ([Argo Workflows — Workflow Archive](https://argo-workflows.readthedocs.io/en/latest/workflow-archive/)). [Spec-015 §References](../../specs/015-workflow-authoring-and-execution.md#references) enumerates the full primary-source corpus.
 
@@ -807,11 +807,11 @@ CREATE INDEX idx_workflow_runs_chain ON workflow_runs(chain_root_run_id);  -- `S
 CREATE INDEX idx_workflow_runs_version ON workflow_runs(workflow_version_id);
 
 -- ========================================================================
--- 4. workflow_gate_resolutions — append-only per C-13 / I7
+-- 4. workflow_gate_resolutions — append-only per C-13 / I5
 -- ========================================================================
 -- Owner: Plan-014
 -- Commitment: C-13 append-only approval history; the invariant
--- is I7 in Spec-015 §Pitfalls To Avoid.
+-- is I5 in Spec-015 §Pitfalls To Avoid.
 CREATE TABLE workflow_gate_resolutions (
   id                         TEXT PRIMARY KEY,          -- ULID
   workflow_run_id            TEXT NOT NULL REFERENCES workflow_runs(id),
