@@ -10,7 +10,12 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import {
+  defineMethodDescriptors,
+  EmptyPayloadSchema,
+  type EmptyPayload,
+  type MethodDescriptor,
+} from "../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { wireUncappedFreeFormString } from "../session/session.js";
 
@@ -160,19 +165,10 @@ export const WorkflowSecretActResponseSchema: z.ZodType<WorkflowSecretActRespons
   .strict();
 
 /**
- * The `workflow.secretList` input. With `scopeRef`, a project record's id, it lists that
- * project's secrets and the shared ones; without it, the shared ones only.
+ * The `workflow.secretList` result: every secret by name, shared and each project's, and no member
+ * carries a value. The request names nothing: a workflow belongs to no project, so the chooser
+ * lists them all.
  */
-export interface WorkflowSecretListRequest {
-  scopeRef?: ProjectId | undefined;
-}
-/** Wire schema for {@link WorkflowSecretListRequest}. */
-export const WorkflowSecretListRequestSchema: z.ZodType<
-  WorkflowSecretListRequest,
-  WorkflowSecretListRequest
-> = z.object({ scopeRef: ProjectIdSchema.optional() }).strict();
-
-/** The `workflow.secretList` result: records by name, and no member carries a value. */
 export interface WorkflowSecretListResponse {
   secrets: WorkflowSecretSummary[];
 }
@@ -278,7 +274,7 @@ export interface WorkflowSecretMethodDescriptors {
   >;
   readonly "workflow.secretList": MethodDescriptor<
     "workflow.secretList",
-    WorkflowSecretListRequest,
+    EmptyPayload,
     WorkflowSecretListResponse
   >;
 }
@@ -315,7 +311,7 @@ export const WORKFLOW_SECRET_METHOD_DESCRIPTORS: WorkflowSecretMethodDescriptors
       method: "workflow.secretList",
       procedureType: "query",
       mutating: false,
-      requestSchema: WorkflowSecretListRequestSchema,
+      requestSchema: EmptyPayloadSchema,
       responseSchema: WorkflowSecretListResponseSchema,
     },
   });

@@ -436,6 +436,7 @@ export const WORKFLOW_DEFINITION_FINDING_RULES = [
   "tool_edge_without_tool_input",
   "handle_type_unknown",
   "name_taken",
+  "repository_required",
   "unknown_key",
   "secret_outside_sensitive_field",
   "code_packages_unresolved",

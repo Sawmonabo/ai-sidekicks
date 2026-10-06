@@ -62,7 +62,8 @@ export const WorkflowRunStartRequestSchema: z.ZodType<
     // absent, the run lives in the workflow's own session.
     sessionId: SessionIdSchema.optional(),
     // The project the Run now panel's `Repository` names, worked in at that project's own
-    // folder. Absent for `None`: the run gets no checkout.
+    // folder. Absent for `None`: the run gets no checkout and works in its own empty folder, and
+    // a version holding a Git, Repo diff or Run tests step is refused.
     projectId: ProjectIdSchema.optional(),
     input: z.array(WorkflowItemSchema).optional(),
     mode: z.enum(WORKFLOW_RUN_MODES).exclude(["retry", "sub-workflow"]).optional(),
