@@ -19,6 +19,7 @@
 import { JsonRpcRemoteError, type LocalSubscriptionConsumer } from "@ai-sidekicks/client-sdk";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { NEGOTIATION_VERSION_MISMATCH_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
 import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
@@ -372,7 +373,7 @@ function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
       code: JsonRpcErrorCode.InvalidRequest,
       message:
         "The background service refused this app's version, so nothing that ends work is sent.",
-      data: { type: "protocol.version_mismatch" },
+      data: { type: NEGOTIATION_VERSION_MISMATCH_CODE },
     };
   }
   return {

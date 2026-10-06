@@ -32,6 +32,7 @@ import {
   NEGOTIATION_REASON_CEILING_EXCEEDED,
   NEGOTIATION_REASON_FLOOR_EXCEEDED,
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
+  NEGOTIATION_VERSION_MISMATCH_CODE,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
@@ -43,7 +44,7 @@ import {
  */
 export type NegotiationErrorCode =
   | "protocol.handshake_required"
-  | "protocol.version_mismatch"
+  | typeof NEGOTIATION_VERSION_MISMATCH_CODE
   | "auth.token_invalid";
 
 /**
@@ -168,7 +169,7 @@ class WrappedRegistry implements MethodRegistry {
       // An unregistered method passes through so the inner dispatch reports `method_not_found`.
       if (state.kind === "done-incompatible" && this.#inner.isMutating(method) === true) {
         throw new NegotiationError(
-          "protocol.version_mismatch",
+          NEGOTIATION_VERSION_MISMATCH_CODE,
           `protocol-negotiation: mutating method ${JSON.stringify(method)} refused because ` +
             `the connection's prior handshake was incompatible (reason=` +
             `${JSON.stringify(state.reason)})`,
