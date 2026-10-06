@@ -11,8 +11,8 @@ import type { WorkflowRunSummary } from "@ai-sidekicks/contracts/workflow/run/re
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import {
-  WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,
   summaryOfRun,

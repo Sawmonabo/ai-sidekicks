@@ -10,11 +10,8 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
-import {
-  WORKFLOW_FIXTURE_NOW_MS,
-  WORKFLOW_RUN_IDS,
-  WORKFLOW_RUN_RECORDS,
-} from "#fixtures/data/workflow/run/records.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
+import { WORKFLOW_RUN_IDS, WORKFLOW_RUN_RECORDS } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { createWorkflowCommandTargets } from "#renderer/features/workflows/command-target.js";

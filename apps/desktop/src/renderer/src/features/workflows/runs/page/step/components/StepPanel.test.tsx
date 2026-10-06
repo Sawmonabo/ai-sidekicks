@@ -26,9 +26,9 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { inlinePayloadRead } from "#test/helpers/artifact-list-readers.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_PAYING_ACCOUNT,
   WORKFLOW_RUN_IDS,
   WORKFLOW_RUN_RECORDS,

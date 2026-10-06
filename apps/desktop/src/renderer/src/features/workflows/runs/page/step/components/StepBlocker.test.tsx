@@ -15,11 +15,11 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
   WORKFLOW_REPLY_QUESTION,
   WORKFLOW_RUN_IDS,
-  WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";

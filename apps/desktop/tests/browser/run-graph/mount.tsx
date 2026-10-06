@@ -14,9 +14,9 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import { renderSettled } from "../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
 import { awaitRunGraphSettled } from "../../helpers/run-graph-settled.js";
+import { WORKFLOW_FIXTURE_NOW_MS } from "#fixtures/data/workflow/clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_RUN_RECORDS,
 } from "#fixtures/data/workflow/run/records.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";

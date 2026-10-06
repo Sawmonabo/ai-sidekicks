@@ -62,6 +62,7 @@ import type {
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
+import { minutesAgo } from "./clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
   WORKFLOW_FIX_SESSION,
@@ -69,7 +70,6 @@ import {
   WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
   isGoing,
-  minutesAgo,
   summaryOfRun,
   type WorkflowRunRecord,
 } from "./run/records.js";

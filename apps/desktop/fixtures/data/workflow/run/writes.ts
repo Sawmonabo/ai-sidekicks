@@ -16,15 +16,14 @@ import type {
   WorkflowTriggerKind,
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
+import { minutesAgo, WORKFLOW_FIXTURE_NOW_MS } from "../clock.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIXTURE_NOW_MS,
   WORKFLOW_FIX_SESSION,
   WORKFLOW_OWN_SESSION,
   WORKFLOW_RUN_RECORDS,
   WORKFLOW_STARTED_BY_PERSON,
   isGoing,
-  minutesAgo,
   type WorkflowRunRecord,
 } from "./records.js";
 import type { AnsweredRequests } from "#renderer/services/daemon/scenario/reply.fixture.js";
