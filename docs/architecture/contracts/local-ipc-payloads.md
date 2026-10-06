@@ -142,9 +142,10 @@ interface DaemonStatusReadResult {
   // which directory is held, not merely that something is.
   dataDirectory: string;
   // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux where no
-  // Secret Service answers; Settings › Runtime then shows `Secrets are kept unencrypted in <path>,
-  // readable by this account alone, because no Secret Service is running.` Absent on every other
-  // machine.
+  // Secret Service answers and on a Mac whose service runs while the person is logged out; Settings ›
+  // Runtime then shows `Secrets are kept unencrypted in <path>, readable by this account alone,
+  // because no Secret Service is running.`, or on that Mac the same line ending `because the service
+  // runs while you are logged out.` Absent on every other machine.
   secretsFile?: string;
   recovery: DaemonRecoveryStatus; // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012, T12.4)
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block
