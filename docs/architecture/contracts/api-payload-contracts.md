@@ -3054,8 +3054,9 @@ interface DaemonStatusReadResult {
   // which directory is held, not merely that something is.
   dataDirectory: string;
   // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux where no
-  // Secret Service answers; Settings › Runtime then shows `Secrets are kept in <path>, readable only
-  // by you, because no Secret Service is running.` Absent on every other machine.
+  // Secret Service answers; Settings › Runtime then shows `Secrets are kept unencrypted in <path>,
+  // readable by this account alone, because no Secret Service is running.` Absent on every other
+  // machine.
   secretsFile?: string;
   recovery: DaemonRecoveryStatus; // healthy, rebuilding, degraded or blocked, per session (§Plan-012, T15.4)
   // The relay block, present ONLY while a relay is configured — absent otherwise, never an empty block
@@ -8898,8 +8899,8 @@ interface ProviderAccountRegisterRequest {
   // Kept as its own item in the operating system's credential store, verified by
   // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
   // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service answers,
-  // the daemon keeps its items in one file in its own data folder, readable only by the person (mode
-  // `0600`). Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
+  // the daemon keeps its items in one file in its own data folder, readable by this account alone
+  // (mode `0600`). Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
   // carrying `cause: "locked" | "unavailable"` and nothing is stored anywhere. Where the registration-time
   // status observation reports no signed-in mode for it, registration refuses with
   // `provideraccount.token_not_accepted` and nothing is registered, sealed or replaced. It is NOT written into
