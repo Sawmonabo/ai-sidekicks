@@ -19,6 +19,7 @@ import {
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { MessageOriginSchema, type MessageOrigin } from "../voice.js";
 
 /** Identifies one queued message. */
 export type QueueItemId = string & { readonly __brand: "QueueItemId" };
@@ -124,7 +125,7 @@ export type UserMessagePayload = {
   actor: string;
   deviceId?: DeviceId | undefined;
   message: string;
-  origin?: "voice" | undefined;
+  origin?: MessageOrigin | undefined;
   answersQuestionId?: QuestionId | undefined;
 };
 /** Parses a {@link UserMessagePayload}. */
@@ -136,7 +137,7 @@ export const UserMessagePayloadSchema: z.ZodType<UserMessagePayload, UserMessage
     actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "UserMessagePayload.actor"),
     deviceId: DeviceIdSchema.optional(),
     message: messageContentSchema("UserMessagePayload.message"),
-    origin: z.literal("voice").optional(),
+    origin: MessageOriginSchema.optional(),
     answersQuestionId: QuestionIdSchema.optional(),
   })
   .strict();

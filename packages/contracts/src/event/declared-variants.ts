@@ -19,6 +19,7 @@ import { SessionIdSchema, type SessionId } from "../session/id.js";
 import type { WorktreeCreatedPayload, WorktreeRetiredPayload } from "../worktree/events.js";
 import type { WorktreeLifecyclePayload } from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { MessageOriginSchema, type MessageOrigin } from "../voice.js";
 
 // Each variant interface extends the envelope, narrowing `type`, `category` and `payload` to the
 // variant's literals.
@@ -222,7 +223,7 @@ export type AssistantOutputPayload = MachineContentDescriptor & {
   /** Media type of the body, set by the producer and not by the append path. */
   contentType?: string | undefined;
   /** Present only on the answer a voice call spoke. */
-  origin?: "voice" | undefined;
+  origin?: MessageOrigin | undefined;
   sourceEpoch?: SourceEpoch | undefined;
   sourcePosition?: SourcePosition | undefined;
 };
@@ -259,7 +260,7 @@ const buildAssistantOutputPayloadShape = () => ({
     EVENT_FIELD_MAX_LEN,
     "assistant output payload contentType",
   ).optional(),
-  origin: z.literal("voice").optional(),
+  origin: MessageOriginSchema.optional(),
   ...buildMachineContentDescriptorShape(),
 });
 

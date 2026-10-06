@@ -18,6 +18,14 @@ import {
 import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 
+/**
+ * Where a message in the transcript came from when no one typed it: a voice call, heard or spoken.
+ * A typed message carries no origin.
+ */
+export type MessageOrigin = "voice";
+/** Parses a {@link MessageOrigin}. */
+export const MessageOriginSchema: z.ZodType<MessageOrigin, MessageOrigin> = z.literal("voice");
+
 /** The bytes in one 100 ms frame of 16 kHz 16-bit mono audio. */
 export const VOICE_DICTATION_FRAME_MAX_BYTES: number = (16_000 * 2) / 10;
 
