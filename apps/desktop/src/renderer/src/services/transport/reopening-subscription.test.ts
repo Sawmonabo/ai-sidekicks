@@ -13,6 +13,9 @@ import { TransportReconnectSignal } from "./reconnect.js";
 import { REOPEN_SETTLED_MS, REOPEN_WAITS_MS } from "./reopen-backoff.js";
 import { openReopeningSubscription, type ReopenableStreamOpen } from "./reopening-subscription.js";
 
+/** The refusal the scripted daemon declines a stream with. */
+const NOT_ALLOWED = { code: -32000, message: "Not allowed.", data: { type: "stream.not_allowed" } };
+
 /** A daemon stream played by the test: each open it took, and how many next opens throw. */
 class ScriptedStream {
   public readonly opens: Array<{
@@ -20,11 +23,18 @@ class ScriptedStream {
     readonly refuse: () => void;
   }> = [];
   public failingOpens = 0;
+  /** How many next opens the daemon refuses before `open` returns. */
+  public refusedInsideOpens = 0;
 
   public readonly open: ReopenableStreamOpen<string> = (deliver, onEnded) => {
     if (this.failingOpens > 0) {
       this.failingOpens -= 1;
       throw new Error("the stream could not open");
+    }
+    if (this.refusedInsideOpens > 0) {
+      this.refusedInsideOpens -= 1;
+      onEnded({ reason: "refused", refusal: NOT_ALLOWED });
+      return () => undefined;
     }
     this.opens.push({
       deliverAndEnd: () => {
@@ -32,10 +42,7 @@ class ScriptedStream {
         onEnded({ reason: "completed" });
       },
       refuse: () => {
-        onEnded({
-          reason: "refused",
-          refusal: { code: -32000, message: "Not allowed.", data: { type: "stream.not_allowed" } },
-        });
+        onEnded({ reason: "refused", refusal: NOT_ALLOWED });
       },
     });
     return () => undefined;
@@ -168,5 +175,31 @@ describe("a stream kept open", () => {
     signal.observe("reachable");
     expect(stream.opens).toHaveLength(2);
     expect(refusals.at(-1)).toBeUndefined();
+  });
+
+  it("keeps a refusal the daemon gives before the re-open's `open` returns", () => {
+    // The negative control is the case above: a re-open whose stream stays open clears it.
+    const signal = new TransportReconnectSignal();
+    const stream = new ScriptedStream();
+    const refusals: Array<Refusal | undefined> = [];
+    openReopeningSubscription({
+      signal,
+      subject: "test stream",
+      open: stream.open,
+      onFrame: () => undefined,
+      onReopenRefusal: (refusal) => {
+        refusals.push(refusal);
+      },
+      clock: new ManualClock(),
+    });
+    stream.refuse();
+    stream.refusedInsideOpens = 1;
+
+    signal.observe("unreachable");
+    signal.observe("reachable");
+    expect(refusals).toStrictEqual([
+      expect.objectContaining({ code: "stream.not_allowed" }),
+      expect.objectContaining({ code: "stream.not_allowed" }),
+    ]);
   });
 });

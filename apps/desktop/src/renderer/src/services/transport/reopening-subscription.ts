@@ -100,7 +100,11 @@ class ReopeningSubscription<Payload> {
       if (firstOpenFailure === "refuseAndRetry") {
         this.#refuseAndRetry(openFailure);
       } else {
-        recordStreamFact("subscription-open-failed", `${subject}: ${lossyStringify(openFailure)}`);
+        recordStreamFact(
+          this.#clock,
+          "subscription-open-failed",
+          `${subject}: ${lossyStringify(openFailure)}`,
+        );
         this.#reopenOnReconnect();
       }
     }
@@ -128,7 +132,11 @@ class ReopeningSubscription<Payload> {
         (end) => {
           hasEnded = true;
           this.#release = undefined;
-          recordStreamFact("subscription-ended", `${subject}: ${describeSubscriptionEnd(end)}`);
+          recordStreamFact(
+            this.#clock,
+            "subscription-ended",
+            `${subject}: ${describeSubscriptionEnd(end)}`,
+          );
           if (hasDelivered) {
             this.#backoff.noteEnded(openedAt);
             this.#reopenAfterWait();
@@ -157,7 +165,8 @@ class ReopeningSubscription<Payload> {
       this.#refuseAndRetry(openFailure);
       return;
     }
-    if (this.#isRefused) {
+    // Only a stream still open clears a refusal: one refused inside `open` holds its own.
+    if (this.#isRefused && this.#release !== undefined) {
       this.#isRefused = false;
       this.#options.onReopenRefusal?.(undefined);
     }
@@ -166,6 +175,7 @@ class ReopeningSubscription<Payload> {
 
   #refuseAndRetry(openFailure: unknown): void {
     recordStreamFact(
+      this.#clock,
       "subscription-open-failed",
       `${this.#options.subject}: ${lossyStringify(openFailure)}`,
     );
@@ -210,9 +220,10 @@ class ReopeningSubscription<Payload> {
   }
 }
 
-function recordStreamFact(kind: string, detail: string): void {
+/** One diagnostic record, stamped on the clock the waits run on. */
+function recordStreamFact(clock: Clock, kind: string, detail: string): void {
   windowDiagnosticCapture.record({
-    at: diagnosticStampAt(new RealClock()),
+    at: diagnosticStampAt(clock),
     severity: "warning",
     source: "services/transport",
     kind,
