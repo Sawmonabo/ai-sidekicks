@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { diffLineText } from "../diff-model.js";
-import { hunkLines } from "./hunk-lines.js";
+import { hunkLines } from "./lines.js";
 
 describe("hunkLines — an unknown prefix", () => {
   it("draws the line as unchanged, keeps the numbers advancing, and records it", () => {

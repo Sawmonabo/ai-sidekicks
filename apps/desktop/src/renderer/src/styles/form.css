@@ -6,7 +6,7 @@
  *
  * The rules sit inside `:where()` so they carry no specificity: a control's own class wins
  * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
- * a Meridian token.
+ * a Meridian token but the 1px hairline, which stays a pixel at every text size.
  */
 
 /* A label above its input. */
@@ -83,4 +83,12 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
+}
+
+/* What the request did, on one line that wraps: a figure, its state and a control beside it. */
+:where(.meridian-form__settlement--inline) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
 }

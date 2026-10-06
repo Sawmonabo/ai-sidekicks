@@ -8,7 +8,8 @@
  * of buttons the elements below, each beside the dialog's own class.
  *
  * The dialog rules sit inside `:where()` so they carry no specificity: a dialog's own class wins
- * whichever sheet loads first. Every value is a Meridian token.
+ * whichever sheet loads first. Every value is a Meridian token but the 1px hairline, which stays
+ * a pixel at every text size, and the dialog's measure, counted in characters.
  */
 
 .meridian-overlay {

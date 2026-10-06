@@ -10,6 +10,7 @@ import type { PlatformBridge } from "#renderer/services/platform/platform-bridge
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { useConfirmationLifecycle } from "../../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
@@ -91,8 +92,8 @@ function renderSettlement(reading: RootRemovalReading): React.JSX.Element | null
       return <InlineRefusal code={reading.refusal.code} detail={reading.refusal.detail} />;
     case "settled":
       return (
-        <p className="meridian-root-removal__settled" role="status">
-          <span className="meridian-root-removal__state">{reading.state}</span>
+        <p className="meridian-form__settlement meridian-form__settlement--inline" role="status">
+          <WireFigure value={reading.state} />
         </p>
       );
   }

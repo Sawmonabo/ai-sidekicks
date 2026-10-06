@@ -1,7 +1,7 @@
 /*
  * Removing an execution root. The confirmation and its buttons wear the shared treatments in
- * `components/OverlayPopups/OverlayPopups.css` and `styles/action-buttons.css`; here is the
- * settled line a removal leaves.
+ * `components/OverlayPopups/OverlayPopups.css` and `styles/action-buttons.css`, and the line a
+ * removal leaves wears the form's settlement in `styles/form.css`; here is the control's column.
  */
 
 .meridian-root-removal {
@@ -9,19 +9,4 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--meridian-space-1);
-}
-
-.meridian-root-removal__settled {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  min-width: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-root-removal__state {
-  font-family: var(--meridian-font-mono);
 }

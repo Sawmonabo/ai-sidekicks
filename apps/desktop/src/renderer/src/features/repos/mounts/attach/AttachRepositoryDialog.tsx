@@ -14,7 +14,7 @@ import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDi
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { BUTTON_CLASS_NAME } from "../button-class.js";
-import { type AttachRequestReading } from "./attach-controller.js";
+import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./form.js";
 

@@ -1,6 +1,7 @@
 /* The settings screen's own styles: the rail, the search field and the pane. A page body's
  * chrome is in `settings-page.css` and a page's own controls are in that page's sibling
- * sheet. Every value is a Meridian token.
+ * sheet. Every value is a Meridian token but the rail's fixed width and the collapse point, both
+ * explained below.
  */
 
 .meridian-settings {

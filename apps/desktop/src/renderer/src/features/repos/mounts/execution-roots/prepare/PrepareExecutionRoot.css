@@ -1,7 +1,7 @@
 /*
- * Preparing an execution root. The buttons and the branch field wear the shared treatments in
- * `styles/action-buttons.css` and `styles/form.css`; here are the reuse verdict's toned readings
- * and the prepared line.
+ * Preparing an execution root. The buttons, the branch field and the prepared line wear the
+ * shared treatments in `styles/action-buttons.css` and `styles/form.css`; here are the reuse
+ * verdict's toned readings.
  */
 
 .meridian-prepare-root {
@@ -67,19 +67,4 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-.meridian-prepare-root__prepared {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
-  min-width: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-prepare-root__state {
-  font-family: var(--meridian-font-mono);
 }

@@ -18,7 +18,7 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
 };
 
 /** The source a diagnostic record from this module carries. */
-const HUNK_LINES_SOURCE = "features/repos/diff/hunk/hunk-lines";
+const HUNK_LINES_SOURCE = "features/repos/diff/hunk/lines";
 
 /**
  * The prefix the unified format reserves for its one annotation. The prefix is read, not

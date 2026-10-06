@@ -241,9 +241,9 @@ function renderSettlement(
       return <InlineRefusal code={reading.act.refusal.code} detail={reading.act.refusal.detail} />;
     case "prepared":
       return (
-        <div className="meridian-prepare-root__prepared" role="status">
+        <div className="meridian-form__settlement meridian-form__settlement--inline" role="status">
           <WireFigure value={reading.act.executionRoot} title={reading.act.executionRoot} />
-          <span className="meridian-prepare-root__state">{reading.act.state}</span>
+          <WireFigure value={reading.act.state} />
           {/* The re-read is a control, not an effect: it stays after the first press because the
               list can be asked again. */}
           <button type="button" className={BUTTON_CLASS_NAME} onClick={onPrepared}>

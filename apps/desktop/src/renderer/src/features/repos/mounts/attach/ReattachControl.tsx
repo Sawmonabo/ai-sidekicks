@@ -17,7 +17,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
-import { type AttachRequestReading } from "./attach-controller.js";
+import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";
 
 /** Props for the re-attach confirmation. */

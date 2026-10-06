@@ -11,7 +11,7 @@ import { diffWordsWithSpace } from "diff/lib/diff/word.js";
 import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
-import { hunkLines } from "./hunk/hunk-lines.js";
+import { hunkLines } from "./hunk/lines.js";
 import type { DiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
 import { wholeLineSegments } from "./diff-model.js";
 

@@ -16,7 +16,8 @@
  *
  * The base and modifiers sit inside `:where()` so they carry no specificity: a control's own
  * class, state and variant win whichever sheet loads first. A global sheet, loaded through
- * `global-sheets.ts`; every value is a Meridian token.
+ * `global-sheets.ts`; every value is a Meridian token but the 1px hairline, which stays a pixel
+ * at every text size.
  */
 
 /* --- the action button ------------------------------------------------------- */

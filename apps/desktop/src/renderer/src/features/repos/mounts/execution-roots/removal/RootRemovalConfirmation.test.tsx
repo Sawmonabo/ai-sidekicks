@@ -61,11 +61,11 @@ describe("RootRemovalConfirmation — a discarded consideration", () => {
 
     await pressOpen();
     await pressConfirm();
-    expect(container.querySelector(".meridian-root-removal__settled")).not.toBeNull();
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
 
     await pressOpen();
     await pressCancel();
 
-    expect(container.querySelector(".meridian-root-removal__settled")).toBeNull();
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 });

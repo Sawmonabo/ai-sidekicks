@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useActController } from "#renderer/features/repos/acts/hooks/useActController.js";
 import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
-import { AttachController, type AttachRequestReading } from "../attach-controller.js";
+import { AttachController, type AttachRequestReading } from "../controller.js";
 
 /** What the hook hands a dialog: the reading, and the two things it can ask for. */
 export interface AttachBinding {
