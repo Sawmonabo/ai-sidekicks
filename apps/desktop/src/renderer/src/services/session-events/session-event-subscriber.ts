@@ -18,9 +18,9 @@
 //   missed or applied twice. One that delivered since it opened is opened again through the
 //   re-open waits (`reopen-backoff.ts`), so a stream that catches up and ends every time is not
 //   opened in a loop; one that did not waits for the returning edge, so a stream the daemon keeps
-//   ending never spins. A
-//   cursor the daemon can no longer resolve is dropped and the session re-read instead. Nothing is
-//   drawn for any of it: the service being unreachable is the status topic's to say.
+//   ending never spins, and one the daemon refused is also tried again after a wait. A cursor the
+//   daemon can no longer resolve is dropped and the session re-read instead. Nothing is drawn for
+//   any of it: the service being unreachable is the status topic's to say.
 //
 // This class only consumes the returning edge; if it also produced it from its own opens, a
 // window whose only session failed to bind could never retry. The edge is reported by
@@ -283,8 +283,9 @@ export class SessionEventSubscriber {
   /**
    * A stream that ended while the session was open: opened again after its last cursor, through
    * the re-open waits when it delivered since it opened and on the returning edge when it did
-   * not. A refusal that
-   * came with no delivery is the daemon declining the stream, which the store is marked for.
+   * not. A refusal that came with no delivery is the daemon declining the stream with the wire
+   * still there, so no returning edge may come: it is also tried again after a wait, never at
+   * once. None of it is drawn.
    */
   #resumeEndedStream(sessionId: string, binding: StreamBinding, end: DaemonSubscriptionEnd): void {
     if (this.#disposed || this.#bindingBySessionId.get(sessionId) !== binding) {
@@ -307,7 +308,11 @@ export class SessionEventSubscriber {
     }
     this.#retry.retain(sessionId);
     if (end.reason === "refused") {
-      this.#registry.markDegraded(sessionId, "subscription-closed");
+      const backoff = this.#backoffFor(sessionId);
+      backoff.skipImmediateReopen();
+      backoff.schedule(() => {
+        this.#bindSession(sessionId);
+      });
     }
   }
 

@@ -137,28 +137,31 @@ beforeEach(() => {
 });
 
 describe("SessionEventSubscriber: a stream that ends while its session is open", () => {
-  it("opens it again after its last cursor, losing and repeating nothing", () => {
-    const { subscriber, engine, opens, sequencesDelivered, lastCursorDelivered } =
-      createResumeHarness();
-    engine.advance(HALFWAY_MS);
-    const cursorAtEnd = lastCursorDelivered();
-    expect(cursorAtEnd).toBeDefined();
+  it.each<DaemonSubscriptionEnd>([{ reason: "completed" }, LINK_FAILED])(
+    "opens it again after its last cursor, losing and repeating nothing, when it ends $reason",
+    (end) => {
+      const { subscriber, engine, opens, sequencesDelivered, lastCursorDelivered } =
+        createResumeHarness();
+      engine.advance(HALFWAY_MS);
+      const cursorAtEnd = lastCursorDelivered();
+      expect(cursorAtEnd).toBeDefined();
 
-    opens[0]?.end(LINK_FAILED);
-    engine.advance(PAST_EVERY_BEAT_MS);
+      opens[0]?.end(end);
+      engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(opens.map((open) => open.request)).toEqual([
-      { sessionId: SESSION_ID },
-      { sessionId: SESSION_ID, afterCursor: cursorAtEnd },
-    ]);
-    expect(sequencesDelivered).toEqual(engine.deliveredEvents().map((event) => event.sequence));
-    expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(
-      CONCURRENT_STREAMING_SCENARIO.beats.length,
-    );
-    expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+      expect(opens.map((open) => open.request)).toEqual([
+        { sessionId: SESSION_ID },
+        { sessionId: SESSION_ID, afterCursor: cursorAtEnd },
+      ]);
+      expect(sequencesDelivered).toEqual(engine.deliveredEvents().map((event) => event.sequence));
+      expect(subscriber.appliedEventCountFor(SESSION_ID)).toBe(
+        CONCURRENT_STREAMING_SCENARIO.beats.length,
+      );
+      expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
 
-    subscriber.dispose();
-  });
+      subscriber.dispose();
+    },
+  );
 
   it("opens a stream that delivers and ends every time again only after growing waits", () => {
     const { subscriber, engine, opens, sequencesDelivered } = createResumeHarness();
@@ -196,6 +199,26 @@ describe("SessionEventSubscriber: a stream that ends while its session is open",
       { sessionId: SESSION_ID },
     ]);
     expect(subscriber.boundSessionIds).toEqual([SESSION_ID]);
+
+    subscriber.dispose();
+  });
+
+  it("opens a stream the daemon refused before delivering again after a wait, drawing nothing", () => {
+    const { subscriber, registry, engine, opens } = createResumeHarness();
+
+    opens[0]?.end({
+      reason: "refused",
+      refusal: { code: JsonRpcErrorCode.InternalError, message: "The stream is not available." },
+    });
+    expect(opens).toHaveLength(1);
+
+    // No returning edge comes, since the wire never went away: the wait alone opens it again.
+    engine.advance(REOPEN_WAITS_MS[1]!);
+    expect(opens.map((open) => open.request)).toEqual([
+      { sessionId: SESSION_ID },
+      { sessionId: SESSION_ID },
+    ]);
+    expect(registry.peek(SESSION_ID)?.snapshot().degradedCause).toBeUndefined();
 
     subscriber.dispose();
   });
