@@ -1,22 +1,17 @@
 // One step is answered and read from the run's step panel. These tests hold what that
 // panel depends on: an approval answered in the approvals' own words, for a step or a
-// chain's question, a form addressed by the step it waits on, and a wait's event naming the
-// spent account the attention list groups by exactly when the wait is on an account.
+// chain's question, and a form addressed by the step it waits on.
 import { describe, expect, it } from "vitest";
 
-import { SessionEventSchema } from "../../../event/session.js";
 import {
   WorkflowGateResolveRequestSchema,
   WorkflowGateResolveResponseSchema,
-  WorkflowGateResolvedPayloadSchema,
   WorkflowHumanFormReadResponseSchema,
   WorkflowHumanFormSubmitRequestSchema,
   WorkflowStepReadRequestSchema,
-} from "../step.js";
-import { buildSessionCreatedEvent } from "../../../event/__tests__/session.test-support.js";
+} from "../methods.js";
 
 const RUN_ID = "33333333-3333-4333-8333-333333333333";
-const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const STEP = { workflowRunId: RUN_ID, nodeId: "review-form", executionIndex: 4 };
 
 describe("workflow.gateResolve", () => {
@@ -30,26 +25,6 @@ describe("workflow.gateResolve", () => {
   it("refuses a gate state in place of the approvals' words", () => {
     const passed = { workflowRunId: RUN_ID, nodeId: "approve", decision: "passed" };
     expect(WorkflowGateResolveRequestSchema.safeParse(passed).success).toBe(false);
-  });
-
-  it("names the answering device and pinned version, and refuses a scope on the event", () => {
-    const event = {
-      sessionId: SESSION_ID,
-      workflowRunId: RUN_ID,
-      definitionId: "wfd-1",
-      workflowVersionId: "wfv-3",
-      outcome: "approved",
-      gateResolutionId: "gr-1",
-      deviceId: "desktop-1",
-    };
-    expect(WorkflowGateResolvedPayloadSchema.safeParse(event).success).toBe(true);
-    const { deviceId: _deviceId, ...withoutDevice } = event;
-    expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutDevice).success).toBe(false);
-    const { workflowVersionId: _workflowVersionId, ...withoutVersion } = event;
-    expect(WorkflowGateResolvedPayloadSchema.safeParse(withoutVersion).success).toBe(false);
-    expect(
-      WorkflowGateResolvedPayloadSchema.safeParse({ ...event, scope: "workflow-phase" }).success,
-    ).toBe(false);
   });
 });
 
@@ -116,36 +91,5 @@ describe("workflow.stepRead", () => {
     expect(WorkflowStepReadRequestSchema.safeParse({ ...STEP, which: "error" }).success).toBe(
       false,
     );
-  });
-});
-
-describe("workflow.phase_suspended", () => {
-  const suspended = (payload: Record<string, unknown>) => ({
-    ...buildSessionCreatedEvent(),
-    category: "workflow_phase_lifecycle",
-    type: "workflow.phase_suspended",
-    payload: { sessionId: SESSION_ID, ...STEP, attempt: 1, ...payload },
-  });
-
-  it("accepts an account wait naming its spent account, with or without a resume instant", () => {
-    const scheduled = {
-      waitCause: "account",
-      providerAccountId: "acct-1",
-      resumeAt: "2026-09-29T19:00:00Z",
-    };
-    expect(SessionEventSchema.safeParse(suspended(scheduled)).success).toBe(true);
-    const unscheduled = { waitCause: "account", providerAccountId: "acct-1" };
-    expect(SessionEventSchema.safeParse(suspended(unscheduled)).success).toBe(true);
-  });
-
-  it("refuses an account wait that names no account, so the attention list can group it", () => {
-    expect(SessionEventSchema.safeParse(suspended({ waitCause: "account" })).success).toBe(false);
-  });
-
-  it("refuses an account or a resume instant on a wait for a person", () => {
-    const withAccount = { waitCause: "approval", providerAccountId: "acct-1" };
-    expect(SessionEventSchema.safeParse(suspended(withAccount)).success).toBe(false);
-    const withResume = { waitCause: "form", resumeAt: "2026-09-29T19:00:00Z" };
-    expect(SessionEventSchema.safeParse(suspended(withResume)).success).toBe(false);
   });
 });

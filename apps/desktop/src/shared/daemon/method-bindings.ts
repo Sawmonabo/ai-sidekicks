@@ -23,7 +23,7 @@ import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcrip
 import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import { WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/control";
 import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
-import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step";
+import { WORKFLOW_STEP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { AnyMethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
 import type { DaemonParams, DaemonResult } from "@ai-sidekicks/contracts/daemon/method-map";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";

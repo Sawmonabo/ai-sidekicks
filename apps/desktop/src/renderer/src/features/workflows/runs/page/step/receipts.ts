@@ -8,7 +8,7 @@ import {
   type WorkflowStep,
   type WorkflowStepResolution,
   type WorkflowStepResolutionKind,
-} from "@ai-sidekicks/contracts/workflow/run/step";
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowChainQuestion } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock, formatDayClockAt } from "#renderer/lib/wire/figures.js";

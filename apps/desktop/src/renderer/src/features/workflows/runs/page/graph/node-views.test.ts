@@ -7,7 +7,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./node-views.js";

@@ -5,7 +5,7 @@
 // refuses shows the daemon's words instead.
 
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import {
   GOING_RUN_STATUSES,
   type WorkflowRunReadResponse,

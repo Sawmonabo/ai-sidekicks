@@ -1,5 +1,5 @@
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
-import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
+import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";

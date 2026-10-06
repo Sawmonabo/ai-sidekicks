@@ -39,7 +39,7 @@ import {
   type WorkflowCost,
   type WorkflowSpentAccount,
   type WorkflowStep,
-} from "./step.js";
+} from "./step/record.js";
 import {
   WorkflowRunModeSchema,
   WorkflowStartedBySchema,

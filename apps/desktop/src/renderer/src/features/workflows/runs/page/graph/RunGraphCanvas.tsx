@@ -16,7 +16,7 @@ import {
 } from "@xyflow/react";
 
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { tokenReference } from "#renderer/styles/tokens.js";

@@ -32,7 +32,7 @@ import type {
   WorkflowStepQuestion,
   WorkflowStepResolution,
   WorkflowStepReviewPause,
-} from "@ai-sidekicks/contracts/workflow/run/step";
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type {
   WorkflowRunMode,
   WorkflowStartedBy,

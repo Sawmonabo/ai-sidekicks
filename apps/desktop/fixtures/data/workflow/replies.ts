@@ -22,7 +22,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type {
   WorkflowRunCancelResponse,
   WorkflowRunResumeResponse,
@@ -42,7 +42,7 @@ import type {
   WorkflowHumanFormDraftSaveResponse,
   WorkflowHumanFormReadResponse,
   WorkflowStepReadResponse,
-} from "@ai-sidekicks/contracts/workflow/run/step";
+} from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import type { QuestionId, QuestionResolveResponse } from "@ai-sidekicks/contracts/question";
 import type {
   ScenarioNotice,

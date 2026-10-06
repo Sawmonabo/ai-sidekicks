@@ -4,7 +4,7 @@
 import { describe, it } from "vitest";
 
 import { GITFLOW_METHOD_DESCRIPTORS } from "../methods.js";
-import { WorkflowStepReviewPauseSchema } from "../../workflow/run/step.js";
+import { WorkflowStepReviewPauseSchema } from "../../workflow/run/step/record.js";
 import { accepts, refuses } from "../../__tests__/safe-parse.test-support.js";
 
 const AGENT_ID = "6ba7b811-9dad-41d1-80b4-00c04fd430c8";

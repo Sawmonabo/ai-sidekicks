@@ -10,7 +10,7 @@ import { cdp } from "vitest/browser";
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 import { renderSettled } from "../helpers/app/harness.js";

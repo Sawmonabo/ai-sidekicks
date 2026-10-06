@@ -89,7 +89,7 @@ import type {
   WorkflowStepFinishedPayload,
   WorkflowStepSkippedPayload,
   WorkflowStepStartedPayload,
-} from "../workflow/run/step.js";
+} from "../workflow/run/step/events.js";
 import type {
   SessionBranchChangedPayload,
   SessionSweptToRepoRootPayload,

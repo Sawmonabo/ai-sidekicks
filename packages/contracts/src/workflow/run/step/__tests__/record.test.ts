@@ -6,12 +6,12 @@
 // its code, and only a failed step says how its process exited.
 import { describe, expect, it } from "vitest";
 
-import { WorkflowStepErrorSchema } from "../../definition/document.js";
+import { WorkflowStepErrorSchema } from "../../../definition/document.js";
 import {
   WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
   WorkflowPayloadRefSchema,
   WorkflowStepSchema,
-} from "../step.js";
+} from "../record.js";
 
 const EMPTY = { kind: "inline", items: [] };
 const STEP = {

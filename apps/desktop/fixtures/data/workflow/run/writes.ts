@@ -10,7 +10,7 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status"
 import type {
   WorkflowStep,
   WorkflowStepResolutionKind,
-} from "@ai-sidekicks/contracts/workflow/run/step";
+} from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type {
   WorkflowRunMode,
   WorkflowTriggerKind,

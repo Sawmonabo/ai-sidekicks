@@ -101,7 +101,7 @@ import {
   WorkflowStepFinishedPayloadSchema,
   WorkflowStepSkippedPayloadSchema,
   WorkflowStepStartedPayloadSchema,
-} from "../workflow/run/step.js";
+} from "../workflow/run/step/events.js";
 import {
   SessionBranchChangedPayloadSchema,
   SessionSweptToRepoRootPayloadSchema,

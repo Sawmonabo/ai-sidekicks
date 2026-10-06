@@ -8,7 +8,7 @@ import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowSpentAccount } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowSpentAccount } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type {
   WorkflowStartedBy,
   WorkflowTriggerKind,

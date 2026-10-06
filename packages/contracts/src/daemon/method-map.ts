@@ -60,7 +60,7 @@ import type { WorkflowDefinitionMethodDescriptors } from "../workflow/definition
 import type { WorkflowKindMethodDescriptors } from "../workflow/kind.js";
 import type { WorkflowRunControlMethodDescriptors } from "../workflow/run/control.js";
 import type { WorkflowRunRecordMethodDescriptors } from "../workflow/run/records.js";
-import type { WorkflowStepMethodDescriptors } from "../workflow/run/step.js";
+import type { WorkflowStepMethodDescriptors } from "../workflow/run/step/methods.js";
 import type { WorkflowSecretMethodDescriptors } from "../workflow/secret.js";
 
 /** Every method the daemon answers, keyed by its name. */

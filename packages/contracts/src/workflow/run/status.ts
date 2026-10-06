@@ -1,7 +1,7 @@
 // A workflow run's id and the statuses every run method and event shares: the run's, each step's,
 // and what a waiting step waits on. The run methods build on this file, and it imports none of
 // them: `workflow/run/control.ts` acts on a run, `workflow/run/records.ts` reads, lists and keeps
-// run records, and `workflow/run/step.ts` holds the step record and one step's methods.
+// run records, and `workflow/run/step/` holds the step record, one step's methods and its events.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../../internal/branded.js";

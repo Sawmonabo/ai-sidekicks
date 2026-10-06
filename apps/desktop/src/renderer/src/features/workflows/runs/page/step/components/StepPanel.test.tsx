@@ -18,7 +18,7 @@ import type {
   WorkflowItem,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import { WORKFLOW_STEP_THREAD_FAILED_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 

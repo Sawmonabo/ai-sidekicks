@@ -1,4 +1,4 @@
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 /**
  * One step's address inside its run as one string, `node#executionIndex`, for keying what this

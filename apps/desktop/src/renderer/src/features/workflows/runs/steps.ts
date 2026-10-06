@@ -6,7 +6,7 @@ import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 /** One of a node's step records, and the pass of the node it belongs to. */
 export interface NodePass {

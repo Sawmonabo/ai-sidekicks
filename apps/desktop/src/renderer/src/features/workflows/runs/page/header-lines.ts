@@ -5,7 +5,7 @@
 
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
-import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 
-import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";

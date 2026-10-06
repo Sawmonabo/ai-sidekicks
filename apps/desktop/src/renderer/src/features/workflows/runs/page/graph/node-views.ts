@@ -12,7 +12,7 @@ import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";

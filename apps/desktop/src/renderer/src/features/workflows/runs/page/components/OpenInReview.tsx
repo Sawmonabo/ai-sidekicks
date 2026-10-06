@@ -1,5 +1,5 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowStepReviewPause } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowStepReviewPause } from "@ai-sidekicks/contracts/workflow/run/step/record";
 import type { WorkflowRunReview } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { WorkflowCallState } from "#renderer/features/workflows/hooks/useWorkflowCall.js";

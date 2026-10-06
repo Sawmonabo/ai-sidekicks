@@ -6,10 +6,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type {
-  WorkflowHumanFormReadResponse,
-  WorkflowStepKey,
-} from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowHumanFormReadResponse } from "@ai-sidekicks/contracts/workflow/run/step/methods";
+import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
 
 import type { FilePathRef, PickedFolder } from "#shared/preload-api.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";

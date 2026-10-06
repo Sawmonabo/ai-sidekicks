@@ -3,7 +3,7 @@
 // text, a JSON field its source), so the check is where text becomes the value that is sent.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
-import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step";
+import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 import { parse as parseWithErrors, type ParseError } from "jsonc-parser";
 
 import type { PickedFolder } from "#shared/preload-api.js";
