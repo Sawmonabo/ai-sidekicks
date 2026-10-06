@@ -6,9 +6,8 @@
 // owns that pin, exposes a boolean and a one-sentence reason, and every file in the tier decides
 // from it.
 //
-// Off the pinned class a row runs and reports rather than skips: every PR runs every tier whose
-// subject is in-tree, and skipping would stop exercising the instrument everywhere but one
-// runner, so it could quietly stop working.
+// Off the pinned class a row runs and reports rather than skips: skipping would stop exercising
+// the instrument everywhere but one runner, so it could quietly stop working.
 //
 // GitHub sets no variable carrying the workflow's `runs-on` label, so the class is identified
 // by what the runner publishes. `GITHUB_ACTIONS` separates a hosted runner from a developer's
@@ -19,7 +18,7 @@ import process from "node:process";
 /**
  * The runner class `.github/workflows/ci.yml` names for the desktop tiers.
  *
- * `ubuntu-latest` is the `desktop` job's runner, and the endurance tier runs in that job.
+ * `ubuntu-latest` is the runner of every desktop tier's job.
  */
 const PINNED_RUNNER_CLASS = "ubuntu-latest";
 

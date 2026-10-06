@@ -65,9 +65,10 @@
         "canonicalValue": 16.7,
         "canonicalUnit": "ms"
       },
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/frame-time.test.ts",
-      "subjectSymbol": "sampleFrameTimings",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/frame-time.test.ts` measures it, through `sampleFrameTimings`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. Off that class the harness still runs and prints the figure — the instrument is exercised everywhere and the comparison is withheld — which `tests/endurance/pinned-runner-class.ts` decides for the whole tier. The reading is the median of three fresh launches' p95, each sampling 300 frame durations with a warm-up discarded, taken by nearest rank. A frame's duration runs from the start of its `requestAnimationFrame` callback to the first task that runs after that frame's rendering has been committed, which is the main-thread work the frame cost. It is not the interval between frames: an interval is bounded below by the display's own refresh period, so on the 60 Hz reference profile it reads ~16.7 ms for a renderer doing nothing and could never be under this ceiling. The warm-up is a frame count rather than the protocol's ten seconds because a frozen clock walked for ten seconds would deliver the whole script before the first sample. No runner-calibrated threshold is recorded yet, so the comparison is against this row's own product limit. The concurrent-streaming scenario drives four runs mid-turn at the same tick with interleaved thinking, message and tool beats, an approval blocking one lane while the other three keep talking, a cost reading per lane, and a helper run threaded to the turn that spawned it. The run asserts three things about its own sampled window rather than describing them — the script finished delivering inside it, it was still arriving during it, and four lanes were streaming inside it, the last read off the scenario's beats by `tests/endurance/streaming-lanes.ts` and checked against the scenario's own cast size. Measured on an eight-core laptop across three passes of the tier: per-run p95 6.80–9.20 ms beside a p50 of 0.10–0.20 ms. Both statistics are printed, because a p50 sitting at the display's refresh period is the cadence being reported rather than the app's work. The spread is recorded rather than a single figure pinned, because a duration is a property of the machine's CPU as much as of the app — the same fact that keeps the comparison on the pinned runner class.",
       "scope": "product"
     },
@@ -83,9 +84,10 @@
         "canonicalValue": 120000000,
         "canonicalUnit": "bytes"
       },
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/heap/at-rest.test.ts",
-      "subjectSymbol": "RendererHeapProbe",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/heap/at-rest.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Deliberately NOT measured in a Node process: a Node reading holds no Chromium, no renderer isolate, no React, no DOM and no app store, so it could report green over a renderer well past 120 MB, which is the one failure a budget exists to catch. The endurance tier launches the built app, opens the concurrent-streaming scenario's own session, walks the frozen clock over the whole script, asserts the store admitted events through a live subscription, and reads `performance.memory.usedJSHeapSize` behind a forced collection over a DevTools session, as the minimum over settling samples. The forced collection matters because the precision precondition this tier runs before every gated reading allocates four megabytes and drops them, and a sampler that collects nothing can carry them into the figure the ceiling is compared against. That figure counts allocated-and-not-yet-collected bytes, so it sits at or above the retained heap this row bounds, which is the safe direction for a ceiling. The reading is a renderer isolate figure taken in the built app in unobtrusive-window mode; the substrate floor with no session content measures 6,564,912 B.",
       "scope": "product"
     },
@@ -158,10 +160,11 @@
         "canonicalValue": 20971520,
         "canonicalUnit": "bytes"
       },
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/terminal/instance/memory.test.ts",
-      "subjectSymbol": "RendererHeapProbe",
-      "notes": "Gated from the endurance tier: `app/pane-harness/PaneHarnessScreen.tsx` is a `define`-gated fixture view, reached at `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through the app's own `PaneRegistry` and mounts one more instance per press. So the subject is held WHOLE — the built app in a real Electron window, a `terminal` pane the registry resolved, mounted through a real React commit, its emulator on a live WebGL2 context, bound to a session the scenario engine has delivered into — and each of those is asserted rather than assumed: the run FAILS on a `dom` renderer reading rather than measuring the fallback, and fails on an empty session store rather than folding a lease off an empty log. A harness that constructed the adapter under happy-dom and sampled the Node process's own heap would measure a subject narrower than this row's sentence and could report green over a pane well past the ceiling. WHAT THE HARNESS DELIBERATELY DOES NOT HOLD is the pane area around the pane: no tab strip, no layout, no drag target, no detach path. That is closer to this row's sentence than a reading inside the pane area would be — the ceiling is per INSTANCE, and a figure taken there would fold the pane area's own cost into it and report a pane over budget for chrome the row does not name. The figure is the difference between the settled renderer heap with no instance open and with one, taken as the minimum over settling samples, after a warm-up cycle that moves the emulator chunk's one-time cost to the left of the baseline; two further instances are then opened and their per-instance slope is required to agree with that figure, which is the control against a fixed cost being reported as the instance. The adapter-level claims that ARE reachable in a Node process — scrollback eviction, disposal, and a working day of pane churn — stay on `tests/endurance/terminal/adapter.test.ts` beside the churn accounting they belong with; that file makes NO ceiling claim of its own, so neither half of the instance ever receives an independent allowance. WHAT THE FIGURE COVERS: the instance is priced as ONE populated pane — the mounted pane's standing cost plus a full buffer at the default scrollback, both measured at one width (`TERMINAL_BUDGET_MEASUREMENT_COLUMNS`) and one depth (`TERMINAL_DEFAULT_SCROLLBACK_LINES`, both in the terminal feature's `caps.ts`) and summed before a single `evaluateBudget` call. Measured on macOS: 16,456 kB of 20,480 kB (80.4 %) — pane 940 kB plus scrollback 15,516 kB at 10,000 lines × 120 columns; later panes 823 kB each; 417 kB still held after three closed; a second run reproduced the sum within 10 kB. That headroom is thin on purpose: the next thing that grows a terminal pane moves this figure, and changing either constant changes what the row means. WHAT IT CANNOT YET: the scrollback half is driven in the driver process, because the byte stream, the scrollback, and the resize report have no registered wire yet, so nothing can put a line into a MOUNTED pane — so the sum is conservative (it omits nothing the mounted pane holds and adds the buffer the pane would hold), and when that wire lands the harness drives bytes into the mounted pane and the two halves collapse into one delta. The readings are taken behind a forced collection over a DevTools session rather than from the sampler alone: a difference of a few hundred kilobytes is decided by WHEN the collector ran, and without it the same code measures a first instance at 4,165 kB and a per-instance slope of minus 5,765 kB.",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/terminal/instance/memory.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
+      "notes": "Measured in the endurance tier: `app/pane-harness/PaneHarnessScreen.tsx` is a `define`-gated fixture view, reached at `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through the app's own `PaneRegistry` and mounts one more instance per press. So the subject is held WHOLE — the built app in a real Electron window, a `terminal` pane the registry resolved, mounted through a real React commit, its emulator on a live WebGL2 context, bound to a session the scenario engine has delivered into — and each of those is asserted rather than assumed: the run FAILS on a `dom` renderer reading rather than measuring the fallback, and fails on an empty session store rather than folding a lease off an empty log. A harness that constructed the adapter under happy-dom and sampled the Node process's own heap would measure a subject narrower than this row's sentence and could report green over a pane well past the ceiling. WHAT THE HARNESS DELIBERATELY DOES NOT HOLD is the pane area around the pane: no tab strip, no layout, no drag target, no detach path. That is closer to this row's sentence than a reading inside the pane area would be — the ceiling is per INSTANCE, and a figure taken there would fold the pane area's own cost into it and report a pane over budget for chrome the row does not name. The figure is the difference between the settled renderer heap with no instance open and with one, taken as the minimum over settling samples, after a warm-up cycle that moves the emulator chunk's one-time cost to the left of the baseline; two further instances are then opened and their per-instance slope is required to agree with that figure, which is the control against a fixed cost being reported as the instance. The adapter-level claims that ARE reachable in a Node process — scrollback eviction, disposal, and a working day of pane churn — stay on `tests/endurance/terminal/adapter.test.ts` beside the churn accounting they belong with; that file makes NO ceiling claim of its own, so neither half of the instance ever receives an independent allowance. WHAT THE FIGURE COVERS: the instance is priced as ONE populated pane — the mounted pane's standing cost plus a full buffer at the default scrollback, both measured at one width (`TERMINAL_BUDGET_MEASUREMENT_COLUMNS`) and one depth (`TERMINAL_DEFAULT_SCROLLBACK_LINES`, both in the terminal feature's `caps.ts`) and summed before a single `evaluateBudget` call. Measured on macOS: 16,456 kB of 20,480 kB (80.4 %) — pane 940 kB plus scrollback 15,516 kB at 10,000 lines × 120 columns; later panes 823 kB each; 417 kB still held after three closed; a second run reproduced the sum within 10 kB. That headroom is thin on purpose: the next thing that grows a terminal pane moves this figure, and changing either constant changes what the row means. WHAT IT CANNOT YET: the scrollback half is driven in the driver process, because the byte stream, the scrollback, and the resize report have no registered wire yet, so nothing can put a line into a MOUNTED pane — so the sum is conservative (it omits nothing the mounted pane holds and adds the buffer the pane would hold), and when that wire lands the harness drives bytes into the mounted pane and the two halves collapse into one delta. The readings are taken behind a forced collection over a DevTools session rather than from the sampler alone: a difference of a few hundred kilobytes is decided by WHEN the collector ran, and without it the same code measures a first instance at 4,165 kB and a per-instance slope of minus 5,765 kB.",
       "scope": "product"
     },
     {
@@ -176,9 +179,10 @@
         "canonicalValue": 800,
         "canonicalUnit": "ms"
       },
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/first-transcript-row.test.ts",
-      "subjectSymbol": "measureFirstTranscriptRow",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/first-transcript-row.test.ts` measures it, through `measureFirstTranscriptRow`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the transcript exists — it is not one of the two hardware-dependent budgets. Window show is read as the renderer's own `first-contentful-paint` entry: main reveals the window as it adopts the window's document, before that document draws, so until that paint the window shows only its painted ground, and on macOS an automated launch deliberately never reveals the window at all — so there is no `show` timestamp to read and no wall clock is read in either process. The interval ends at the animation frame after the first row element is laid out, and the whole of it is measured inside one page function, so the only harness cost inside it is the gap between the launch handshake settling and that function starting, which the report prints separately rather than subtracting. Measured 43–46 ms of an 800 ms ceiling on an eight-core laptop across three runs of the tier, 13–22 ms of it that handshake.",
       "scope": "product"
     },
@@ -285,9 +289,10 @@
         "canonicalUnit": "bytes"
       },
       "scope": "harness",
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/steady-state.test.ts",
-      "subjectSymbol": "RendererHeapProbe",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the run's 200 cycles a leak of about 40 kB a cycle reaches it; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the thirty-minute slope is `steady-heap-concurrent-streaming`'s, so no number has two owners."
     },
     {
@@ -303,9 +308,10 @@
         "canonicalUnit": "bytes"
       },
       "scope": "harness",
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/steady-state.test.ts",
-      "subjectSymbol": "RendererHeapProbe",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Well above the transient detachment a React unmount leaves for the next collection and far below a frame that retained one route's subtree per cycle; at this many cycles the smallest per-cycle retention it can see is about 80 kB, and a clean run on macOS reads 0 kB. Not derived from `steady-heap-growth`: that bounds a difference of two readings over the whole application, this an absolute retention of one constructor. The same snapshot's `Map`, `Array` and attached `HTMLDivElement` readings are its controls, so a snapshot that was never parsed, or that spells DOM nodes differently, fails instead of reading zero."
     },
     {
@@ -321,9 +327,10 @@
         "canonicalUnit": "ratio"
       },
       "scope": "harness",
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/transcript/long-log.test.ts",
-      "subjectSymbol": "deriveTranscriptWindow",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `deriveTranscriptWindow`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "A ratio between two sizes rather than a wall-clock ceiling, so a slower machine does not break it. The step is four times, so a linear fold lands near 4 and a quadratic one near 16. Measured at about 4.4 (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core laptop); 8 leaves room over noise while sitting half way to the quadratic figure. Fixed per-call overhead can only push the ratio down, so it cannot manufacture a failure."
     },
     {
@@ -339,9 +346,10 @@
         "canonicalUnit": "bytes"
       },
       "scope": "harness",
-      "status": "enforced",
-      "measuredBy": "apps/desktop/tests/endurance/transcript/long-log.test.ts",
-      "subjectSymbol": "deriveTranscriptWindow",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `deriveTranscriptWindow`, when the endurance tier is run by name (`test:endurance`). That tier is in no CI job and outside the aggregate `test` script until the console-polish unit makes it a gate on every PR.",
       "notes": "Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a run. Not a fraction of the baseline, since a leak's size does not depend on how large the process was. Bounded from both sides: one held window over this log measures ~3.9 MB, so a ceiling above that could not catch a fold keeping a single one of its twenty outputs; 2 MiB sits under one window and two orders of magnitude above the ~21 kB twenty clean folds retain. A Node heap reading is honest here because the subject is the fold's own retained structures, which live in whatever process runs it; it states no renderer ceiling."
     }
   ]

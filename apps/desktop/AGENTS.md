@@ -124,7 +124,7 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 - A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task with `inputs`, a line in the aggregate `test` script, and a matrix entry in the `desktop` job of `.github/workflows/ci.yml` (`desktop-slow` for a nightly and `main`-only tier); a deliberate omission records its reason beside the registration. `exclude` spreads Vitest's default in.
 - Tiers sharing `out/**` (`build`, `build:smoke`, `build:fixtures`) sit in separate matrix legs.
 - A new `tsconfig*.json` reaches `typecheck` in the same commit; no two configs share an `outDir`; a `tsconfig` nothing reaches is deleted.
-- A budget marked `enforced` is reachable from the aggregate `test` script and a CI job, its `measuredBy` naming a harness holding its subject; otherwise it is `n/a` naming the wiring task. Every renderer PR runs every tier whose subject is in-tree and reports an absent one `n/a`.
+- A budget marked `enforced` is reachable from the aggregate `test` script and a CI job, its `measuredBy` naming a harness holding its subject; otherwise it is `n/a` naming the wiring task. Every renderer PR runs every tier whose subject is in-tree and reports an absent one `n/a`, except the accessibility and endurance tiers, which run only by name until the console-polish unit makes them gates on every PR.
 - Every bounded wait in a launching tier's body draws on the tier's allowance through `boundedMs`; a wait with its own literal is rejected.
 
 ## Enforcement

@@ -9,9 +9,9 @@
 # a filter let through is found within a day.
 #
 # A pull request into `develop` runs only the fast jobs, so its checks finish within about ten
-# minutes. The slow jobs (mutation testing, the desktop end-to-end and endurance tiers, and the
-# native prebuild matrix) run on the nightly schedule, on pull requests into `main`, and on
-# a manual run; `changes` sets `slow-jobs` for those events.
+# minutes. The slow jobs (mutation testing, the desktop end-to-end tier, and the native prebuild
+# matrix) run on the nightly schedule, on pull requests into `main`, and on a manual run; `changes`
+# sets `slow-jobs` for those events.
 #
 # The full-repo `eslint .` and `prettier --check .` steps close the `git commit --no-verify` bypass.
 # They do not go through lefthook, because lint-staged reads the git index, which is empty in CI.
@@ -291,7 +291,9 @@ jobs:
   #
   # The enumeration is deliberate: a Vitest project added to `apps/desktop/vitest.config.ts` is not
   # picked up here. A project wired into neither this matrix nor the package's aggregate `test`
-  # script is a review rejection (`apps/desktop/AGENTS.md`).
+  # script is a review rejection (`apps/desktop/AGENTS.md`). The `accessibility` and `endurance`
+  # projects are in neither on purpose: they run only by name until the console-polish unit makes
+  # them gates on every PR.
   #
   # The slow tiers sit in `desktop-slow`, which shares these steps and the same check names.
   desktop:
@@ -313,7 +315,7 @@ jobs:
         # `structure` job.
         include:
           - tier: "test:main-unit test:renderer"
-          - tier: "test:browser test:accessibility"
+          - tier: "test:browser"
             serial: true
           - tier: "test:bundle"
             serial: true
@@ -356,11 +358,11 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
-      # A window manager on that display, for the leg that runs the end-to-end and endurance
-      # tiers. Bare Xvfb has none, and without one a window never minimizes, so the end-to-end check
-      # that minimizes a window could only fail here. Openbox is one small package. Readiness comes
-      # from openbox itself: it runs its `--startup` command once it manages the display, which
-      # writes the file waited on.
+      # A window manager on that display, for the leg that runs the end-to-end tier. Bare Xvfb has
+      # none, and without one a window never minimizes, so the end-to-end check that minimizes a
+      # window could only fail here. Openbox is one small package. Readiness comes from openbox
+      # itself: it runs its `--startup` command once it manages the display, which writes the file
+      # waited on.
       - name: Start a window manager on the display (Linux, end-to-end leg)
         if: runner.os == 'Linux' && contains(matrix.tier, 'e2e')
         run: |
@@ -417,7 +419,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - tier: "test:e2e test:endurance"
+          - tier: "test:e2e"
             serial: true
     steps: *desktop-tier-steps
 

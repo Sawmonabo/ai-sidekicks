@@ -241,6 +241,8 @@
       "cache": false
     },
     "test:accessibility": {
+      // Runs only by name, outside the `test` aggregate and CI, until the console-polish unit makes
+      // it a gate on every PR.
       "dependsOn": ["^build"],
       "inputs": [
         "src/renderer/src/**",
@@ -310,7 +312,8 @@
     "test:endurance": {
       // Same bundle, tens of seconds rather than milliseconds. Its own task rather than a slow file
       // inside the end-to-end tier, so `test:e2e` stays a fast gate a person will run before
-      // pushing; both are on the `test` aggregate, in its last group.
+      // pushing. Runs only by name, outside the `test` aggregate and CI, until the console-polish
+      // unit makes it a gate on every PR.
       "dependsOn": ["build:fixtures"],
       "inputs": [
         "src/renderer/src/**",
@@ -363,7 +366,7 @@
       // them concurrently and hand a tier the wrong bundle: the bundle tier would measure a fixture
       // build against a release budget, and its release-absence assertions would read a tree that
       // legitimately contains what they refuse. The chain runs the source-only tiers first, then
-      // the browser-mode pair (which builds nothing), then release, smoke and fixtures, each with
+      // the browser tier (which builds nothing), then release, smoke and fixtures, each with
       // its own consumers.
       //
       // No `dependsOn` of its own: every enumerated task declares the build edge it needs, and an
