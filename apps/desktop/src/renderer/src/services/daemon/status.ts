@@ -40,7 +40,7 @@ function reachabilityOf(
 ): Exclude<TransportReachability, "unknown"> | undefined {
   switch (connection.kind) {
     case "connected":
-    case "version-incompatible":
+    case "version_incompatible":
       return "reachable";
     case "unreported":
     case "connecting":

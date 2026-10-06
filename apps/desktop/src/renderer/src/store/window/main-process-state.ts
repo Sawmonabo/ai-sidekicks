@@ -62,7 +62,7 @@ export function describeDaemonConnection(connection: DaemonConnection): string {
       return "Running";
     case "transient_disconnect":
       return "Reconnecting…";
-    case "version-incompatible":
+    case "version_incompatible":
       return "Version mismatch";
     // A loss main does not recognize reads exactly as one it gave up on, never as running.
     case "unknown":
@@ -82,7 +82,7 @@ function daemonConnectionsAreEqual(left: DaemonConnection, right: DaemonConnecti
     case "connecting":
     case "starting":
     case "connected":
-    case "version-incompatible":
+    case "version_incompatible":
     case "stopped":
       return true;
     case "transient_disconnect":

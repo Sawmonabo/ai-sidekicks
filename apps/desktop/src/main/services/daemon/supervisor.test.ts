@@ -95,13 +95,13 @@ describe("starting the service", () => {
     expect(link.client).toBeUndefined();
   });
 
-  it("reads a refused handshake as version-incompatible, naming the side that is behind", async () => {
+  it("reads a refused handshake as version_incompatible, naming the side that is behind", async () => {
     service.connectAnswer = { kind: "answering", hello: INCOMPATIBLE_HELLO, answersPing: true };
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(link.state).toMatchObject({
-      connection: { kind: "version-incompatible" },
+      connection: { kind: "version_incompatible" },
       negotiation: { compatible: false, behind: "app", daemonProtocolVersion: "2027-01-01" },
     });
   });
@@ -112,7 +112,7 @@ describe("starting the service", () => {
     supervisor.start();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(link.state.connection).toStrictEqual({ kind: "version-incompatible" });
+    expect(link.state.connection).toStrictEqual({ kind: "version_incompatible" });
     expect(log.write).toHaveBeenCalledWith(
       expect.objectContaining({
         level: "warning",

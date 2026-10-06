@@ -392,7 +392,7 @@ describe("a refused handshake", () => {
         : { result: { settings: MACHINE_SETTINGS_DEFAULTS } },
     );
     const forwarding = new DaemonForwarding({
-      link: await linkOver(connection, { kind: "version-incompatible" }),
+      link: await linkOver(connection, { kind: "version_incompatible" }),
       filePathRefs: new FilePathRefs(),
       pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
@@ -575,7 +575,7 @@ describe("the calls that end work", () => {
     const { DaemonForwarding } = await import("./daemon.js");
     const connection = scriptedConnection(() => ({ result: NO_DEVICES }));
     const forwarding = new DaemonForwarding({
-      link: await linkOver(connection, { kind: "version-incompatible" }),
+      link: await linkOver(connection, { kind: "version_incompatible" }),
       filePathRefs: new FilePathRefs(),
       pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },

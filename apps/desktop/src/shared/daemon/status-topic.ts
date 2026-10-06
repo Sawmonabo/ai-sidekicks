@@ -38,7 +38,7 @@ export interface MainProcessNegotiation {
 /**
  * Where this window stands with the background service. Before a link exists: `connecting` while
  * main looks for a running service and handshakes, `starting` while a service main started comes
- * up. With a link: `connected`, or `version-incompatible` when the handshake was refused and the
+ * up. With a link: `connected`, or `version_incompatible` when the handshake was refused and the
  * link serves reads alone. After a link is lost: `transient_disconnect` while main brings it back
  * with backoff, `unknown` for a loss whose cause main does not recognize, drawn as `degraded` and
  * never as `connected`, and `degraded` once the backoff gives up. `stopped` is the service ended
@@ -51,7 +51,7 @@ export type DaemonConnection =
   | { readonly kind: "starting" }
   | { readonly kind: "connected" }
   /** The handshake was refused. The facts are on `MainProcessState.negotiation`. */
-  | { readonly kind: "version-incompatible" }
+  | { readonly kind: "version_incompatible" }
   | {
       readonly kind: "transient_disconnect";
       /** The start being made now, counted from 1 since the loss. */

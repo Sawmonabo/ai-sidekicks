@@ -668,7 +668,7 @@ export class DaemonSupervisor {
 
   #linkedState(hello: DaemonHelloAck, startedByApp: boolean): MainProcessState {
     return {
-      ...unlinkedState(hello.compatible ? { kind: "connected" } : { kind: "version-incompatible" }),
+      ...unlinkedState(hello.compatible ? { kind: "connected" } : { kind: "version_incompatible" }),
       negotiation: negotiationOf(hello),
       startedByApp,
     };

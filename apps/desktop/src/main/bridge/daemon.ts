@@ -402,7 +402,7 @@ function mutationRefusal(
   link: DaemonLink,
   contract: Pick<AnyMethodDescriptor, "mutating">,
 ): JsonRpcError | undefined {
-  if (!contract.mutating || link.state.connection.kind !== "version-incompatible") {
+  if (!contract.mutating || link.state.connection.kind !== "version_incompatible") {
     return undefined;
   }
   return {
@@ -422,7 +422,7 @@ function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
   if (connection.kind === "connected" && link.client !== undefined) {
     return undefined;
   }
-  if (connection.kind === "version-incompatible") {
+  if (connection.kind === "version_incompatible") {
     return {
       code: JsonRpcErrorCode.InvalidRequest,
       message:
