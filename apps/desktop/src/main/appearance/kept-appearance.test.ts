@@ -114,10 +114,12 @@ describe("the appearance record", () => {
 
     const stamped = stampRootElement('<!doctype html><html lang="en"><head></head></html>', {
       record: nextStart.record,
+      platformScheme: "dark",
       isSafeStart: false,
     });
     expect(stamped).toBe(
       '<!doctype html><html lang="en" data-theme="graphite" data-color-scheme="dark" ' +
+        'data-resolved-color-scheme="dark" ' +
         'style="font-size:15px;--meridian-transcript-width:44rem"><head></head></html>',
     );
   });
@@ -127,12 +129,13 @@ describe("the appearance record", () => {
 
     const stamped = stampRootElement("<html><body></body></html>", {
       record: startApp().record,
+      platformScheme: "dark",
       isSafeStart: false,
     });
 
     expect(stamped).toBe(
-      '<html data-theme="graphite" style="font-size:15px;--meridian-transcript-width:44rem">' +
-        "<body></body></html>",
+      '<html data-theme="graphite" data-resolved-color-scheme="dark" ' +
+        'style="font-size:15px;--meridian-transcript-width:44rem"><body></body></html>',
     );
   });
 

@@ -9,7 +9,11 @@
 // node-context tooling imports `styles/` with no DOM lib.
 
 import { generateMeridianCss } from "#renderer/styles/generate-css.js";
-import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
+import {
+  composeRootAppearance,
+  type AppearanceRecord,
+  type ColorScheme,
+} from "#shared/appearance.js";
 import { generateTypefaceCss } from "#renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */
@@ -32,16 +36,25 @@ export function installMeridianTokens(targetDocument: Document): boolean {
   return true;
 }
 
+/** The media query that answers whether the platform draws in the dark scheme now. */
+export const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
+
 /**
- * Apply main's appearance record to the document root, as main stamped it on the served document.
+ * Apply main's appearance record to the document root, as main stamped it on the served document,
+ * with the scheme resolved to light or dark read from the document's window. Throws for a document
+ * with no window.
  *
  * Under `"system"` the scheme attribute is removed rather than a resolved value written: the
  * sheet's `prefers-color-scheme` layer is guarded by `:root:not([data-color-scheme="light"])`, so
- * with no attribute the OS keeps deciding, including after a later change.
+ * with no attribute the OS keeps deciding, including after a later change. The resolved scheme's
+ * own attribute is written again only when this runs again.
  */
 export function applyAppearance(targetDocument: Document, record: AppearanceRecord): void {
   const root = targetDocument.documentElement;
-  const { attributes, styleProperties } = composeRootAppearance(record);
+  const { attributes, styleProperties } = composeRootAppearance(
+    record,
+    readPlatformScheme(targetDocument),
+  );
   for (const [name, value] of Object.entries(attributes)) {
     if (value === undefined) {
       root.removeAttribute(name);
@@ -52,4 +65,12 @@ export function applyAppearance(targetDocument: Document, record: AppearanceReco
   for (const [name, value] of Object.entries(styleProperties)) {
     root.style.setProperty(name, value);
   }
+}
+
+function readPlatformScheme(targetDocument: Document): ColorScheme {
+  const view = targetDocument.defaultView;
+  if (view === null) {
+    throw new Error("The document to apply the appearance to has no window.");
+  }
+  return view.matchMedia(DARK_SCHEME_QUERY).matches ? "dark" : "light";
 }

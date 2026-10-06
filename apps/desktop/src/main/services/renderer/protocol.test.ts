@@ -40,6 +40,7 @@ const RECORD_KEPT = {
     transcriptWidth: 40,
     grounds: { light: "#ffffff", dark: "#101010" },
   },
+  platformScheme: "light" as const,
   isSafeStart: false,
 };
 
@@ -170,6 +171,25 @@ describe("the root stamp", () => {
     expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
     expect(await response.text()).toContain(
       '<html lang="en" data-theme="meridian" data-color-scheme="dark" ' +
+        'data-resolved-color-scheme="dark" style="font-size:18px;--meridian-transcript-width:40rem">',
+    );
+  });
+
+  it("stamps the scheme the platform draws in when the record follows the system", async () => {
+    electronMock.netFetch.mockResolvedValueOnce(new Response(CONSOLE_DOCUMENT));
+
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/index.html",
+      {
+        ...RECORD_KEPT,
+        record: { ...RECORD_KEPT.record, scheme: "system" },
+        platformScheme: "dark",
+      },
+    );
+
+    expect(await response.text()).toContain(
+      '<html lang="en" data-theme="meridian" data-resolved-color-scheme="dark" ' +
         'style="font-size:18px;--meridian-transcript-width:40rem">',
     );
   });
@@ -184,7 +204,8 @@ describe("the root stamp", () => {
     );
 
     expect(await response.text()).toContain(
-      '<html lang="en" data-theme="meridian" data-color-scheme="dark" data-safe-start ' +
+      '<html lang="en" data-theme="meridian" data-color-scheme="dark" ' +
+        'data-resolved-color-scheme="dark" data-safe-start ' +
         'style="font-size:18px;--meridian-transcript-width:40rem">',
     );
   });

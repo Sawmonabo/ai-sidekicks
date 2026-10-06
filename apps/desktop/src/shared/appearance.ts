@@ -98,6 +98,12 @@ export type AppearanceChoice = Pick<
  */
 export const SCHEME_ATTRIBUTE = "data-color-scheme";
 
+/**
+ * The root-element attribute carrying the scheme the page is drawn in, `light` or `dark`, under
+ * `system` too, so code that reads the scheme, rather than styling by it, needs no media query.
+ */
+export const RESOLVED_SCHEME_ATTRIBUTE = "data-resolved-color-scheme";
+
 /** The root-element attribute carrying the theme. */
 export const THEME_ATTRIBUTE = "data-theme";
 
@@ -116,14 +122,19 @@ export interface RootAppearance {
 
 /**
  * The root for `record`: the theme, the explicit scheme (none under `system`, so the
- * stylesheet's `prefers-color-scheme` layer keeps deciding), the root font size and the
- * transcript width.
+ * stylesheet's `prefers-color-scheme` layer keeps deciding), the scheme resolved to light or dark,
+ * `platformScheme` under `system`, the root font size and the transcript width.
  */
-export function composeRootAppearance(record: AppearanceRecord): RootAppearance {
+export function composeRootAppearance(
+  record: AppearanceRecord,
+  platformScheme: ColorScheme,
+): RootAppearance {
+  const isSystem = record.scheme === SYSTEM_SCHEME_PREFERENCE;
   return {
     attributes: {
       [THEME_ATTRIBUTE]: record.theme,
-      [SCHEME_ATTRIBUTE]: record.scheme === SYSTEM_SCHEME_PREFERENCE ? undefined : record.scheme,
+      [SCHEME_ATTRIBUTE]: isSystem ? undefined : record.scheme,
+      [RESOLVED_SCHEME_ATTRIBUTE]: isSystem ? platformScheme : record.scheme,
     },
     styleProperties: {
       "font-size": `${String(record.textSize)}px`,

@@ -12,7 +12,7 @@ import type { PlatformBridge } from "#renderer/services/platform/platform-bridge
 import { AppearanceClient } from "#renderer/services/window/appearance-client.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import type { AppearanceRecord } from "#shared/appearance.js";
-import { applyAppearance } from "../token-installation.js";
+import { applyAppearance, DARK_SCHEME_QUERY } from "../token-installation.js";
 
 /** Main's appearance record kept on every open window's document root; the client for the acts. */
 export function useAppearance(bridge: PlatformBridge, openWindows: OpenWindows): AppearanceClient {
@@ -23,17 +23,31 @@ export function useAppearance(bridge: PlatformBridge, openWindows: OpenWindows):
     APPEARANCE_CLIENT_DISPOSAL,
   );
 
-  // Before paint, so a record that arrives with the first frame is not drawn a frame late.
+  // Before paint, so a record that arrives with the first frame is not drawn a frame late. The
+  // record is applied again when the platform's scheme changes, which main sends no record for,
+  // so the root's resolved scheme follows it under `system`.
   useLayoutEffect(() => {
     let stopApplying: () => void = () => undefined;
-    const stopHearing = client.subscribe((record: AppearanceRecord) => {
+    let latest: AppearanceRecord | undefined;
+    const applyLatest = (): void => {
+      const record = latest;
+      if (record === undefined) {
+        return;
+      }
       stopApplying();
       stopApplying = openWindows.prepareEveryDocument((windowDocument) => {
         applyAppearance(windowDocument, record);
       });
+    };
+    const stopHearing = client.subscribe((record: AppearanceRecord) => {
+      latest = record;
+      applyLatest();
     });
+    const platformScheme = window.matchMedia(DARK_SCHEME_QUERY);
+    platformScheme.addEventListener("change", applyLatest);
     return () => {
       stopHearing();
+      platformScheme.removeEventListener("change", applyLatest);
       stopApplying();
     };
   }, [client, openWindows]);

@@ -173,10 +173,14 @@ function startApplication(): void {
       installActivationPolicy(app);
       // Before any window: a window constructed ahead of the handler could load against an
       // unhandled scheme.
-      // Read at each serve: the record as it stands, and whether this load is a safe start.
+      // Read at each serve: the record as it stands, the scheme the platform draws in, and whether
+      // this load is a safe start.
       installRendererProtocol(RENDERER_ROOT, {
         get record() {
           return appearance.record;
+        },
+        get platformScheme() {
+          return nativeTheme.shouldUseDarkColors ? "dark" : "light";
         },
         get isSafeStart() {
           return openWindows.isSafeStart;
