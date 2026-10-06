@@ -1,14 +1,15 @@
 // A connection to the daemon on this machine, opened the one way every client opens it: connect to
-// its socket, read the session token the daemon wrote at its current start, then `daemon.hello`
-// with that token before any other call. The token is read at every connect, never once, because
+// its socket, check the run folder is this user's alone, read the session token the daemon wrote
+// at its current start, then `daemon.hello` with that token before any other call. The token is read at every connect, never once, because
 // each daemon start writes a new one, and read again once when the daemon refuses it. The
 // acknowledged handshake comes back with the client, so the caller sees whether the daemon accepted
 // this build's protocol.
 
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import * as os from "node:os";
 
 import {
+  assertPrivateRunFolder,
   resolveDaemonRunFolder,
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
@@ -43,7 +44,7 @@ export interface DaemonConnectionObserver {
 
 /** How to open a daemon connection. */
 export interface DaemonConnectionOptions {
-  /** The daemon's run folder; defaults to the one this account's daemon uses. */
+  /** The daemon's run folder; defaults to the one this user's daemon uses. */
   readonly runFolder?: DaemonRunFolder;
   /** The most unread values one subscription holds; see `JsonRpcClientOptions`. */
   readonly maxQueuedValuesPerSubscription: number;
@@ -68,10 +69,11 @@ export interface DaemonConnection {
 
 /**
  * Connects to the daemon and completes `daemon.hello` with its session token. Throws
- * `JsonRpcTransportUnavailableError` when nothing answers on the socket; the token file's read
- * error, `code` `ENOENT` when a daemon has bound its socket and not yet written its token; and
- * `JsonRpcRemoteError` with `auth.token_invalid` when the daemon refuses the token and the token
- * file still holds the one presented. Any failure after a connect closes that connection.
+ * `JsonRpcTransportUnavailableError` when nothing answers on the socket; an `Error` when the run
+ * folder is not this user's alone, or, with no `runFolder` given, on Windows, which has none; the
+ * token file's read error, `code` `ENOENT` when a daemon has bound its socket and not yet written
+ * its token; and `JsonRpcRemoteError` with `auth.token_invalid` when the daemon refuses the token
+ * and the token file still holds the one presented. Any failure after a connect closes it.
  */
 export async function connectToDaemon(options: DaemonConnectionOptions): Promise<DaemonConnection> {
   const runFolder = options.runFolder ?? defaultDaemonRunFolder();
@@ -100,7 +102,7 @@ export async function connectToDaemon(options: DaemonConnectionOptions): Promise
 }
 
 // Connects first, so a daemon that is not running reads as `transport.unavailable` rather than a
-// missing token file, then reads the token and says hello.
+// missing run folder or token file, then checks the folder, reads the token and says hello.
 async function openDaemonConnection(
   runFolder: DaemonRunFolder,
   readSessionToken: () => Promise<string>,
@@ -119,6 +121,13 @@ async function openDaemonConnection(
     maxQueuedValuesPerSubscription: options.maxQueuedValuesPerSubscription,
   });
   try {
+    // Before a byte is sent: a folder another account made could hold its own socket and token,
+    // and the token would then prove nothing.
+    assertPrivateRunFolder(
+      runFolder.folderPath,
+      await lstat(runFolder.folderPath),
+      os.userInfo().uid,
+    );
     const sessionToken = await readSessionToken();
     // The hello offers every version this build speaks and settles which one both sides use.
     const helloParams: DaemonHello = {

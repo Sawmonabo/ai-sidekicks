@@ -52,3 +52,31 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
 function trimTrailingSlash(folder: string): string {
   return folder.length > 1 && folder.endsWith("/") ? folder.slice(0, -1) : folder;
 }
+
+/** What `lstat` reports about the run folder, as much as {@link assertPrivateRunFolder} reads. */
+export interface RunFolderStatus {
+  isDirectory(): boolean;
+  readonly uid: number;
+  readonly mode: number;
+}
+
+/**
+ * Throws unless the run folder is a real folder the user owns that no other account can reach.
+ * The daemon checks before it binds and every client before it says a byte, since a folder another
+ * account made could hold a stand-in socket and a token of its own.
+ */
+export function assertPrivateRunFolder(
+  folderPath: string,
+  folder: RunFolderStatus,
+  userId: number,
+): void {
+  if (!folder.isDirectory() || folder.uid !== userId) {
+    throw new Error(`The run folder ${folderPath} is not a folder this account owns`);
+  }
+  if ((folder.mode & 0o077) !== 0) {
+    throw new Error(
+      `The run folder ${folderPath} is open to other accounts ` +
+        `(mode ${(folder.mode & 0o777).toString(8)}); it must be 700`,
+    );
+  }
+}

@@ -5,7 +5,10 @@
 import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import * as net from "node:net";
 
-import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
+import {
+  assertPrivateRunFolder,
+  type DaemonRunFolder,
+} from "@ai-sidekicks/contracts/daemon/run-folder";
 
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 
@@ -16,17 +19,12 @@ import { DaemonAlreadyRunningError } from "./already-running-error.js";
  */
 export async function prepareRunFolder(runFolder: DaemonRunFolder): Promise<void> {
   await mkdir(runFolder.folderPath, { recursive: true, mode: 0o700 });
-  const folder = await lstat(runFolder.folderPath);
   // `getuid` is missing only on Windows, which has no run folder.
-  if (!folder.isDirectory() || folder.uid !== process.getuid!()) {
-    throw new Error(`The run folder ${runFolder.folderPath} is not a folder this account owns`);
-  }
-  if ((folder.mode & 0o077) !== 0) {
-    throw new Error(
-      `The run folder ${runFolder.folderPath} is open to other accounts ` +
-        `(mode ${(folder.mode & 0o777).toString(8)}); it must be 700`,
-    );
-  }
+  assertPrivateRunFolder(
+    runFolder.folderPath,
+    await lstat(runFolder.folderPath),
+    process.getuid!(),
+  );
 
   const existing = await lstatIfPresent(runFolder.socketPath);
   if (existing === undefined) {

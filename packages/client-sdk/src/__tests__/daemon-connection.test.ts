@@ -5,7 +5,7 @@
 // ends the connection, a failed handshake closes the socket it opened, and an observer hears every
 // frame and the daemon's own close.
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -122,6 +122,40 @@ describe("connectToDaemon", () => {
       code: JsonRpcErrorCode.InternalError,
       data: { type: "transport.unavailable", fields: { reason: "ENOENT" } },
     });
+  });
+
+  // Another account could have made the folder first and put its own socket and token in it.
+  it.each([
+    [
+      "open to other accounts",
+      () => chmod(runFolder.folderPath, 0o755),
+      /is open to other accounts/,
+    ],
+    [
+      "a link to another folder",
+      async () => {
+        const realFolder = path.join(scratch, "elsewhere");
+        await rename(runFolder.folderPath, realFolder);
+        await symlink(realFolder, runFolder.folderPath);
+      },
+      /is not a folder this account owns/,
+    ],
+  ])("says nothing to a socket whose run folder is %s", async (_label, spoil, refusal) => {
+    await spoil();
+    const daemon = await serveStandInDaemon((request, socket) => {
+      socket.write(
+        encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: COMPATIBLE_HELLO }),
+      );
+    });
+
+    const failure = await connectToDaemon({
+      runFolder,
+      maxQueuedValuesPerSubscription: 8,
+    }).catch((error: unknown) => error);
+
+    expect((failure as Error).message).toMatch(refusal);
+    await daemon.connectionClosed;
+    expect(daemon.requests).toHaveLength(0);
   });
 
   it("rejects with the read's ENOENT and closes, observed, before the daemon writes its token", async () => {
