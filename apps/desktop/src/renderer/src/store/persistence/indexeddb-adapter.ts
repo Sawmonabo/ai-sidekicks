@@ -87,16 +87,12 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
     storageManager?: StorageManager | undefined,
   ) {
     this.#database = database;
-    this.#storageManager =
-      storageManager ??
-      (typeof navigator === "undefined"
-        ? undefined
-        : (navigator.storage as StorageManager | undefined));
+    this.#storageManager = storageManager ?? (navigator.storage as StorageManager | undefined);
   }
 
   public describe(): string {
     return (
-      `Preferences are stored on this machine (${this.#database.name} ` +
+      `Preferences are stored (${this.#database.name} ` +
       `v${String(this.#database.version)}) and survive a restart.`
     );
   }

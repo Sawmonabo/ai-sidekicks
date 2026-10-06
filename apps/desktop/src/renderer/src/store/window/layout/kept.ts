@@ -53,7 +53,7 @@ export async function readKeptWindows(uiStateStore: UiStateStore): Promise<reado
 
 /**
  * Keep `windows` as the open windows, in this order. A refused write is counted on the store's
- * health, which the person sees, as every refused UI-state write is.
+ * health, as every refused UI-state write is.
  */
 export async function keepWindows(
   uiStateStore: UiStateStore,

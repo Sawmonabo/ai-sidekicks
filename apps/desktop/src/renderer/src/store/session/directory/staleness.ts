@@ -41,7 +41,10 @@ export class SessionDirectoryStaleness {
   }
 }
 
-/** This window's staleness counts, advanced by `requestSessionDirectoryRead`. */
+/**
+ * The app's staleness counts, one for the console document and so for every window it draws,
+ * advanced by `requestSessionDirectoryRead`.
+ */
 export const sessionDirectoryStaleness: SessionDirectoryStaleness = new SessionDirectoryStaleness();
 
 /**
