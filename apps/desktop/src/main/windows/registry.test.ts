@@ -2,14 +2,14 @@
 // the windows a person sees counted, the last of them closing driving the platform's answer while a
 // quit or a lost renderer closing them does not, and a person closing the load-failure page
 // counting as the last; a quit closing the hidden window first and the rest once its document is
-// gone; a Dock click, a menu-bar icon click and a second launch, before start, after it and
-// during a quit, asking the kept console document to reopen the window used last; the renderer's
-// process going away, answered on a later task by building the hidden window again, the third loss
-// in a row a safe start the console document ends, and the count clearing after five quiet minutes;
-// the window the console document's `window.open` gets (main's own options and kept place, never
-// the page's, centered or cascaded when none is kept) and found again by the id its frame name
-// carries; the pushes to the console document; and the window-place file across a close and a
-// restart. `electron` is mocked; the place file is real, in a temporary folder.
+// gone; a Dock click and a second launch, before start, after it and during a quit, and a menu-bar
+// icon click after start, asking the kept console document to reopen the window used last; the
+// renderer's process going away, answered on a later task by building the hidden window again, the
+// third loss in a row a safe start the console document ends, and the count clearing after five
+// quiet minutes; the window the console document's `window.open` gets (main's own options and kept
+// place, never the page's, centered or cascaded when none is kept) and found again by the id its
+// frame name carries; the pushes to the console document; and the window-place file across a close
+// and a restart. `electron` is mocked; the place file is real, in a temporary folder.
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

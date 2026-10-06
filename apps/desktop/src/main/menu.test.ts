@@ -19,6 +19,7 @@ import {
 import { createElectronMock, type MenuTemplateItem } from "#test/helpers/electron/mock/module.js";
 
 import type { MainDiagnosticEntry } from "./services/diagnostic-log.js";
+import type { InstallLocation } from "./services/resource-file.js";
 
 const electronMock = createElectronMock();
 
@@ -27,6 +28,13 @@ vi.mock("electron", () => electronMock.moduleExports);
 beforeEach(() => {
   electronMock.reset();
 });
+
+/** A development checkout: this folder sits two below the package, as main's built entry does. */
+const CHECKOUT: InstallLocation = {
+  isPackaged: false,
+  mainBundleFolder: import.meta.dirname,
+  resourcesPath: "/unused-in-a-checkout",
+};
 
 const realPlatform = process.platform;
 
@@ -73,6 +81,7 @@ describe("the View menu's color scheme", () => {
       appearance,
       { write: (entry) => logged.push(entry) },
       { announceUnkeptScheme },
+      CHECKOUT,
     );
     expect(tickedScheme()).toBe("System");
 
@@ -112,17 +121,11 @@ describe("the View menu's color scheme", () => {
 describe("About", () => {
   /** An installed app's resources folder, on no machine, so only a path built from it matches. */
   const installedResourcesFolder = "/sidekicks-installed-resources";
-  /** The resources folder the Electron mock gave the process, put back after each test. */
-  const mockResourcesPath = process.resourcesPath;
 
   afterEach(async () => {
     const { app } = await import("electron");
     vi.mocked(app.getName).mockReset();
     vi.mocked(app.getVersion).mockReset();
-    Object.defineProperty(process, "resourcesPath", {
-      value: mockResourcesPath,
-      configurable: true,
-    });
   });
 
   /**
@@ -131,13 +134,9 @@ describe("About", () => {
    */
   async function installOn(platform: NodeJS.Platform, isPackaged = false) {
     Object.defineProperty(process, "platform", { value: platform });
-    electronMock.setPackaged(isPackaged);
-    if (isPackaged) {
-      Object.defineProperty(process, "resourcesPath", {
-        value: installedResourcesFolder,
-        configurable: true,
-      });
-    }
+    const location: InstallLocation = isPackaged
+      ? { ...CHECKOUT, isPackaged, resourcesPath: installedResourcesFolder }
+      : CHECKOUT;
     const { app, Menu } = await import("electron");
     vi.mocked(app.getName).mockReturnValue("Sidekicks under test");
     vi.mocked(app.getVersion).mockReturnValue("9.9.9-test");
@@ -150,6 +149,7 @@ describe("About", () => {
       { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
       { write: () => {} },
       { announceUnkeptScheme: () => {} },
+      location,
     );
     expect(setAboutPanelOptions).toHaveBeenCalledOnce();
     expect(setAboutPanelOptions.mock.invocationCallOrder[0]).toBeLessThan(

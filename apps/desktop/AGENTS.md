@@ -6,7 +6,7 @@ Binding for every change under `apps/desktop/`, on top of the [root `AGENTS.md`]
 
 `pnpm --filter @ai-sidekicks/desktop dev` runs the app on the renderer's dev server. After `--`, `--fixture <scenario>` plays a scenario from `fixtures/index.ts` and `--session <session-id>` opens one of its sessions; `src/main/fixture-launch.ts` checks both against the catalog. An unknown scenario, a missing value or a session the scenario lacks stops the launch before any window opens, with no fallback. Only the development build and `build:fixtures` carry scenarios; every other build refuses `--fixture`.
 
-`pnpm --filter @ai-sidekicks/desktop package` builds and packages an unsigned `AI Sidekicks.app` into `dist/` (after the workspace packages are built, `pnpm build`). On macOS electron-builder compiles `build/icon.icon` with `actool`, which only Xcode 26 or later has, so `xcode-select` must point at that Xcode and its license must be accepted. The package carries the hardened fuse wire, which `build/release-artifact-fuses.test.ts` reads from it.
+`pnpm --filter @ai-sidekicks/desktop package` builds and packages an unsigned `AI Sidekicks.app` into `dist/` (after the workspace packages are built, `pnpm build`). Unsigned means `mac.identity: null` in `electron-builder.yml`: electron-builder skips signing, and the fuse step's `resetAdHocDarwinSignature` still signs the app ad hoc, without which Apple silicon refuses to launch a binary whose fuses were flipped. On macOS electron-builder compiles `build/icon.icon` with `actool`, which only Xcode 26 or later has, so `xcode-select` must point at that Xcode and its license must be accepted. The package carries the hardened fuse wire, which `build/release-artifact-fuses.test.ts` reads from it.
 
 ## Before pushing
 

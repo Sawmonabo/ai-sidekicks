@@ -46,19 +46,19 @@
     },
 
     "apps/desktop": {
-      // electron-builder's after-pack hook, which `electron-builder.yml` names and electron-builder
-      // loads itself; knip has no electron-builder plugin to read that file.
+      // The one `entry` declaration: electron-builder's after-pack hook, which
+      // `electron-builder.yml` names and electron-builder loads itself, and knip has no
+      // electron-builder plugin to read that file. knip's plugins already find the rest: the
+      // electron-vite plugin reads the three process entries (`src/main/index.ts`,
+      // `src/preload/index.ts`, `src/renderer/src/main.tsx`) from `electron.vite.config.ts`, the
+      // tool configs are entries of their own plugins, and a file named in a `scripts` entry of
+      // this package's manifest is an entry, so `scripts/budget/measure-bundle.mts` is a root
+      // because the `budget:bundle` script runs it.
       "entry": ["build/browser-snapshot.ts"],
-      // No other `entry` declaration, deliberately. knip's defaults already cover the three process
-      // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and the
-      // two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves the
-      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so
-      // `scripts/budget/measure-bundle.mts` is a root because the `budget:bundle` script runs it.
-      // Measured: dropping the globs moved no file into `Unused files`.
       //
       // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a
       // root, so a dead export in `scripts/budget/registry.mts`, a module nothing invokes by
-      // name, would be exempt rather than reported. Listing the defaults again is drift the run
+      // name, would be exempt rather than reported. Listing those entries again is drift the run
       // refuses: `--treat-config-hints-as-errors` fails the gate on a redundant or unmatched
       // pattern.
 

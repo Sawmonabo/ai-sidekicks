@@ -2,11 +2,12 @@
 // registration at module top level, before `app.ready`, then the profile keyed to the install,
 // main's log, the crash reporter and the single-instance lock, then the kept appearance, the
 // registry of windows and its lifecycle, so a second launch during start is heard; inside
-// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the bridge
-// handlers, the hidden window, whose console document opens every window a person sees, and the
-// background service's start and watch. `index.test.ts` asserts the order of these Electron calls,
-// all but the profile's, which a packaged build skips. Electron refuses a scheme registered after
-// ready, and a window created before the handler is installed loads against an unhandled scheme.
+// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the Dock icon of a
+// development run, the macOS menu-bar icon, the bridge handlers, the hidden window, whose console
+// document opens every window a person sees, and the background service's start and watch.
+// `index.test.ts` asserts the order of these Electron calls, all but the profile's, which a
+// packaged build skips, and the two icons'. Electron refuses a scheme registered after ready, and a
+// window created before the handler is installed loads against an unhandled scheme.
 
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
@@ -48,10 +49,10 @@ import {
 import { keyProfileToInstall } from "./services/install-profile.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
-import { resourceFilePath } from "./services/resource-file.js";
+import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
-import { installActivationPolicy } from "./windows/reveal.js";
+import { installActivationPolicy, isMenuBarIconShown } from "./windows/reveal.js";
 
 /** Where main records a line while it has no log of its own: the startup is failing then. */
 const STDERR_LOG: Pick<MainDiagnosticLog, "write"> = {
@@ -137,14 +138,14 @@ function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure
   }
 }
 
-/** The menu-bar icon's resting face; throws when the file is missing or not an image. */
-function readMenuBarIdleFace(): NativeImage {
-  const facePath = resourceFilePath(MENU_BAR_IDLE_FACE_FILE, import.meta.dirname);
-  const face = nativeImage.createFromPath(facePath);
-  if (face.isEmpty()) {
-    throw new Error(`the menu-bar icon's image at ${facePath} could not be read`);
+/** An image from the package's `resources/` folder; throws when it is missing or not an image. */
+function readResourceImage(fileName: string, location: InstallLocation): NativeImage {
+  const imagePath = resolveResourceFile(fileName, location);
+  const image = nativeImage.createFromPath(imagePath);
+  if (image.isEmpty()) {
+    throw new Error(`the image at ${imagePath} could not be read`);
   }
-  return face;
+  return image;
 }
 
 /**
@@ -185,6 +186,11 @@ function startApplication(): void {
   });
   Promise.all([windowsReading, app.whenReady()])
     .then(async ([{ log, appearance, openWindows }]) => {
+      const installLocation: InstallLocation = {
+        isPackaged: app.isPackaged,
+        mainBundleFolder: import.meta.dirname,
+        resourcesPath: process.resourcesPath,
+      };
       // First, so a launch this build cannot play stops before anything is installed.
       const fixtureLaunch = await resolveFixtureLaunch();
 
@@ -209,30 +215,25 @@ function startApplication(): void {
         },
         log,
       );
-      installApplicationMenu(appearance, log, openWindows);
+      installApplicationMenu(appearance, log, openWindows, installLocation);
       // A development run is the stock Electron app, whose bundle shows Electron's icon in the
       // Dock; an installed app's bundle carries its own. `dock` exists only on macOS.
-      if (!app.isPackaged) {
-        app.dock?.setIcon(resourceFilePath(DOCK_ICON_FILE, import.meta.dirname));
+      if (!app.isPackaged && app.dock !== undefined) {
+        app.dock.setIcon(readResourceImage(DOCK_ICON_FILE, installLocation));
       }
       // On macOS the menu-bar icon stays when the last window closes, and a click on it brings
       // the window used last back.
-      if (process.platform === "darwin") {
-        openWindows.installMenuBarIcon(new Tray(readMenuBarIdleFace()));
+      if (isMenuBarIconShown()) {
+        openWindows.installMenuBarIcon(
+          new Tray(readResourceImage(MENU_BAR_IDLE_FACE_FILE, installLocation)),
+        );
       }
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
         connect: connectMainToDaemon,
         startService: () =>
-          startServiceDetached(
-            resolveServiceProgram({
-              isPackaged: app.isPackaged,
-              mainBundleFolder: import.meta.dirname,
-              resourcesPath: process.resourcesPath,
-            }),
-            process.env,
-          ),
+          startServiceDetached(resolveServiceProgram(installLocation), process.env),
         attachServiceProcess: attachToServiceProcess,
         log,
       });

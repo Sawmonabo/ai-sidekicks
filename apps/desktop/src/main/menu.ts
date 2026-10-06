@@ -12,7 +12,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appeara
 import type { KeptAppearance } from "./appearance/kept-record.js";
 import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
-import { resourceFilePath } from "./services/resource-file.js";
+import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
 import { describeFailure } from "#shared/failure-message.js";
 
 /** The About panel's icon. Windows and Linux take it from a file on disk; macOS from the bundle. */
@@ -29,12 +29,14 @@ const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly lab
  * Fills the About panel, builds and installs the application menu, and rebuilds the menu when the
  * kept scheme changes. Call once, inside `app.whenReady()`, after the renderer protocol is
  * installed, so no accelerator can fire against an uninstalled scheme. A pick that is not kept is
- * written to `log` and announced through `openWindows` to the console document.
+ * written to `log` and announced through `openWindows` to the console document; `location` finds
+ * the About panel's icon on Windows and Linux.
  */
 export function installApplicationMenu(
   appearance: Pick<KeptAppearance, "scheme" | "chooseScheme" | "subscribe">,
   log: Pick<MainDiagnosticLog, "write">,
   openWindows: Pick<OpenWindows, "announceUnkeptScheme">,
+  location: InstallLocation,
 ): void {
   const isMacOS = process.platform === "darwin";
   // macOS shows `version` in parentheses; unset, a development build would show Electron's own.
@@ -43,7 +45,7 @@ export function installApplicationMenu(
     applicationVersion: app.getVersion(),
     ...(isMacOS
       ? { version: app.getVersion() }
-      : { iconPath: resourceFilePath(ABOUT_ICON_FILE, import.meta.dirname) }),
+      : { iconPath: resolveResourceFile(ABOUT_ICON_FILE, location) }),
   });
   let tickedScheme = appearance.scheme;
   const install = (): void => {

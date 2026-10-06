@@ -9,10 +9,10 @@
 // closes, so Electron's `window-all-closed` never fires: the registry counts the windows a person
 // sees, and the last of them closing drives the platform's last-window behavior. A Dock click, a
 // click on the macOS menu-bar icon (held here for the app's life) or a second launch with none open
-// asks the console document to reopen the console window used last;
-// the renderer's process going away builds the hidden window again, the third loss in a row as a
-// safe start that leaves every kept place as it is until the console document ends it. The
-// registry carries the `window` pushes to the console document, the one document with the bridge.
+// asks the console document to reopen the console window used last; the renderer's process going
+// away builds the hidden window again, the third loss in a row as a safe start that leaves every
+// kept place as it is until the console document ends it. The registry carries the `window`
+// pushes to the console document, the one document with the bridge.
 
 import { randomUUID } from "node:crypto";
 
@@ -132,7 +132,8 @@ export class OpenWindows {
   /**
    * Builds the hidden window at start, loading the console document handed the console window used
    * last, which it opens first. The registry builds it again after the renderer's process went,
-   * and on a Dock click or a second launch once a person closed it showing the load-failure page.
+   * and on a Dock click, a menu-bar icon click or a second launch once a person closed it showing
+   * the load-failure page.
    */
   public openHiddenWindow(options: HiddenWindowStart): RendererWindow {
     this.#hiddenWindowArguments = options.additionalArguments;
@@ -152,11 +153,12 @@ export class OpenWindows {
   /**
    * Installs the app's window lifecycle; call it before `ready`, so a second launch that arrives
    * while the app starts is heard. Closing the last window a person sees quits on Windows and
-   * Linux and leaves the app running on macOS, where a Dock click opens a window again; a second
-   * launch brings the window used last forward. A quit closes the hidden window first and the
-   * windows a person sees once its document is gone, so the console document never hears them
-   * close one by one as a person would close them. During a quit, and before start has built the
-   * hidden window, neither a Dock click nor a second launch opens a window.
+   * Linux and leaves the app running on macOS, where a Dock click or a menu-bar icon click opens a
+   * window again; a second launch or a menu-bar icon click brings the window used last forward. A
+   * quit closes the hidden window first and the windows a person sees once its document is gone,
+   * so the console document never hears them close one by one as a person would close them.
+   * During a quit, and before start has built the hidden window, no Dock click, menu-bar icon click
+   * or second launch opens a window.
    */
   public installLifecycle(app: Pick<App, "on" | "quit">): void {
     this.#app = app;

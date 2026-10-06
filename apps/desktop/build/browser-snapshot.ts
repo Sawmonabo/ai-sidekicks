@@ -5,6 +5,7 @@
 // name, so the two processes read separate files and a renderer snapshot never reaches main.
 // electron-builder runs it after packing, before it flips the fuses and signs, so the signature
 // covers the copy.
+// electron-builder finds the hook by its export name, `afterPack`, so it is a named export.
 
 import { copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
