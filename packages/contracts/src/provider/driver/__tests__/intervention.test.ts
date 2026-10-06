@@ -1,6 +1,7 @@
 // An intervention's result, which crosses a trust boundary, never contradicts itself.
 import { describe, expect, it } from "vitest";
 
+import { refusesAt } from "../../../__tests__/safe-parse.test-support.js";
 import { DriverInterventionResultSchema, type DriverInterventionResult } from "../intervention.js";
 
 describe("DriverInterventionResultSchema — intervention result envelope (trust boundary)", () => {
@@ -17,14 +18,10 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
   it("rejects the refusal code beside status 'applied' (cross-field contradiction)", () => {
     // The code says the user's text was swallowed, which `applied` denies; accepted, the two
     // fields would disagree.
-    const result = DriverInterventionResultSchema.safeParse({
-      status: "applied",
-      refusalCode: "driver.text_neutralization_failed",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const paths = result.error.issues.map((issue) => issue.path.join("."));
-      expect(paths).toContain("refusalCode");
-    }
+    refusesAt(
+      DriverInterventionResultSchema,
+      { status: "applied", refusalCode: "driver.text_neutralization_failed" },
+      "refusalCode",
+    );
   });
 });

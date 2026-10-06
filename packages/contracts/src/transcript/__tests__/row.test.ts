@@ -2,6 +2,7 @@
 // to an arm that would drop it.
 import { describe, expect, it } from "vitest";
 
+import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
@@ -15,7 +16,6 @@ import {
   runScopedRow,
   rolledBackPayload,
   rollbackBoundaryRow,
-  expectRefusedAt,
 } from "./row.test-support.js";
 
 describe("rollback projection keeps every row's run attribution", () => {
@@ -66,7 +66,7 @@ describe("rollback projection keeps every row's run attribution", () => {
       if (path === "") {
         expect(TranscriptEventRowSchema.safeParse(row).success).toBe(false);
       } else {
-        expectRefusedAt(TranscriptEventRowSchema, row, path);
+        refusesAt(TranscriptEventRowSchema, row, path);
       }
     }
     expect(TranscriptEventRowSchema.safeParse(generalRow).success).toBe(true);
@@ -77,7 +77,7 @@ describe("rollback projection keeps every row's run attribution", () => {
     // A run row typed `run.rolled_back` would reach a consumer narrowing on `kind` as an ordinary
     // row, with the rewind cutoff unread in its untyped payload.
     for (const row of [runScopedRow, generalRow]) {
-      expectRefusedAt(
+      refusesAt(
         TranscriptEventRowSchema,
         { ...row, type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE },
         "type",
@@ -88,17 +88,13 @@ describe("rollback projection keeps every row's run attribution", () => {
   });
 
   it("a boundary row agrees with its payload, and a broken payload fails without throwing", () => {
-    expectRefusedAt(
-      TranscriptEventRowSchema,
-      { ...rollbackBoundaryRow, runId: OTHER_RUN_ID },
-      "runId",
-    );
-    expectRefusedAt(
+    refusesAt(TranscriptEventRowSchema, { ...rollbackBoundaryRow, runId: OTHER_RUN_ID }, "runId");
+    refusesAt(
       TranscriptEventRowSchema,
       { ...rollbackBoundaryRow, sessionId: OTHER_SESSION_ID },
       "sessionId",
     );
-    expectRefusedAt(TranscriptEventRowSchema, { ...rollbackBoundaryRow, position: 9 }, "position");
+    refusesAt(TranscriptEventRowSchema, { ...rollbackBoundaryRow, position: 9 }, "position");
     // None may escape the cross-field refinement as a TypeError.
     for (const payload of [
       { detail: "opaque" },
@@ -125,7 +121,7 @@ describe("rollback projection keeps every row's run attribution", () => {
       ["sourceEpoch", runScopedRow.epoch + 1],
       ["sourcePosition", runScopedRow.position + 1],
     ] as const) {
-      expectRefusedAt(
+      refusesAt(
         TranscriptEventRowSchema,
         { ...runScopedRow, payload: { detail: "opaque", [payloadKey]: payloadValue } },
         `payload.${payloadKey}`,
@@ -145,7 +141,7 @@ describe("rollback projection keeps every row's run attribution", () => {
       position,
       superseded: { targetPosition: 7 },
     });
-    expectRefusedAt(TranscriptEventRowSchema, marked(7), "superseded.targetPosition");
+    refusesAt(TranscriptEventRowSchema, marked(7), "superseded.targetPosition");
     expect(TranscriptEventRowSchema.safeParse(marked(6)).success).toBe(false);
     expect(TranscriptEventRowSchema.safeParse(marked(8)).success).toBe(true);
   });

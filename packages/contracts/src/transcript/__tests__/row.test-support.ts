@@ -1,6 +1,4 @@
-// The transcript rows the row and read suites start from, and the refusal assertion both use.
-import { expect } from "vitest";
-
+// The transcript rows the row and read suites start from.
 import type { RunRolledBackEvent } from "../../run/control.js";
 import { TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE } from "../row.js";
 
@@ -20,7 +18,7 @@ export const TIMESTAMP = "2026-09-01T12:00:00.000Z";
 export const CURSOR = "seq-42";
 
 /** The members every fixture row shares. */
-export const rowCommon: Readonly<Record<string, unknown>> = {
+const rowCommon: Readonly<Record<string, unknown>> = {
   id: "evt-0001",
   sessionId: SESSION_ID,
   sequence: 42,
@@ -67,20 +65,3 @@ export const rollbackBoundaryRow: Readonly<Record<string, unknown>> = {
   epoch: 0,
   payload: rolledBackPayload,
 };
-
-/** Parses `value` and asserts it is refused with an issue at `path`. */
-export function expectRefusedAt(
-  schema: { safeParse: (value: unknown) => SafeParseOutcome },
-  value: unknown,
-  path: string,
-): void {
-  const result = schema.safeParse(value);
-  expect(result.success).toBe(false);
-  expect(result.error?.issues.map((issue) => issue.path.join("."))).toContain(path);
-}
-
-/** The part of a Zod parse result the refusal assertion reads. */
-export interface SafeParseOutcome {
-  success: boolean;
-  error?: { issues: readonly { path: readonly PropertyKey[] }[] };
-}

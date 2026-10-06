@@ -2,6 +2,7 @@
 // newest, fit one frame and never continue empty.
 import { describe, expect, it } from "vitest";
 
+import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
 import { EVENT_CURSOR_MAX_LEN } from "../../session/id.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../../jsonrpc/message.js";
@@ -29,7 +30,6 @@ import {
   runScopedRow,
   rolledBackPayload,
   rollbackBoundaryRow,
-  expectRefusedAt,
 } from "./row.test-support.js";
 
 const childRunSummary = {
@@ -77,11 +77,7 @@ const searchHit = {
 describe("child runs", () => {
   it("a child run that is its own parent is refused", () => {
     // Nesting and cost attribution walk the lineage, so a self-parent would loop each walk.
-    expectRefusedAt(
-      ChildRunSummarySchema,
-      { ...childRunSummary, parentRunId: RUN_ID },
-      "parentRunId",
-    );
+    refusesAt(ChildRunSummarySchema, { ...childRunSummary, parentRunId: RUN_ID }, "parentRunId");
     expect(ChildRunSummarySchema.safeParse(childRunSummary).success).toBe(true);
     expect(
       ChildRunExpandResponseSchema.safeParse(childExpansion({ parentRunId: RUN_ID })).success,
@@ -112,7 +108,7 @@ describe("child runs", () => {
 
   it("an expansion carries only the expanded run's rows", () => {
     // A row from another run inside X's expansion renders as X's activity.
-    expectRefusedAt(
+    refusesAt(
       ChildRunExpandResponseSchema,
       childExpansion({ entries: [{ ...runScopedRow, runId: OTHER_RUN_ID }] }),
       "entries.0.runId",
@@ -135,12 +131,12 @@ describe("child runs", () => {
 
 describe("paged replies", () => {
   it("every paged reply runs oldest to newest", () => {
-    expectRefusedAt(
+    refusesAt(
       TranscriptReadResponseSchema,
       { entries: [rowAt(10), rowAt(3)], hasMore: false },
       "entries.1.sequence",
     );
-    expectRefusedAt(
+    refusesAt(
       ReasoningSurfaceReadResponseSchema,
       reasoningPage({ reasoningEntries: [reasoningAt(10), reasoningAt(3)] }),
       "reasoningEntries.1.sequence",
@@ -313,7 +309,7 @@ describe("a reply fits one frame", () => {
 
       // A body whose JSON form is over one frame while its length is not.
       const overFrameBody = worstCaseUnit.repeat(Math.ceil(TRANSCRIPT_PAGE_MAX_BYTES / 6) + 1);
-      expectRefusedAt(
+      refusesAt(
         TranscriptBodyReadResponseSchema,
         { status: "available", body: overFrameBody },
         "body",
@@ -356,7 +352,7 @@ describe("a reply fits one frame", () => {
     };
     expect(countEntriesFittingOneFrame([unfittableRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(1);
     // That single-row page is still refused at the boundary, never put on the wire.
-    expectRefusedAt(
+    refusesAt(
       TranscriptReadResponseSchema,
       { entries: [unfittableRow], hasMore: false },
       "entries",

@@ -3,6 +3,7 @@
 // usage-window notification's routing key.
 import { describe, expect, it } from "vitest";
 
+import { refusesAt } from "../../../__tests__/safe-parse.test-support.js";
 import {
   PROVIDER_AUTH_MODES,
   PROVIDER_QUOTA_DEFAULT_LIMIT_ID,
@@ -270,17 +271,14 @@ describe("the registry-change notification", () => {
   it("refuses a usage-window notification whose reading contradicts its routing key", () => {
     // The outer `accountId` routes and `window.accountId` is part of the reading; the two
     // must be equal, or a consumer would file the reading under the wrong account.
-    const mismatched = ProviderAccountNotificationSchema.safeParse({
-      kind: "usage_window_updated",
-      accountId: ACCOUNT_ID,
-      window: validUsageWindow({ accountId: OTHER_ACCOUNT_ID }),
-    });
-    expect(mismatched.success).toBe(false);
-    if (mismatched.success) {
-      throw new Error("unreachable — a contradictory usage-window notification must not parse");
-    }
     // The refusal points at the inner half that contradicts the envelope.
-    expect(mismatched.error.issues.map((issue) => issue.path.join("."))).toContain(
+    refusesAt(
+      ProviderAccountNotificationSchema,
+      {
+        kind: "usage_window_updated",
+        accountId: ACCOUNT_ID,
+        window: validUsageWindow({ accountId: OTHER_ACCOUNT_ID }),
+      },
       "window.accountId",
     );
 
