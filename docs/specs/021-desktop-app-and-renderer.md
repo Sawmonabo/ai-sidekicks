@@ -97,7 +97,7 @@ The renderer is **untrusted** relative to the main process and the daemon, consi
 
 The main process holds one secret, and the renderer never holds it:
 
-- the local daemon session token, read from its file at every connect and never once at app start, because the daemon makes a new token at every restart: `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` on macOS and Linux and `%LOCALAPPDATA%\ai-sidekicks\run\daemon.token` on Windows, per Security Architecture §Local Daemon Authentication
+- the local daemon session token, read from its file at every connect and never once at app start, because the daemon makes a new token at every restart: `$XDG_RUNTIME_DIR/ai-sidekicks/daemon.token` where the session sets `XDG_RUNTIME_DIR` (a Linux login session does) and otherwise `<temporary folder>/ai-sidekicks-<uid>/daemon.token` (always on macOS, whose temporary folder is the per-user `$TMPDIR`), and `%LOCALAPPDATA%\ai-sidekicks\run\daemon.token` on Windows, per Security Architecture §Local Daemon Authentication
 
 This machine's DPoP key, the hosted account's access and refresh tokens and every other secret the daemon keeps are the daemon's, and reach neither the main process nor the renderer.
 
