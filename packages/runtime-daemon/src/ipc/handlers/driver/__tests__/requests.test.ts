@@ -9,7 +9,7 @@ import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/d
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";

@@ -1,7 +1,7 @@
 // The compaction result's two structural rules, which a driver could otherwise break.
 import { describe, expect, it } from "vitest";
 
-import { DriverCompactionResultSchema } from "../transcript.js";
+import { DriverCompactionResultSchema } from "../compaction.js";
 
 describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
   // The compaction result is composed daemon-side from the wait's own settlement, so no dispatch

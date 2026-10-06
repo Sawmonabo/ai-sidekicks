@@ -1,7 +1,7 @@
 // Codex compaction: dispatching `thread/compact/start` on a session, waiting for the
 // `thread/compacted` frame that proves it ran, and reading the boundary position it carries.
 
-import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";

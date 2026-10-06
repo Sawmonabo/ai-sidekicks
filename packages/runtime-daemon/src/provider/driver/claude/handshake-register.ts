@@ -10,8 +10,8 @@ import {
   type ProviderCommandBinding,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
-  type ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+} from "@ai-sidekicks/contracts/provider/driver/commands";
+import { type ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   readDeclaredOutputSpeed,

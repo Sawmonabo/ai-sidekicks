@@ -11,7 +11,7 @@ import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
   type ProviderCommandListResult,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+} from "@ai-sidekicks/contracts/provider/driver/commands";
 import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { isPlainObject } from "../../record-readers.js";

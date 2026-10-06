@@ -10,11 +10,9 @@
  * - Errors use registered codes only: `driver.unavailable` (503), `driver.timeout` (504).
  */
 
-import type {
-  DriverCompactionResult,
-  ProviderCommandListResult,
-  ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
+import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";

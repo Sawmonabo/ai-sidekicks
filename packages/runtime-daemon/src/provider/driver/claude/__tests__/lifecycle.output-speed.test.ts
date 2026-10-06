@@ -4,7 +4,7 @@
 // leaves the run unwritten, and each run reports the state it runs at.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ClaudeHandshakeDeclaration } from "../session/transport.js";

@@ -8,14 +8,13 @@ import {
   type EmptyPayload,
 } from "../../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../name.js";
+import { DriverCompactionResultSchema, type DriverCompactionResult } from "./compaction.js";
 import {
-  DriverCompactionResultSchema,
   ProviderCommandBindingSchema,
   ProviderCommandEntrySchema,
-  type DriverCompactionResult,
   type ProviderCommandBindingGroup,
   type ProviderCommandListResult,
-} from "./transcript.js";
+} from "./commands.js";
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilities,

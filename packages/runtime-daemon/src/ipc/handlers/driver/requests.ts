@@ -30,12 +30,12 @@ import type {
   ListProviderCommandsRequest,
 } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type {
-  DriverCompactionResult,
   ProviderCommandBinding,
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+} from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";

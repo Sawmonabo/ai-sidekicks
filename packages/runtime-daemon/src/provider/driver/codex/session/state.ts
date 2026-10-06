@@ -5,7 +5,7 @@
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";

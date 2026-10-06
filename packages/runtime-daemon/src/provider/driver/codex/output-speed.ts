@@ -3,7 +3,7 @@
 // the thread declares back; and the per-run report of the tier each turn settled at.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   readDeclaredOutputSpeed,

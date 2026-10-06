@@ -35,7 +35,7 @@ import type {
   ListModesResult,
 } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
-import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { DriverEvent } from "@ai-sidekicks/contracts/provider/driver/event";
 import { DRIVER_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/event";
 import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";

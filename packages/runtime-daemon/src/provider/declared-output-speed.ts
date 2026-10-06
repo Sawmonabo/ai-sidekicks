@@ -6,7 +6,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   ProviderOutputSpeedStateSchema,
   type ProviderOutputSpeedState,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+} from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DriverDiagnosticsEmitter } from "./driver/diagnostics.js";

@@ -1601,10 +1601,10 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): holder 
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 // The daemon's provider layer (`packages/runtime-daemon/src/provider/`) realizes this enumeration for the
-// driver-internal shapes; `packages/contracts/src/provider/driver/intervention.ts` (`DriverInterventionResult`) and
-// `packages/contracts/src/provider/driver/transcript.ts` (`ProviderCommandEntry`, `ProviderOutputSpeedState`)
+// driver-internal shapes; `packages/contracts/src/provider/driver/intervention.ts` (`DriverInterventionResult`),
+// `commands.ts` (`ProviderCommandEntry`) and `output-speed.ts` (`ProviderOutputSpeedState`) in the same folder
 // realize it for the ones that reach a client, and `packages/contracts/src/free-form-string.ts` holds the
-// `wireFreeFormString` helper both use.
+// `wireFreeFormString` helper they use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
@@ -2191,7 +2191,7 @@ interface CloseSessionParams {
 // Code reports it on its `initialize` reply and again on each session handshake. A member here
 // would be a snapshot the next declaration makes stale, so the observation is binding-held state
 // instead; see `ProviderOutputSpeedState` below
-// (`packages/contracts/src/provider/driver/transcript.ts`).
+// (`packages/contracts/src/provider/driver/output-speed.ts`).
 interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;

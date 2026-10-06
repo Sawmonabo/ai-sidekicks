@@ -1,99 +1,16 @@
-// Provider-driver shapes a client also reads: the declared-loss vocabulary of a transcript
-// operation, the compaction result, the provider-command enumeration and the output-speed state.
-
+// The provider-command enumeration a client reads: each command, skill or tool server prompt the
+// provider listed, grouped by the binding it was read under.
 import { z } from "zod";
+
+import { wireFreeFormString } from "../../free-form-string.js";
+import { type RunId } from "../../run/id.js";
 import { ProviderNameSchema, type ProviderName } from "../name.js";
 import {
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
-  DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
 } from "./length-limits.js";
-import { type RunId } from "../../run/id.js";
-import { wireFreeFormString } from "../../free-form-string.js";
-
-// ---- Declared losses ----
-
-/**
- * The closed vocabulary of what a transcript operation could not carry. A new kind is a deliberate
- * addition, never a free string. An empty list claims nothing was dropped, so a driver that does
- * not know what it lost may not emit one.
- */
-export const DECLARED_LOSS_KINDS = [
-  // Non-portable by both vendors' stated rules and never translated. Stripped unconditionally,
-  // even on a same-provider replay where signatures would still validate: carrying them would owe
-  // an exact reproduction of block order and count, whose failures surface as opaque signature
-  // rejections rather than declared losses.
-  "provider_private_reasoning",
-  // The brief budget evicted older exchanges — whole exchanges only, never halves.
-  "context_truncated",
-  // An unpaired call took a synthetic error result rather than being dropped.
-  "tool_call_history_repaired",
-  // The brief floor: verbatim exchanges replaced by a bounded prose rendering.
-  "conversation_history_summarized",
-  // A logged turn's body could not be read when the fold ran, so the turn is carried with its
-  // position and an empty body rather than dropped. Named because the alternatives, a turn that
-  // never happened or one whose author said nothing, are both false.
-  "turn_content_unavailable",
-  // A logged turn's body exceeded the append-time plaintext ceiling and is stored as a
-  // codepoint-boundary prefix; the fold carries the prefix and names the loss. Not
-  // `context_truncated` (the brief budget evicting whole exchanges) and not
-  // `turn_content_unavailable` (which would overstate a turn available as a prefix). Kept in the
-  // vocabulary because the brief continuity-marker parser refuses a record carrying a token it
-  // cannot place, and the unreadable-record upper bound reports this whole list.
-  "turn_content_truncated",
-] as const;
-
-/** One member of {@link DECLARED_LOSS_KINDS}. */
-export type DeclaredLossKind = (typeof DECLARED_LOSS_KINDS)[number];
-
-/** Validates a {@link DeclaredLossKind}. */
-export const DeclaredLossKindSchema: z.ZodType<DeclaredLossKind, DeclaredLossKind> =
-  z.enum(DECLARED_LOSS_KINDS);
-
-// ---- Compaction and provider commands ----
-
-/**
- * The result of a compaction attempt. `applied` only after the provider's compaction frame was
- * seen; `refused` means nothing was sent; `failed` means something was sent and no boundary came.
- */
-export type DriverCompactionResult =
-  // `boundaryPosition` is `null` where the provider's frame carried none.
-  | { status: "applied"; boundaryPosition: number | null }
-  // `command_absent`: the provider's own list for this binding lacks the command.
-  // `not_permitted`: the daemon's permission check denied the caller; never a driver's.
-  | { status: "refused"; reason: "command_absent" | "not_permitted" }
-  // `wait_expired`: no compaction frame within the binding's bound. `binding_lost`: the binding
-  // ended first. `provider_error`: the provider's mechanism errored.
-  | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
-
-/** Validates a {@link DriverCompactionResult}; `applied` needs a `boundaryPosition` key. */
-export const DriverCompactionResultSchema: z.ZodType<
-  DriverCompactionResult,
-  DriverCompactionResult
-> = z.discriminatedUnion("status", [
-  z
-    .object({
-      status: z.literal("applied"),
-      // `.nullable()`, not `.optional()`: null states that the provider's frame carried no
-      // position, while an absent key would look like a driver that forgot to report one.
-      boundaryPosition: z.number().int().min(0).nullable(),
-    })
-    .strict(),
-  z
-    .object({
-      status: z.literal("refused"),
-      reason: z.enum(["command_absent", "not_permitted"]),
-    })
-    .strict(),
-  z
-    .object({
-      status: z.literal("failed"),
-      reason: z.enum(["wait_expired", "binding_lost", "provider_error"]),
-    })
-    .strict(),
-]);
 
 /**
  * The binding a provider-command enumeration was read under: the `(driverName, providerAccountId)`
@@ -211,32 +128,3 @@ export interface ProviderCommandBindingGroup {
 export interface ProviderCommandListResult {
   bindings: ProviderCommandBindingGroup[];
 }
-
-/**
- * The provider's own report of its accelerated-output state, held for the binding's life from the
- * first declaration the provider makes, at spawn or thread establishment; absent until then and
- * never stored.
- */
-export interface ProviderOutputSpeedState {
-  /** The provider's level, verbatim; a level the driver does not list is kept, not coerced. */
-  declared: string;
-  /** The provider's own explanation, where it gave one. */
-  reason?: string | undefined;
-}
-
-/** Validates a {@link ProviderOutputSpeedState}; strict, like `ProviderCommandEntrySchema`. */
-export const ProviderOutputSpeedStateSchema: z.ZodType<
-  ProviderOutputSpeedState,
-  ProviderOutputSpeedState
-> = z
-  .object({
-    declared: wireFreeFormString(
-      DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-      "ProviderOutputSpeedState.declared",
-    ),
-    reason: wireFreeFormString(
-      DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
-      "ProviderOutputSpeedState.reason",
-    ).optional(),
-  })
-  .strict();

@@ -13,7 +13,7 @@ import {
 } from "./definition.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import { DeclaredLossKindSchema, type DeclaredLossKind } from "../provider/driver/transcript.js";
+import { DeclaredLossKindSchema, type DeclaredLossKind } from "../provider/driver/declared-loss.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";

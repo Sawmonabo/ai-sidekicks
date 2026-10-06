@@ -24,7 +24,7 @@ import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/lengt
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
-} from "../../provider/driver/transcript.js";
+} from "../../provider/driver/commands.js";
 import { wireUncappedFreeFormString } from "../../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../id.js";
 import {

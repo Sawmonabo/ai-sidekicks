@@ -65,7 +65,7 @@ import {
 import {
   ProviderOutputSpeedStateSchema,
   type ProviderOutputSpeedState,
-} from "../provider/driver/transcript.js";
+} from "../provider/driver/output-speed.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";

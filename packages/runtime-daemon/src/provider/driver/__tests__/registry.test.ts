@@ -12,10 +12,8 @@ import type {
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type {
-  DriverCompactionResult,
-  ProviderCommandListResult,
-} from "@ai-sidekicks/contracts/provider/driver/transcript";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
+import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { describe, expect, it } from "vitest";
 
