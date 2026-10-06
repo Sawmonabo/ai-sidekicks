@@ -6,7 +6,6 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
@@ -65,8 +64,6 @@ export interface WorkflowsScreenHold {
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
   readonly accountLabel: (providerAccountId: string) => string | undefined;
-  /** An account as a spent line names it, `the Codex account Work`, while the accounts are read. */
-  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly nextWaiting: NextWaiting;
@@ -186,25 +183,13 @@ export function useWorkflowsScreen(
     [feed, countAnswered],
   );
 
-  const accountFor = useCallback(
+  const accountLabel = useCallback(
     (providerAccountId: string) =>
       accountsState.kind === "loaded"
         ? accountsState.value.accounts.find((account) => account.accountId === providerAccountId)
+            ?.displayLabel
         : undefined,
     [accountsState],
-  );
-  const accountLabel = useCallback(
-    (providerAccountId: string) => accountFor(providerAccountId)?.displayLabel,
-    [accountFor],
-  );
-  const accountNameFor = useCallback(
-    (providerAccountId: string) => {
-      const account = accountFor(providerAccountId);
-      return account === undefined
-        ? undefined
-        : `the ${PROVIDER_LABELS[account.provider]} account ${account.displayLabel}`;
-    },
-    [accountFor],
   );
   const definitions = useMemo(
     () => (definitionsState.kind === "loaded" ? definitionsState.value.definitions : []),
@@ -315,7 +300,6 @@ export function useWorkflowsScreen(
           : undefined,
     filters,
     accountLabel,
-    accountNameFor,
     definitionNameFor,
     nextWaiting,
     pauseAct: pause.state,

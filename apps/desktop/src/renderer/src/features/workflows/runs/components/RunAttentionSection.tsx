@@ -11,7 +11,7 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
-import { AWAITING_RESUME_WORDS, runCountWords } from "../../words.js";
+import { AWAITING_RESUME_WORDS, runCountWords, spentAccountWords } from "../../words.js";
 import { partOfDayAt } from "../part-of-day.js";
 
 /**
@@ -25,8 +25,6 @@ import { partOfDayAt } from "../part-of-day.js";
 export function RunAttentionSection(props: {
   readonly state: PushDrivenReadState<WorkflowRunAttentionListResponse>;
   readonly readAgain: () => void;
-  /** An account as a spent line names it, `the Codex account Work`, while the accounts are read. */
-  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** The instant the clock figures read against, which also names the part of the day. */
   readonly nowMs: number;
@@ -60,12 +58,7 @@ export function RunAttentionSection(props: {
         <ul className="meridian-workflows-attention__entries">
           {state.value.entries.map((entry) => (
             <li key={entryKey(entry)} className="meridian-workflows-attention__entry">
-              <AttentionLine
-                entry={entry}
-                accountNameFor={props.accountNameFor}
-                onOpenRun={props.onOpenRun}
-                nowMs={props.nowMs}
-              />
+              <AttentionLine entry={entry} onOpenRun={props.onOpenRun} nowMs={props.nowMs} />
             </li>
           ))}
         </ul>
@@ -76,16 +69,14 @@ export function RunAttentionSection(props: {
 
 function AttentionLine(props: {
   readonly entry: WorkflowRunAttentionEntry;
-  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly nowMs: number;
 }): React.JSX.Element {
   const { entry } = props;
   if (entry.kind === "account") {
-    // An account the registry no longer lists is named by its id rather than dropped.
-    const account = props.accountNameFor(entry.providerAccountId) ?? entry.providerAccountId;
     const runs = runCountWords(entry.affectedRunCount);
-    const parked = `${runs} ${entry.affectedRunCount === 1 ? "is" : "are"} parked on ${account}`;
+    const verb = entry.affectedRunCount === 1 ? "is" : "are";
+    const parked = `${runs} ${verb} parked on the ${spentAccountWords(entry.account)}`;
     const resumes =
       entry.resumeAt === undefined
         ? AWAITING_RESUME_WORDS
@@ -128,6 +119,6 @@ function affectedRunWords(count: number): string {
 
 function entryKey(entry: WorkflowRunAttentionEntry): string {
   return entry.kind === "account"
-    ? `account:${entry.providerAccountId}`
+    ? `account:${entry.account.providerAccountId}`
     : `run:${entry.workflowRunId}`;
 }

@@ -3,7 +3,6 @@
 // run's status and its blocking or failing step, so every kind of stop is written the same way
 // and none is kept by hand. A waiting run's cause is read in the first line and nowhere else.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
@@ -11,7 +10,7 @@ import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/r
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
 import { costFigure } from "../cost.js";
-import { WAIT_CAUSE_WORDS } from "../../words.js";
+import { spentAccountWords, WAIT_CAUSE_WORDS } from "../../words.js";
 import { isGoing } from "../controls.js";
 import { isPersonWaitCause, latestStepWith } from "../steps.js";
 import { isPersonWaitKind } from "./step/receipts.js";
@@ -43,12 +42,6 @@ const FIX_AND_RESUME = "Fix it and press Resume, or cancel the run.";
 
 /** What a run that has nothing left to do needs. */
 const NOTHING_FINISHED = "Nothing — this run is finished.";
-
-/** How the spent-account line names an account's provider: `The Codex account Work is spent.` */
-const SPENT_ACCOUNT_PROVIDER_WORDS: Readonly<Record<ProviderName, string>> = {
-  claude: "Claude",
-  codex: "Codex",
-};
 
 /**
  * The two lines a run's header opens with, such as `The run tests step failed twice.` over
@@ -139,9 +132,7 @@ function waitingLines(
       // The window's reset is named only where the wait armed the instant it resumes.
       const until = step.resumeAt === undefined ? "" : " until the window resets";
       return {
-        happened:
-          `The ${SPENT_ACCOUNT_PROVIDER_WORDS[account.provider]} account ${account.label} ` +
-          `is spent${until}.`,
+        happened: `The ${spentAccountWords(account)} is spent${until}.`,
         needs: "Nothing until the account can run again.",
       };
     }

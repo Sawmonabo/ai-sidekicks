@@ -159,8 +159,11 @@ const MCP_INVENTORY: readonly McpServerInventoryEntry[] = [
   },
 ];
 
-/** An account the daemon observed and found signed in, not the default, so it can be made one. */
-const WORK_ACCOUNT: ProviderAccount = {
+/**
+ * An account the daemon observed and found signed in, not the default, so it can be made one. The
+ * workflow runs pay with it, and a run waiting on a spent account waits on it.
+ */
+export const WORK_ACCOUNT: ProviderAccount = {
   accountId: WORK_ACCOUNT_ID,
   provider: "claude",
   displayLabel: "Claude — work",

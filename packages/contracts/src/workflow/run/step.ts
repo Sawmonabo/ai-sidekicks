@@ -108,6 +108,24 @@ export const WorkflowCostSchema: z.ZodType<WorkflowCost> = z
   })
   .strict();
 
+/**
+ * A spent provider account as a wait names it: its id, its provider and the one label every
+ * surface names an account by, so no account id reaches the screen.
+ */
+export interface WorkflowSpentAccount {
+  providerAccountId: ProviderAccountId;
+  provider: ProviderName;
+  label: string;
+}
+/** Wire schema for {@link WorkflowSpentAccount}. */
+export const WorkflowSpentAccountSchema: z.ZodType<WorkflowSpentAccount> = z
+  .object({
+    providerAccountId: ProviderAccountIdSchema,
+    provider: ProviderNameSchema,
+    label: wireFreeFormString(PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN, "WorkflowSpentAccount.label"),
+  })
+  .strict();
+
 /** One input slot's feed: the node, its output and which execution of it fed the slot. */
 export interface WorkflowStepSource {
   nodeId: WorkflowNodeId;
@@ -193,13 +211,8 @@ export interface WorkflowStep {
   source: (WorkflowStepSource | null)[];
   status: WorkflowStepStatus;
   waitCause?: WorkflowWaitCause | undefined;
-  /**
-   * Present exactly on a step waiting on `account`: the spent account, its provider and the one
-   * label every surface names it by, so no account id reaches the screen.
-   */
-  waitAccount?:
-    | { providerAccountId: ProviderAccountId; provider: ProviderName; label: string }
-    | undefined;
+  /** Present exactly on a step waiting on `account`: the spent account it waits on. */
+  waitAccount?: WorkflowSpentAccount | undefined;
   resumeAt?: string | undefined;
   waitDeadlineAt?: string | undefined;
   startedAt: string;
@@ -244,17 +257,7 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     ),
     status: WorkflowStepStatusSchema,
     waitCause: WorkflowWaitCauseSchema.optional(),
-    waitAccount: z
-      .object({
-        providerAccountId: ProviderAccountIdSchema,
-        provider: ProviderNameSchema,
-        label: wireFreeFormString(
-          PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
-          "WorkflowStep.waitAccount.label",
-        ),
-      })
-      .strict()
-      .optional(),
+    waitAccount: WorkflowSpentAccountSchema.optional(),
     resumeAt: isoDateTimeSchema.optional(),
     waitDeadlineAt: isoDateTimeSchema.optional(),
     startedAt: isoDateTimeSchema,

@@ -53,7 +53,7 @@ import {
   WORKFLOW_DEFINITION_RECORDS,
   WORKFLOW_FIX_SESSION,
   WORKFLOW_OWN_SESSION,
-  WORKFLOW_PAYING_ACCOUNT,
+  WORKFLOW_SPENT_ACCOUNT,
   WORKFLOW_RUN_RECORDS,
   minutesAgo,
   summaryOfRun,
@@ -358,7 +358,7 @@ function answerAttention(playback: WorkflowPlayback): WorkflowRunAttentionListRe
       : [
           {
             kind: "account",
-            providerAccountId: WORKFLOW_PAYING_ACCOUNT,
+            account: WORKFLOW_SPENT_ACCOUNT,
             affectedRunCount: accountWaits.length,
             waitingSince: accountWaits[0]?.step.startedAt ?? NOW,
             ...(accountWaits[0]?.step.resumeAt === undefined

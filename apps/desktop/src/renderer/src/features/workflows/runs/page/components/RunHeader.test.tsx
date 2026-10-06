@@ -110,7 +110,7 @@ describe("a run's header", () => {
     renderHeader(run, [], [], undefined, new ManualClock(dayBeforeMs));
 
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The Claude account Claude — work is spent until the window resets.",
+      "The Claude Code account Claude — work is spent until the window resets.",
     );
     expect(screen.getByText("Nothing until the account can run again.")).toBeDefined();
     const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs);
@@ -125,7 +125,7 @@ describe("a run's header", () => {
     });
     expect(screen.getByText("awaiting resume — no instant is armed")).toBeDefined();
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The Claude account Claude — work is spent.",
+      "The Claude Code account Claude — work is spent.",
     );
     cleanup();
 

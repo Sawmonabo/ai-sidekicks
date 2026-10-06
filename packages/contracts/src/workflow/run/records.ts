@@ -11,7 +11,6 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../../method-descriptor.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/record.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import {
   WorkflowDefinitionIdSchema,
@@ -35,8 +34,10 @@ import {
 } from "./status.js";
 import {
   WorkflowCostSchema,
+  WorkflowSpentAccountSchema,
   WorkflowStepSchema,
   type WorkflowCost,
+  type WorkflowSpentAccount,
   type WorkflowStep,
 } from "./step.js";
 import {
@@ -460,10 +461,11 @@ export const WorkflowRunAttentionListRequestSchema: z.ZodType<
 > = z.object({}).strict();
 
 /**
- * One line of the runs-needing-you section. A run waiting on a person is its own line:
- * the workflow's name, what it waits on, the name of the step that waits, and since when. Runs held by one spent provider
- * account fold into one line keyed by that account, with how many runs it holds, since
- * when the oldest waits, and the instant it resumes itself where one is armed.
+ * One line of the runs-needing-you section. A run waiting on a person is its own line: the
+ * workflow's name, what it waits on, the name of the step that waits, and since when. Runs held
+ * by one spent provider account fold into one line keyed by that account, named as the steps
+ * waiting on it name it, with how many runs it holds, since when the oldest waits, and the
+ * instant it resumes itself where one is armed.
  */
 export type WorkflowRunAttentionEntry =
   | {
@@ -476,7 +478,7 @@ export type WorkflowRunAttentionEntry =
     }
   | {
       kind: "account";
-      providerAccountId: ProviderAccountId;
+      account: WorkflowSpentAccount;
       affectedRunCount: number;
       waitingSince: string;
       resumeAt?: string | undefined;
@@ -497,7 +499,7 @@ export const WorkflowRunAttentionEntrySchema: z.ZodType<WorkflowRunAttentionEntr
     z
       .object({
         kind: z.literal("account"),
-        providerAccountId: ProviderAccountIdSchema,
+        account: WorkflowSpentAccountSchema,
         affectedRunCount: z.number().int().positive(),
         waitingSince: isoDateTimeSchema,
         resumeAt: isoDateTimeSchema.optional(),

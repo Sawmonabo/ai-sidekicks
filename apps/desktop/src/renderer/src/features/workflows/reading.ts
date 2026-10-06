@@ -142,8 +142,8 @@ export function createDefinitionListRead(
 }
 
 /**
- * The machine's provider accounts, for the label a cost or a spent account is named by. It
- * listens on the account registry's own stream, so a renamed account reads its new label.
+ * The machine's provider accounts, for the label a cost's account is named by. It listens on
+ * the account registry's own stream, so a renamed account reads its new label.
  */
 export function createProviderAccountRead(
   bridge: PlatformBridge,

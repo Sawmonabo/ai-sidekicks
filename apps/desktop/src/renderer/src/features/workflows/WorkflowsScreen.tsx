@@ -64,7 +64,6 @@ export function WorkflowsScreen(props: {
                 namingRefusal={screen.namingRefusal}
                 filters={screen.filters}
                 accountLabel={screen.accountLabel}
-                accountNameFor={screen.accountNameFor}
                 bridge={screen.sources.bridge}
                 onOpenRun={screen.openRun}
                 answeredCount={screen.answeredCount}

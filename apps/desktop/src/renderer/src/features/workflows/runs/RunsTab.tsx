@@ -52,8 +52,6 @@ export interface RunsTabProps {
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
   readonly accountLabel: (providerAccountId: string) => string | undefined;
-  /** An account as a spent line names it, while the accounts are read. */
-  readonly accountNameFor: (providerAccountId: string) => string | undefined;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** How many runs a person answered since this screen opened. */
@@ -89,7 +87,6 @@ export function RunsTab(props: RunsTabProps): React.JSX.Element {
       <RunAttentionSection
         state={attentionState}
         readAgain={props.readAttentionAgain}
-        accountNameFor={props.accountNameFor}
         onOpenRun={props.onOpenRun}
         nowMs={nowMs}
         clock={clock}

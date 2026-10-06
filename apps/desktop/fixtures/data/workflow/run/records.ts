@@ -27,6 +27,7 @@ import type {
 import type {
   WorkflowCost,
   WorkflowPayloadRef,
+  WorkflowSpentAccount,
   WorkflowStep,
   WorkflowStepQuestion,
   WorkflowStepResolution,
@@ -47,6 +48,8 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
+import { WORK_ACCOUNT } from "../../settings-page-replies.js";
+
 /** The instant the playback calls now, matching the scenario these replies are spread into. */
 export const WORKFLOW_FIXTURE_NOW_MS: number = Date.UTC(2026, 0, 1, 14, 20);
 
@@ -60,13 +63,13 @@ export const WORKFLOW_FIX_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3002" as Se
 export const WORKFLOW_CHAT_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3003" as SessionId;
 
 /** The account that pays for the agent steps and is spent in the waiting run. */
-export const WORKFLOW_PAYING_ACCOUNT = "pa-0001" as ProviderAccountId;
+export const WORKFLOW_PAYING_ACCOUNT: ProviderAccountId = WORK_ACCOUNT.accountId;
 
-/** The paying account as a step parked on it names it, by the label the account registry lists. */
-const SPENT_ACCOUNT: NonNullable<WorkflowStep["waitAccount"]> = {
-  providerAccountId: WORKFLOW_PAYING_ACCOUNT,
-  provider: "claude",
-  label: "Claude — work",
+/** The paying account as a wait on it and the attention line it folds into name it. */
+export const WORKFLOW_SPENT_ACCOUNT: WorkflowSpentAccount = {
+  providerAccountId: WORK_ACCOUNT.accountId,
+  provider: WORK_ACCOUNT.provider,
+  label: WORK_ACCOUNT.displayLabel,
 };
 
 /** One run as the fixture daemon holds it: its read and its definition's name. */
@@ -317,7 +320,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
             ],
       status: seed.status,
       ...(seed.waitCause === undefined ? {} : { waitCause: seed.waitCause }),
-      ...(seed.waitCause === "account" ? { waitAccount: SPENT_ACCOUNT } : {}),
+      ...(seed.waitCause === "account" ? { waitAccount: WORKFLOW_SPENT_ACCOUNT } : {}),
       ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
       ...(seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt }),
       startedAt: minutesAgo(seed.startedMinutesAgo),

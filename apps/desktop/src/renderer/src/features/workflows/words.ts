@@ -8,6 +8,7 @@ import type {
   WorkflowStepStatus,
   WorkflowWaitCause,
 } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowSpentAccount } from "@ai-sidekicks/contracts/workflow/run/step";
 import type {
   WorkflowStartedBy,
   WorkflowTriggerKind,
@@ -18,6 +19,7 @@ import {
   WORKFLOW_STEP_TIMED_OUT_CODE,
 } from "@ai-sidekicks/contracts/workflow/run/failures";
 
+import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
 /** A run's status as its chip reads it. */
@@ -90,6 +92,14 @@ export const WORKFLOW_CODE_LABELS: Readonly<Record<string, string>> = {
   [WORKFLOW_SANDBOX_UNAVAILABLE_CODE]: "Sandbox unavailable",
   [WORKFLOW_STEP_THREAD_FAILED_CODE]: "Step thread failed",
 };
+
+/**
+ * A spent account by its provider's name and its label, as the run header and the attention
+ * section name it after `the`: `Claude Code account Work`.
+ */
+export function spentAccountWords(account: WorkflowSpentAccount): string {
+  return `${PROVIDER_LABELS[account.provider]} account ${account.label}`;
+}
 
 /** Who or what started a run, in the words its row and its header read. */
 export function startedByWords(startedBy: WorkflowStartedBy): string {

@@ -1,5 +1,6 @@
-// The attention list draws the daemon's grouping as given: its account lines and its run lines,
-// in the daemon's order, with no sorting or regrouping of its own. Until the read has answered, or
+// The attention list draws the daemon's grouping as given: its account lines, each naming its
+// account by provider and label, and its run lines, in the daemon's order, with no sorting or
+// regrouping of its own. Until the read has answered, or
 // once it has failed, it says so and never `Nothing waiting`.
 
 import { act, render, screen } from "@testing-library/react";
@@ -31,13 +32,13 @@ const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
     entries: [
       {
         kind: "account",
-        providerAccountId: "pa-0002",
+        account: { providerAccountId: "pa-0002", provider: "claude", label: "Personal" },
         affectedRunCount: 1,
         waitingSince: OLDER_WAIT,
       },
       {
         kind: "account",
-        providerAccountId: "pa-0001",
+        account: { providerAccountId: "pa-0001", provider: "codex", label: "Work" },
         affectedRunCount: 3,
         waitingSince: NEWER_WAIT,
         resumeAt: RESUME_AT,
@@ -62,14 +63,11 @@ const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
     waitingOnPersonCount: 2,
   });
 
-const ACCOUNT_NAMES: Readonly<Record<string, string>> = { "pa-0001": "the Codex account Work" };
-
 describe("the attention list", () => {
   it("draws the daemon's account and run lines in the order the daemon gave them", () => {
     render(
       <RunAttentionSection
         state={{ kind: "loaded", value: DAEMON_GROUPING }}
-        accountNameFor={(providerAccountId) => ACCOUNT_NAMES[providerAccountId]}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
         clock={new ManualClock(NOW_MS)}
@@ -80,8 +78,8 @@ describe("the attention list", () => {
 
     const lines = screen.getAllByRole("listitem").map((item) => item.textContent);
     expect(lines).toStrictEqual([
-      // An account no label is known for is named by its id rather than dropped.
-      "1 run is parked on pa-0002 is spent — one entry, 1 affected run. " +
+      "1 run is parked on the Claude Code account Personal is spent — " +
+        "one entry, 1 affected run. " +
         "Awaiting resume — no instant is armed.",
       "3 runs are parked on the Codex account Work is spent — one entry, 3 affected runs. " +
         `Resumes ${formatDayClock(RESUME_AT, NOW_MS)}.`,
@@ -95,7 +93,6 @@ describe("the attention list", () => {
     const section = (state: React.ComponentProps<typeof RunAttentionSection>["state"]) => (
       <RunAttentionSection
         state={state}
-        accountNameFor={() => undefined}
         onOpenRun={() => undefined}
         nowMs={NOW_MS}
         clock={clock}

@@ -177,7 +177,7 @@ describe("workflow.runList", () => {
 describe("workflow.runAttentionList", () => {
   const account = {
     kind: "account",
-    providerAccountId: "acct-claude-1",
+    account: { providerAccountId: "acct-claude-1", provider: "claude", label: "Work" },
     affectedRunCount: 6,
     waitingSince: "2026-09-29T05:00:00Z",
     resumeAt: "2026-09-29T10:00:00Z",
