@@ -53,8 +53,7 @@ export function useRowWindow(options: RowWindowOptions): RowWindow {
   const { clock, getScrollElement, initialViewportHeightPx, initialOffsetPx } = options;
   const controllerRef = useRef<ScrollController | undefined>(undefined);
   const attachedContainerRef = useRef<HTMLDivElement | undefined>(undefined);
-  // Whom the library's next write is made for; a write outside an opening or a reveal is the
-  // library compensating for a row measured above the fold.
+  // Whom the library's next write is made for, while the window takes a box.
   const writeCallerRef = useRef<ScrollCaller | undefined>(undefined);
 
   // Layout effects, so the box is held before the library's own layout effect writes to it.
@@ -85,11 +84,20 @@ export function useRowWindow(options: RowWindowOptions): RowWindow {
   });
 
   const scrollToFn = useCallback(
-    (offset: number, writeOptions: { adjustments?: number | undefined }) => {
+    (
+      offset: number,
+      writeOptions: { adjustments?: number | undefined; behavior?: ScrollBehavior | undefined },
+    ) => {
+      // The library names a write's behavior, with no adjustment, only on a write it was told to
+      // make: `scrollToIndex` and each frame that re-aims it while rows above the target measure.
+      // Only `revealRow` tells it to here, so such a write is the reveal's to its end; any other
+      // write outside an opening is the library compensating for a row measured above the fold.
+      const isCommanded =
+        writeOptions.behavior !== undefined && writeOptions.adjustments === undefined;
       // Rows attach and measure before this hook's layout effects run, so a first-commit write
       // can arrive with no controller, when the library holds no box either.
       controllerRef.current?.glideTo(
-        writeCallerRef.current ?? "measurement-compensation",
+        writeCallerRef.current ?? (isCommanded ? "row-reveal" : "measurement-compensation"),
         offset + (writeOptions.adjustments ?? 0),
       );
     },
@@ -118,12 +126,7 @@ export function useRowWindow(options: RowWindowOptions): RowWindow {
 
   const revealRow = useCallback(
     (rowIndex: number) => {
-      writeCallerRef.current = "row-reveal";
-      try {
-        virtualizer.scrollToIndex(rowIndex, { align: "auto" });
-      } finally {
-        writeCallerRef.current = undefined;
-      }
+      virtualizer.scrollToIndex(rowIndex, { align: "auto" });
     },
     [virtualizer],
   );

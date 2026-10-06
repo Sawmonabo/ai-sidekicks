@@ -58,6 +58,11 @@ describe("a list window's scroll writes", () => {
     ]);
 
     glideTo.mockClear();
+    const reaimFrames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((frame) => {
+      reaimFrames.push(frame);
+      return reaimFrames.length;
+    });
     const revealedRowIndex = 500;
     act(() => {
       result.current.revealRow(revealedRowIndex);
@@ -67,5 +72,17 @@ describe("a list window's scroll writes", () => {
     expect(revealCaller).toBe("row-reveal");
     expect(revealOffsetPx).toBeGreaterThanOrEqual(revealedRowIndex * ROW_HEIGHT_PX);
     expect(scrollContainer.scrollTop).toBe(revealOffsetPx);
+
+    // A drawn row above the target measures before the reveal settles: the library re-aims on its
+    // next frame, and that write is still the reveal's.
+    const drawnRowIndex = result.current.virtualizer.getVirtualItems().at(-1)?.index ?? 0;
+    act(() => {
+      result.current.virtualizer.resizeItem(drawnRowIndex, ROW_HEIGHT_PX + grownByPx);
+    });
+    glideTo.mockClear();
+    act(() => {
+      reaimFrames.shift()?.(0);
+    });
+    expect(glideTo.mock.calls.map(([caller]) => caller)).toEqual(["row-reveal"]);
   });
 });
