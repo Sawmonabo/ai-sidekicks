@@ -245,8 +245,8 @@ const switchFailureFields = {
  */
 export type AgentBindingSwitchDisposition =
   | AgentBindingSwitchPending
-  | ({ status: "applied" } & AgentBindingSwitchOutcome)
-  | ({ status: "degraded" } & AgentBindingSwitchOutcome)
+  | ({ status: "applied"; continuity: "in_place" } & Omit<AgentBindingSwitchOutcome, "continuity">)
+  | ({ status: "degraded"; continuity: "brief" } & Omit<AgentBindingSwitchOutcome, "continuity">)
   | AgentBindingSwitchFailed;
 /** Parses an {@link AgentBindingSwitchDisposition}. */
 export const AgentBindingSwitchDispositionSchema: z.ZodType<AgentBindingSwitchDisposition> =

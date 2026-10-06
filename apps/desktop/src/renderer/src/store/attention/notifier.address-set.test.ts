@@ -14,15 +14,16 @@ import { describe, expect, it } from "vitest";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import { AttentionSummary, type AnsweredAttentionReading } from "./summary.js";
 import { AttentionNotifier } from "./notifier.js";
 
 /** The session a window was opened directly on. Known before the directory answers. */
-const OPENED_SESSION_ID = "session-opened-directly";
+const OPENED_SESSION_ID = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
 /** A session only the node's directory can name, so it joins the read later. */
-const DIRECTORY_SESSION_ID = "session-from-the-directory";
+const DIRECTORY_SESSION_ID = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
 
-function itemFor(sessionId: string, id: string): AttentionItem {
+function itemFor(sessionId: SessionId, id: string): AttentionItem {
   return {
     id,
     momentId: "moment-1",

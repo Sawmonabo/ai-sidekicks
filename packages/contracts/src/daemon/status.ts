@@ -58,8 +58,7 @@ export interface DaemonRelayStatus {
 }
 
 /** `daemon.status.read` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonStatusReadRequest {}
+export type DaemonStatusReadRequest = Record<string, never>;
 /** Parses a {@link DaemonStatusReadRequest}. */
 export const DaemonStatusReadRequestSchema: z.ZodType<
   DaemonStatusReadRequest,
@@ -160,8 +159,7 @@ export interface CrashReport {
 }
 
 /** `daemon.crashList` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonCrashListRequest {}
+export type DaemonCrashListRequest = Record<string, never>;
 /** Parses a {@link DaemonCrashListRequest}. */
 export const DaemonCrashListRequestSchema: z.ZodType<
   DaemonCrashListRequest,

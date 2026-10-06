@@ -77,8 +77,7 @@ export const DaemonConfigSchema: z.ZodType<DaemonConfig> = z
   .strict();
 
 /** `daemon.configRead` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonConfigReadRequest {}
+export type DaemonConfigReadRequest = Record<string, never>;
 /** Parses a {@link DaemonConfigReadRequest}. */
 export const DaemonConfigReadRequestSchema: z.ZodType<
   DaemonConfigReadRequest,
@@ -112,8 +111,7 @@ export interface PackageCacheReading {
 }
 
 /** `daemon.packageCacheRead` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonPackageCacheReadRequest {}
+export type DaemonPackageCacheReadRequest = Record<string, never>;
 /** Parses a {@link DaemonPackageCacheReadRequest}. */
 export const DaemonPackageCacheReadRequestSchema: z.ZodType<
   DaemonPackageCacheReadRequest,

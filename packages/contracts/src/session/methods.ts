@@ -121,9 +121,7 @@ export type SessionStreamFrame<Event> = StreamFrame<SessionStreamChange<Event>, 
 export function SessionStreamFrameSchema<Event>(
   eventSchema: z.ZodType<Event>,
 ): z.ZodType<SessionStreamFrame<Event>> {
-  const changeSchema = z
-    .object({ cursor: EventCursorSchema, event: eventSchema })
-    .strict() as unknown as z.ZodType<SessionStreamChange<Event>>;
+  const changeSchema = z.object({ cursor: EventCursorSchema, event: eventSchema }).strict();
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
 
@@ -159,8 +157,7 @@ export const SessionTargetRequestSchema: z.ZodType<SessionTargetRequest, Session
  * appends, which every device folds. A verb that finds the session already in the state it
  * asks for appends nothing and answers the same.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface SessionVerbResponse {}
+export type SessionVerbResponse = Record<string, never>;
 /** Parses a {@link SessionVerbResponse}. */
 export const SessionVerbResponseSchema: z.ZodType<SessionVerbResponse> = z.object({}).strict();
 

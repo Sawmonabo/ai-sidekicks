@@ -185,8 +185,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
 ]);
 
 /** `session.list` takes no members: the list is every session on this machine. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface SessionListRequest {}
+export type SessionListRequest = Record<string, never>;
 /** Parses a {@link SessionListRequest}. */
 export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionListRequest> = z
   .object({})
@@ -235,7 +234,7 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
       })
       .strict(),
   ],
-) as unknown as z.ZodType<SessionBinding, SessionBinding>;
+);
 
 /**
  * What `session.create` takes: where the session works and who leads it.
@@ -288,7 +287,7 @@ export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, Session
         });
       }
     }
-  }) as unknown as z.ZodType<SessionCreateRequest, SessionCreateRequest>;
+  });
 
 /**
  * What `session.create` answers. `resolvedConfiguration` is present exactly when the request

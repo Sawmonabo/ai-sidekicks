@@ -109,8 +109,7 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
   .strict();
 
 /** The `repo.projectList` subscription takes nothing: it lists every project. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ProjectListRequest {}
+export type ProjectListRequest = Record<string, never>;
 /** Wire schema for {@link ProjectListRequest}. */
 export const ProjectListRequestSchema: z.ZodType<ProjectListRequest, ProjectListRequest> = z
   .object({})

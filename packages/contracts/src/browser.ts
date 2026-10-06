@@ -28,8 +28,7 @@ export const BrowserSiteOriginSchema: z.ZodType<string, string> = z
   );
 
 /** Settings › Browser's list read, and its clear-all: machine-wide, so they name nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface BrowserMachineRequest {}
+export type BrowserMachineRequest = Record<string, never>;
 /** Parses a {@link BrowserMachineRequest}. */
 export const BrowserMachineRequestSchema: z.ZodType<BrowserMachineRequest, BrowserMachineRequest> =
   z.object({}).strict();

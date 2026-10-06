@@ -675,8 +675,7 @@ export const ProviderAccountListResponseSchema: z.ZodType<ProviderAccountListRes
 // still arrives. Every notification is a full state update, so seeing one twice is harmless.
 
 /** Request of `providerAccount.subscribe`; empty because the subscription is node-scoped. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ProviderAccountSubscribeRequest {}
+export type ProviderAccountSubscribeRequest = Record<string, never>;
 
 /** Parses a {@link ProviderAccountSubscribeRequest}. */
 export const ProviderAccountSubscribeRequestSchema: z.ZodType<

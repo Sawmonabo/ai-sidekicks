@@ -49,8 +49,7 @@ export const WorkspaceBindRequestSchema: z.ZodType<WorkspaceBindRequest, Workspa
     executionMode: ExecutionModeSchema,
     directory: wireFreeFormString(FILE_PATH_MAX_LEN, "WorkspaceBindRequest.directory").optional(),
   })
-  // The single-typed `ExecutionModeSchema` leaves the object's input type `unknown`.
-  .strict() as unknown as z.ZodType<WorkspaceBindRequest, WorkspaceBindRequest>;
+  .strict();
 
 /** The `repo.workspaceBind` result: the new workspace, its bound mode, and its lifecycle state. */
 export interface WorkspaceBindResponse {

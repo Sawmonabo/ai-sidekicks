@@ -4,12 +4,16 @@
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import {
   AttentionSummary,
   type RefusedAttentionSession,
 } from "#renderer/store/attention/summary.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
+
+/** The session the items here belong to. */
+const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
@@ -18,7 +22,7 @@ function itemNeeding(id: string): AttentionItem {
   return {
     id,
     momentId: "moment-1",
-    sessionId: "session-a",
+    sessionId: SESSION_A,
     trigger: "pending_approval",
     severity: "actionable",
     displayName: "Fix the login flow",

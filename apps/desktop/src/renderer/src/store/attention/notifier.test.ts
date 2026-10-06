@@ -5,8 +5,13 @@ import { describe, expect, it } from "vitest";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "./notifier.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { AttentionSummary, type AnsweredAttentionReading } from "./summary.js";
 import { AttentionNotifier } from "./notifier.js";
+
+// The two sessions the items here belong to.
+const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
 
 /**
  * One item, whose canonical event follows its id unless a case says otherwise.
@@ -20,7 +25,7 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
     id,
     momentId: "moment-1",
-    sessionId: "session-a",
+    sessionId: SESSION_A,
     trigger: "pending_approval",
     severity: "actionable",
     displayName: "Fix the login flow",
@@ -38,7 +43,7 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
  * The sessions every case here names, so an ordinary read covers both of them. The address set
  * itself moves in `notifier.address-set.test.ts`.
  */
-const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
+const ADDRESSED_SESSION_IDS: readonly string[] = [SESSION_A, SESSION_B];
 
 /** One settled read carrying these items, over the sessions this file addresses. */
 function settledRead(

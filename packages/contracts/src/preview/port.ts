@@ -47,8 +47,7 @@ export const PreviewPortRefusalDetailsSchema: z.ZodType<PreviewPortRefusalDetail
   .strict();
 
 /** The machine's shared ports; the list is the machine's, so the request names nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface PreviewPortShareListRequest {}
+export type PreviewPortShareListRequest = Record<string, never>;
 /** Parses a {@link PreviewPortShareListRequest}. */
 export const PreviewPortShareListRequestSchema: z.ZodType<
   PreviewPortShareListRequest,
