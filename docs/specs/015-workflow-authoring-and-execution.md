@@ -384,7 +384,7 @@ The wire registry carries the `workflow.*` methods, each named root-plus-camelCa
 | `workflow.draftRead` | That draft, read back after a reload by the workflow the address names. |
 | `workflow.expressionPreview` | An expression's value against the last run; a sensitive field previews a secret's name, never its value. |
 | `workflow.fixSessionCreate` | Opens a fresh session to fix a failed step; the run keeps a link to it. |
-| `workflow.webhookTokenRotate` | Creates or rotates a workflow's webhook token, shown once; only its hash is stored, so a rotation replaces it and the old token is refused from that moment, and every call is refused while no token exists. |
+| `workflow.webhookTokenRotate` | Creates or rotates a workflow's webhook token, shown once; only its hash is stored, and a presented token's hash is compared with it in constant time, so a rotation replaces it and the old token is refused from that moment, and every call is refused while no token exists. |
 | `workflow.webhookListenerRead` | The webhook listener's port and whether it is listening or the port is taken. |
 | `workflow.secretList` | Every secret, the shared ones and each project's, by name, for a step's Credential chooser; never a value. |
 | `workflow.secretCreate` | Seals a new secret's value in the keychain under a scope and a name, then records it. |
