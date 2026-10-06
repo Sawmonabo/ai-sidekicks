@@ -25,10 +25,13 @@ interface RequestPathMember {
 }
 
 /**
- * The request members that hold a file the person picked, dropped or pasted, by verb. No verb the
- * app calls takes one yet; the staging, import and export verbs join it as the app calls them.
+ * The request members that hold a file or folder the person picked, dropped or pasted, by verb.
+ * The staging, import and export verbs join it as the app calls them.
  */
-const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = new Map();
+const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = new Map([
+  // A human form's `path` field, answered with a folder picked by the platform's chooser.
+  ["workflow.humanFormSubmit", [{ location: ["paths", "*", "path"], purpose: "folder" }]],
+]);
 
 /** The reply members that hold a path the page offers to open, by verb. */
 const REPLY_PATH_LOCATIONS: ReadonlyMap<string, readonly PathLocation[]> = new Map([

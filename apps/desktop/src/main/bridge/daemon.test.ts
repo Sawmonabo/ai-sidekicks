@@ -3,7 +3,8 @@
 // A page's subscriptions are canceled on the daemon when it loads a new document or goes, and one
 // that ends while the page holds it is told to the page. The status topic speaks with no service
 // linked. A call that ends work goes only over a link that reads connected with a compatible
-// handshake. A failure the operating system raised crosses by its code, with no path in it.
+// handshake. A failure the operating system raised crosses by its code, with no path in it. A
+// picked folder's token is swapped for its path on the way out, and a raw path is refused.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
@@ -172,6 +173,58 @@ describe("the daemon's wire through main", () => {
       outcome: "served",
       value: NO_DEVICES,
     });
+  });
+
+  it("swaps a form's picked-folder token in `paths` for its path before the call goes out", async () => {
+    const { DaemonForwarding } = await import("./daemon.js");
+    const connection = scriptedConnection(() => ({
+      result: { submittedAt: "2026-10-06T04:00:00.000Z" },
+    }));
+    const filePathRefs = new FilePathRefs();
+    const forwarding = new DaemonForwarding({
+      link: await linkOver(connection),
+      filePathRefs,
+      supervisor: { endService: vi.fn() },
+      log: { write: vi.fn() },
+      now: () => new Date(),
+    });
+    const folder = "/Users/person/projects/app";
+    const folderRef = filePathRefs.mint(PAGE, "folder", folder);
+    const submitWith = (path: string): unknown => ({
+      method: "workflow.humanFormSubmit",
+      params: {
+        workflowRunId: "00000000-0000-4000-8000-000000000002",
+        nodeId: "review",
+        executionIndex: 1,
+        // A token in `fields` is an answer's text, not a path, and crosses as sent.
+        fields: { note: folderRef },
+        paths: [{ field: "where", path }],
+        expectedRevision: 1,
+      },
+    });
+
+    await expect(forwarding.call(PAGE, submitWith(folderRef))).resolves.toMatchObject({
+      outcome: "served",
+    });
+    expect(connection.requests).toEqual([
+      {
+        method: "workflow.humanFormSubmit",
+        params: expect.objectContaining({
+          fields: { note: folderRef },
+          paths: [{ field: "where", path: folder }],
+        }) as unknown,
+      },
+    ]);
+
+    // A raw path, and a token minted for another purpose, are refused with nothing sent.
+    const attachRef = filePathRefs.mint(PAGE, "attach", folder);
+    for (const unminted of [folder, attachRef]) {
+      await expect(forwarding.call(PAGE, submitWith(unminted))).resolves.toEqual({
+        outcome: "failed",
+        message: "That file reference is not one this window was given for this.",
+      });
+    }
+    expect(connection.requests).toHaveLength(1);
   });
 
   it("returns a refusal the renderer reads, carrying nothing of main's connection", async () => {
