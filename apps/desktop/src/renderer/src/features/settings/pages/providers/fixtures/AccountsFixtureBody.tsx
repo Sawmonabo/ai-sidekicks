@@ -3,12 +3,13 @@
 // three quota limits sharing one window), drawn from the reading and the calls it is handed. It
 // authors no rule: no eligibility, no health verdict, no remedy.
 //
-// The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time,
-// so every start control is disabled, with its reason, while one runs.
-// `provider-sign-in-flow-tracker.ts` owns that rule, and the registry's completion report
-// releases a flow the service ended on its own, correlated by attempt id.
+// The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a time, so
+// every start control is disabled, with its reason, while one runs.
+// `features/settings/pages/providers/fixtures/sign-in/tracker.ts` owns that rule, and the
+// registry's completion report releases a flow the service ended on its own, correlated by attempt
+// id.
 
-import "./accounts-fixture-body.css";
+import "./AccountsFixtureBody.css";
 
 import {
   type ProviderAccount,
@@ -25,7 +26,7 @@ import {
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
-import { type ProviderAccountReadout } from "../provider-account-readout.js";
+import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
 import { AccountRow } from "./components/Account/AccountRow.js";
@@ -39,7 +40,7 @@ import {
   type ProviderAccountProbeCall,
   type ProviderAccountSetCurrentCall,
   type ProviderAccountRegisterCall,
-} from "./provider-sign-in-flow.js";
+} from "./sign-in/flow.js";
 import { AccountCheckNow } from "./components/Account/AccountCheckNow.js";
 import { AccountDefaultControl } from "./components/Account/AccountDefaultControl.js";
 import { useAccountDefaultMove } from "./hooks/useAccountDefaultMove.js";
@@ -48,7 +49,7 @@ import {
   ProviderSignInFlowTracker,
   describeRunningProviderSignIn,
   findRunningProviderSignInAccountId,
-} from "./provider-sign-in-flow-tracker.js";
+} from "./sign-in/tracker.js";
 import { TokenRegistrationForm } from "./components/Token/TokenRegistrationForm.js";
 
 /** The daemon verbs the fixture body drives. Held stable by the caller. */

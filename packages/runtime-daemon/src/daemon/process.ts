@@ -188,7 +188,8 @@ export class DaemonProcess {
     bootstrap({ localIpcPath: options.runFolder.socketPath });
 
     const dataFolder = resolveDataFolder(options.homeDirectory);
-    // Readable by the person alone. An existing folder keeps its own mode, so the mode is set again.
+    // Readable by the person alone. An existing folder keeps its own mode, so the mode is set
+    // again.
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);

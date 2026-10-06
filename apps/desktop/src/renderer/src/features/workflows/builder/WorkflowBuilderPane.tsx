@@ -7,7 +7,7 @@
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import {
   WORKFLOW_BUILDER_SUBJECT_KIND,

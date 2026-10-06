@@ -1,21 +1,18 @@
 import { useCallback, useMemo } from "react";
 
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
 } from "#renderer/store/reads/triggers.js";
-import type { DiffModel } from "../diff-model.js";
-import {
-  createWorkflowRunDiffRead,
-  type WorkflowRunDiffRequest,
-} from "../workflow-run-diff-read.js";
+import type { DiffModel } from "../model.js";
+import { createWorkflowRunDiffRead, type WorkflowRunDiffRequest } from "../workflow-run-read.js";
 
 /** What Review draws for a run comparison, and the act that asks the daemon again. */
 export interface WorkflowRunDiffHold {

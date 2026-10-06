@@ -12,13 +12,13 @@
 // credential, whose entry carries the sign-in remedy.
 //
 // The two pages' writes behave as the daemon's do: a switched binding or tool reads back switched
-// and set here and is announced on `mcp.subscribe`, a sign-in the page started ends on its own a few seconds later,
-// reported on `providerAccount.subscribe` unless it was canceled first (the first one fails with
-// the provider's reason, and every later one finishes), a checked account answers its current
-// reading, the first pasted token is one the provider does not accept, a re-supplied token keeps
-// the account it was pasted into and signs it back in, and the default moves to a signed-in
-// account while one whose login is gone is refused with its own remedy. The registry read
-// reflects every answered write.
+// and set here and is announced on `mcp.subscribe`, a sign-in the page started ends on its own a
+// few seconds later, reported on `providerAccount.subscribe` unless it was canceled first (the
+// first one fails with the provider's reason, and every later one finishes), a checked account
+// answers its current reading, the first pasted token is one the provider does not accept, a
+// re-supplied token keeps the account it was pasted into and signs it back in, and the default
+// moves to a signed-in account while one whose login is gone is refused with its own remedy. The
+// registry read reflects every answered write.
 
 import type {
   McpApplicationGrade,
@@ -56,7 +56,7 @@ import type {
   ScenarioNotice,
   ScenarioRefusalEnvelope,
   ScenarioReply,
-} from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+} from "#renderer/services/daemon/scenario/reply.fixture.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
 const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;

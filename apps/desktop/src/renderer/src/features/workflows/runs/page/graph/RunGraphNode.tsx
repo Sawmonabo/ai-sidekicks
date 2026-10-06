@@ -4,6 +4,8 @@
 // position, focus and handle geometry; every color is drawn from design tokens through the data
 // attributes the sheet reads.
 
+import "./RunGraphNode.css";
+
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";

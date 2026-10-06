@@ -5,19 +5,19 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
+import { DraftStore } from "#renderer/store/drafts.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send/router.test-support.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_RUN_COMMAND_PREFILL,
-} from "../../command-list/workflow-command/grammar.js";
+} from "../../command-list/workflow/grammar.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
-} from "../../command-list/workflow-command/start-from-line.test-support.js";
-import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
+} from "../../command-list/workflow/start-from-line.test-support.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import {
   FIRST_AGENT_ID,
   SECOND_AGENT_ID,

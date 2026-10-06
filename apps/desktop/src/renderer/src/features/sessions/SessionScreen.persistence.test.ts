@@ -5,9 +5,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
+import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import {
   GatedPersistenceAdapter,

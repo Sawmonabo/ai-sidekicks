@@ -6,7 +6,7 @@ import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { ParamForm } from "#renderer/features/workflows/param-form/ParamForm.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";

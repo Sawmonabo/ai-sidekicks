@@ -18,7 +18,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RULE_SCOPE_LABELS, RULE_SENSE_LABELS } from "#renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";
-import { offersRevoke } from "../contributions/revoke-rule-commands.js";
+import { offersRevoke } from "../contributions/commands.js";
 import { useRevokeRuleCommands } from "../hooks/useRevokeRuleCommands.js";
 
 import "./RememberedRules.css";

@@ -3,7 +3,7 @@
 // everything else about parking lives here. States are parked under a synthetic key rather than
 // deleted, and the parked table is bounded, evicting the least recently parked.
 
-import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
+import { type TranscriptRowDensity } from "../rows/renderer.js";
 
 /**
  * Pruned rows whose retained state the window parks under a synthetic key.
@@ -16,8 +16,8 @@ const TRANSCRIPT_PARKED_STATE_CAP = 400;
 /**
  * Renderer-local state a row body keeps in the list.
  *
- * `density` is the row renderer's own type (`transcript-row-renderer.ts`), so the table parks
- * exactly what the list decides.
+ * `density` is the row renderer's own type (`features/transcript/rows/renderer.ts`), so the table
+ * parks exactly what the list decides.
  */
 export interface RetainedRowState {
   readonly density: TranscriptRowDensity;

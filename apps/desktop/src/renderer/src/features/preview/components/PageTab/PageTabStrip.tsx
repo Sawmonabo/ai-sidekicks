@@ -15,7 +15,7 @@ import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { PageTabIcon } from "./PageTabIcon.js";

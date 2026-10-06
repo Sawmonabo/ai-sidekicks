@@ -5,7 +5,7 @@
 // origin-scoped database outside every erasure selector.
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
-import type { DraftStore } from "#renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/drafts.js";
 
 /** What the builder pane hands the inspector's draft body. */
 export interface DraftsMount {

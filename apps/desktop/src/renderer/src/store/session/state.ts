@@ -7,7 +7,7 @@ import {
   emptyPartitions,
   type StoredEntity,
   type ProjectedSessionEvent,
-} from "./entities/entities.js";
+} from "./entities/vocabulary.js";
 import { mergeUpsert, type SessionPartitions } from "./entities/partitions.js";
 import type { SequenceGap } from "./sequence-reconciler.js";
 

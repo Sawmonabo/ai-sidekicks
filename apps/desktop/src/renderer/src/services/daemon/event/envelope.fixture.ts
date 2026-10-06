@@ -19,7 +19,7 @@ import {
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * The envelope version every composed beat carries, as `"MAJOR.MINOR"`. No beat states it and no

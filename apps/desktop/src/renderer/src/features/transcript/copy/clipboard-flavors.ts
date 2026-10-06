@@ -12,7 +12,7 @@ import { toHast, type Handlers } from "mdast-util-to-hast";
 import { toMarkdown } from "mdast-util-to-markdown";
 
 import type { ClipboardContent } from "#shared/preload-api.js";
-import { parseMarkdown } from "#renderer/components/Markdown/parse/markdown-parse.js";
+import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
 
 /** A reply's two flavors: the markdown as written, and the formatted flavor made from it. */
 export function replyClipboardContent(markdown: string): ClipboardContent {

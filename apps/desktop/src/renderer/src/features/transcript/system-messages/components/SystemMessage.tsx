@@ -8,10 +8,10 @@ import {
   hueStepOf,
 } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
-import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
-import { type SystemMessageReading } from "../system-message-classifier.js";
+import { SYSTEM_MESSAGE_BINDINGS } from "../kinds.js";
+import { type SystemMessageReading } from "../classifier.js";
 
-import "./system-messages.css";
+import "./SystemMessage.css";
 
 /** Props for `SystemMessage`. */
 export interface SystemMessageProps {

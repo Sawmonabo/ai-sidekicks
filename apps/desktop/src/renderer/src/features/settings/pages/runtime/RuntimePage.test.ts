@@ -9,13 +9,13 @@
 
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { settle } from "#test/helpers/settle.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
 import type { DaemonOperations } from "./daemon-status-read.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
-import { daemonStatusAt, getButton, renderRuntimePage } from "./runtime-page.test-support.js";
+import { daemonStatusAt, getButton, renderRuntimePage } from "./RuntimePage.test-support.js";
 
 describe("RuntimePage — the reported status", () => {
   it("asks the runtime again once a control settles", async () => {

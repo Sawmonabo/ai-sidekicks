@@ -4,15 +4,15 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
+import { DraftStore } from "#renderer/store/drafts.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
-import { readComposerCommands } from "./command-list/composer-commands.js";
-import { WORKFLOW_COMMAND_ROOT } from "./command-list/workflow-command/grammar.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { readComposerCommands } from "./command-list/registry-view.js";
+import { WORKFLOW_COMMAND_ROOT } from "./command-list/workflow/grammar.js";
 import { MessageComposer } from "./Composer.js";
-import { inertBridge } from "./composer.test-support.js";
+import { inertBridge } from "./Composer.test-support.js";
 import { openSessionStore } from "./draft-line/components/DraftLine.test-support.js";
 
 afterEach(() => {

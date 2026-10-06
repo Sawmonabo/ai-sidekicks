@@ -8,7 +8,7 @@ import { getWindow } from "@floating-ui/utils/dom";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { clippingAncestorsOf } from "#renderer/lib/clipping-ancestors.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
@@ -21,7 +21,7 @@ import {
   type PaneOverlaySource,
   type PaneRect,
   roundPaneRect,
-} from "./pane-geometry.js";
+} from "./pane.js";
 import type { PageHost } from "./page-host.js";
 
 /** What the last publish attempt did. Rendered by the pane; never inferred. */

@@ -9,11 +9,11 @@ import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import {
   type CommandInvocationOutcome,
   CommandRegistry,
-} from "#renderer/registries/commands/command-registry.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+} from "#renderer/registries/commands/registry.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { installPaletteLayout } from "./CommandPalette.test-support.js";
-import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/when-clause.js";
+import type { WhenClauseContext } from "#renderer/registries/commands/when-clause/semantics.js";
 
 /** The reading the palette opens on: a session screen. */
 const ON_SESSION: WhenClauseContext = {

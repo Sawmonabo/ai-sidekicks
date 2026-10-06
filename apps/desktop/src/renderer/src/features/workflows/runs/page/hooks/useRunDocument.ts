@@ -6,9 +6,9 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** Where the run's pinned version stands: being read, read, or refused. */
 export type RunDocumentRead =

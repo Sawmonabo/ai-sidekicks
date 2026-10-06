@@ -2,8 +2,8 @@ import { useEffect } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 
-import type { PaneLayoutActs } from "../pane-layout-acts.js";
-import { mountedPaneLayouts, type MountedPaneLayouts } from "../mounted-pane-layouts.js";
+import type { PaneLayoutActs } from "../acts.js";
+import { mountedPaneLayouts, type MountedPaneLayouts } from "../mounted.js";
 
 /** Register this pane layout's acts as its window's while it is mounted. */
 export function useMountedPaneLayout(

@@ -11,7 +11,7 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { RealClock, type Clock, type FrameScheduling } from "#renderer/lib/clock.js";
 import { ForwardingClock } from "#renderer/lib/forwarding-clock.js";
-import type { PlatformBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./bridge.js";
 import {
   BridgeCompositionContext,
   BridgeContext,

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { SchemePreference } from "#renderer/styles/tokens.js";
 

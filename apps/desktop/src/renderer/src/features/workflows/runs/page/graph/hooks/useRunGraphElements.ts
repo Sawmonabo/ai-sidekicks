@@ -15,7 +15,7 @@ import {
   type RunGraphFlowNode,
 } from "../elements.js";
 import { placeRunGraphNodes, type CanvasPoint } from "../layout.js";
-import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../model.js";
+import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../node-views.js";
 import { deriveColumnGap } from "#renderer/features/workflows/canvas/column-gap.js";
 import { widestCompactCount } from "#renderer/lib/wire/figures.js";
 

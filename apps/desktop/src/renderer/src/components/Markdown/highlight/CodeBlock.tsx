@@ -5,6 +5,8 @@
 // frame's corner carries the fence's language word and, where the body offers one, the block's
 // own Copy. The word is drawn by the sheet from an attribute, so a selection never copies it.
 
+import "./CodeBlock.css";
+
 import type { CodeSpanReader } from "./code-span-reader.js";
 import { resolveHighlightableLanguage } from "./languages.js";
 import { HighlightedSource } from "./HighlightedSource.js";

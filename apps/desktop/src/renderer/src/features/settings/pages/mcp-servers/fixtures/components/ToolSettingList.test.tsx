@@ -4,7 +4,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { IDLE_MCP_MUTATION } from "../mcp-mutation.js";
+import { IDLE_MCP_MUTATION } from "../mutation.js";
 import { ToolSettingList } from "./ToolSettingList.js";
 
 afterEach(() => {

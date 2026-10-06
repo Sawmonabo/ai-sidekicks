@@ -1,6 +1,6 @@
 // What a view is told about an upload's silence: the instant it becomes worth disclosing, and
 // whether it has. The progress figure is the daemon's (the chunk reply carries it), so it lives
-// in `services/attachment-ingest-acknowledgement.ts`. Every function takes an entry and, where
+// in `services/ingest-acknowledgement.ts`. Every function takes an entry and, where
 // the answer moves on its own, the instant it is asked at; nothing here reads a clock, since an
 // age computed from the wall clock would move while nothing was happening.
 

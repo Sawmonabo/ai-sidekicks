@@ -1,11 +1,13 @@
 // One change set on screen: the toolbar, the changed-file list and the rows. Split from
 // `DiffPane.tsx` so the view-state hooks do not run for addresses that hold no diff.
 
+import "./DiffChangeSet.css";
+
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { DiffToolbar } from "./DiffToolbar.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
-import { type DiffModel } from "../diff-model.js";
+import { type DiffModel } from "../model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 
 /** What one change set is drawn from. */

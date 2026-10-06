@@ -34,7 +34,7 @@ import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
 } from "#renderer/app/fixture/global-names.js";
-import type { SessionDiagnostics } from "#renderer/services/session-events/session-diagnostics-handle.js";
+import type { SessionDiagnostics } from "#renderer/services/session-events/diagnostics-handle.js";
 import { type ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript/window-read.js";

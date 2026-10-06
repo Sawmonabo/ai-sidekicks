@@ -1,9 +1,6 @@
 // The workflows feature's pane kind, `workflow-builder`.
 
-import {
-  type PaneRegistration,
-  type PaneRegistry,
-} from "#renderer/registries/panes/pane-registry.js";
+import { type PaneRegistration, type PaneRegistry } from "#renderer/registries/panes/registry.js";
 
 /**
  * The feature's owner string. One binding, because the registries' duplicate policy is
@@ -21,7 +18,7 @@ const WORKFLOW_PANES: readonly PaneRegistration[] = [
     owner: WORKFLOWS_OWNER,
     // Its own chunk: the builder carries a sheet no other feature declares against, and
     // nothing paints it before a person asks.
-    body: () => import("../builder/builder-pane-body.js"),
+    body: () => import("../builder/pane-body.js"),
   },
 ];
 

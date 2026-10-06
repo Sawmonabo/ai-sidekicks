@@ -11,8 +11,8 @@ import type { ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalation.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
-import { useWorkflowStartHandlers } from "../../command-list/workflow-command/hooks/useWorkflowStartHandlers.js";
-import { type WorkflowStartOperations } from "../../command-list/workflow-command/start-from-line.js";
+import { useWorkflowStartHandlers } from "../../command-list/workflow/hooks/useWorkflowStartHandlers.js";
+import { type WorkflowStartOperations } from "../../command-list/workflow/start-from-line.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
 

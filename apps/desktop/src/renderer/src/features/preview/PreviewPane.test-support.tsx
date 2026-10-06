@@ -8,14 +8,14 @@ import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { frozenClockOf } from "#test/helpers/scheduled-read.js";
 import { RecordingPageHost } from "./geometry/publisher.test-support.js";
 import type { PageHost } from "./geometry/page-host.js";
-import type { PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import type { PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import { PreviewPaneContent, type PreviewChromeActs } from "./components/PreviewPaneContent.js";
 

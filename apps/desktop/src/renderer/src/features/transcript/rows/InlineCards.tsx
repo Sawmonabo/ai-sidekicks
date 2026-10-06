@@ -4,7 +4,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import {
   inlineCardRegistry,
   type InlineCardProps,
-} from "#renderer/registries/inline-cards/inline-card-registry.js";
+} from "#renderer/registries/inline-cards/registry.js";
 
 /** The cards one message carries. */
 export interface InlineCardsProps {

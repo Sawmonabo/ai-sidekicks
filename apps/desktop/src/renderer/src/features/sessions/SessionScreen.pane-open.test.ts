@@ -11,9 +11,9 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import {
   GatedPersistenceAdapter,
   SCENARIO,

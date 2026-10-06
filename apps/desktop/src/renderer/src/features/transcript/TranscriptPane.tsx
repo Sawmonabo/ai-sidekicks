@@ -5,11 +5,8 @@
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import {
-  findTranscriptRowRenderer,
-  type TranscriptRowRenderer,
-} from "./transcript-row-renderer.js";
-import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { findTranscriptRowRenderer, type TranscriptRowRenderer } from "./rows/renderer.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
 /** The pane context narrowed to the transcript arm, using the pane registry's own narrowing. */

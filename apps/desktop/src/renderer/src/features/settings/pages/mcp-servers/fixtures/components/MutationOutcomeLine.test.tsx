@@ -10,8 +10,8 @@ import type {
   McpLiveApplicationResult,
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
-import type { McpMutationOutcome } from "../mcp-mutation.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 
 afterEach(() => {

@@ -6,16 +6,13 @@
 import { memo, useCallback, useMemo } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type ReorderDrag } from "#renderer/lib/reorder-drag.js";
-import {
-  PaneControlsContext,
-  type PaneControls,
-} from "#renderer/components/PaneFrame/pane-controls.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { PaneControlsContext, type PaneControls } from "#renderer/components/PaneFrame/controls.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { PaneBody } from "./PaneBody.js";
-import { PERMILLE_PER_PERCENT, type SessionPane } from "../pane-layout.js";
+import { PERMILLE_PER_PERCENT, type SessionPane } from "../state.js";
 import { type PaneLayoutDensity } from "../measures.js";
 import { minimumPaneWidthPx } from "../density.js";
 

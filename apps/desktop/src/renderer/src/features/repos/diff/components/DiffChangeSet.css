@@ -1,0 +1,54 @@
+/* A change set's chrome: its content, toolbar and view toggle. */
+
+.meridian-diff-pane__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * Quiet chrome: a toggle has no ground until pressed or pointed at, so the toolbar reads as one
+ * strip. The accent appears only here, on something interactive.
+ */
+.meridian-diff-pane__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-diff-pane__toggle:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-diff-pane__toggle[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+/* The two bands inside the chrome's body box: the toolbar, and the list-and-rows pair filling
+   the rest of the height. The chrome's `__body` has no padding or direction, so both are
+   stated here. */
+.meridian-diff-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.meridian-diff-pane__content {
+  display: flex;
+  flex: 1 1 auto;
+  min-block-size: 0;
+}

@@ -4,7 +4,7 @@
 // provisioning. It carries no title: a scenario scripts only the session read, which has none.
 
 import { scriptedSessionReadMember } from "../scripted/session-read.fixture.js";
-import type { SessionSummary } from "./reads.js";
+import type { SessionSummary } from "./summary.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**

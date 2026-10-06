@@ -1,3 +1,5 @@
+import "./DiffFileList.css";
+
 import { useId, useMemo, useRef } from "react";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
@@ -13,7 +15,7 @@ import {
 } from "../measures.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../caps.js";
 import { HIDDEN_SELECTION_COPY, diffFileListReading, selectedEntryRow } from "../file-entries.js";
-import type { DiffModel } from "../diff-model.js";
+import type { DiffModel } from "../model.js";
 import { DiffFileEntryButton } from "./DiffFileEntryButton.js";
 
 /** What the changed-file list is drawn from. */

@@ -8,11 +8,11 @@ import { useCallback, useMemo } from "react";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { composerDraftKey } from "../../draft-line/draft-key.js";
-import { readComposerCommands } from "../composer-commands.js";
+import { readComposerCommands } from "../registry-view.js";
 import { useCommandListTrigger } from "../hooks/useCommandListTrigger.js";
 import { addressedProviderBinding } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
-import { type ProviderCommandEnumeration } from "../provider-command/provider-command-enumeration.js";
+import { type ProviderCommandEnumeration } from "../provider/enumeration.js";
 import { CommandListPopover } from "./CommandListPopover.js";
 
 import "./CommandList.css";

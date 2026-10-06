@@ -6,7 +6,7 @@
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { DaemonWireRequest, Unsubscribe } from "#shared/preload-api.js";
-import type { PlatformBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/bridge.js";
 import { openObservedSubscription } from "../transport/observed-subscription.js";
 import type { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 

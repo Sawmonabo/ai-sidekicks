@@ -7,7 +7,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor } from "#renderer/lib/airspace/registries.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
 import { useAirspaceRegistration } from "./useAirspaceRegistration.js";
 
 function OverlayProbe(props: { readonly open: boolean }): React.JSX.Element {

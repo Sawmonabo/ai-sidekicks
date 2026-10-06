@@ -8,10 +8,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { isRefusal } from "#renderer/lib/refusal/refusal.js";
-import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import { isRefusal } from "#renderer/lib/refusal/contract.js";
+import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { ReadFailurePersistenceAdapter } from "#test/helpers/read-failure-persistence-adapter.js";
-import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "./memory-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 
 // Tripwires throw in development; here they are recorded, because these cases assert the

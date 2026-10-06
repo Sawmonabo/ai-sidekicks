@@ -1,5 +1,5 @@
 // Figures for the markdown segmenter that are not memory ceilings; the block cache's byte ceiling
-// is in `markdown-parse.ts`.
+// is in `components/Markdown/parse.ts`.
 
 /**
  * Complete blocks held back from the settled set, behind the incomplete tail.

@@ -1,5 +1,5 @@
 // The seam between the workflow secret store and the operating system's keychain. The store
-// takes a `SecretKeychain` and holds no keychain code; `os-secret-keychain.ts` is the platform
+// takes a `SecretKeychain` and holds no keychain code; `os-keychain.ts` is the platform
 // implementation. Tests therefore run the store's rules without touching a real keychain, and
 // the native binding stays out of modules that only need the store's shape.
 import {

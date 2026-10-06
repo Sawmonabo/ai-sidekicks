@@ -6,9 +6,9 @@
 // constant sentence, never the caught error's message, which crosses IPC from the main
 // process and may be a stack naming a subsystem the person cannot act on.
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/features/settings/pages/general/updates/updater-unreachable.js";
 
 /** Why a bridge-backed command could not complete. */

@@ -4,7 +4,7 @@
 // exist). The sentence is composed once so the two panes cannot drift; each pane binds its own
 // origin and kinds and lists the code in its own closed code set.
 
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 
 /**

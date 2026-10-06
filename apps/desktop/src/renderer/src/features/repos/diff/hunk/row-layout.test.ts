@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DiffLine, DiffLineKind } from "../diff-model.js";
-import { wholeLineSegments } from "../diff-model.js";
+import type { DiffLine, DiffLineKind } from "../model.js";
+import { wholeLineSegments } from "../model.js";
 import { buildHunkBodyLayout, hunkBodyRowAt, hunkBodyRowCount } from "./row-layout.js";
 
 function line(kind: DiffLineKind, text: string): DiffLine {

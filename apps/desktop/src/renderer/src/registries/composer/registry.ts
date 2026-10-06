@@ -2,12 +2,12 @@
 // the other. An empty registry renders nothing. The props are a typed contract because the send
 // router needs the addressed target and run state from the session store and the route.
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { type WindowStore } from "#renderer/store/window/window-store.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
-import { type DraftStore } from "#renderer/store/draft-store.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { type WindowStore } from "#renderer/store/window/store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type DraftStore } from "#renderer/store/drafts.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
-import { type PaneAddress } from "#renderer/routing/panes/pane-address.js";
+import { type PaneAddress } from "#renderer/routing/panes/address.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /** What the session screen hands the composer on every render. */

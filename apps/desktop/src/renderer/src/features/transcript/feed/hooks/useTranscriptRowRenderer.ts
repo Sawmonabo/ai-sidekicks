@@ -1,7 +1,7 @@
 import { createElement, useCallback } from "react";
 
 import { type ViewportRowRenderer } from "../../viewport/components/VirtualRow.js";
-import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import {
   TranscriptRowDispatch,
   type TranscriptRowDispatchOptions,

@@ -3,10 +3,10 @@ import { useId, useState } from "react";
 import type { WorkflowStepQuestion } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { refuse } from "#renderer/lib/refusal/refusal.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";

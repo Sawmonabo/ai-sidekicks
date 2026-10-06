@@ -5,7 +5,7 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../viewport/snapshot.js";
 
 /**
  * Structural sharing, one pass at a time: the row or identity triple the previous pass published

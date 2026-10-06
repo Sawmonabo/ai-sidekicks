@@ -17,7 +17,7 @@ import {
   daemonMethodBindingFor,
   REGISTERED_DAEMON_METHODS,
 } from "#shared/daemon/method-bindings.js";
-import type { ScenarioReply } from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import type { Scenario } from "#fixtures/scenario.js";
 

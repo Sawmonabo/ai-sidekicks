@@ -2,7 +2,7 @@
 // below this branch, so a body running inside the frame would call them conditionally.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { InspectedEntity } from "../entity-detail/components/InspectedEntity.js";
 
 /**

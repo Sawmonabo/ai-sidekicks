@@ -8,24 +8,20 @@
 
 import { useEffect } from "react";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
-import { paneAddressKey } from "../pane-layout.js";
+import { type PaneLayoutStore } from "../store.js";
+import { paneAddressKey } from "../state.js";
 import { type PaneLayoutRestoreReport } from "../snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,
   type PersistedLayoutRecord,
-} from "../coalescing-layout-writer.js";
-import {
-  PANE_LAYOUT_RECORD_KEY,
-  RestoreProgress,
-  refusePaneLayoutSave,
-} from "../layout-persistence.js";
+} from "../coalescing-writer.js";
+import { PANE_LAYOUT_RECORD_KEY, RestoreProgress, refusePaneLayoutSave } from "../persistence.js";
 
 /** What the persistence hook binds: the layout, its store, the session, the refusal sinks. */
 export interface PaneLayoutPersistenceOptions {

@@ -6,21 +6,21 @@ import {
   registerAccountsFixtureBody,
   registerMcpFixtureBody,
 } from "#renderer/features/settings/index.js";
-import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
-import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
-import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import { paneRegistry } from "#renderer/registries/panes/registry.js";
+import { screenRegistry } from "#renderer/registries/screens/registry.js";
+import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { ScenarioFixtureControl } from "#renderer/services/daemon/selection.fixture.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { readFixtureLaunch } from "#renderer/services/platform/live-bridge.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { findScenario } from "#fixtures/index.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
 } from "./global-names.js";
-import { registerPaneHarnessScreen } from "../pane-harness/register-pane-harness-screen.js";
+import { registerPaneHarnessScreen } from "../pane-harness/register-screen.js";
 
 /**
  * The composition this window's launch asks for, or `undefined` for a normal launch.

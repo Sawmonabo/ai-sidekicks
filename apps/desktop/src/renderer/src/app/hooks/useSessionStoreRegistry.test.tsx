@@ -8,15 +8,15 @@ import { describe, expect, it } from "vitest";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { type BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
-import { type SessionDiagnostics } from "#renderer/services/session-events/session-diagnostics-handle.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type SessionDiagnostics } from "#renderer/services/session-events/diagnostics-handle.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   SessionProbe,
   fixtureBridgeWrapper,
   lastObservation,
   type Observation,
-} from "./session-store-hooks.test-support.js";
+} from "./session-probe.test-support.js";
 
 /** A session id the daemon admits, so the subscriber opens a stream for it. */
 const BOUND_SESSION_ID = "019b7a44-4400-75e5-8510-ada11a5a66a5";

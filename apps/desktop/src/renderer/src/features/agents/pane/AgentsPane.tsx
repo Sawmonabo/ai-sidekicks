@@ -3,13 +3,15 @@
 // bare route resolves no session and an address may name no agent, so the column
 // states which half is missing.
 
+import "./AgentsPane.css";
+
 import type { ReactNode } from "react";
 
 import { useAgentsPaneModels } from "./hooks/useAgentsPaneModels.js";
 import type { AgentsPaneCalls } from "../reads.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
 
 /** What the body needs to read one session's agents. */

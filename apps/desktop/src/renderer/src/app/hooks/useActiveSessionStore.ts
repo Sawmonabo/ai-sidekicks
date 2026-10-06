@@ -4,8 +4,8 @@
 import { useEffect } from "react";
 
 import { useOpenSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
-import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 
 /**
  * The store for the session the route names, or `undefined` while it is opening.

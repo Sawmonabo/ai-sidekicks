@@ -4,7 +4,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { resolutionReceipt, timedOutReceipt } from "../receipts.js";
 import { ApprovalAnswer } from "../../components/ApprovalAnswer.js";
 import { ReplyAnswer } from "../../components/ReplyAnswer.js";

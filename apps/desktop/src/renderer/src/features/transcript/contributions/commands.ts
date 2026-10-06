@@ -5,7 +5,7 @@
 
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import {
   forwardActs,
@@ -14,7 +14,7 @@ import {
   type TranscriptActs,
   type MountedTranscript,
 } from "../mounted-transcript.js";
-import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import { TRANSCRIPT_KEY_BINDINGS } from "./keybindings.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";
 

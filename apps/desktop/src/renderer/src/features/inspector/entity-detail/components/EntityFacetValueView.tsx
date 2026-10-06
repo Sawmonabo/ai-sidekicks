@@ -4,7 +4,7 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { EntityFacet } from "../entity-facets.js";
+import type { EntityFacet } from "../facets.js";
 
 /** One facet's value, drawn in the provenance its form names. */
 export function EntityFacetValueView(props: { readonly facet: EntityFacet }): React.JSX.Element {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { partitionApprovalRecords } from "./partition.js";
-import { pendingRecord } from "./approval-record.test-support.js";
+import { pendingRecord } from "./record.test-support.js";
 
 const FIRST = "019b7a33-3300-7f01-8110-d1a4c11505a1";
 const SECOND = "019b7a33-3300-7f01-8110-d1a4c11505a2";

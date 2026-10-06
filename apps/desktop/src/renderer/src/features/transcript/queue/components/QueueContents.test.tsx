@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { QueueFeed } from "../reading.js";
 import { QueueContents } from "./QueueContents.js";
-import { queueRow } from "../queue-feed.test-support.js";
+import { queueRow } from "../feed.test-support.js";
 
 function readFeed(items: QueueFeed["items"]): QueueFeed {
   return {

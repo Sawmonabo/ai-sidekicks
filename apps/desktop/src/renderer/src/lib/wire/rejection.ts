@@ -30,8 +30,8 @@ import {
   withRefusalExtensions,
   type RefusalExtensions,
   type ExtendedRefusal,
-} from "../refusal/refusal-extensions.js";
-import { refuse } from "../refusal/refusal.js";
+} from "../refusal/extensions.js";
+import { refuse } from "../refusal/contract.js";
 
 /**
  * A caller-written refusal for a rejection that carries no code of its own, for seams that know
@@ -46,7 +46,7 @@ export interface RejectionFallback {
 
 /**
  * A rejection as the one shape the app renders: a `Refusal` widened only by the registered
- * extension members (`refusal-extensions.ts`), so any renderer that takes a refusal takes it.
+ * extension members (`lib/refusal/extensions.ts`), so any renderer that takes a refusal takes it.
  */
 export type WireRefusal = ExtendedRefusal;
 

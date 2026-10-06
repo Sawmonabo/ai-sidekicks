@@ -6,10 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { scriptedRepoOperations } from "../../operations.test-support.js";
 
 import { readBindControlAvailability } from "../health.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 import { buildMount, workspaceRow as workspace } from "../repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 

@@ -4,7 +4,7 @@
 // duplicate and records a skip as a gap). The script itself is never rewritten, so `scenario.beats`
 // stays the authored record the contract check reads.
 
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** What one scenario playback has delivered. */
 export class ScenarioSessionLog {

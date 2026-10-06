@@ -16,7 +16,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { isTextEntryTarget } from "#renderer/lib/editable-target.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useRunTimesNow } from "../../hooks/useRunTimesNow.js";
-import type { WorkflowRunComparison } from "../../workflow-run-comparison.js";
+import type { WorkflowRunComparison } from "../comparison.js";
 import type { WorkflowReadSources } from "../../reading.js";
 import { ChainQuestion } from "./components/ChainQuestion.js";
 import { RunHeader } from "./components/RunHeader.js";

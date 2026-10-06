@@ -4,11 +4,11 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { MCP_SERVER_STATUS_WORDS } from "../../mcp-server-status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
-import { toneForServerStatus } from "../server-status-tone.js";
+import { toneForServerStatus } from "../status-tone.js";
 
 /**
  * One binding's live legs, one row per session that holds it open.

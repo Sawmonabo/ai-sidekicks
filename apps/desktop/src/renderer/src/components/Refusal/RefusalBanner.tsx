@@ -6,7 +6,7 @@ import "./Refusal.css";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import { type RefusalProps } from "./refusal-props.js";
+import { type RefusalProps } from "./props.js";
 
 /** Props for `RefusalBanner`. */
 export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {

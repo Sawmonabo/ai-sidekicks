@@ -7,7 +7,7 @@ import type {
   WorkspaceBindResponse,
 } from "@ai-sidekicks/contracts/repo/workspace";
 
-import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
+import { scriptedRepoOperations } from "../../operations.test-support.js";
 import { BindWorkspaceController } from "./controller.js";
 
 const controllers: BindWorkspaceController[] = [];

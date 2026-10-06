@@ -2,7 +2,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import { render, type RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { MessageContent } from "./MessageContent.js";
 

@@ -1,8 +1,8 @@
 // Builds the context every settings-page suite hands its page, so a member added to
 // `SettingsPageContext` is one compile error in one file.
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-process-state.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";

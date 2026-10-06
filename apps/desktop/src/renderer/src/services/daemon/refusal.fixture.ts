@@ -5,7 +5,7 @@
 // merging them would put a fixture-scoped code in front of every typed daemon refusal. It is its
 // own module so the daemon fixture, its subscriptions and the platform fixture each read one leaf.
 
-import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with. Each is a distinct remedy:
@@ -70,7 +70,7 @@ export class FixtureBridgeError extends RefusalError {
 
 /**
  * Reject one call the fixture cannot stand in for. Not named `refuse`, which is
- * `lib/refusal/refusal.ts`'s builder imported above.
+ * `lib/refusal/contract.ts`'s builder imported above.
  */
 export function refuseAbsentCapability(call: string): Promise<never> {
   return Promise.reject(

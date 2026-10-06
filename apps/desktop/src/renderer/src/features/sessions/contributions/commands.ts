@@ -12,14 +12,11 @@
 
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
-import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/pane-layout-acts.js";
-import {
-  mountedPaneLayouts,
-  type MountedPaneLayouts,
-} from "../pane-layout/mounted-pane-layouts.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
+import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/acts.js";
+import { mountedPaneLayouts, type MountedPaneLayouts } from "../pane-layout/mounted.js";
 
 /**
  * The palette group these rows sit under. A single binding, because the group is also a

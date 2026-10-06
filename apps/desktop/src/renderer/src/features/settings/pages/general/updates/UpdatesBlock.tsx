@@ -13,9 +13,9 @@ import { useState, type ReactNode } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
-import type { MachineSettingsBinding } from "#renderer/features/settings/machine-settings/hooks/useMachineSettings.js";
+import type { MachineSettingsBinding } from "#renderer/features/settings/machine/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";

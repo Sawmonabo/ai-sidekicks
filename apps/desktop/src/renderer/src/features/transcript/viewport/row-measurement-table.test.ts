@@ -1,10 +1,10 @@
 // The measurement table's residuals as arithmetic, with no DOM: a shim answering zero for every
 // rect would make each claim pass vacuously. The library's own answers are asserted in
-// `viewport-controller.test.ts` and `chokepoint.test.ts`.
+// `controller.test.ts` and `chokepoint.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
-import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./constants.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./caps.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 
 function keys(count: number, prefix = "row"): readonly string[] {

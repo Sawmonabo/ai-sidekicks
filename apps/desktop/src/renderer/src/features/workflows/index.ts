@@ -3,4 +3,4 @@
 export { registerWorkflowCommands } from "./contributions/commands.js";
 export { registerWorkflowPanes } from "./contributions/panes.js";
 export { registerWorkflowScreens } from "./contributions/screens.js";
-export { createWorkflowCommandTargets } from "./workflow-command-target.js";
+export { createWorkflowCommandTargets } from "./command-target.js";

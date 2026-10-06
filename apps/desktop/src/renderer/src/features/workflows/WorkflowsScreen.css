@@ -476,7 +476,7 @@
   color: var(--meridian-text);
 }
 
-/* A reply door: the question over its one free-text row, with `Answer` beside the row. */
+/* A reply row: the question over its one free-text row, with `Answer` beside the row. */
 .meridian-workflow-step__reply {
   align-items: center;
 }

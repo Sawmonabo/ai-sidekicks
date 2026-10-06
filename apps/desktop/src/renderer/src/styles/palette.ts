@@ -276,7 +276,7 @@ export const TRANSCRIPT_ROW_GAP_REM: number =
  * the width a 1280 px window reaches at 400% zoom.
  *
  * A floor the frame declares, not a breakpoint: one fluid layout holds down to this width,
- * `layout/AppShell/app-frame.css` spends it as the frame's `min-width`, and below it the document
+ * `layout/AppShell/AppFrame.css` spends it as the frame's `min-width`, and below it the document
  * scrolls horizontally. A px value because that is the criterion's unit; a rem floor would move
  * under a person who raised the root font size.
  */

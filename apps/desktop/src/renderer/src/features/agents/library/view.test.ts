@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AGENT_LIBRARY_REFUSAL_ORIGIN, AgentLibraryView } from "./view.js";
-import { RegistryStub, definition } from "./agent-library.test-support.js";
+import { RegistryStub, definition } from "./AgentLibrary.test-support.js";
 
 const REVIEWER = definition();
 const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });

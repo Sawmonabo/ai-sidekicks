@@ -6,11 +6,11 @@
 
 import { useMemo, type ReactNode } from "react";
 
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { MCP_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 

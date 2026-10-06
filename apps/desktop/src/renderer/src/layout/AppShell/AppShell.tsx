@@ -6,17 +6,17 @@
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { railDestinationFor } from "#renderer/routing/readers.js";
-import type { WindowStore } from "#renderer/store/window/window-store.js";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
-import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
 import { CommandPalette } from "../CommandPalette/CommandPalette.js";
-import { describePaletteScope } from "../CommandPalette/describe-palette-scope.js";
+import { describePaletteScope } from "../CommandPalette/describe-scope.js";
 import type { CommandPaletteProps } from "../CommandPalette/hooks/useCommandPalette.js";
 import {
   RAIL_ENTRIES,
   routeForDestination,
   warmDestination,
-} from "../NavigationRail/rail-navigation.js";
+} from "../NavigationRail/destinations.js";
 import { AppFrame } from "./AppFrame.js";
 
 /** What the window hands `AppShell`: its store, its screens, its palette, and the screen. */

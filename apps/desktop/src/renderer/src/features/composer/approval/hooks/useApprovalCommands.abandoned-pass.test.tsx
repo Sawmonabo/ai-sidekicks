@@ -9,11 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
-import { PENDING_APPROVAL_ID, pendingRecord } from "../approval-record.test-support.js";
-import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
+import { PENDING_APPROVAL_ID, pendingRecord } from "../record.test-support.js";
+import { type ApprovalCommandInput } from "../contributions/commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";
 
 const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_APPROVAL_ID}`;

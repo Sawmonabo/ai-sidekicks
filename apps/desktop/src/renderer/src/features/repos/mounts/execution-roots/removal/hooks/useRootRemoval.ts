@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import {
   RootRemovalController,
   type RootRemovalOperations,
   type RootRemovalReading,
   type RootRemovalRecorder,
-} from "../root-removal-controller.js";
+} from "../controller.js";
 
 /** The reading before anything is sent. */
 export const ROOT_REMOVAL_IDLE: RootRemovalReading = { status: "idle" };

@@ -1,9 +1,9 @@
 import { memo } from "react";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
-import { diffFileChangeNotes, type DiffViewMode } from "../diff-model.js";
-import type { DiffRow } from "../row-model.js";
-import type { DiffRowIndex } from "../diff-row-index.js";
+import { diffFileChangeNotes, type DiffViewMode } from "../model.js";
+import type { DiffRow } from "../rows/model.js";
+import type { DiffRowIndex } from "../rows/flat-index.js";
 import type { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";

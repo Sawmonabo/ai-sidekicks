@@ -8,14 +8,14 @@
 // site.
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { DraftStore } from "#renderer/store/drafts.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
-import { type PaneAddressOf } from "#renderer/routing/panes/pane-address.js";
-import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type PaneAddressOf } from "#renderer/routing/panes/address.js";
+import { type PaneKind } from "#renderer/routing/panes/kinds.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 
 /**
  * What a mounting suite decides. `bridge` and `sessionStore` are required with no default, since

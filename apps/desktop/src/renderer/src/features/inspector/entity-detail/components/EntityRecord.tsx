@@ -14,7 +14,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "#renderer/store/session/degradation.js";
-import type { EntityFacet } from "../entity-facets.js";
+import type { EntityFacet } from "../facets.js";
 
 /** What one entity record draws: identity, facets, and the wording of its empty-state arms. */
 export interface EntityRecordProps {

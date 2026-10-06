@@ -7,10 +7,10 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
-import { readRunGroupKey, type RunGroup } from "../../run-groups/run-groups.js";
+import { readRunGroupKey, type RunGroup } from "../../runs/groups.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";

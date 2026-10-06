@@ -6,7 +6,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
 
-import "./app-frame.css";
+import "./AppFrame.css";
 
 /** The props a caller hands the frame; declared beside the chrome that reads them. */
 export type AppFrameProps = FrameChromeProps;

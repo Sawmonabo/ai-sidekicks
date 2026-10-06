@@ -1,7 +1,7 @@
 // What the hook promises about frames and about which visit a publisher writes into.
 //
 // The rule itself (addressing, epoch, late settlement) is driven with no renderer in
-// `subject-scoped-holder.test.ts`. This file needs a tree: which frames a re-address paints,
+// `lib/subject-scoped/holder.test.ts`. This file needs a tree: which frames a re-address paints,
 // and what a render React parked leaves the visit on screen holding.
 //
 // Renders are counted because the guarantee is that the pass that first sees a new subject

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import type { PaneOpenRequests } from "#renderer/store/window/pane-open-requests.js";
-import type { PaneLayoutStore } from "../pane-layout-store.js";
+import type { PaneLayoutStore } from "../store.js";
 
 /** What the hook binds: this screen's layout, the window's held request, and the session shown. */
 export interface PaneOpenRequestsOptions {

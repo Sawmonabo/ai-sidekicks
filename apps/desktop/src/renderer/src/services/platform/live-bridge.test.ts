@@ -4,8 +4,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createStubBridge } from "#shared/preload-api.js";
-import type { PlatformBridge } from "./platform-bridge.js";
-import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "./platform-bridge.fixture.js";
+import type { PlatformBridge } from "./bridge.js";
+import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "./bridge.fixture.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 
 /**

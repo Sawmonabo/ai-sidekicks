@@ -1,7 +1,7 @@
 import { useId } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import {
   DELETE_OLDER_THAN_DAYS,
   useDeleteOlderRuns,

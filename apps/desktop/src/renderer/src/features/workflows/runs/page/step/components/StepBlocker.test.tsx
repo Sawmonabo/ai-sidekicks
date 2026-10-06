@@ -27,8 +27,8 @@ import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import {
   createWorkflowCommandTargets,
   type WorkflowCommandTargets,
-} from "#renderer/features/workflows/workflow-command-target.js";
-import { withCommandTargets } from "#renderer/features/workflows/workflow-command-target.test-support.js";
+} from "#renderer/features/workflows/command-target.js";
+import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { StepBlocker } from "./StepBlocker.js";
 
 /** How long the fixture daemon takes to answer `question.resolve`. */

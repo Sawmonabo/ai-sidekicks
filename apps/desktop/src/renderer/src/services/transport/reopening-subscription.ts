@@ -15,8 +15,8 @@ import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { openObservedSubscription } from "./observed-subscription.js";

@@ -5,9 +5,9 @@
 import { Fragment } from "react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { type ToolKindReading } from "./tool-kinds.js";
+import { type ToolKindReading } from "./vocabulary.js";
 
-import "./tool-kinds.css";
+import "./ToolKindBadge.css";
 
 /** What a tool card hands the tool kind badge. */
 export interface ToolKindBadgeProps {

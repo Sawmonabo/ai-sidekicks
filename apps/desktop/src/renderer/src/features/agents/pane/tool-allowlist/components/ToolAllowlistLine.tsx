@@ -1,15 +1,16 @@
 // The per-agent tool allowlist on the card, as one line. Neither half of the control is here: the
-// per-agent list is set when an agent starts from a definition and the node-wide switch is on
-// the browser settings page. It is a line, not an echo row, because it answers "what may this
-// agent reach", which a reader needs without opening a disclosure. It carries a count, never the
-// names, and the words come from `tool-allowlist.ts` so the echo's Tools row cannot disagree.
+// per-agent list is set when an agent starts from a definition and the node-wide switch is on the
+// browser settings page. It is a line, not an echo row, because it answers "what may this agent
+// reach", which a reader needs without opening a disclosure. It carries a count, never the names,
+// and the words come from `features/agents/pane/tool-allowlist/position.ts` so the echo's Tools row
+// cannot disagree.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   namedToolAllowlistSentence,
   type AgentToolAllowlistPosition,
-} from "../tool-allowlist.js";
+} from "../position.js";
 import { ToolAllowlistReading } from "./ToolAllowlistReading.js";
 
 /** The tool allowlist line: what this agent may reach, worded by the allowlist table. */

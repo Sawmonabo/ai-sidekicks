@@ -7,8 +7,8 @@
 
 import { useEffect, useRef } from "react";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
-import { type WindowStore } from "#renderer/store/window/window-store.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type WindowStore } from "#renderer/store/window/store.js";
 import { isBannerClass } from "../refusal-banner-selection.js";
 
 /** Hand a banner-class refusal to the frame; every other refusal is left to its view. */

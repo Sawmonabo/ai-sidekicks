@@ -2,11 +2,11 @@
 //
 // The callback carries a session id and nothing else. What the app does with a session it just
 // started (open its store, declare the session directory stale, navigate) is
-// `features/sessions/start/session-start.ts`, because each step names a store or a route the
+// `features/sessions/start.ts`, because each step names a store or a route the
 // draft does not hold.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /**
  * The call that puts the person's first message on the queue of the session a send made.

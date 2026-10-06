@@ -24,16 +24,13 @@ import {
 } from "./reflow.js";
 import { CONCURRENT_STREAMING_SCENARIO_ID } from "#fixtures/scenarios/concurrent-streaming.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { routeForDestination } from "#renderer/layout/NavigationRail/rail-navigation.js";
+import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
 import { formatRoute } from "#renderer/routing/routes.js";
-// Imported for its side effect: it reaches the flyout that imports the sessions stylesheet
-// the row case below measures.
-import "#renderer/features/sessions/contributions/screens.js";
 import { SessionRow } from "#renderer/features/sessions/components/SessionRow.js";
 // Imported for its side effect: the lazily-loaded settings chunk root imports the settings
 // stylesheets the settings-page cases measure.
-import "#renderer/features/settings/settings-screen-body.js";
+import "#renderer/features/settings/screen-body.js";
 import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { REFLOW_MIN_WIDTH_PX } from "#renderer/styles/palette.js";
 
@@ -83,10 +80,10 @@ describe("reflow — the console at 320 CSS px", () => {
   }
 
   it("holds the frame at the floor rather than squeezing below it", async () => {
-    // The floor's production half. `app-frame.css` declares `min-width` from the token, so a
-    // viewport narrower than the floor scrolls the document sideways (which 1.4.10 permits below
-    // 320 CSS px) instead of squeezing every view further. Without it the frame would track the
-    // viewport and this case would read it at the narrower width.
+    // The floor's production half. `layout/AppShell/AppFrame.css` declares `min-width` from the
+    // token, so a viewport narrower than the floor scrolls the document sideways (which 1.4.10
+    // permits below 320 CSS px) instead of squeezing every view further. Without it the frame would
+    // track the viewport and this case would read it at the narrower width.
     narrowTesterViewportTo(REFLOW_MIN_WIDTH_PX - 40);
     document.location.hash = formatRoute(routeForDestination("settings"));
     const appWindow = await renderAppSettled(CONCURRENT_STREAMING_SCENARIO_ID);

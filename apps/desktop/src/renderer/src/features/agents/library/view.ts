@@ -6,17 +6,14 @@
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,
 } from "#renderer/store/reads/triggers.js";
-import {
-  RefreshScheduler,
-  type RefreshReason,
-} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import type { ListAgentDefinitions } from "../reads.js";
 import { readDefinitions, type AgentDefinitionReading } from "./definition-rows.js";
 

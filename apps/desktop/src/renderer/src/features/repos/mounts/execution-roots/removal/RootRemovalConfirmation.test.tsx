@@ -8,8 +8,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
-import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
-import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
+import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
+import type { RepoOperations } from "#renderer/features/repos/operations.js";
 import { confirmationPresses } from "../../repo-mounts.test-support.js";
 import { RootRemovalConfirmation } from "./RootRemovalConfirmation.js";
 

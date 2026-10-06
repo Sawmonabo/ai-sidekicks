@@ -5,7 +5,7 @@
 // since what is missing is a module, not data.
 
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import type { PaneContext } from "./pane-context.js";
+import type { PaneContext } from "./context.js";
 
 /** Props for {@link PendingPaneBody}. */
 export interface PendingPaneBodyProps {

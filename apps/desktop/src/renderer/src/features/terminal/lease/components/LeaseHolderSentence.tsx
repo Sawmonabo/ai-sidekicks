@@ -4,7 +4,7 @@
 // holder, and the free line is wrong for a fold that refused to guess.
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
-import type { DrawnLeaseHolder } from "../model.js";
+import type { DrawnLeaseHolder } from "../state.js";
 
 /** The holder the statement words. */
 export interface LeaseHolderSentenceProps {

@@ -9,7 +9,7 @@ import {
   isCloseTabChord,
   projectClaimableChords,
 } from "./claim.js";
-import { chord } from "../keyboard-handback.test-support.js";
+import { chord } from "../keyboard.test-support.js";
 
 describe("projectClaimableChords", () => {
   it("drops bare chords, so a mirror can never hold one", () => {

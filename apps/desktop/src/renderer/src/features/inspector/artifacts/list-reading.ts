@@ -4,7 +4,7 @@
 // and the total functions over it, so a reduction is testable with no bridge, clock or reader.
 
 import type { ArtifactManifestRow, ArtifactsSectionState } from "./model.js";
-import type { ArtifactPayloadReading } from "#renderer/store/artifacts/payload.js";
+import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 
 /**
  * The instant of a reading nobody has published.

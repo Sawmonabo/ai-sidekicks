@@ -1,5 +1,5 @@
 // Which event kinds open and close which waiting-on-person lifecycle, where each carries its
-// identity, and how those compose into a key. `waiting-on-person-register.ts` holds the records.
+// identity, and how those compose into a key. `register.ts` holds the records.
 //
 // Every derivation is fail-closed: an event the wire did not identify is held open under a key of
 // its own rather than dropped, and a state this build cannot name is not an attention state.
@@ -8,7 +8,7 @@
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { structuralKey } from "#renderer/lib/structural-key.js";
-import type { ProjectedSessionEvent } from "../entities/entities.js";
+import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
 /** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
 export const RUN_STATE_EVENT_PREFIX = "run.";

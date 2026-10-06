@@ -8,7 +8,7 @@ import {
   diffFileChangeNotes,
   type DiffModel,
   type DiffFileChangeCounts,
-} from "./diff-model.js";
+} from "./model.js";
 
 /** Row zero: the control that clears the one-file filter, and what it counts. */
 export interface AllFilesEntry {

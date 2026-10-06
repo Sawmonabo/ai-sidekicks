@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
+import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
 import { preparingDaemon } from "../../repo-mounts.test-support.js";
 import { ExecutionRootPrepareController, type PrepareOperations } from "./controller.js";
 

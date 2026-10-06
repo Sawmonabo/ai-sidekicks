@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { diffLineText } from "../diff-model.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { diffLineText } from "../model.js";
 import { hunkLines } from "./lines.js";
 
 describe("hunkLines — an unknown prefix", () => {

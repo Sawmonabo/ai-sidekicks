@@ -2,10 +2,10 @@
 // bytes go whole into a `<pre>` as an escaped text node, and nothing here can interpret a
 // payload (no `dangerously`, `src`, `href`, or element a media type could turn into a document).
 
-import "./artifact.css";
+import "./ArtifactPayloadSection.css";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { ArtifactPayloadReading } from "#renderer/store/artifacts/payload.js";
+import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 
 /** What the payload section draws. */
 export interface ArtifactPayloadSectionProps {

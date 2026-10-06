@@ -9,17 +9,17 @@ import { describe, expect, it, vi } from "vitest";
 import {
   inlineCardRegistry,
   type InlineCardProps,
-} from "#renderer/registries/inline-cards/inline-card-registry.js";
+} from "#renderer/registries/inline-cards/registry.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import type { ClipboardContent } from "#shared/preload-api.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./kind.js";
-import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
+import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {

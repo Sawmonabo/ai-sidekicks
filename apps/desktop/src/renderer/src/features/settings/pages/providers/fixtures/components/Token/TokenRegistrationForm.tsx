@@ -10,7 +10,7 @@ import {
   takeWriteOnlyToken,
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
-} from "../../provider-sign-in-flow.js";
+} from "../../sign-in/flow.js";
 
 /**
  * `Paste a token instead`: a name and one masked field for a credential the person minted at

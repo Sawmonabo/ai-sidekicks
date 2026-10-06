@@ -5,12 +5,12 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ProjectedSessionEvent } from "../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../session/entities/vocabulary.js";
 import { type ReadTriggerTarget } from "./triggers.js";
 import { useSessionReadTriggers } from "./hooks/useSessionReadTriggers.js";
-import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
-import { SessionStore } from "../session/session-store.js";
+import { SessionStore } from "../session/store.js";
 
 const SESSION_ID = "session-read-triggers";
 const DECLARED_KIND = "run.completed";

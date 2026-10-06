@@ -6,23 +6,20 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import { useCommandHandling } from "./useCommandHandling.js";
-import type { WorkflowStartOperations } from "../workflow-command/start-from-line.js";
-import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
-import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
-import {
-  WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_RUN_COMMAND_PREFILL,
-} from "../workflow-command/grammar.js";
+import type { WorkflowStartOperations } from "../workflow/start-from-line.js";
+import { useWorkflowStartHandlers } from "../workflow/hooks/useWorkflowStartHandlers.js";
+import { WORKFLOW_START_COMMAND_GROUP } from "../workflow/hooks/useWorkflowStartPrefill.js";
+import { WORKFLOW_COMMAND_ROOT, WORKFLOW_RUN_COMMAND_PREFILL } from "../workflow/grammar.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
   type WorkflowCalls,
-} from "../workflow-command/start-from-line.test-support.js";
+} from "../workflow/start-from-line.test-support.js";
 
 /** Stub calls holding the one workflow the line names, recording which session each start named. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {

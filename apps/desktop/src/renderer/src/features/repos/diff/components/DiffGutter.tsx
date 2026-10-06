@@ -1,4 +1,4 @@
-import { type DiffLine } from "../diff-model.js";
+import { type DiffLine } from "../model.js";
 
 /** The line-number gutter of one side of a row. */
 export function DiffGutter(props: {

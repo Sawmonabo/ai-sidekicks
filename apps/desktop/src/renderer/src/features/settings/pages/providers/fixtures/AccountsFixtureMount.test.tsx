@@ -9,14 +9,14 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { settle } from "#test/helpers/settle.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { ProvidersPage } from "../ProvidersPage.js";
-import { pressFirstStartControl, signInAddressOf } from "./accounts-fixture-body.test-support.js";
-import { registerAccountsFixtureBody } from "./register-accounts-fixture-body.js";
+import { pressFirstStartControl, signInAddressOf } from "./AccountsFixtureBody.test-support.js";
+import { registerAccountsFixtureBody } from "./register-accounts-body.js";
 
 afterEach(() => {
   cleanup();

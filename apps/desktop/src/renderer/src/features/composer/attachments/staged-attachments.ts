@@ -10,8 +10,8 @@ import { earliestFutureDeadline } from "#renderer/lib/deadlines.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
-import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
-import { AttachmentIngestClient } from "./attachment-ingest-client.js";
+import type { AttachmentIngestPort } from "./services/ingest-port.js";
+import { AttachmentIngestClient } from "./ingest-client.js";
 import { ingestStallDisclosureAtMs } from "./presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./shapes.js";
 

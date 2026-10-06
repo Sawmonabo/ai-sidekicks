@@ -5,7 +5,7 @@
 // a real `<label>` to it and gets keyboard, label and focus-visible behavior for free. The row
 // never decides whether a setting may change; `checked` and `isPending` come from the page.
 
-import "./preference-toggle-row.css";
+import "./PreferenceToggleRow.css";
 
 import { useId } from "react";
 

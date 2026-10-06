@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
-import { parseSettledBlock } from "./parse/markdown-parse.js";
+import { parseSettledBlock } from "./parse.js";
 
 /** These documents hold no code block, so nothing may ask for colors. */
 const NO_CODE_SPANS: CodeSpanReader = {

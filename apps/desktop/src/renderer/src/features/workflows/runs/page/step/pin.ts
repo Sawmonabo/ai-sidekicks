@@ -10,7 +10,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RunControlAvailability } from "../../controls.js";
 
 /** What a pin refuses with when the output it read carries a file. */

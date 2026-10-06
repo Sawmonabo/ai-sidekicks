@@ -6,16 +6,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { readMountInventory, type MountInventoryCalls } from "./mount-inventory.js";
+import { readMountInventory, type MountInventoryCalls } from "./read.js";
 import {
   MOUNT_A,
   MOUNT_B,
   SESSION_ID,
   mountReadFor,
   workspaceListWith,
-} from "../mounted-folders.test-support.js";
+} from "../MountedFolderList.test-support.js";
 
 /**
  * The two boundaries inside the composed read, and the departure that lands in one: after

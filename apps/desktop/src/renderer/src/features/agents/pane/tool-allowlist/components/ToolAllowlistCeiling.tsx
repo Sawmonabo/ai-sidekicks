@@ -2,6 +2,8 @@
 // fact, so its subject is the mechanism ("applied at spawn"), not one agent; a card would make it
 // a claim about that agent. It offers no control: the switch lives on the browser settings page.
 
+import "./ToolAllowlistCeiling.css";
+
 /** The ceiling, once, above an agent list that has at least one agent to state it about. */
 export function ToolAllowlistCeiling(): React.JSX.Element {
   return (

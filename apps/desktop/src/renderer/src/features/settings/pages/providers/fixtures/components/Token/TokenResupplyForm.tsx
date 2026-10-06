@@ -7,7 +7,7 @@ import {
   takeWriteOnlyToken,
   type ProviderAccountRegisterCall,
   type TokenRegistrationOutcome,
-} from "../../provider-sign-in-flow.js";
+} from "../../sign-in/flow.js";
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";
 
 /**

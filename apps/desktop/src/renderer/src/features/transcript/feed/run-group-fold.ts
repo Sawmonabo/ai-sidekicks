@@ -4,10 +4,10 @@
 // re-project every row on each toggle.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
-import { readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/body.js";
-import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+import { type TranscriptRowDensity } from "../rows/renderer.js";
+import { readRunGroupKey, type RunGroup } from "../runs/groups.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../runs/body.js";
+import { type ViewportRow } from "../viewport/snapshot.js";
 import { TranscriptRowRetention } from "../window/row-retention.js";
 import {
   NO_ROWS_REMOVED,

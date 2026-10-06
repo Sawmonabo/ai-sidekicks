@@ -2,7 +2,7 @@
 // suites' bridge that the ordering cases need, and the presses that drive them.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { FirstTurnQueueCall } from "../control-contract.js";
@@ -15,7 +15,7 @@ import {
   NEW_SESSION_LEAD,
   bridgeFor,
   type QueuedFirstTurn,
-} from "../new-session-draft.test-support.js";
+} from "../draft.test-support.js";
 import { SESSION_CREATE_METHOD } from "../settlement.js";
 
 /** A first-turn call that rejects, so a send stops after the create and settles partial. */
@@ -173,7 +173,7 @@ export function politeText(container: HTMLElement): string {
  * Open a draft and type its first message, the shortest composition that can be sent. The
  * first message is the only axis this control offers, so `first-turn-missing` is unreachable
  * here and the partial arm comes from the rejecting first-turn call; the missing-turn refusal
- * is exercised in `new-session-draft.test.ts`.
+ * is exercised in `features/sessions/new-session/draft.test.ts`.
  */
 export async function openDraftWithFirstTurn(): Promise<void> {
   await press("+ New");

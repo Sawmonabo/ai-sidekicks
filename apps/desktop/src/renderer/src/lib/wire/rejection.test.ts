@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { UNREPRESENTABLE_VALUE_TEXT } from "./errors.js";
 import { everyTrapThrows, nullPrototypeValue } from "./errors.test-support.js";
-import { RefusalError, isRefusal, refuse } from "../refusal/refusal.js";
+import { RefusalError, isRefusal, refuse } from "../refusal/contract.js";
 import { normalizeWireRejection } from "./rejection.js";
 
 describe("normalizeWireRejection — the refusing side's own code survives", () => {

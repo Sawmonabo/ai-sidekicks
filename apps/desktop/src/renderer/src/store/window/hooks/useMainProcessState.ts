@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 
-import type { WindowStore, WindowStoreState } from "../window-store.js";
+import type { WindowStore, WindowStoreState } from "../store.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 
 /**

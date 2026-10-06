@@ -5,10 +5,10 @@
 
 import type { FootnoteDefinition, List, RootContent } from "mdast";
 
-import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/footnote-collection.js";
+import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
-import { parseSettledBlock } from "#renderer/components/Markdown/parse/markdown-parse.js";
+import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
 
 /** One row of a document: blocks drawn through the node mapper, or one footnote definition. */
 export type MarkdownDocumentRow =

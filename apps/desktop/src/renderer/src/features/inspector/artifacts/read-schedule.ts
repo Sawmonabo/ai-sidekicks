@@ -13,15 +13,12 @@ import {
   GenerationLatch,
   type CurrentGenerationClaim,
 } from "#renderer/lib/reads/generation-latch.js";
-import {
-  RefreshScheduler,
-  type RefreshReason,
-} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { SessionRefreshTriggers } from "#renderer/store/reads/session-refresh-triggers.js";
 import { type ReadTriggerTarget } from "#renderer/store/reads/triggers.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { settledReadReading, type ArtifactListReading } from "./list-reading.js";
-import { readArtifactList, type ListArtifacts } from "./services/artifact-reads.js";
+import { readArtifactList, type ListArtifacts } from "./services/reads.js";
 
 /** The namespace every frame about an artifact is registered under. */
 const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";

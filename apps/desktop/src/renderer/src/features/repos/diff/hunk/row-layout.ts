@@ -1,10 +1,11 @@
-// How one hunk's body flattens into rows, computed once per hunk by `diff-row-index.ts` and
-// read many times. The unified arm holds a count, not an array: the identity mapping would
-// otherwise cost one object per line. The split arm holds rows, since positional pairing of
-// delete and insert runs is irregular. The pairing rule lives here (`runEndFrom`) for both
-// the row flattening and a single line's counterpart, so the two cannot disagree.
+// How one hunk's body flattens into rows, computed once per hunk by
+// `features/repos/diff/rows/flat-index.ts` and read many times. The unified arm holds a count, not
+// an array: the identity mapping would otherwise cost one object per line. The split arm holds
+// rows, since positional pairing of delete and insert runs is irregular. The pairing rule lives
+// here (`runEndFrom`) for both the row flattening and a single line's counterpart, so the two
+// cannot disagree.
 
-import type { DiffLine, DiffLineKind, DiffViewMode } from "../diff-model.js";
+import type { DiffLine, DiffLineKind, DiffViewMode } from "../model.js";
 
 /** Which of a hunk body's lines one row addresses. The pairing, without the row. */
 export interface HunkBodyRow {

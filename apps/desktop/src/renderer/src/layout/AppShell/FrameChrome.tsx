@@ -10,7 +10,7 @@
 
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
-import { type WindowBanner } from "#renderer/store/window/window-store.js";
+import { type WindowBanner } from "#renderer/store/window/store.js";
 import { useRefusalBannerAnnouncements } from "./hooks/useRefusalBannerAnnouncements.js";
 import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail.js";
 import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";

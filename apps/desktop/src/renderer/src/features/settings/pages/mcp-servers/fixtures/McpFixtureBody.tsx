@@ -12,7 +12,7 @@
 // during the render that first sees a new bridge, and a publisher captured under the retired
 // bridge writes nothing.
 
-import "./mcp-fixture-body.css";
+import "./McpFixtureBody.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -20,10 +20,10 @@ import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/server";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
-import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -33,8 +33,8 @@ import {
   createMcpInventoryRead,
   type ListMcpInventory,
   type SubscribeMcpInventoryChanges,
-} from "./mcp-inventory-reading.js";
-import { mcpBindingKeyOf } from "../mcp-binding-key.js";
+} from "./inventory-reading.js";
+import { mcpBindingKeyOf } from "../binding-key.js";
 import {
   IDLE_MCP_MUTATION,
   mintIdempotencyKey,
@@ -45,7 +45,7 @@ import {
   type McpMutationOutcome,
   type SendMcpEnabled,
   type SendMcpToolOverride,
-} from "./mcp-mutation.js";
+} from "./mutation.js";
 import { ServerRow } from "./components/ServerRow.js";
 
 /** The subsystem a refused change names as its author. */

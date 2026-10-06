@@ -16,12 +16,12 @@
 
 import { registerFeatureContributions } from "#renderer/app/registrations.js";
 import { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { CommandRegistry } from "#renderer/registries/commands/command-registry.js";
-import { EntityProjectorRegistry } from "#renderer/registries/entity-projectors/entity-projector-registry.js";
-import { InlineCardRegistry } from "#renderer/registries/inline-cards/inline-card-registry.js";
-import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
-import { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
-import { type EntityProjectorTable } from "#renderer/store/session/entities/entities.js";
+import { CommandRegistry } from "#renderer/registries/commands/registry.js";
+import { EntityProjectorRegistry } from "#renderer/registries/entity-projectors/registry.js";
+import { InlineCardRegistry } from "#renderer/registries/inline-cards/registry.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { ScreenRegistry } from "#renderer/registries/screens/registry.js";
+import { type EntityProjectorTable } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
  * The event-kind fold the app's own composition claims, frozen.

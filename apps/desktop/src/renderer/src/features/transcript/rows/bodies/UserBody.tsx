@@ -1,7 +1,7 @@
 // A user's message body: the row's own summary. `user.message` has no payload variant, so the
 // summary is all a `TranscriptEventRow` carries; it is never captioned as if it were the message.
 
-import type { HydratedRowProps } from "../hydrated-row-props.js";
+import type { HydratedRowProps } from "../hydrated-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 
 /** Props for `UserBody`. */

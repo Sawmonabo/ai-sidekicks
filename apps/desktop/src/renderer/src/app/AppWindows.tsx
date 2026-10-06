@@ -9,14 +9,14 @@
 
 import { useCallback, useState } from "react";
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
-import { type SessionBaseStateReader } from "#renderer/store/session/open-session/open-session-entry.js";
-import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/entity-projector-registry.js";
-import { paneRegistry } from "#renderer/registries/panes/pane-registry.js";
-import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { type SessionBaseStateReader } from "#renderer/store/session/open/entry.js";
+import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/registry.js";
+import { paneRegistry } from "#renderer/registries/panes/registry.js";
+import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { SafeStartNotice } from "#renderer/layout/AppShell/SafeStartNotice.js";
 import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";

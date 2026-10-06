@@ -3,16 +3,16 @@
 // data entry, not consent to a consequence. Attach is not followed by a bind, since that would
 // pick an execution mode nobody asked for.
 
-import "./attach.css";
+import "./AttachRepositoryDialog.css";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "../../operations.js";
 import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { type AttachRequestReading } from "./controller.js";
 import { useAttachController } from "./hooks/useAttachController.js";

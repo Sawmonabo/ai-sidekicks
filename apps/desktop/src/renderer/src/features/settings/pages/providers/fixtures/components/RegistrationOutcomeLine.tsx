@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { readKeychainRefusalCause } from "#renderer/services/provider-accounts/refusal-details.js";
-import type { TokenRegistrationOutcome } from "../provider-sign-in-flow.js";
+import type { TokenRegistrationOutcome } from "../sign-in/flow.js";
 
 /** What each keychain refusal reads as, in the slot a refused token's line takes. */
 const KEYCHAIN_REFUSAL_LINES: Readonly<Record<KeychainRefusalCause, string>> = {

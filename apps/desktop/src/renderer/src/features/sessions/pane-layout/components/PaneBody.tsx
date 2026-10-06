@@ -5,9 +5,9 @@
 
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { type PaneDescriptor } from "#renderer/registries/panes/pane-registry.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneDescriptor } from "#renderer/registries/panes/registry.js";
 
 /** The registered body, or the refusal that says why this pane has no address. */
 export function PaneBody(props: {

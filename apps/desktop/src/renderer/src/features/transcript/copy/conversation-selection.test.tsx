@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -11,7 +11,7 @@ import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
-import { FootnoteRegistry } from "../rows/markdown/footnotes/footnote-registry.js";
+import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { readConversationSelection } from "./conversation-selection.js";
 
 describe("a selection across the conversation", () => {

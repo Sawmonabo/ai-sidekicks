@@ -7,11 +7,8 @@ import type { ReactNode } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { accountPlaneRemedySentence } from "#renderer/lib/account-plane-sentences.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import type {
-  ProviderAccountProbeCall,
-  ProviderAccountRegisterCall,
-} from "../provider-sign-in-flow.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { AccountCheckNow } from "./Account/AccountCheckNow.js";
 import { TokenResupplyForm } from "./Token/TokenResupplyForm.js";
 

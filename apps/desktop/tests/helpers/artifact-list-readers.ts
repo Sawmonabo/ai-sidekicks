@@ -18,12 +18,12 @@ import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { handAnsweredCall } from "./held-calls.js";
 import type {
   ArtifactOperations,
   ReadArtifact,
-} from "#renderer/features/inspector/artifacts/services/artifact-reads.js";
+} from "#renderer/features/inspector/artifacts/services/reads.js";
 import { ArtifactListReader } from "#renderer/features/inspector/artifacts/list-reader.js";
 
 /** The one session every case here reads, named once so a store and a row agree. */

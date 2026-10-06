@@ -1,6 +1,6 @@
 // What re-reads the Agents pane's child-links read, counted on the read itself rather than
 // inferred from a rendered row (a view can show a stale figure either way). The read's
-// lifetime is `pane/agents-pane-models.test.ts`.
+// lifetime is `pane/models.test.ts`.
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import { createChildRunLinks } from "./reads.js";
 import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import { eventOfKind } from "#test/helpers/session/events.js";

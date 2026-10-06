@@ -4,7 +4,7 @@
 // mount or route change cannot leave a gone feed adopted. One holder serves every window, so
 // each mount names the document it is drawn in and a command acts on its own window's newest.
 
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**

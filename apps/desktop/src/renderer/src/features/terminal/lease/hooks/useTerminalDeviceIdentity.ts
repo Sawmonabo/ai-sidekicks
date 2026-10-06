@@ -4,7 +4,7 @@
 // the subject-scoped holder.
 
 import { useEffect } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
 /** Which device this is, or that the app has not been told yet. */

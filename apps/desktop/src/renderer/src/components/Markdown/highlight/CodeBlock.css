@@ -1,0 +1,75 @@
+/* A code block and the code palette its highlighted source paints with. */
+
+/*
+ * A code block paints the daemon's five span classes through theme tokens (`styles/palette.ts`),
+ * so a scheme switch repaints the same spans in place. A comment uses the faint text color.
+ */
+.meridian-code__keyword {
+  color: var(--meridian-code-keyword);
+}
+
+.meridian-code__name {
+  color: var(--meridian-code-name);
+}
+
+.meridian-code__string {
+  color: var(--meridian-code-string);
+}
+
+.meridian-code__number {
+  color: var(--meridian-code-number);
+}
+
+.meridian-code__comment {
+  color: var(--meridian-code-comment);
+}
+
+/* The hairline frame on its quieter ground. `flow-root`, so it holds its floated corner. */
+.meridian-code-block {
+  display: flow-root;
+  margin: 0 0 var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+/* Floated, so the code's first lines wrap short of it instead of running under it. */
+.meridian-code-block__corner {
+  display: flex;
+  float: right;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin-inline-start: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The fence's language word, drawn from the attribute so no selection of the block copies it. */
+.meridian-code-block__corner[data-language]::before {
+  content: attr(data-language);
+}
+
+.meridian-code-block__copy {
+  opacity: 0;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+  pointer-events: none;
+}
+
+.meridian-code-block:hover .meridian-code-block__copy,
+.meridian-code-block:focus-within .meridian-code-block__copy {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Code wraps at the column's edge, every character on screen, and never scrolls sideways. */
+.meridian-code {
+  margin: 0;
+  color: var(--meridian-code-plain);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}

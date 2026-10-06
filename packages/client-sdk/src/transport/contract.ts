@@ -15,10 +15,10 @@ import type {
 
 /**
  * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix
- * socket, Windows named pipe, in-memory double), the framing (`FrameAccumulator` and
- * `encodeFrame` from `@ai-sidekicks/contracts/content-length-framing`, which the daemon uses too),
- * and backpressure on outbound writes. The client works on JSON-RPC envelopes above the framing and never sees
- * bytes.
+ * socket, Windows named pipe, in-memory double), the framing (`FrameAccumulator` and `encodeFrame`
+ * from `@ai-sidekicks/contracts/content-length-framing`, which the daemon uses too), and
+ * backpressure on outbound writes. The client works on JSON-RPC envelopes above the framing and
+ * never sees bytes.
  */
 export interface ClientTransport {
   /**

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import "./transcript.css";
+import "./SessionScreenContainer.css";
 
 /** Props for `SessionScreenContainer`. */
 export interface SessionScreenContainerProps {

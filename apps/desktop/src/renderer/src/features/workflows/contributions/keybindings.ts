@@ -1,7 +1,7 @@
 // The chords the workflows screen claims in the keybinding table.
 
-import { type Keybinding } from "#renderer/registries/commands/types.js";
-import { type WhenClauseKey } from "#renderer/registries/commands/window-command-registry.js";
+import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
+import { type WhenClauseKey } from "#renderer/registries/commands/when-clause/vocabulary.js";
 
 /** The clause the workflows screen's commands and chords are live under. */
 export const WHEN_ON_WORKFLOWS: WhenClauseKey = "onWorkflows";

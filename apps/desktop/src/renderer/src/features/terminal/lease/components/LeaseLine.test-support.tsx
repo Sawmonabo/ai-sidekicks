@@ -3,11 +3,11 @@
 // take calls held until a case settles them.
 
 import { render, type RenderResult } from "@testing-library/react";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
-import { THIS_DEVICE_ID } from "../model.test-support.js";
+import { THIS_DEVICE_ID } from "../state.test-support.js";
 import type {
   TerminalLeaseCall,
   TerminalLeaseCalls,
@@ -16,7 +16,7 @@ import type {
 import { LeaseTakeControl } from "./LeaseTakeControl.js";
 import { LeaseLine } from "./LeaseLine.js";
 import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.js";
-import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../model.js";
+import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../state.js";
 
 /**
  * The lease's subject on the wire, read off the scenario: its session id is a wire-declared

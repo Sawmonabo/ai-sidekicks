@@ -1,8 +1,8 @@
 import { createContext, useContext, type Context } from "react";
 
-import { RefusalError, refuse } from "#renderer/lib/refusal/refusal.js";
-import type { SessionDirectoryState } from "../../session-directory/session-directory.js";
-import type { AttentionReading } from "../attention-summary.js";
+import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
+import type { SessionDirectoryState } from "../../session/directory/state.js";
+import type { AttentionReading } from "../summary.js";
 
 /**
  * What this window holds about the sessions it can name, read once: the destination renders

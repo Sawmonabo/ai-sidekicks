@@ -9,12 +9,10 @@ import { useCallback, useMemo, type ReactNode } from "react";
 
 import { type Clock } from "#renderer/lib/clock.js";
 import type { TransportReconnectObservable } from "#renderer/lib/transport-reconnect.js";
-import {
-  requestSessionDirectoryRead,
-  type SessionDirectoryReadCall,
-} from "../session-directory/session-directory.js";
-import { useSessionDirectory } from "../session-directory/useSessionDirectory.js";
-import { type SessionStoreRegistry } from "../session/session-store-registry.js";
+import { type SessionDirectoryReadCall } from "../session/directory/state.js";
+import { requestSessionDirectoryRead } from "../session/directory/staleness.js";
+import { useSessionDirectory } from "../session/directory/useSessionDirectory.js";
+import { type SessionStoreRegistry } from "../session/registry.js";
 import {
   useAttentionProjection,
   type AttentionProjectionReadCall,

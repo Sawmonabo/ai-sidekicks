@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { StrictMode, Suspense, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { windowTripwires } from "#renderer/lib/tripwires/tripwires.js";
+import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { NamedFixtureSubject } from "#test/helpers/subject-fixtures.js";
 import { DiscardedRenderResourceProbe } from "./DiscardedRenderResourceProbe.test-support.js";
 import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
@@ -22,7 +22,7 @@ import {
 } from "./useSubjectScopedResource.test-support.js";
 
 // Tripwires throw in a development build, which would escape the caller's settlement; the
-// recording arm is the one asserted, as in `subject-scoped-holder.test.ts`.
+// recording arm is the one asserted, as in `lib/subject-scoped/holder.test.ts`.
 const THROW_ON_REPORT_BEFORE_THE_SUITE = import.meta.env.DEV;
 
 beforeEach(() => {

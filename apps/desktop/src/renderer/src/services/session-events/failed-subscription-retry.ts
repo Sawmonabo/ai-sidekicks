@@ -1,5 +1,5 @@
 // The sessions whose stream would not open, and what one returning edge is worth. Split from
-// `session-event-subscriber.ts`, which owns which sessions are bound; this owns which opens
+// `subscriber.ts`, which owns which sessions are bound; this owns which opens
 // failed and what the window does about them when the wire comes back.
 //
 // A failed `daemon.subscribe` leaves a session with no stream and no base state, and the

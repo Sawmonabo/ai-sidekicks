@@ -14,9 +14,9 @@ import { TypedAnswerField } from "./TypedAnswerField.js";
 import type {
   AnswerDelivery,
   QuestionReading,
-} from "#renderer/store/session-events/question-reading.js";
+} from "#renderer/store/session/events/question-reading.js";
 
-import "./question-card.css";
+import "./QuestionCard.css";
 
 /** What a mount hands the question card. */
 export interface QuestionCardProps {

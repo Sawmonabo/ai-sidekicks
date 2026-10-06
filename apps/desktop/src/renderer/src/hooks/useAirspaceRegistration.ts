@@ -17,7 +17,7 @@
 
 import { useCallback } from "react";
 
-import { airspaceRegistryFor } from "#renderer/lib/airspace/registries.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /**

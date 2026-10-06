@@ -1,0 +1,165 @@
+/* The settings screen's own styles: the rail, the search field and the pane. A page body's
+ * chrome is in `settings-page.css` and a page's own controls are in that page's sibling
+ * sheet. Every value is a Meridian token but the rail's width and the collapse point. The rail
+ * is 13.5rem, 216px at the default text size: root-relative like every chrome width, so it grows
+ * with the text size.
+ */
+
+.meridian-settings {
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 1fr);
+  gap: var(--meridian-space-6);
+  align-items: start;
+  padding: var(--meridian-space-6);
+  min-height: 100%;
+}
+
+.meridian-settings__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  position: sticky;
+  top: var(--meridian-space-6);
+}
+
+/* The two panes become one column before the reflow floor, because they cannot both hold a
+ * measure there: the 13.5rem rail, the 2rem gutter and the screen's own 2rem padding on each side
+ * come to 19.5rem, 312px at the default text size and more at a larger one, while the whole
+ * viewport at the floor is 320px less the frame's 3.25rem rail. Stacking keeps WCAG 2.2
+ * SC 1.4.10 true at that width; the rail stops sticking with it, since a sticky rail above a
+ * stacked pane would hold scarce vertical room for a list a person has finished with.
+ *
+ * 60rem is the collapse point `features/agents/library/AgentLibrary.css` already uses; the
+ * console has one floor and one collapse point.
+ */
+@media (width <= 60rem) {
+  .meridian-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meridian-settings__rail {
+    position: static;
+  }
+}
+
+/* --- The search field ---------------------------------------------------- */
+
+.meridian-settings__search {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-settings__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-settings__search-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+/* --- The section rail ---------------------------------------------------- */
+
+.meridian-settings__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings__section:hover {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+/* The current section carries a hairline in the accent rather than a fill: the rail sits
+   beside a pane that already has a filled background, and a filled row would read as a
+   second panel rather than as a selection. */
+.meridian-settings__section[aria-current="page"] {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+.meridian-settings__section--result .meridian-settings__result-label {
+  color: inherit;
+}
+
+.meridian-settings__result-section {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- The pane ------------------------------------------------------------ */
+
+.meridian-settings__pane {
+  min-width: 0;
+}
+
+.meridian-settings__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings__page-heading {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-settings__page-body {
+  min-width: 0;
+}
+
+/* --- The settle a search hit leaves behind -------------------------------- */
+
+/* One brief highlight, and no second state to clear: the animation's end removes the
+   class, so nothing schedules a timer. The generated sheet's reduced-motion rule collapses
+   the duration to 1ms rather than removing the animation, so `animationend` still fires and
+   a reader who asked for no motion gets a page that settles instantly. */
+@keyframes meridian-settings-settle {
+  from {
+    background: color-mix(in oklch, var(--meridian-accent) 18%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.meridian-settings__page--settling {
+  animation: meridian-settings-settle var(--meridian-motion-thread) var(--meridian-ease-settle);
+  border-radius: var(--meridian-radius-md);
+}

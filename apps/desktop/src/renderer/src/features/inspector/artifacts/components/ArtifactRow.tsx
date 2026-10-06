@@ -1,6 +1,8 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure. Everything here is scoped to one manifest, and no element can hold a payload.
 
+import "./ArtifactRow.css";
+
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";

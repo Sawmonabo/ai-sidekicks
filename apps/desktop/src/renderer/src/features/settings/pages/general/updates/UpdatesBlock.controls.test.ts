@@ -1,7 +1,7 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
 // offered before the download finishes and needs no confirmation, a call main does not answer is
 // drawn in the block's own words, and the automatic-check switch. The doubles are in
-// `updates-block.test-support.tsx`.
+// `UpdatesBlock.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -9,7 +9,7 @@ import {
   pressControl,
   renderSettled,
   updaterReporting,
-} from "./updates-block.test-support.js";
+} from "./UpdatesBlock.test-support.js";
 
 describe("the updates block — nothing downloads without a press", () => {
   it("offers the download on a found update, and downloads on a press", async () => {

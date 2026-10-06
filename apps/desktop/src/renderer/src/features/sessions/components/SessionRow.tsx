@@ -1,6 +1,8 @@
+import "./SessionRow.css";
+
 import { memo, type MemoExoticComponent } from "react";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { isSessionBeingDeleted, type SessionListRow } from "../rows/session-rows.js";
+import { isSessionBeingDeleted, type SessionListRow } from "../rows/list-row.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 
 /** What a session row is handed: the row and how to open it. */

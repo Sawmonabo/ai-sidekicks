@@ -19,7 +19,7 @@ import {
   requestReadOnWindowFocus,
   type ReadTriggerTarget,
 } from "./triggers.js";
-import type { SessionStore } from "../session/session-store.js";
+import type { SessionStore } from "../session/store.js";
 
 /** Options for a `SessionRefreshTriggers`. */
 export interface SessionRefreshTriggerOptions {

@@ -7,7 +7,7 @@ import type {
   WorkflowCommandPress,
   WorkflowCommandRole,
   WorkflowCommandTarget,
-} from "../workflow-command-target.js";
+} from "../command-target.js";
 
 /**
  * Offers a keyed act while the component is mounted and `isOffered` holds, as a control or as the

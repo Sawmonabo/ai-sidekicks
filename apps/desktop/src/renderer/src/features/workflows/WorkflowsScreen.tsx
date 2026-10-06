@@ -6,18 +6,15 @@
 
 import "./WorkflowsScreen.css";
 
-import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunsStrip } from "./components/RunsStrip.js";
-import {
-  WorkflowCommandTargetsContext,
-  type WorkflowCommandTargets,
-} from "./workflow-command-target.js";
+import { WorkflowCommandTargetsContext, type WorkflowCommandTargets } from "./command-target.js";
 import { useWorkflowsScreen } from "./hooks/useWorkflowsScreen.js";
 import { RunPage } from "./runs/page/RunPage.js";
 import { RunsTab } from "./runs/RunsTab.js";
 
-/** The workflows screen at the committed route, offering `commandTargets` to everything it draws. */
+/** The workflows screen at the committed route, offering `commandTargets` to all it draws. */
 export function WorkflowsScreen(props: {
   readonly context: ScreenContext;
   readonly commandTargets: WorkflowCommandTargets;

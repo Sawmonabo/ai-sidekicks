@@ -1,5 +1,5 @@
 // The settings mount arms one walk over its own board and releases it with itself. This is the
-// binding's lifetime; the walking itself is `components/LazyBody/lazy-body-warm.ts`'s. A
+// binding's lifetime; the walking itself is `components/LazyBody/idle-warm.ts`'s. A
 // binding can fail by walking again on every render, by re-arming against a board whose screen
 // has unmounted, or by going cold silently under the `StrictMode` re-run.
 
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 // Deep import, as every `.test-support` consumer does.
 import { ManualIdleWarmScheduler } from "#test/helpers/idle-warm.js";
-import { SettingsPageRegistry } from "../settings-pages.js";
+import { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
 import { useSettingsPageIdleWarm } from "./useSettingsPageIdleWarm.js";
 

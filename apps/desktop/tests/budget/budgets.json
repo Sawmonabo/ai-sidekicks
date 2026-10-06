@@ -123,7 +123,7 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "No harness on any tier samples renderer CPU, so the sixty-second average is not taken. The criterion beside it is not taken either: it names what FIRED inside that window, and no tier watches a running renderer's timers — `no-restricted-globals` in `eslint.config.mjs` refuses `setInterval` in renderer source, which is the different claim this row's notes already distinguish. The subject is in tree — the endurance tier opens the concurrent-streaming session route in the built app and `lib/reads/refresh/refresh-scheduler.ts` owns every refresh — so what is missing is the instrument, which the endurance reference run still owes.",
+      "notMeasurableReason": "No harness on any tier samples renderer CPU, so the sixty-second average is not taken. The criterion beside it is not taken either: it names what FIRED inside that window, and no tier watches a running renderer's timers — `no-restricted-globals` in `eslint.config.mjs` refuses `setInterval` in renderer source, which is the different claim this row's notes already distinguish. The subject is in tree — the endurance tier opens the concurrent-streaming session route in the built app and `lib/reads/refresh/scheduler.ts` owns every refresh — so what is missing is the instrument, which the endurance reference run still owes.",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a lint rule (`no-restricted-globals` on `setInterval`, in `eslint.config.mjs`), not a number.",
       "scope": "product"
     },

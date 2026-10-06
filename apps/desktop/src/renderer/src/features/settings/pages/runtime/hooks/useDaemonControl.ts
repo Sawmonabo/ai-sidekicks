@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import type { DaemonOperations } from "../daemon-status-read.js";
 

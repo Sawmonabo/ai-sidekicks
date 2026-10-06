@@ -2,7 +2,7 @@
 // whole session screen can do, handed to the frame through `hooks/useRefusalBannerEscalation.ts`.
 
 import { refusalRemedyFor } from "#renderer/lib/refusal/remedies.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /** True where the refusal changes what the whole session can do, so it spans the frame. */
 export function isBannerClass(refusal: Refusal): boolean {

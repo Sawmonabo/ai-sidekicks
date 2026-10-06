@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { DEFAULT_ROUTE, formatRoute, parseRoute, type AppRoute } from "#renderer/routing/routes.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWindowRestore } from "#renderer/services/window/hooks/useWindowRestore.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
@@ -19,7 +19,7 @@ import {
   keepWindows,
   readKeptWindows,
   type KeptWindow,
-} from "#renderer/store/window-layout/kept-window-layout.js";
+} from "#renderer/store/window/layout/kept.js";
 import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 import { prepareWindowDocument } from "../window-document.js";
 import type { WindowStores } from "../window-stores.js";

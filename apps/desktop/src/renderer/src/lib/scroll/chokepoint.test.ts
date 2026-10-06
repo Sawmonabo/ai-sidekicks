@@ -8,9 +8,9 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import {
   createCountingScrollContainer,
   type CountingScrollContainer,
-} from "./scroll-container.test-support.js";
+} from "./container.test-support.js";
 import { ScrollController } from "./chokepoint.js";
-import type { ScrollGeometry } from "./geometry-sample.js";
+import type { ScrollGeometry } from "./geometry/sample.js";
 
 let clock: ManualClock;
 let controller: ScrollController;

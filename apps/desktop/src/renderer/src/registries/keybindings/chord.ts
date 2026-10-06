@@ -1,7 +1,7 @@
 // One keystroke, parsed, matched and compared. The only tinykeys use is here: `parseKeybinding`
 // turns `"$mod+KeyK"` into modifier sets and a key, and `matchKeybindingPress` matches a
 // `KeyboardEvent` against a parsed press. `tinykeys()` itself is not used (see
-// `keybinding-table.ts`). Printing and speaking chords lives in `lib/chord-format.ts`; the shared
+// `table.ts`). Printing and speaking chords lives in `lib/chord-format.ts`; the shared
 // key decoder keeps the printer and the conflict comparator agreeing that `k` and `KeyK` are one
 // key.
 

@@ -3,20 +3,22 @@
 // pieces and wires their callbacks. There is one viewport binding: a second would leave the find
 // walk reading a virtualizer with no element under it, a jump that scrolls nothing.
 
+import "./TranscriptFeed.css";
+
 import { useCallback, useMemo } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { RetainedRowStateProvider } from "../../viewport/components/RetainedRowStateProvider.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
-import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
+import { type EarlierPageRead } from "../../history/earlier-reader.js";
 import { useEarlierHistory } from "../../history/hooks/useEarlierHistory.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowNotices } from "../../window/components/TranscriptWindowNotices.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
-import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";

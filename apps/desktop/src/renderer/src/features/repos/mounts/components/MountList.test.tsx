@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {

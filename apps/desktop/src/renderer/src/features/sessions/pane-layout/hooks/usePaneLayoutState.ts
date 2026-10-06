@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import { type PaneLayoutState } from "../pane-layout.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
+import { type PaneLayoutState } from "../state.js";
+import { type PaneLayoutStore } from "../store.js";
 
 /** Subscribes to a layout and returns its state; components read through this, not `snapshot()`. */
 export function usePaneLayoutState(layout: PaneLayoutStore): PaneLayoutState {

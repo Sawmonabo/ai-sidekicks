@@ -1,23 +1,23 @@
-// The shared scaffolding for the transcript-feed cases: a mount under a bridge and a way to press
-// a contributed palette row. The logs live in `transcript-logs.test-support.ts` because a store
-// builder needs no DOM; the laid-out box a virtualizer range needs is `withLaidOutViewport` in
-// `viewport-controller.test-support.ts`.
+// The shared scaffolding for the transcript-feed cases: a mount under a bridge and a way to press a
+// contributed palette row. The logs live in `features/transcript/logs.test-support.ts` because a
+// store builder needs no DOM; the laid-out box a virtualizer range needs is `withLaidOutViewport`
+// in `features/transcript/viewport/controller.test-support.ts`.
 
 import { act, render } from "@testing-library/react";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/constants.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "../../viewport/caps.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { useRetainedRowState } from "../../viewport/hooks/useRetainedRowState.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { registerTranscriptCommands } from "../../contributions/commands.js";
 import { TRANSCRIPT_OWNER } from "../../contributions/screens.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
-import { type TranscriptRowProps } from "../../transcript-row-renderer.js";
-import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptRowProps } from "../../rows/renderer.js";
+import { type EarlierPageRead } from "../../history/earlier-reader.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** An event count that fits inside the window cap. */

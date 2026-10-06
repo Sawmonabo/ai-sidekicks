@@ -18,7 +18,7 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
 
-import "./command-palette.css";
+import "./CommandPalette.css";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayDialogPopup } from "#renderer/components/OverlayPopups/OverlayDialogPopup.js";

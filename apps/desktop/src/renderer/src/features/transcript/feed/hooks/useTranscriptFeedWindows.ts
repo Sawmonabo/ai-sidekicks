@@ -24,7 +24,7 @@ import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
 } from "../../window/transcript-window.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";

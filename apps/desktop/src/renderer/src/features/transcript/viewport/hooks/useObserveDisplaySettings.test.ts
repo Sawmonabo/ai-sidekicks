@@ -6,8 +6,8 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "../constants.js";
-import { ViewportController } from "../viewport-controller.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "../caps.js";
+import { ViewportController } from "../controller.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** A height no estimate could produce, so a kept prior is told from a dropped one. */

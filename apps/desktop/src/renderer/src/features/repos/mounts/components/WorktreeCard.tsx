@@ -3,7 +3,7 @@
 // native `<details>`, which keeps no per-row state. There is no retire control: its confirm
 // needs an inspection preview this card is not given and must not fabricate.
 
-import "./execution-root-cards.css";
+import "./WorktreeCard.css";
 
 import { useId } from "react";
 
@@ -15,7 +15,7 @@ import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
-import { WORKTREE_STATE_TONES } from "../execution-roots/model.js";
+import { WORKTREE_STATE_TONES } from "../execution-roots/state-tones.js";
 import {
   WORKTREE_COLUMN_LABELS,
   WORKTREE_DETAIL_COLUMNS,

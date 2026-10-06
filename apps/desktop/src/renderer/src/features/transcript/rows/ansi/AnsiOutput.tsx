@@ -10,7 +10,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { ansiSpanClassNames, parseAnsiSpans } from "./spans.js";
 
-import "./ansi.css";
+import "./AnsiOutput.css";
 
 /** The tool output to render and the label a screen reader gives its block. */
 export interface AnsiOutputProps {

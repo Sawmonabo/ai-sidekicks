@@ -4,9 +4,9 @@
 import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
 import type { ExecutionRootPrepareResponse } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
-import { ActController } from "#renderer/features/repos/acts/act-controller.js";
-import { type ActSettlementReading } from "#renderer/features/repos/acts/act-reading.js";
-import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
+import { ActController } from "#renderer/features/repos/acts/controller.js";
+import { type ActSettlementReading } from "#renderer/features/repos/acts/reading.js";
+import type { RepoOperations } from "#renderer/features/repos/operations.js";
 
 /** The one call this controller makes. */
 export type PrepareOperations = Pick<RepoOperations, "prepareExecutionRoot">;

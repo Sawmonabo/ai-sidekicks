@@ -6,7 +6,7 @@ import { MarkdownDocumentRow } from "./MarkdownDocumentRow.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useDrawnStringRead } from "./hooks/useDrawnStringRead.js";
 import { usePayloadTableRows } from "./hooks/usePayloadTableRows.js";
-import type { PayloadTableRow, PayloadValuePlace } from "./payload-rows.js";
+import type { PayloadTableRow, PayloadValuePlace } from "./rows.js";
 import { PAYLOAD_ROW_ESTIMATE_PX, PayloadRowWindow } from "./PayloadRowWindow.js";
 
 /** A payload's items drawn by their type in the Table view, windowed to the rows in view. */

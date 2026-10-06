@@ -1,10 +1,10 @@
 import { useEffect, useMemo } from "react";
 
 import { eventTriggersRead, isRepairEdge, type ReadTriggerTarget } from "../triggers.js";
-import type { ProjectedSessionEvent } from "../../session/entities/entities.js";
+import type { ProjectedSessionEvent } from "../../session/entities/vocabulary.js";
 import { useSessionDegradedCause } from "../../session/hooks/useSessionInitialized.js";
 import { useSessionStore } from "../../session/hooks/useOpenSessionStore.js";
-import { type SessionStore } from "../../session/session-store.js";
+import { type SessionStore } from "../../session/store.js";
 import { selectTranscript } from "../../session/selectors.js";
 
 /**

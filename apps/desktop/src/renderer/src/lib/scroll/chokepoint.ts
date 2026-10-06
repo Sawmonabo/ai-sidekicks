@@ -7,14 +7,14 @@
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
-import { type ScrollGeometry, type GeometryChangeCause } from "./geometry-sample.js";
-import { type ScrollCaller } from "./scroll-callers.js";
+import { type ScrollGeometry, type GeometryChangeCause } from "./geometry/sample.js";
+import { type ScrollCaller } from "./callers.js";
 import {
   ScrollFrameWrites,
   type ScrollFrameScheduler,
   type ScrollTargetComputation,
-} from "./scroll-frame-writes.js";
-import { ScrollGeometryPublisher } from "./scroll-geometry-publisher.js";
+} from "./frame-writes.js";
+import { ScrollGeometryPublisher } from "./geometry/publisher.js";
 import { WholePixelQuantizationLearner } from "./quantization.js";
 
 /** What one glide did, including the arm that did nothing. */

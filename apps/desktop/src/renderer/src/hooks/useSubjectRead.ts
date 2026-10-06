@@ -3,19 +3,16 @@
 // The workflows readers, the session directory and the session header each ask a question
 // about one subject that can change under a mounted caller. The state lives in
 // `lib/subject-scoped/`, and a read that loses a race with a re-address is abandoned through
-// `lib/reads/read-scope.ts`; this is the one effect that ties the two together.
+// `lib/reads/scope.ts`; this is the one effect that ties the two together.
 //
 // A rejected call is not caught here: the rejection surfaces unhandled from the effect
 // rather than becoming a state.
 
 import { useEffect } from "react";
 
-import type {
-  SubjectKey,
-  SubjectScopedPublish,
-} from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+import type { SubjectKey, SubjectScopedPublish } from "#renderer/lib/subject-scoped/holder.js";
 import { useSubjectScopedState } from "./subject-scoped/useSubjectScopedState.js";
-import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/read-scope.js";
+import { isReadAbandoned, settleUnlessAbandoned } from "#renderer/lib/reads/scope.js";
 import { useReadScope } from "./useReadScope.js";
 
 /** How a caller turns one read into the states a view renders. */

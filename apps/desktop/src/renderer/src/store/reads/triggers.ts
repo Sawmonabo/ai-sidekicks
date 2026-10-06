@@ -6,8 +6,8 @@
 // schedules nothing: a reading hands it the one method that puts a reason into its own
 // scheduler, so a reading added later cannot ship with two of the four. The rules both wirings
 // share, the repair edge, the frame admission and the focus listener, are here once.
-import type { ProjectedSessionEvent } from "../session/entities/entities.js";
-import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
+import type { ProjectedSessionEvent } from "../session/entities/vocabulary.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 
 /**
  * What a trigger set needs of the reading it refreshes. A reading may be a class held in a

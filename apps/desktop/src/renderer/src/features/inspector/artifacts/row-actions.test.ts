@@ -6,7 +6,7 @@ import { type Mock, describe, expect, it, vi } from "vitest";
 import type { ArtifactReadResponse } from "@ai-sidekicks/contracts/artifacts/operations";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { ArtifactListReader } from "./list-reader.js";
 import {
   LISTED_ONE_ROW,

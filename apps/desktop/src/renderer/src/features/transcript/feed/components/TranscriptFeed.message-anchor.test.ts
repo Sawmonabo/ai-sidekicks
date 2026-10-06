@@ -13,17 +13,17 @@ import {
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { SessionStore } from "#renderer/store/session/session-store.js";
-import { type EarlierPageRead } from "../../history/earlier-history-reader.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import { type EarlierPageRead } from "../../history/earlier-reader.js";
 import { OVER_CAP_EVENT_COUNT, RowIdBody, renderFeed } from "./TranscriptFeed.test-support.js";
-import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
+import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
 import {
   openSessionStoreWithGeneralLog,
   transcriptFixtureEventId,
   transcriptFixtureStampAt,
   transcriptFixtureStreamCursor,
-} from "../../transcript-logs.test-support.js";
-import { openSessionStoreWithTerminalRunGroup } from "../../run-group-logs.test-support.js";
+} from "../../logs.test-support.js";
+import { openSessionStoreWithTerminalRunGroup } from "../../runs/groups.logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -3,6 +3,8 @@
 // error stays visible; a call that succeeded draws no chip, since success is shown by absence.
 // No tool kind is read from the tool's name; `ToolKindBadge` draws what a row declares.
 
+import "./ToolRow.css";
+
 import { elideText } from "#renderer/lib/elide-text.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
@@ -13,11 +15,11 @@ import {
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { formatDuration } from "#renderer/lib/wire/figures.js";
 import { describeRowKind, toolResultState, type ToolResultState } from "./kind.js";
-import type { HydratedRowProps } from "./hydrated-row-props.js";
+import type { HydratedRowProps } from "./hydrated-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
-import { readDeclaredToolKind } from "./tool-kinds/tool-kinds.js";
-import { projectedPayload, readWireCount } from "#renderer/store/session-events/wire-payload.js";
+import { readDeclaredToolKind } from "./tool-kinds/vocabulary.js";
+import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 
 /**
  * Characters of a tool row's one-clause summary before it is elided at a word boundary; at the

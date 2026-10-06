@@ -1,6 +1,6 @@
 // How a suite drives, through React, a pass that really runs and never commits.
 //
-// `subject-scoped-holder.ts` mints an addressing during a render and confirms it when that
+// `lib/subject-scoped/holder.ts` mints an addressing during a render and confirms it when that
 // render commits, so the claims about an uncommitted addressing need a pass React ran and
 // threw away.
 //

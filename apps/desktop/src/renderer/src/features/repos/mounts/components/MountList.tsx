@@ -1,12 +1,10 @@
-import "./mounts.css";
-
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
-import { type RepoMountsReading } from "../repo-mounts-model.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
-import { type RepoOperations } from "../../repo-operations.js";
+import { type RepoMountsReading } from "../reading.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
+import { type RepoOperations } from "../../operations.js";
 
 /** What the mount list reads and the handlers it passes through to each card. */
 export interface MountListProps {

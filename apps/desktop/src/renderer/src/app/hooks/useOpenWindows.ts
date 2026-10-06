@@ -1,6 +1,6 @@
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import type { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { OpenWindows, type WindowOpener } from "#renderer/services/window/open-windows.js";
 
 /**

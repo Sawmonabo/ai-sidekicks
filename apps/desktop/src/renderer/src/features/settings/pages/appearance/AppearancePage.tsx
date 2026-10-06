@@ -5,7 +5,7 @@
 // (including after the palette's `Color scheme` row moves it). `"system"` is the attribute's
 // absence, as the window writes it.
 
-import "./appearance.css";
+import "./AppearancePage.css";
 
 import { useCallback, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";

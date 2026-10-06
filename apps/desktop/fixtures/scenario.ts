@@ -5,15 +5,15 @@
 // advancing to an exact tick) and cannot reach the network or the clock.
 //
 // `services/daemon/engine.fixture.ts` plays a scenario, and
-// `services/daemon/scenario/scenario-reply.fixture.ts` owns how one reply settles.
+// `services/daemon/scenario/reply.fixture.ts` owns how one reply settles.
 
 import type { UpdateState } from "#shared/preload-api.js";
 
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type {
   ScenarioOpeningNotice,
   ScenarioReply,
-} from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+} from "#renderer/services/daemon/scenario/reply.fixture.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {

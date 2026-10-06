@@ -9,7 +9,7 @@ import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatform
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import type {
   McpMutationResult,
   McpServerInventoryEntry,

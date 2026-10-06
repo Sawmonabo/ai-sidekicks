@@ -9,15 +9,15 @@
 // the shipped chords and written out again, and the page says so. The recorder suspends the
 // app keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
 
-import "./keyboard.css";
+import "./KeyboardPage.css";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import { auditKeybindings } from "#renderer/registries/keybindings/keybinding-audit.js";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { auditKeybindings } from "#renderer/registries/keybindings/audit.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
 import {
   COMMAND_PALETTE_OPEN_CHORD,

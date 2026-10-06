@@ -12,17 +12,17 @@ import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provid
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import { ProviderAccountDeliveries } from "#renderer/services/provider-accounts/provider-account-deliveries.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import { ProviderAccountDeliveries } from "#renderer/services/provider-accounts/deliveries.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
-import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
-import { ProviderAccountFold } from "#renderer/store/provider-accounts/provider-account-fold.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
+import { ProviderAccountFold } from "#renderer/store/provider-accounts/fold.js";
 import {
   AccountsFixtureBody,
   type AccountListReading,

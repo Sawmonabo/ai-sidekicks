@@ -1,9 +1,9 @@
-// The canvas, and the whole of what the graph library is allowed to do here. It is the lazy
-// chunk's entry (`loader.ts` imports it). The two sheets load in this order:
-// `graph.css` redefines the library's fallback palette at equal specificity, so it is second.
+// The canvas, and the whole of what the graph library is allowed to do here. It is the lazy chunk's
+// entry (`loader.ts` imports it). The two sheets load in this order: `RunGraphCanvas.css` redefines
+// the library's fallback palette at equal specificity, so it is second.
 
 import "@xyflow/react/dist/base.css";
-import "./graph.css";
+import "./RunGraphCanvas.css";
 
 import { isHTMLElement } from "@floating-ui/utils/dom";
 import { useCallback, useRef } from "react";

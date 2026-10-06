@@ -4,17 +4,14 @@
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { RetainedRowStateProvider } from "../viewport/components/RetainedRowStateProvider.js";
 import { type RetainedRowState } from "../viewport/retained-row-state-table.js";
-import {
-  registerTranscriptRowRenderer,
-  type TranscriptRowProps,
-} from "../transcript-row-renderer.js";
-import { registerTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
-import { registerTranscriptRows } from "../contributions/transcript-rows.js";
+import { registerTranscriptRowRenderer, type TranscriptRowProps } from "./renderer.js";
+import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
+import { registerTranscriptRows } from "../contributions/rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
 import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
 

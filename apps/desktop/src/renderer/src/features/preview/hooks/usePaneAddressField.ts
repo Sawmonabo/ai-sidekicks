@@ -1,7 +1,7 @@
 // The address field's state, held for the pane it was typed for. What the field means lives in
 // `address-field-model.ts`; this module owns whose it is, which a reused component instance
 // gets wrong.
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 

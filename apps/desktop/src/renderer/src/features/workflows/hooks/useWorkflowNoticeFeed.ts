@@ -2,10 +2,10 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { subscribeWorkflowNotices } from "#renderer/services/daemon/workflow-notices.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { WorkflowNoticeFeed, type WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { WorkflowNoticeFeed, type WorkflowNoticeFeedState } from "../notice-feed.js";
 
 /** The screen's one notice feed and where it stands. */
 export interface WorkflowNoticeFeedHold {

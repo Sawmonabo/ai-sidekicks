@@ -11,7 +11,7 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { PrepareExecutionRoot } from "#renderer/features/repos/mounts/execution-roots/prepare/PrepareExecutionRoot.js";
 import { RootRemovalConfirmation } from "#renderer/features/repos/mounts/execution-roots/removal/RootRemovalConfirmation.js";
 import { preparingDaemon } from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
-import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
+import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
 import { bridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { bridgeOnClock } from "../helpers/fixture/bridge.js";
 

@@ -4,7 +4,7 @@
 // using: priors go only for rows the window does not hold at that moment, and parked states
 // belong to rows the window already dropped.
 
-import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./constants.js";
+import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./caps.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type TranscriptWindow } from "./window-cap.js";

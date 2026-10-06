@@ -4,9 +4,9 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveTakeShellAvailability } from "./take-shell-availability.js";
-import type { TerminalLeaseHolder } from "./model.js";
+import type { TerminalLeaseHolder } from "./state.js";
 import type { TerminalDeviceIdentity } from "./hooks/useTerminalDeviceIdentity.js";
-import { THIS_DEVICE_ID } from "./model.test-support.js";
+import { THIS_DEVICE_ID } from "./state.test-support.js";
 
 const IDENTITY_READ: TerminalDeviceIdentity = { status: "read", deviceId: THIS_DEVICE_ID };
 

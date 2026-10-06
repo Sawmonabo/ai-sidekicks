@@ -4,7 +4,7 @@
 // whitespace-free and drawn from a narrow charset, so a value whose strings all pass
 // `IDENTIFIER_PATTERN` cannot carry a message, a path, a name or a line of code. This is one of
 // two conjuncts at the store's write chokepoint; the other, that no admitted class has a field
-// that takes a path, is in `store/persistence/persisted-value-classes.ts`. The grammar is its own
+// that takes a path, is in `store/persistence/value-classes.ts`. The grammar is its own
 // module so the charset, the ceiling and the path-separator exclusion read on one screen.
 
 /**

@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 
 import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
-import { type AnswerDelivery } from "#renderer/store/session-events/question-reading.js";
+import { type AnswerDelivery } from "#renderer/store/session/events/question-reading.js";
 
 /** What the person has given one question so far. */
 export interface QuestionDraft {

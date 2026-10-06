@@ -31,9 +31,9 @@ import {
 } from "#renderer/features/repos/mounts/repo-mounts.test-support.js";
 import { MountList } from "#renderer/features/repos/mounts/components/MountList.js";
 import { useRepoMounts } from "#renderer/features/repos/mounts/hooks/useRepoMounts.js";
-import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import type { RepoOperations } from "#renderer/features/repos/operations.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { renderSettled } from "#test/helpers/app/harness.js";
 import { extendedHeaderChangeSet, scenarioBridgeAndStore } from "./fixtures.js";

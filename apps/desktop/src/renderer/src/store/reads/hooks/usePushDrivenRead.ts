@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { PushDrivenRead, PushDrivenReadState } from "../push-driven-read.js";
+import type { PushDrivenRead, PushDrivenReadState } from "../push-driven.js";
 
 /**
  * Reads one {@link PushDrivenRead} from React.

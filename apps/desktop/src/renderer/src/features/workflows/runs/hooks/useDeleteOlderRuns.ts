@@ -3,10 +3,10 @@ import { useCallback, useRef, useState } from "react";
 import type { WorkflowRunsDeletePreviewResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** The ages `Delete runs older than…` offers, in days; the first is the one it opens on. */
 export const DELETE_OLDER_THAN_DAYS = [30, 90, 365] as const;

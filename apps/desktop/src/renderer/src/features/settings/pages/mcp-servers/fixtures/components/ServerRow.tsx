@@ -5,7 +5,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { MCP_SERVER_STATUS_WORDS } from "../../mcp-server-status-words.js";
+import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type {
@@ -13,13 +13,13 @@ import type {
   McpServerInventoryEntry,
   McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/server";
-import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
-import { toneForServerStatus } from "../server-status-tone.js";
+import { toneForServerStatus } from "../status-tone.js";
 import { ToolSettingList } from "./ToolSettingList.js";
-import type { McpMutationOutcome } from "../mcp-mutation.js";
+import type { McpMutationOutcome } from "../mutation.js";
 
 // Where a binding a person writes applies, in the words the add form offers for each scope.
 const WHERE_IT_APPLIES: Readonly<Record<McpWritableBindingRef["scope"], string>> = {

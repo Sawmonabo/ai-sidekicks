@@ -15,7 +15,7 @@ import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { isRunsTableRead, mountWorkflowsScreen, press } from "../WorkflowsScreen.test-support.js";
 import { RUNS_PAGE_SIZE } from "./list-pages.js";
-import { RunListDaemon, mintedRunId, playbackRunRows } from "./run-list-daemon.test-support.js";
+import { RunListDaemon, mintedRunId, playbackRunRows } from "./RunsTab.test-support.js";
 
 afterEach(cleanup);
 

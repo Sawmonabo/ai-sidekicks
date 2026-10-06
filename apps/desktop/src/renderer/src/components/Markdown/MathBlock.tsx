@@ -3,6 +3,8 @@
 // output must not emit `\href`, `\url` or a class), MathML output and `strict: false`. An
 // unparseable formula shows its source beside an error state, never KaTeX's red error text.
 
+import "./MathBlock.css";
+
 import { useEffect, useState } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";

@@ -11,7 +11,7 @@ import {
 } from "@ai-sidekicks/contracts/workflow/run/trigger";
 
 import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../../words.js";
-import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../run-filters.js";
+import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../filters.js";
 
 /** The value a select holds for "no filter". */
 const ANY = "";

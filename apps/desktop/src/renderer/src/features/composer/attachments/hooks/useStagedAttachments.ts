@@ -4,10 +4,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import type { AttachmentIngestPort } from "../services/attachment-ingest-answer.js";
+import type { AttachmentIngestPort } from "../services/ingest-port.js";
 import { StagedAttachments, type StagedAttachmentsSnapshot } from "../staged-attachments.js";
 
 /** What a view holding a staged list renders and acts through. */

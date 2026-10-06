@@ -7,7 +7,7 @@ import { useCallback } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** Takes the session's one shared shell. */
 export type TerminalLeaseCall = (request: { readonly sessionId: string }) => Promise<unknown>;

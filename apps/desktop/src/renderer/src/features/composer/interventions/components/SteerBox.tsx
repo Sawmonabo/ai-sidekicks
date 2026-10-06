@@ -6,23 +6,23 @@
 // that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
 
 import { useCallback, useEffect, useId, useMemo } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import {
   RUN_INTERVENTION_REFUSAL_ORIGIN,
   admissionRefusal,
   readInterventionFormSettlement,
-} from "../intervention-form-settlement.js";
-import type { InterventionFormSettlement } from "../intervention-form-settlement.js";
-import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
+} from "../form-settlement.js";
+import type { InterventionFormSettlement } from "../form-settlement.js";
+import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
   RunControlOutcome,
-} from "../../run-controls/services/run-control-dispatch.js";
-import type { RunControlDispatchState } from "../../run-controls/hooks/useRunControlDispatch.js";
+} from "../../run/controls/services/dispatch.js";
+import type { RunControlDispatchState } from "../../run/controls/hooks/useRunControlDispatch.js";
 
 import "./SteerBox.css";
 

@@ -3,10 +3,7 @@
 // a view no frame is armed. A transition reports only its start and end, so a moving overlay is
 // sampled once per frame in flight, and the last frame publishes where it came to rest.
 
-import type {
-  AirspaceMotionObserver,
-  AirspaceOverlayElement,
-} from "#renderer/lib/airspace/airspace-registry.js";
+import type { AirspaceMotionObserver, AirspaceOverlayElement } from "#renderer/lib/airspace.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";

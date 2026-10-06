@@ -7,7 +7,7 @@
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 import { Emitter } from "#renderer/lib/emitter.js";
-import type { PaneAddress } from "#renderer/routing/panes/pane-address.js";
+import type { PaneAddress } from "#renderer/routing/panes/address.js";
 
 /** One held request: the session whose layout should open the pane, and the pane's address. */
 export interface PaneOpenRequest {

@@ -9,7 +9,7 @@
 import { useEffect } from "react";
 
 import { commandContributionRegistry } from "../contributions.js";
-import type { CommandDefinition } from "../types.js";
+import type { CommandDefinition } from "../definition.js";
 
 /** No chords, always; frozen so a caller cannot add one. */
 const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);

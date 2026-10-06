@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
-import type { StoredEntity } from "#renderer/store/session/entities/entities.js";
+import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
 const AGENT_ID = "agent-implementer";

@@ -4,7 +4,7 @@
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { politeText } from "#test/helpers/live-region.js";
 import {
   RECORDED_PRESS,
@@ -12,9 +12,9 @@ import {
   recorderOf,
   renderKeyboardPage,
   rowOf,
-} from "./keyboard-page.test-support.js";
+} from "./KeyboardPage.test-support.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { registerNavigationKeybindings } from "#renderer/layout/NavigationRail/navigation-commands.js";
+import { registerNavigationKeybindings } from "#renderer/layout/NavigationRail/commands.js";
 
 // The rail's shipped chords, contributed the way the window's composition contributes them,
 // so the page reads the same shipped table a window has.

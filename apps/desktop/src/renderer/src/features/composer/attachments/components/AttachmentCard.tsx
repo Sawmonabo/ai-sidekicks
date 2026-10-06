@@ -1,7 +1,8 @@
 // One attachment in the position the user put it: in flight (progress from `receivedBytes`),
 // complete (the daemon's derived name, type and size replace the advisory declaration), or
 // unresolved (a marker standing in the file's place). The label and the face read the same name
-// from `attachment-provenance.ts`, so a screen reader hears the identity a sighted user sees.
+// from `features/composer/attachments/provenance.ts`, so a screen reader hears the identity a
+// sighted user sees.
 
 import { Fragment } from "react";
 
@@ -15,13 +16,13 @@ import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
   attachmentNameReading,
-} from "../attachment-provenance.js";
+} from "../provenance.js";
 import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "../policy.js";
 import { isIngestStalled } from "../presentation.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import type { AttachmentIngestEntry, AttachmentReading } from "../shapes.js";
 
-import "./attachments.css";
+import "./AttachmentCard.css";
 
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";

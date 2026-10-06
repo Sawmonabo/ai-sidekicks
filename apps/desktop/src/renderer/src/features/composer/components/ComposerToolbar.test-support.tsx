@@ -2,20 +2,20 @@
 // the two entities a composer must be addressed to before any run-scoped reading exists.
 
 import { render } from "@testing-library/react";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import {
   type StoredEntity,
   type ProjectedSessionEvent,
-} from "#renderer/store/session/entities/entities.js";
-import type { PaneAddress } from "#renderer/routing/panes/pane-address.js";
+} from "#renderer/store/session/entities/vocabulary.js";
+import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
-import { agentPane } from "../composer.test-support.js";
+import { agentPane } from "../Composer.test-support.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
 
 /** The toolbar's session, as a registered `SessionId`: a UUID, not a readable name. */

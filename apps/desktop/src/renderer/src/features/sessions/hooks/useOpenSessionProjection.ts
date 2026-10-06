@@ -20,9 +20,9 @@ import {
   worstDegradedCause,
   type SessionDegradedCause,
 } from "#renderer/store/session/degradation.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
-import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
-import type { SessionListRow } from "../rows/session-rows.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import type { SessionListRow } from "../rows/list-row.js";
 
 /** One shared empty projection, so a change with no rows keeps the array identity React sees. */
 const NO_PROJECTED_ROWS: readonly SessionListRow[] = [];

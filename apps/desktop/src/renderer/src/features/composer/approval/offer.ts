@@ -11,7 +11,7 @@ import type {
 } from "@ai-sidekicks/contracts/approval";
 
 import { refusalRemedyFor } from "#renderer/lib/refusal/remedies.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * Whether the record's approve and reject answers are still offered: false once it leaves

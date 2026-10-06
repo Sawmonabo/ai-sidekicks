@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { diffLineText } from "./diff-model.js";
+import { diffLineText } from "./model.js";
 import { intralineSegments, parseUnifiedPatch } from "./patch-parse.js";
 import {
   COMPARED_STATES,

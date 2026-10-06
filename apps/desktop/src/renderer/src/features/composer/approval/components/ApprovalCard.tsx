@@ -16,14 +16,14 @@ import { clampedRowIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { approvalAnswer, isApprovalAnswerable } from "../offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import {
   APPROVAL_CATEGORY_LABELS,
   APPROVAL_STATE_LABELS,
 } from "#renderer/lib/approval-vocabulary.js";
-import { APPROVAL_STATE_TONES } from "../approval-state-tones.js";
+import { APPROVAL_STATE_TONES } from "../state-tones.js";
 import {
   IDLE_REMEMBERED_RULE_INTENT,
   RememberDecision,

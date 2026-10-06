@@ -12,9 +12,9 @@ import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { SCENARIOS } from "#fixtures/index.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { SESSION_EVENT_STREAM } from "#shared/daemon/streams.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import {
   createFixture,

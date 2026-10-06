@@ -8,8 +8,9 @@ import {
   subscribeToCommandContributions,
   type CommandContributionRelease,
 } from "./contributions.js";
-import type { CommandDefinition, Keybinding } from "./types.js";
-import { commandRegistry } from "./window-command-registry.js";
+import type { Keybinding } from "./keybinding.js";
+import type { CommandDefinition } from "./definition.js";
+import { commandRegistry } from "./registry.js";
 
 /** A command that does nothing; the cases are about the wiring. */
 function inertCommand(id: string): CommandDefinition {

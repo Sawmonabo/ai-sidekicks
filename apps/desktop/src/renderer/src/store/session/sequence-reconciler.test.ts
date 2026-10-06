@@ -1,7 +1,7 @@
 // The reconciler's recorded ranges are committed into immutable store state, so the list it hands
 // out must be a copy: a shared array would let the next admission mutate a state React has
 // already rendered. The store-level ordering, dedupe and divergence cases are in
-// `session-store.test.ts`.
+// `store.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

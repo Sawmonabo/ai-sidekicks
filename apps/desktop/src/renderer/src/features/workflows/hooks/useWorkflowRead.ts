@@ -1,13 +1,10 @@
 import { useMemo } from "react";
 
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import type { SubjectKey } from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
-import type { SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import type {
-  PushDrivenRead,
-  PushDrivenReadState,
-} from "#renderer/store/reads/push-driven-read.js";
+import type { SubjectKey } from "#renderer/lib/subject-scoped/holder.js";
+import type { SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { PushDrivenRead, PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import { useWindowReadTriggers } from "#renderer/store/reads/hooks/useWindowReadTriggers.js";
 import {

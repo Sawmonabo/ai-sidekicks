@@ -1,10 +1,11 @@
 // Whether a pane fills the cell the pane layout gives it, in the arrangement the pane layout
 // actually uses.
 //
-// `.meridian-pane` (`PaneFrame.css`) takes `flex: 1 1 auto`. The pane layout is a column flex
-// chain (`pane-layout.css`), where the initial `0 1 auto` would size a pane by its content and
-// hand the transcript's scroll container a fraction of the layout's height. Under a grid parent
-// `flex` is inert, so both arrangements ship and both are covered here.
+// `.meridian-pane` (`PaneFrame.css`) takes `flex: 1 1 auto`. The pane layout is a column flex chain
+// (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where the initial `0 1 auto`
+// would size a pane by its content and hand the transcript's scroll container a fraction of the
+// layout's height. Under a grid parent `flex` is inert, so both arrangements ship and both are
+// covered here.
 //
 // The subject is the frame, not the terminal pane: `.meridian-pane` is one sheet for every kind,
 // and the terminal pane is the cheapest body to hang it on because it already publishes a
@@ -18,11 +19,10 @@ import { mountTerminalPaneInGridCell } from "../terminal-pane/in-grid-cell.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { TerminalPane } from "#renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "#renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// Imported for their stylesheets: the terminal's pane body carries the pane's rules, and the
-// session pane layout carries `pane-layout.css`, the other half of the arrangement under test.
-import "#renderer/features/terminal/pane/terminal-pane-body.js";
+// Imported for its stylesheet, `SessionPaneLayout.css`, the other half of the arrangement under
+// test.
 import "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 
 /** The pane layout's own height. Every assertion below is against this one number. */

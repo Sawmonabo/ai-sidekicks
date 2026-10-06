@@ -4,7 +4,7 @@ import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/d
 
 import { parseMarkdownDocument } from "../markdown-document-rows.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
-import { PayloadTableRows, type PayloadTableRow } from "../payload-rows.js";
+import { PayloadTableRows, type PayloadTableRow } from "../rows.js";
 
 /** A payload's Table view rows, and the call a drawn row makes to have its string read. */
 export interface PayloadTableRowsBinding {

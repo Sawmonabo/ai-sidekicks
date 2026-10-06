@@ -1,4 +1,4 @@
-// What an empty transcript window draws: the design's empty-transcript line.
+// What an empty transcript window draws: one line saying the transcript is empty.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 

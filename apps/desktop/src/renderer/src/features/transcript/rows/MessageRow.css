@@ -1,0 +1,48 @@
+/* The message row and the parts it draws (`RecordedBodyLine`, inline cards). */
+
+.meridian-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/* Marks what a selection copies out of the row, and takes no box of its own. */
+.meridian-message-card__body {
+  display: contents;
+}
+
+.meridian-message-card__kind-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--meridian-tracking-caps);
+}
+
+/* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
+.meridian-message-card--thinking {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-message-card__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-message-card__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-message-card__receipt {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}

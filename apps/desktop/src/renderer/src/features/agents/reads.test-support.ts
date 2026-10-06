@@ -3,7 +3,7 @@
 import {
   createFixtureBridge,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import type { AgentsPaneCalls } from "./reads.js";
 

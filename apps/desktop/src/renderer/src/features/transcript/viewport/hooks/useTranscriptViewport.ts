@@ -17,10 +17,10 @@ import {
 import { type Clock } from "#renderer/lib/clock.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { TRANSCRIPT_OVERSCAN_ROWS } from "../constants.js";
-import { ViewportController } from "../viewport-controller.js";
+import { TRANSCRIPT_OVERSCAN_ROWS } from "../caps.js";
+import { ViewportController } from "../controller.js";
 import { type RetainedRowState } from "../retained-row-state-table.js";
-import { type ViewportConditions, type ViewportSnapshot } from "../viewport-snapshot.js";
+import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */

@@ -10,7 +10,7 @@
 // the reader's row down, and parks (never loses) the retained state of a dropped row.
 
 import { RetainedRowStateTable, type RetainedRowState } from "./retained-row-state-table.js";
-import { TRANSCRIPT_WINDOW_ROW_CAP } from "./constants.js";
+import { TRANSCRIPT_WINDOW_ROW_CAP } from "./caps.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {

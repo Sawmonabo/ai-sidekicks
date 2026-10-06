@@ -5,8 +5,8 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { airspaceRegistryFor } from "#renderer/lib/airspace/registries.js";
-import { type AirspaceRegistry } from "#renderer/lib/airspace/airspace-registry.js";
+import { airspaceRegistryFor } from "#renderer/lib/airspace.js";
+import { type AirspaceRegistry } from "#renderer/lib/airspace.js";
 import { RecordingPageHost } from "../geometry/publisher.test-support.js";
 import {
   previewPaneContext,

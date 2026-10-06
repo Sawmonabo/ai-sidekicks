@@ -4,7 +4,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";

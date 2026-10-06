@@ -186,7 +186,7 @@ const ZOD_IMPORT = {
   group: ["zod", "zod/**"],
   message:
     "A surface never parses a wire value itself. Reach the daemon through " +
-    "`callDaemon` from `services/daemon/daemon-reply.ts`, which parses the reply " +
+    "`callDaemon` from `services/daemon/reply.ts`, which parses the reply " +
     "against the method's registered schema and answers `served` or `refused`; a " +
     "value that needs a shape needs a registry row, not a local validator.",
 };
@@ -203,7 +203,7 @@ const CONTRACTS_SCHEMA_IMPORT = {
   importNamePattern: "Schema$",
   message:
     "A surface never parses a wire value itself, and a contracts schema is a parser. " +
-    "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`, " +
+    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`, " +
     "which parses the reply against the method's registered schema and answers `served` " +
     "or `refused`; a value that needs a shape needs a registry row, not a second " +
     "reading of one. Types and non-schema values from this package are untouched.",
@@ -215,7 +215,7 @@ const DAEMON_METHOD_BINDINGS_IMPORT = {
   regex: "^#shared/daemon/method-bindings\\.js$",
   message:
     "The daemon method table binds each method to its schemas, which are parsers. " +
-    "Reach the daemon through `callDaemon` from `services/daemon/daemon-reply.ts`.",
+    "Reach the daemon through `callDaemon` from `services/daemon/reply.ts`.",
 };
 
 /**
@@ -301,10 +301,14 @@ function withoutSelectors(bans, ...liftedBans) {
 }
 
 /**
- * The files that may import a sheet from another folder: a lazily-loaded chunk root. `main.tsx`
- * joins them where this is used, for the global sheets.
+ * The files that may import a sheet from another folder: the chunk roots whose sheet styles
+ * components in several folders, and `main.tsx` for the global sheets.
  */
-const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
+const STYLESHEET_OWNER_FILES = [
+  "src/renderer/src/features/agents/pane/body.ts",
+  "src/renderer/src/features/transcript/contributions/pane-body.ts",
+  "src/renderer/src/main.tsx",
+];
 
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
 const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
@@ -365,7 +369,7 @@ const SET_INTERVAL_GLOBAL = {
   name: "setInterval",
   message:
     "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-    "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
+    "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
     "second cadence nothing cancels on unmount, nothing pauses when the " +
     "window is hidden, and nothing bounds when the daemon stops answering.",
 };
@@ -460,7 +464,7 @@ const desktopConfig = defineConfig(
   // `@ai-sidekicks/contracts` already ships.
   //
   // Every daemon reply the renderer reads is parsed in one module,
-  // `services/daemon/daemon-reply.ts`, against the schemas
+  // `services/daemon/reply.ts`, against the schemas
   // `src/shared/daemon/method-bindings.ts` binds to each method. A surface that could reach
   // the validator directly could parse a second time, differently, or skip the parse and keep the
   // fulfilled `unknown`. A surface needing a shape asks for the method, not for a schema.
@@ -520,7 +524,7 @@ const desktopConfig = defineConfig(
   // passes payloads through unexamined and a half-read ask would draw a card for an
   // action nobody can see. The store may not import `services/`, so the read sits here.
   {
-    files: ["src/renderer/src/store/session-events/approval-flow-projection.ts"],
+    files: ["src/renderer/src/store/session/events/approval-flow-projection.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -573,7 +577,7 @@ const desktopConfig = defineConfig(
   {
     // A chunk root imports the feature-wide sheets its body needs, and `main.tsx` the
     // global ones in `styles/`.
-    files: [...rendererFiles("**", STYLESHEET_OWNER_FILES), "src/renderer/src/main.tsx"],
+    files: STYLESHEET_OWNER_FILES,
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -699,7 +703,7 @@ const desktopConfig = defineConfig(
   },
   // --- The refresh cadence: no wall-clock polling in the renderer ----------------
   //
-  // Every refresh goes through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` beside it
+  // Every refresh goes through `lib/reads/refresh/scheduler.ts`. A `setInterval` beside it
   // is a second cadence that nothing cancels on unmount, pauses when the window is hidden, or
   // bounds when the daemon stops answering. Both spellings are banned, since `window.setInterval`
   // and the bare global are the same timer. The fixture build flag rides the same globals list.
@@ -714,7 +718,7 @@ const desktopConfig = defineConfig(
           property: "setInterval",
           message:
             "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-            "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
+            "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
             "second cadence nothing cancels on unmount, nothing pauses when the " +
             "window is hidden, and nothing bounds when the daemon stops answering.",
         },
@@ -723,7 +727,7 @@ const desktopConfig = defineConfig(
           property: "setInterval",
           message:
             "Mechanical gate 2 in `apps/desktop/AGENTS.md`: every refresh goes " +
-            "through `lib/reads/refresh/refresh-scheduler.ts`. A `setInterval` is a " +
+            "through `lib/reads/refresh/scheduler.ts`. A `setInterval` is a " +
             "second cadence nothing cancels on unmount, nothing pauses when the " +
             "window is hidden, and nothing bounds when the daemon stops answering.",
         },

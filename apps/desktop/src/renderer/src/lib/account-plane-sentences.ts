@@ -26,7 +26,7 @@ export const PROVIDER_READINESS_STATE_WORDS: Readonly<
   reauth_required: () => "Login expired · Sign in again",
   home_missing: () => "No credential in this account's folder",
   indeterminate: () => "Cannot tell right now",
-  // The design words these two states each as one whole sentence, the one their remedy carries.
+  // These two states each read as one whole sentence, the one their remedy carries.
   no_account: (provider) => noAccountsSentence(provider),
   no_default: (provider) => noDefaultSentence(provider),
 };

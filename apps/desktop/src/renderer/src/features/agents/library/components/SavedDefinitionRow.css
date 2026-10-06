@@ -1,0 +1,93 @@
+/* A saved agent definition's row in the library. */
+
+.meridian-saved-definition-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+/* The label leads: it is what a person scans for, and the id is what they copy when
+ * something goes wrong. */
+.meridian-saved-definition-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-saved-definition-row__name {
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-saved-definition-row__description {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  max-width: 68ch;
+}
+
+/* Two tracks, the label quiet and narrow and the reading taking the rest, as in the
+ * standing-facts grid. */
+.meridian-saved-definition-row__axes {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  gap: 0 var(--meridian-space-3);
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-saved-definition-row__axis {
+  display: contents;
+}
+
+.meridian-saved-definition-row__axis-label,
+.meridian-saved-definition-row__axis-reading {
+  padding-block: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-saved-definition-row__axis-label {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-saved-definition-row__axis-reading {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  overflow-wrap: anywhere;
+}
+
+.meridian-saved-definition-row__actions,
+.meridian-saved-definition-row__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The question takes the whole first line, so a person reads what they are about to delete
+ * before the control that does it. */
+.meridian-saved-definition-row__question {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  max-width: 68ch;
+}
+
+/* The row the detail column holds: an accent left edge rather than a fill, so the tie is
+ * visible without the row becoming the loudest thing on the page. */
+.meridian-saved-definition-row--open {
+  border-inline-start: 2px solid var(--meridian-accent);
+}

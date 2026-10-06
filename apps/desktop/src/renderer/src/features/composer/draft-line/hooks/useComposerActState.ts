@@ -8,11 +8,11 @@
 // from `useSettlementIdentities.ts`, and a settlement whose identity moved on is discarded.
 
 import { useCallback } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { DraftStore } from "#renderer/store/draft-store.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { DraftStore } from "#renderer/store/drafts.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { type SubjectScopedPublish } from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+import { type SubjectScopedPublish } from "#renderer/lib/subject-scoped/holder.js";
 import type { SendControllerStatus } from "../send/controller-contract.js";
 import {
   NO_COMPOSER_REFUSALS,

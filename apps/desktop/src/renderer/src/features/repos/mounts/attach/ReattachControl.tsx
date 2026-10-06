@@ -5,16 +5,16 @@
 // reuses the attach controller and `hooks/useConfirmationLifecycle.ts`, whose discard rule
 // handles the confirm press closing the dialog.
 
-import "./attach.css";
+import "./ReattachControl.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import type { RepoOperations } from "../../operations.js";
 import { BUTTON_CLASS_NAME } from "../button-class.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type AttachRequestReading } from "./controller.js";

@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
+import { DraftStore } from "#renderer/store/drafts.js";
 import { useComposerDraftText } from "./useComposerDraftText.js";
 
 const KEY = "session::0a1b2c3d";

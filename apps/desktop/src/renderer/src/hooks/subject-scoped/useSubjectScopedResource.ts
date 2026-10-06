@@ -16,9 +16,9 @@ import {
   SubjectScopedHolder,
   type SubjectKey,
   type SubjectScopedPublish,
-} from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+} from "#renderer/lib/subject-scoped/holder.js";
 import { useHeldSubjectValue, type SubjectScopedState } from "./useSubjectScopedState.js";
-import type { SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import type { SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 
 /**
  * Hold one resource per `(subject, key)`, and close it however its render ended.

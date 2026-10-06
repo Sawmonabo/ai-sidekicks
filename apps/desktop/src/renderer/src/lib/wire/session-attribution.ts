@@ -6,7 +6,7 @@
 //
 // The rule is for payloads whose `sessionId` is required (the run and approval folds), where
 // absence fails. It compares the raw member, so a non-string `sessionId` fails instead of reading
-// as absent. `refuseSessionDisagreement` in `services/run-streams/shapes.ts` keeps its
+// as absent. `refuseSessionDisagreement` in `services/run-streams/projection.ts` keeps its
 // own check because it needs two distinct refusal sentences.
 
 /**

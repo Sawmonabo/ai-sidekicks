@@ -4,7 +4,7 @@
 // producer are built here so two views never tell a person opposite things about one state,
 // and the codes a person pastes into an issue have one home.
 
-import { refuse, type NarrowedRefusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type NarrowedRefusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * Why a send could not complete. Closed, so a further cause is a decision. One code per call

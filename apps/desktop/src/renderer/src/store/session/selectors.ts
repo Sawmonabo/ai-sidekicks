@@ -2,11 +2,11 @@
 // or one entity, never a composed whole-pane object, so `useSyncExternalStore` bails on `Object.is`
 // for every kind the last transition did not touch.
 //
-// No selector names a wire shape. `entities/entities.ts` keeps the store free of wire knowledge,
+// No selector names a wire shape. `entities/vocabulary.ts` keeps the store free of wire knowledge,
 // and a validating body read needs the canonical shape, which only the daemon service owns. A
 // store hook that wants one takes it as an injected reader.
 
-import type { ProjectedSessionEvent, StoredEntity } from "./entities/entities.js";
+import type { ProjectedSessionEvent, StoredEntity } from "./entities/vocabulary.js";
 import type { EntityKind, EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { SessionStoreState } from "./state.js";
 

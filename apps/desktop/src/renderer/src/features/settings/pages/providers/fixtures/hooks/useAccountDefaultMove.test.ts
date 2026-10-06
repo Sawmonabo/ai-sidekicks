@@ -7,8 +7,8 @@ import { expect, it, vi } from "vitest";
 
 import { manualGate, type ManualGate } from "#test/helpers/held-calls.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { ACCOUNT_REGISTRY } from "../accounts-fixture-body.test-support.js";
-import type { ProviderAccountSetCurrentCall } from "../provider-sign-in-flow.js";
+import { ACCOUNT_REGISTRY } from "../AccountsFixtureBody.test-support.js";
+import type { ProviderAccountSetCurrentCall } from "../sign-in/flow.js";
 import { useAccountDefaultMove } from "./useAccountDefaultMove.js";
 
 const FIRST = "account-first" as ProviderAccountId;

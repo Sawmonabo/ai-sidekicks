@@ -3,7 +3,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { type DiffInlineCardProps } from "#renderer/registries/inline-cards/inline-card-registry.js";
+import { type DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { InlineDiffCard } from "./InlineDiffCard.js";
 
 const CARD: DiffInlineCardProps = {

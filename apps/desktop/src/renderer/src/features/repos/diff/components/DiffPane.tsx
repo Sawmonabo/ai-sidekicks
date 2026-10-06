@@ -3,7 +3,7 @@
 // checkout. `PaneFrame` draws the section, kind glyph, trail and body box, so none of those are
 // set here.
 
-import "./diff.css";
+import "./DiffPane.css";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
@@ -12,10 +12,10 @@ import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { RUN_DIFF_LOADING_TITLE, WorkflowRunReview } from "./WorkflowRunReview.js";
-import { type DiffModel } from "../diff-model.js";
+import { type DiffModel } from "../model.js";
 
 /**
  * This body's address arm, narrowed by the pane registry's `PaneContextOf`, so `entity` is
@@ -25,7 +25,7 @@ type DiffPaneContext = PaneContextOf<"diff">;
 
 /**
  * The checkout kinds a diff can view, read off the address rather than listed: a kind added in
- * `routing/panes/pane-address.ts` fails to compile in the table below until its copy exists. A
+ * `routing/panes/address.ts` fails to compile in the table below until its copy exists. A
  * workflow run is drawn by its own body and never reaches this copy.
  */
 type DiffCheckoutKind = Exclude<DiffPaneContext["entity"]["kind"], "workflow-run">;

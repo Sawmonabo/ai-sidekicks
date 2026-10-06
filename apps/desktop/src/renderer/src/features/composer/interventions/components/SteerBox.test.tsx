@@ -6,7 +6,7 @@ import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SteerBox } from "./SteerBox.js";
-import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDispatch.js";
+import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
 import {
   APPLIED_STEER,
   bodyValue,
@@ -17,8 +17,8 @@ import {
   type ScriptedAnswer,
   typeInto,
 } from "./SteerBox.test-support.js";
-import { inertBridge } from "../../composer.test-support.js";
-import { RUN_ID, SECOND_RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
+import { inertBridge } from "../../Composer.test-support.js";
+import { RUN_ID, SECOND_RUN_ID } from "../../run/controls/commands.test-support.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 describe("the form is keyed by what it is composing against", () => {

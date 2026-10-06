@@ -4,11 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
 import {
   AttentionSummary,
   type RefusedAttentionSession,
-} from "#renderer/store/attention/attention-summary.js";
+} from "#renderer/store/attention/summary.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";

@@ -1,5 +1,5 @@
 // When the section reads, what makes it read again, and which answers it drops. What a served
-// answer means is in `services/artifact-reads.test.ts`, so nothing here asserts a row's members.
+// answer means is in `services/reads.test.ts`, so nothing here asserts a row's members.
 
 import { describe, expect, it } from "vitest";
 
@@ -7,7 +7,7 @@ import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifes
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 import { handAnsweredCall } from "#test/helpers/held-calls.js";

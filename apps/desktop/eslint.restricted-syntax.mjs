@@ -139,7 +139,7 @@ export const TIME_READING_SELECTORS = [
     //
     // Both sides must name a stamp, for precision: this tree carries two `…At` figures that are
     // numbers (`dueAt` on the frozen clock's entries in `lib/clock.ts`, `updatedAt` on a
-    // persistence record in `store/persistence/persistence-adapter.ts`) and both are compared
+    // persistence record in `store/persistence/adapter.ts`) and both are compared
     // against a plain identifier, so a one-sided name key would flag them falsely.
     //
     // The third arm is the wrapped form, where one side is enough: a stamp reached through `?? ""`
@@ -411,8 +411,9 @@ export const STYLESHEET_THROUGH_OWNER = {
   message:
     "Mechanical gate 7 in `apps/desktop/AGENTS.md`: a component imports its own sheet from its " +
     "own folder (`X.tsx` imports `./X.css`); a sheet that styles several components of a feature " +
-    "is imported by the feature's top view or its lazily-loaded chunk root (`*-body.ts`); a " +
-    "global sheet in `styles/` is imported by `main.tsx`. A module that reaches into another " +
+    "is imported by the feature's top view in the sheet's folder, or by a chunk root listed in " +
+    "`STYLESHEET_OWNER_FILES` in `eslint.config.mjs`; a global sheet in `styles/` is imported by " +
+    "`main.tsx`. A module that reaches into another " +
     "folder's sheet puts that surface's rules wherever the module loads.",
 };
 

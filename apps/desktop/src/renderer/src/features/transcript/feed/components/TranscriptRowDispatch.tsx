@@ -3,13 +3,13 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
-import { RunGroupHeader } from "../../run-groups/components/RunGroupHeader.js";
-import { type RunGroup } from "../../run-groups/run-groups.js";
+import { RunGroupHeader } from "../../runs/components/RunGroupHeader.js";
+import { type RunGroup } from "../../runs/groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
 import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
-import { type ViewportRow } from "../../viewport/viewport-snapshot.js";
+import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { densityFor } from "../run-group-fold.js";
 import { TranscriptFeedRow } from "./TranscriptFeedRow.js";
 

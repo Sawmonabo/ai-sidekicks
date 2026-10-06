@@ -17,9 +17,9 @@ import {
 import {
   neverRead,
   settledRefusalOf,
-} from "#renderer/store/driver-capabilities/driver-capability-readout.test-support.js";
-import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
-import { declaredFlagsForDriver } from "#renderer/store/driver-capabilities/driver-capability-readings.js";
+} from "#renderer/store/driver-capabilities/readout.test-support.js";
+import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
+import { declaredFlagsForDriver } from "#renderer/store/driver-capabilities/readings.js";
 
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   it("settles a reply that does not parse fail-closed, then re-reads on window focus", async () => {

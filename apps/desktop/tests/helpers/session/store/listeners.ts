@@ -4,7 +4,7 @@
 
 import { vi } from "vitest";
 
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 
 /**
  * Wraps `store.readable` so every later subscription is counted until it is released. Call it

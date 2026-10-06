@@ -6,14 +6,14 @@
 import "./RootRemovalConfirmation.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { OverlayAlertDialogPopup } from "#renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
 import { useConfirmationLifecycle } from "../../hooks/useConfirmationLifecycle.js";
-import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
+import { type RootRemovalOperations, type RootRemovalReading } from "./controller.js";
 import { useRootRemoval } from "./hooks/useRootRemoval.js";
 
 /** What the control says. */

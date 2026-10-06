@@ -4,7 +4,7 @@
 // It renders and does not read, and never renders a payload. A count is a reading, so the
 // head figure and the filter counts render on the `listed` arm alone.
 
-import "./artifacts.css";
+import "./ArtifactsSection.css";
 
 import { useMemo, useState } from "react";
 

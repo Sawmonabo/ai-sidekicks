@@ -5,9 +5,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AirspaceRegistry } from "#renderer/lib/airspace/airspace-registry.js";
+import { AirspaceRegistry } from "#renderer/lib/airspace.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
 import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
 import {
@@ -18,7 +18,7 @@ import {
 } from "./element-motion.test-support.js";
 import { PaneGeometryPublisher } from "./publisher.js";
 import { PAGE_HOST_REFUSAL_ORIGIN, type PageHost } from "./page-host.js";
-import type { PaneRect } from "./pane-geometry.js";
+import type { PaneRect } from "./pane.js";
 import {
   elementWithRect,
   moveElementRect,

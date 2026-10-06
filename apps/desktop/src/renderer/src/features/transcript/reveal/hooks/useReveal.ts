@@ -11,10 +11,10 @@ import { type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { DrawnReplyText, replyCopyFlavorOf } from "../../copy/drawn-reply-text.js";
-import { RevealEngine } from "../reveal-engine.js";
+import { RevealEngine } from "../engine.js";
 import { type RowRevealContextValue } from "../components/RowRevealProvider.js";
 import { type RevealDelta } from "../model.js";
 

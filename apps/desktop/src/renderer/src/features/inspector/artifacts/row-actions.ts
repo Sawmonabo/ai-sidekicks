@@ -17,8 +17,8 @@ import {
   withoutArtifactActInFlight,
   type ArtifactRowActOutcome,
 } from "./list-reading.js";
-import type { ReadArtifact } from "./services/artifact-reads.js";
-import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
+import type { ReadArtifact } from "./services/reads.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifact-payload.js";
 
 /** What the row acts need: the read call and the reader's publishing half. */
 export interface ArtifactRowActionsOptions {

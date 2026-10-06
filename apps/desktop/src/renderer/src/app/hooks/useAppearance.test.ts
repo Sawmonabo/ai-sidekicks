@@ -12,9 +12,9 @@ import { FrameWindows } from "#test/helpers/frame-windows.js";
 import { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
 import { OpenWindows } from "#renderer/services/window/open-windows.js";
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { AppearanceMembers } from "#renderer/services/window/appearance-client.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 import {
   RESOLVED_SCHEME_ATTRIBUTE,
   SCHEME_ATTRIBUTE,

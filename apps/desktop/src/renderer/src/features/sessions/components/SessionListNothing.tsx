@@ -5,7 +5,7 @@
 
 import { type ReactNode } from "react";
 
-import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
 /**

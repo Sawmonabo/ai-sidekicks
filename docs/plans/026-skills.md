@@ -28,7 +28,7 @@ When this plan is done, Skills is a working rail destination. One list shows eve
 
 ### CP-026-1 — Routing arm in [Plan-020](./020-desktop-app-and-renderer.md)-owned files
 
-The icon rail, `rail-navigation.ts` and the routing module are Plan-020's files. The rail has one owner, Plan-020, which builds the Skills item and its place in the keyboard order with the rail's five destinations; this destination consumes that item and needs one routing arm carrying its four addresses; nothing else about skills belongs there.
+The icon rail, `layout/NavigationRail/destinations.ts` and the routing module are Plan-020's files. The rail has one owner, Plan-020, which builds the Skills item and its place in the keyboard order with the rail's five destinations; this destination consumes that item and needs one routing arm carrying its four addresses; nothing else about skills belongs there.
 
 **Resolution.** Plan-020 registers the reciprocal and admits this plan's routing arm, the same way it admits every other plan-owned destination behind its layout. Plan-026 Phase 4 adds exactly that routing arm and edits nothing else in Plan-020's files, and gates on Plan-020 Phase 5 merged so the rail, its Skills item and the router exist before the arm lands.
 

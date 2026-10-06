@@ -14,7 +14,7 @@ import {
   signInAddressOf,
   startControls,
   WIRE_LIMIT_IDS,
-} from "./accounts-fixture-body.test-support.js";
+} from "./AccountsFixtureBody.test-support.js";
 import {
   accountPlaneCalls,
   PROVIDER_SIGN_IN_ATTEMPT,

@@ -14,12 +14,12 @@ import { act, screen } from "@testing-library/react";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
-import type { RepoOperations } from "../repo-operations.js";
-import { scriptedRepoOperations } from "../repo-operations.test-support.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import type { RepoOperations } from "../operations.js";
+import { scriptedRepoOperations } from "../operations.test-support.js";
 import type { PrepareOperations } from "./execution-roots/prepare/controller.js";
-import { RepoMountsReader } from "./repo-mounts-reader.js";
-import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
+import { RepoMountsReader } from "./reader.js";
+import type { RepoWorkspaceRow } from "./reading.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 

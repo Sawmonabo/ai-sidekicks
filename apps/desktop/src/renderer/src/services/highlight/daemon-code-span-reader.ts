@@ -12,9 +12,9 @@ import type { Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { codeSpanCacheByteCap } from "./code-span-cache-cap.js";
 
 /** A window's code-span reader: one daemon read per block, kept in the window's one cache. */

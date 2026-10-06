@@ -6,8 +6,8 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";
-import { composerAttachmentChip } from "./composer-attachment-chip.js";
-import { composeSendAttachmentReference } from "./send-attachment-reference.js";
+import { composerAttachmentChip } from "./chip.js";
+import { composeSendAttachmentReference } from "./send-reference.js";
 
 import "./AttachmentStrip.css";
 

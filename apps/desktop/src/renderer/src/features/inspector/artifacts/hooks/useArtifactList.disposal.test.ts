@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import {
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ID,

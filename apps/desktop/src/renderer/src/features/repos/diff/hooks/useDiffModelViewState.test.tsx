@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 
 import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
 import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
-import type { DiffModel } from "../diff-model.js";
-import { type DiffGapExpansion } from "../row-model.js";
+import type { DiffModel } from "../model.js";
+import { type DiffGapExpansion } from "../rows/model.js";
 import { useDiffModelViewState, type DiffModelViewState } from "./useDiffModelViewState.js";
 
 /** What the probe renders where the whole change set is shown. */

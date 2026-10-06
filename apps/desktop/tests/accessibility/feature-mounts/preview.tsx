@@ -4,8 +4,8 @@
 import type { FunctionComponent } from "react";
 
 import { registerPreviewPanes } from "#renderer/features/preview/contributions/panes.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { unscriptedScenario } from "../../helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";

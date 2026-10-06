@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "./chokepoint.js";
-import type { ScrollGeometry } from "./geometry-sample.js";
-import { createCountingScrollContainer } from "./scroll-container.test-support.js";
+import type { ScrollGeometry } from "./geometry/sample.js";
+import { createCountingScrollContainer } from "./container.test-support.js";
 
 let clock: ManualClock;
 

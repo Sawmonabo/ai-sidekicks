@@ -1,5 +1,7 @@
 // One control in the Preview pane's chrome.
 
+import "./AddressLineButton.css";
+
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 

@@ -82,7 +82,7 @@ export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
  *
  * The stack names the family a rule asks for; which bytes answer is `typeface.ts`'s. The files
  * carry a continuous `wght 100–700` axis, so the 400, 500 and 600 the stylesheets ask for and the
- * 640 that `layout/CommandPalette/command-palette.css` asks for are each a real instance. The
+ * 640 that `layout/CommandPalette/CommandPalette.css` asks for are each a real instance. The
  * sans builds also carry `wdth 85–100`, which nothing asks for.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {

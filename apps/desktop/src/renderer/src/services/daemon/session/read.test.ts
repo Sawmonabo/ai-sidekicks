@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";
-import { RefusalError } from "#renderer/lib/refusal/refusal.js";
+import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { sessionReadThroughDaemon } from "./read.js";
 
 describe("sessionReadThroughDaemon — the base state a store opens on", () => {

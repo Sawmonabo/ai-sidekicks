@@ -11,7 +11,7 @@ import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { readPtyControlChangedPayload } from "#renderer/services/daemon/pty-control-changed-payload.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /** One transition, as the fold reads it. */
 export interface TerminalLeaseTransition {

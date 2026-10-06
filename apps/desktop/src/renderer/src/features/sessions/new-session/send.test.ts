@@ -1,6 +1,6 @@
 // The coalesced send: two calls in order, and what each ending says. `send.ts`
 // holds no state, so these cases drive the ladder through a draft that supplies the choices.
-// What repeated presses do to one draft is `new-session-draft.test.ts`. The counted arm reads
+// What repeated presses do to one draft is `draft.test.ts`. The counted arm reads
 // what reached the wire, since the fixture answers with the same id every time.
 
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import {
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
   PROJECT_REPO_MOUNT,
-} from "./new-session-draft.test-support.js";
+} from "./draft.test-support.js";
 
 describe("NewSessionDraft — the send", () => {
   it("refuses an empty draft without touching the wire", async () => {

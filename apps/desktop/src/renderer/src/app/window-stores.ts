@@ -7,7 +7,7 @@ import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { parseRoute } from "#renderer/routing/routes.js";
 import type { OpenWindow, OpenWindows } from "#renderer/services/window/open-windows.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
+import { WindowStore } from "#renderer/store/window/store.js";
 
 /** One open window and the frame store it draws from. */
 export interface OpenWindowStore {

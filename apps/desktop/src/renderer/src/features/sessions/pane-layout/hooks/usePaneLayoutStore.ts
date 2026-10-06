@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { PaneLayoutStore, type PaneLayoutStoreOptions } from "../pane-layout-store.js";
+import { PaneLayoutStore, type PaneLayoutStoreOptions } from "../store.js";
 
 /**
  * Holds one layout store for the lifetime of the component that owns it.

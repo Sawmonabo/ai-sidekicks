@@ -6,12 +6,12 @@ import { useRef } from "react";
 
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";
 import { CommandList } from "./command-list/components/CommandList.js";
-import { ProviderCommandEnumeration } from "./command-list/provider-command/provider-command-enumeration.js";
-import { WorkflowStartPrefillQuestion } from "./command-list/workflow-command/components/WorkflowStartPrefillQuestion.js";
-import { useWorkflowStartPrefill } from "./command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
+import { ProviderCommandEnumeration } from "./command-list/provider/enumeration.js";
+import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components/WorkflowStartPrefillQuestion.js";
+import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import { composerDraftKey } from "./draft-line/draft-key.js";
 import { useComposerAddress } from "./hooks/useComposerAddress.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";

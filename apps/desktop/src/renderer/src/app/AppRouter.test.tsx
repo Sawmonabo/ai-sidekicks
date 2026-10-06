@@ -28,14 +28,14 @@ import {
 } from "#renderer/features/workflows/WorkflowsScreen.test-support.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
-import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
-import { registerPaneHarnessScreen } from "./pane-harness/register-pane-harness-screen.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneKind } from "#renderer/routing/panes/kinds.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { registerPaneHarnessScreen } from "./pane-harness/register-screen.js";
 import { AppRouter } from "./AppRouter.js";
-import { screenRegistry } from "#renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { screenRegistry } from "#renderer/registries/screens/registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 afterEach(cleanup);
 

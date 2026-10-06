@@ -7,8 +7,8 @@ import { useCallback } from "react";
 
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 
-import type { DiffModel } from "../diff-model.js";
-import { expandGap, type DiffGapExpansion } from "../row-model.js";
+import type { DiffModel } from "../model.js";
+import { expandGap, type DiffGapExpansion } from "../rows/model.js";
 
 /**
  * The subject for a pane holding no diff. A module constant so every diff-less pass is one

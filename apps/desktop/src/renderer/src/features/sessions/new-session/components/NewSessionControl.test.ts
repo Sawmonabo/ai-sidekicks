@@ -13,7 +13,7 @@
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CREATED_SESSION_ID, bridgeFor } from "../new-session-draft.test-support.js";
+import { CREATED_SESSION_ID, bridgeFor } from "../draft.test-support.js";
 import {
   bridgeAnsweringCreateUnreadably,
   bridgeHoldingCreate,

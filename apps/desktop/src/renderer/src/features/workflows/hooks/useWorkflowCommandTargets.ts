@@ -1,9 +1,6 @@
 import { useContext } from "react";
 
-import {
-  WorkflowCommandTargetsContext,
-  type WorkflowCommandTargets,
-} from "../workflow-command-target.js";
+import { WorkflowCommandTargetsContext, type WorkflowCommandTargets } from "../command-target.js";
 
 /**
  * The keyed acts the workflows screen offers to what it draws. Throws when called outside the

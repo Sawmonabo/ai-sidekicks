@@ -6,17 +6,14 @@ import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../run-groups/body.js";
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
-import { type RunGroup } from "../run-groups/run-groups.js";
+import { RUN_GROUP_VISIBLE_ROW_CAP } from "../runs/body.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { type RunGroup } from "../runs/groups.js";
 import { foldRunGroupHeaders, type RunGroupDisclosure } from "./run-group-fold.js";
 import { useRunGroupDisclosure } from "./hooks/useRunGroupDisclosure.js";
-import {
-  transcriptFixtureStampAt,
-  transcriptFixtureStreamCursor,
-} from "../transcript-logs.test-support.js";
+import { transcriptFixtureStampAt, transcriptFixtureStreamCursor } from "../logs.test-support.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
 
 const SESSION_ID = "session-run-group-cap";

@@ -6,12 +6,12 @@
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { PersistenceAdapterError } from "#renderer/store/persistence/persistence-adapter.js";
+import { PersistenceAdapterError } from "#renderer/store/persistence/adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
-import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { refusePersistence } from "#renderer/store/persistence/refusals.js";
 import {
   SCENARIO,

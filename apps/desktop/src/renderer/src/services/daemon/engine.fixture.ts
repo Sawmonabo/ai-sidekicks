@@ -11,16 +11,16 @@
 import { ManualClock, type Clock } from "#renderer/lib/clock.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { parseInstant } from "#renderer/lib/instant.js";
-import { reportTripwire } from "#renderer/lib/tripwires/tripwires.js";
+import { reportTripwire } from "#renderer/lib/tripwires/registry.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.fixture.js";
 import {
   ScenarioDelivery,
   type ScenarioSink,
   type ScenarioSubscribeOptions,
 } from "./event/delivery.fixture.js";
-import type { ScenarioReply } from "./scenario/scenario-reply.fixture.js";
+import type { ScenarioReply } from "./scenario/reply.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";
 
 /**
@@ -108,8 +108,8 @@ export class ScenarioEngine {
    * Subscribe to delivered beats. Returns an idempotent unsubscribe.
    *
    * Follow only by default, catch up, then follow on request, because the two are different
-   * registered subscriptions (named in `session-event-streams.ts`). A disposed engine catches
-   * nothing up, as a catch-up is a delivery; the sink still attaches.
+   * registered subscriptions (named in `services/daemon/session/event/streams.ts`). A disposed
+   * engine catches nothing up, as a catch-up is a delivery; the sink still attaches.
    */
   public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
     return this.#delivery.subscribeToBeats(sink, options?.catchUp === true && !this.#disposed);

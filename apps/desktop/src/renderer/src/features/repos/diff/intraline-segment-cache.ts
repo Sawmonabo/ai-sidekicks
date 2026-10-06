@@ -13,10 +13,10 @@ import {
   wholeLineSegments,
   type DiffModel,
   type DiffIntralineSegment,
-} from "./diff-model.js";
-import { diffHunkAt, diffLineAt } from "./diff-row-index.js";
+} from "./model.js";
+import { diffHunkAt, diffLineAt } from "./rows/flat-index.js";
 import { pairedLineIndexFor } from "./hunk/row-layout.js";
-import type { DiffLineRow } from "./row-model.js";
+import type { DiffLineRow } from "./rows/model.js";
 import { intralineSegments } from "./patch-parse.js";
 
 /** One line's segmentation: the word-level comparison, or the whole line where there is none. */

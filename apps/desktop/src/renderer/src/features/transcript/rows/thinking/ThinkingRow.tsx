@@ -15,7 +15,7 @@ import {
   type ReasoningReading,
 } from "./reasoning-reading.js";
 
-import "./thinking.css";
+import "./ThinkingRow.css";
 
 /** What a mount hands the reasoning row. */
 export interface ThinkingRowProps {

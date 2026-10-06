@@ -8,9 +8,7 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { TerminalPane } from "#renderer/features/terminal/pane/components/TerminalPane.js";
 // The context builder beside the pane answers the `terminal` arm's members in one place.
 import { terminalPaneContext } from "#renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// The pane body, imported for the pane's and the terminal's stylesheets, which these cases measure.
-import "#renderer/features/terminal/pane/terminal-pane-body.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 
 /** The boxes a case measures: the cell, the pane frame, the frame's body region, and the body. */

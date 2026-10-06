@@ -19,7 +19,7 @@ import { RowRevealProvider } from "#renderer/features/transcript/reveal/componen
 import { useAnimationFrameScheduler } from "#renderer/features/transcript/hooks/useAnimationFrameScheduler.js";
 import { useReveal } from "#renderer/features/transcript/reveal/hooks/useReveal.js";
 import { useRowReveal } from "#renderer/features/transcript/reveal/hooks/useRowReveal.js";
-import { revealProse } from "#renderer/features/transcript/reveal/reveal.test-support.js";
+import { revealProse } from "#renderer/features/transcript/reveal/prose.test-support.js";
 import { REVEAL_FRAME_CHARACTER_BUDGET } from "#renderer/features/transcript/reveal/caps.js";
 
 const STREAMING_LANE_ID = "browser-tier-lane";

@@ -4,7 +4,7 @@
 // goes nowhere.
 
 import { RealClock } from "../clock.js";
-import { diagnosticStampAt, windowDiagnosticCapture } from "./diagnostic-capture.js";
+import { diagnosticStampAt, windowDiagnosticCapture } from "./capture.js";
 
 /** A parse's issue list, narrowed to the `path` member a record reads. */
 export type RefusedMemberIssues = readonly { readonly path: readonly PropertyKey[] }[];

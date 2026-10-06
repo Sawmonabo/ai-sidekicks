@@ -1,4 +1,4 @@
-import "./mounted-folders.css";
+import "./MountedFolderList.css";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -11,12 +11,12 @@ import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlemen
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";
-import { type PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import { type PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import {
   createMountInventoryRead,
   type MountInventory,
   type MountInventoryCalls,
-} from "./mount-inventory/mount-inventory.js";
+} from "./mount-inventory/read.js";
 
 /**
  * The list itself: the session's mounts, read and kept current.
@@ -52,10 +52,10 @@ export function MountedFolderList(props: {
       inventoryRead.dispose();
     };
   }, [inventoryRead]);
-  // Focus is the second of the section's three refresh signals: a window that was away may
-  // have missed a mount going unreachable. It goes through the read's scheduler, so a
-  // flurry of focus changes costs one read. The first signal is the session's event stream,
-  // bound by the read (see `mount-inventory.ts`).
+  // Focus is the second of the section's three refresh signals: a window that was away may have
+  // missed a mount going unreachable. It goes through the read's scheduler, so a flurry of focus
+  // changes costs one read. The first signal is the session's event stream, bound by the read (see
+  // `features/settings/pages/runtime/mounted-folders/mount-inventory/read.ts`).
   useEffect(() => {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");

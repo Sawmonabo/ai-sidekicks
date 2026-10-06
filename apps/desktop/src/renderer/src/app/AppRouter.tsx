@@ -19,11 +19,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ScreenNotice } from "#renderer/components/ScreenNotice/ScreenNotice.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import {
-  screenRegistry,
-  findScreenNameForRoute,
-} from "#renderer/registries/screens/screen-registry.js";
-import { type ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { screenRegistry, findScreenNameForRoute } from "#renderer/registries/screens/registry.js";
+import { type ScreenContext } from "#renderer/registries/screens/context.js";
 
 /** The screen context the router resolves the current route against. */
 export interface AppRouterProps {

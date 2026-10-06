@@ -1,0 +1,12 @@
+/* A math block. */
+
+.meridian-math--display {
+  display: block;
+  margin: var(--meridian-space-2) 0;
+  overflow-x: auto;
+}
+
+.meridian-math--source code {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}

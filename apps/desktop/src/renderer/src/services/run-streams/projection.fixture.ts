@@ -1,5 +1,6 @@
-// What a narrowed `daemon.subscribe` stream hands a subscriber. `session-event-streams.ts` says
-// which beats reach a subscription; this module says what reaches it.
+// What a narrowed `daemon.subscribe` stream hands a subscriber.
+// `services/daemon/session/event/streams.ts` says which beats reach a subscription; this module
+// says what reaches it.
 //
 // The two `run.*` streams deliver registered projections (`RunStateChangeEvent`,
 // `RunRolledBackEvent`, `QueueItemSummary`), not the session envelope: they have a top-level
@@ -32,17 +33,17 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   carriedOptionalMembers,
   projectThroughRegisteredShape,
   refuseSessionDisagreement,
   unprojectable,
   unprojectableFor,
-} from "./shapes.js";
-import type { RunStreamProjection } from "./shapes.js";
+} from "./projection.js";
+import type { RunStreamProjection } from "./projection.js";
 import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
-import { runStateForTransitionKind } from "#renderer/store/session-events/run/state-kinds.js";
+import { runStateForTransitionKind } from "#renderer/store/session/events/run/state-kinds.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,

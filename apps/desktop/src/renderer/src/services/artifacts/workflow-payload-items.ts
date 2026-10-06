@@ -9,10 +9,10 @@ import {
   type WorkflowItem,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
 
-import { refuse } from "#renderer/lib/refusal/refusal.js";
-import { callDaemon, type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { readArtifactPayload } from "./artifact-payload-read.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { readArtifactPayload } from "./payload-read.js";
 
 /**
  * Read one step payload's artifact and answer its items, or a refusal: the read's, or

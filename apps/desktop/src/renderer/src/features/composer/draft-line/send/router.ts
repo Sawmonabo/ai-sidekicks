@@ -15,11 +15,7 @@ import {
   readQueueItemCreateRequest,
 } from "#renderer/services/daemon/wire/requests.js";
 import { readRunId, readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
-import type {
-  ComposerRunTarget,
-  ComposerSessionTarget,
-  ComposerTarget,
-} from "../../composer-target.js";
+import type { ComposerRunTarget, ComposerSessionTarget, ComposerTarget } from "../../target.js";
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 import type {
   ConsoleCommandPredicate,

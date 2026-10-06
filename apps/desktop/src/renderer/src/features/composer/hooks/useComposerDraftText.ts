@@ -4,7 +4,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import type { DraftStore } from "#renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/drafts.js";
 
 /** The composer line's text, and the way to read it again. */
 export interface ComposerDraftText {

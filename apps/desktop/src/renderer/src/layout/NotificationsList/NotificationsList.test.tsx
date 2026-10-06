@@ -9,7 +9,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { settle } from "#test/helpers/settle.js";
-import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { NotificationsList } from "./NotificationsList.js";
 import {
   useAttentionProjection,

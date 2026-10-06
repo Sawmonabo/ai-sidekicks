@@ -1,5 +1,5 @@
 // The three reads behind the Agents pane and what refreshes each one. How long a read
-// lives is `pane/agents-pane-models.ts`'s concern. The clock is the caller's: no factory
+// lives is `pane/models.ts`'s concern. The clock is the caller's: no factory
 // reads one of its own, so the scenario clock drives every debounce.
 
 import {
@@ -15,14 +15,14 @@ import type {
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Clock } from "#renderer/lib/clock.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
-import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session-events/run/state-kinds.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
-import { heldIdAsWireId } from "#renderer/services/daemon/wire/ids.js";
-import { subscribeToSessionEventKinds } from "#renderer/store/session/event-signal.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
+import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
+import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
+import { subscribeToSessionEventKinds } from "#renderer/store/session/events/signal.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import type { DriverCatalogReading } from "./binding/driver-catalog.js";
 
 /**

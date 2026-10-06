@@ -1,0 +1,42 @@
+/* The loaded transcript feed's grid. */
+
+/*
+ * The whole feed for one session: the find strip and window notice, then the scrolling window.
+ * A grid, because a flex child that could grow would take height back from the window whenever
+ * the strip toggles, moving every row on screen.
+ */
+.meridian-transcript-feed {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * Everything above the window: the find strip, its unreachable-match counts, and the notice of
+ * rows the window let go. One box so the first track holds however many are up; a grid so each
+ * keeps its feed-item box, stretched, with no margin collapsing into a neighbor's.
+ */
+.meridian-transcript-feed__head {
+  display: grid;
+  min-width: 0;
+}
+
+/*
+ * The window's own track. `minmax(0, 1fr)` rather than `1fr`, which floors at min-content
+ * height and would grow the row instead of letting the viewport scroll. One shared cell: the
+ * skeleton lies over the empty viewport before the first read, so the focusable scroll
+ * container keeps the whole window.
+ */
+.meridian-transcript-feed__body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-transcript-feed__body > * {
+  grid-area: 1 / 1;
+}

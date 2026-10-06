@@ -10,11 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
-import { CommandRegistry } from "#renderer/registries/commands/command-registry.js";
+import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { parseChord } from "#renderer/registries/keybindings/chord.js";
-import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import type { WorkflowCommandTargets } from "../workflow-command-target.js";
+import type { WorkflowCommandTargets } from "../command-target.js";
 import { mountWorkflowsScreen } from "../WorkflowsScreen.test-support.js";
 import { createWorkflowCommands } from "./commands.js";
 import { WORKFLOW_KEY_BINDINGS } from "./keybindings.js";

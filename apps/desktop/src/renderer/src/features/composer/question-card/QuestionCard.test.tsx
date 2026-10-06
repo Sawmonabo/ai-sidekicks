@@ -11,7 +11,7 @@ import {
   UNSENT_ANSWER_DELIVERY,
   type AnswerDelivery,
   type QuestionReading,
-} from "#renderer/store/session-events/question-reading.js";
+} from "#renderer/store/session/events/question-reading.js";
 import { QuestionCard } from "./QuestionCard.js";
 
 const OPEN_QUESTION: QuestionReading = {

@@ -1,0 +1,203 @@
+/* A diff's rows: gutter, line text, split cells and step marks. Colors come from the custom
+ * properties set on the root here. */
+
+/*
+ * Two-hue rule: amber means "a person is needed", red "something failed", and a deleted line is
+ * neither. Insert versus delete is carried by three non-hue signals: the sign in the marker
+ * column, the weight of the cell's ground, and the style of the marker column's rule. The
+ * grounds are mixed from `--meridian-text` so the pair tracks the scheme.
+ *
+ * Declared on `:root` because `color-mix()` resolves against the element it is declared on and
+ * the assets tier reads defined names out of stylesheets; a component-scoped property could
+ * resolve differently wherever a theme override lands.
+ */
+:root {
+  --meridian-diff-insert-ground: color-mix(in oklch, var(--meridian-text) 5%, transparent);
+  --meridian-diff-delete-ground: color-mix(in oklch, var(--meridian-text) 11%, transparent);
+  --meridian-diff-changed-ground: color-mix(in oklch, var(--meridian-text) 16%, transparent);
+}
+
+/*
+ * The step that changed the file, on a workflow run's comparison, in the file list and on the
+ * file header alike: a quiet mark, never a hue, that gives way to the path where room runs out.
+ */
+.meridian-diff__step-mark {
+  position: relative;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-diff {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+  /* Explicit on both axes: a long line wraps, and an unbreakable token overflows horizontally
+     instead of being clipped (`DiffRenderer.tsx` never clips). */
+  overflow: auto;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  line-height: var(--meridian-diff-row-height);
+}
+
+.meridian-diff--empty {
+  overflow: hidden;
+  padding: var(--meridian-space-4);
+}
+
+.meridian-diff__content {
+  position: relative;
+}
+
+.meridian-diff__row {
+  display: flex;
+  align-items: stretch;
+  min-block-size: var(--meridian-diff-row-height);
+  white-space: pre-wrap;
+}
+
+.meridian-diff__row--file {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  gap: var(--meridian-space-2);
+  padding-inline: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-weight: 600;
+}
+
+.meridian-diff__file-path {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-diff__file-change {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-diff__row--hunk,
+.meridian-diff__row--gap {
+  padding-inline: var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-diff__gap-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* The kind modifier rides the cell, not the row: a split row pairs a deletion with an
+   insertion. A unified row has one cell that fills it. */
+.meridian-diff__side--insert {
+  background: var(--meridian-diff-insert-ground);
+}
+
+.meridian-diff__side--delete {
+  background: var(--meridian-diff-delete-ground);
+}
+
+.meridian-diff__side {
+  display: flex;
+  flex: 1 1 50%;
+  min-inline-size: 0;
+}
+
+.meridian-diff__side--unified {
+  flex-basis: 100%;
+}
+
+.meridian-diff--split .meridian-diff__side--base {
+  border-inline-end: 1px solid var(--meridian-edge);
+}
+
+/*
+ * Line numbers are content, not decoration: a reviewer arrives by number. `text-faint` failed
+ * the 4.5:1 floor on the insert and delete tints, which the palette contrast test does not
+ * cover (the accessibility tier measured it), so the gutter uses `text-muted`.
+ */
+.meridian-diff__gutter {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--meridian-space-1);
+  inline-size: 4rem;
+  padding-inline-end: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  user-select: none;
+}
+
+.meridian-diff__text {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/*
+ * The marker column and its rule. The rule's style is the grayscale-safe half of the
+ * insert/delete signal: solid for an insertion, dashed for a deletion, absent on context.
+ */
+.meridian-diff__marker {
+  display: inline-block;
+  flex: 0 0 auto;
+  inline-size: var(--meridian-space-4);
+  border-inline-start: 2px solid transparent;
+  padding-inline-start: var(--meridian-space-1);
+  color: var(--meridian-text);
+  font-weight: 600;
+}
+
+.meridian-diff__side--insert .meridian-diff__marker {
+  border-inline-start-style: solid;
+  border-inline-start-color: var(--meridian-edge-strong);
+}
+
+.meridian-diff__side--delete .meridian-diff__marker {
+  border-inline-start-style: dashed;
+  border-inline-start-color: var(--meridian-edge-strong);
+}
+
+.meridian-diff__code {
+  min-inline-size: 0;
+  font-family: var(--meridian-font-mono);
+}
+
+/*
+ * The patch's terminator annotation, after the code like the badge above. Sans and faint so it
+ * reads as the console speaking about the line, not characters the file contains; on a
+ * newline-only change that distinction is the row's whole point.
+ */
+.meridian-diff__no-newline {
+  flex: 0 0 auto;
+  margin-inline-start: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* Intraline: a heavier ground on the run that changed, never a hue. */
+.meridian-diff__segment--changed {
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-diff-changed-ground);
+}

@@ -6,8 +6,8 @@
 import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
-import type { WorkflowCommandTarget, WorkflowCommandTargets } from "../workflow-command-target.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
+import type { WorkflowCommandTarget, WorkflowCommandTargets } from "../command-target.js";
 import { WHEN_ON_WORKFLOWS, WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 

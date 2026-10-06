@@ -11,7 +11,7 @@
 // first sentence twice.
 //
 // Always polite: an incomplete reading changes only what one view claims about itself, not
-// what the person can do, which is the assertive lane (`live-announcer.ts`).
+// what the person can do, which is the assertive lane (`components/LiveAnnouncer/announcer.ts`).
 //
 // `useSettlementAnnouncement.ts` composes one sentence over this latch.
 

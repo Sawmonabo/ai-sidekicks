@@ -2,12 +2,12 @@
 // browser-tier suites that mount the pane inside a sized box, and the bridge the hook suites
 // scope their state to.
 
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
-import type { PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import type { PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { paneContext } from "#test/helpers/pane-context.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 
 /**
  * The context over the shared builder. `terminal` is session-scoped, so its address carries no

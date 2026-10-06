@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DurableViewState } from "#renderer/store/persistence/durable-view-state.js";
 import type { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
@@ -9,7 +9,7 @@ import {
   narrowRunFilters,
   persistedRunFilters,
   type RunFilters,
-} from "../run-filters.js";
+} from "../filters.js";
 
 /** The runs table's filters, the act that changes them, and the last refused write. */
 export interface RunFiltersHold {

@@ -2,7 +2,7 @@
 // is for a case that only needs somewhere durable to write; `openStoreOver` is for a case whose
 // subject is what survives on an adapter it holds (a re-open, a second reader).
 
-import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 
 /** A store over a fresh memory adapter. `capacityBytes` sets the quota for quota cases. */

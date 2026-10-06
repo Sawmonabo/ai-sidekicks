@@ -4,12 +4,7 @@
 // leaving a reader to conclude the worktree has none.
 
 import { EntityRecord } from "./EntityRecord.js";
-import {
-  instantFacet,
-  readBodyMember,
-  wireFacet,
-  type EntityDetailProps,
-} from "../entity-facets.js";
+import { instantFacet, readBodyMember, wireFacet, type EntityDetailProps } from "../facets.js";
 
 /** The worktree record body: worktree, workspace, actor and last touch. */
 export function WorktreeEntityDetail(props: EntityDetailProps): React.JSX.Element {

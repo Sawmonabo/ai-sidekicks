@@ -8,8 +8,8 @@
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import type { CommandDefinition } from "#renderer/registries/commands/types.js";
-import type { ComposerTarget } from "../composer-target.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
+import type { ComposerTarget } from "../target.js";
 
 /** One act this console performs, offered where the composer is mounted. */
 export interface ConsoleCommandEntry {

@@ -1,7 +1,4 @@
-/*
- * The workflows feature's shared chrome: the state strip's column and the mount point frame.
- * Every chunk root of the feature imports this file, and it imports nothing. Nothing animates.
- */
+/* The state strip: the column every workflows body is, and its summary line. */
 
 /*
  * The column every workflows body is. It carries its own inset: `.meridian-pane__body` has no
@@ -20,16 +17,4 @@
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
-}
-
-/*
- * A dotted boundary, not a filled panel, so an empty mount point does not compete with regions
- * that hold something.
- */
-.meridian-workflow__mount-point {
-  display: flex;
-  flex-direction: column;
-  padding: var(--meridian-space-4);
-  border: 1px dashed var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
 }

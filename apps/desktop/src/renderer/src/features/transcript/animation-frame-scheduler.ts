@@ -15,7 +15,7 @@ import {
   recordFrameTime,
   retireFrameTimeSeries,
   retireRevealDrainSeries,
-} from "#renderer/lib/performance-meters/performance-meters.js";
+} from "#renderer/lib/performance-meters/registry.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 
 /** The frame's phases in run order; a phase's index is its precedence. */

@@ -5,7 +5,7 @@ import { Switch } from "#renderer/components/Switch/Switch.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { WorkflowCallState } from "../hooks/useWorkflowCall.js";
 import type { NextWaiting } from "../hooks/useWorkflowsScreen.js";
-import type { WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
+import type { WorkflowNoticeFeedState } from "../notice-feed.js";
 import { ActionButton } from "./ActionButton.js";
 
 /**

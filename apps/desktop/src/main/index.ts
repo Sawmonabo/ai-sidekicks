@@ -1,11 +1,12 @@
-// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts` asserts
-// its Electron calls: the renderer scheme's registration at module top level, before `app.ready`,
-// then the profile keyed to the install, main's log, the crash reporter and the single-instance
-// lock, then the kept appearance, the registry of windows and its lifecycle, so a second launch
-// during start is heard; inside `whenReady()`, in order, `installRendererProtocol`,
+// Electron main-process entrypoint. Startup order is load-bearing and `index.test.ts` asserts its
+// Electron calls: the renderer scheme's registration at module top level, before `app.ready`, then
+// the profile keyed to the install, main's log, the crash reporter and the single-instance lock,
+// then the kept appearance, the registry of windows and its lifecycle, so a second launch during
+// start is heard; inside `whenReady()`, in order, `installRendererProtocol`,
 // `installApplicationMenu`, the bridge handlers, the hidden window, whose console document opens
-// every window a person sees, and the background service's start and watch. Electron refuses a scheme registered after ready, and a
-// window created before the handler is installed loads against an unhandled scheme.
+// every window a person sees, and the background service's start and watch. Electron refuses a
+// scheme registered after ready, and a window created before the handler is installed loads against
+// an unhandled scheme.
 
 import { homedir, totalmem } from "node:os";
 import path from "node:path";

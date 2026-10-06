@@ -18,45 +18,42 @@
 //   4. The adapter is resolved once, not swapped; see `UiStateStoreOptions.adapter`.
 //
 // The class decides whether a write lands; classifying and counting refusals is
-// `persistence-health.ts`.
+// `health.ts`.
 
 import { PERSISTENCE_RECORD_BYTE_CAP, PERSISTENCE_SESSION_PARTITION_CAP } from "./caps.js";
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
   type PersistenceAdapter,
   type QuotaGauge,
   type StoredRecord,
-} from "./persistence-adapter.js";
-import { validatePersistedAddress } from "./persisted-value-classes.js";
-import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
-import {
-  openUiStateDatabase,
-  type OpenUiStateDatabaseOptions,
-} from "./indexeddb-persistence-adapter.js";
+} from "./adapter.js";
+import { validatePersistedAddress } from "./value-classes.js";
+import { MemoryPersistenceAdapter } from "./memory-adapter.js";
+import { openUiStateDatabase, type OpenUiStateDatabaseOptions } from "./indexeddb-adapter.js";
 import {
   PERSISTENCE_READ_ABSENT,
   PERSISTENCE_READ_FAILED,
   recordFromReadOutcome,
   type PersistenceReadOutcome,
-} from "./persistence-read-outcome.js";
+} from "./read-outcome.js";
 import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 import {
   PersistenceHealthTracker,
   REFUSED_ADDRESS_SITE,
   type PersistenceHealth,
-} from "./persistence-health.js";
+} from "./health.js";
 import {
   measureRecordByteLength,
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
-} from "./persisted-value-classes.js";
+} from "./value-classes.js";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =

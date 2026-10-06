@@ -1,0 +1,26 @@
+/* The browser settings page. No literal color: every value comes from a Meridian custom
+ * property. */
+
+.meridian-browser-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-6);
+  max-inline-size: 52rem;
+  padding: var(--meridian-space-5);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-browser-settings__section-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  letter-spacing: var(--meridian-tracking-heading);
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}

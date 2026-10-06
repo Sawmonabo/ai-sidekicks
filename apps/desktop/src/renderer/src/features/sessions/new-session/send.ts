@@ -1,4 +1,4 @@
-// The first send: two calls, in order, reported as one act. `new-session-draft.ts` owns what a
+// The first send: two calls, in order, reported as one act. `draft.ts` owns what a
 // person chose and the coalescing; this module owns what the choices become on the wire and
 // which answer ends the send, and `settlement.ts` owns the words it settles in.
 // It holds no state.
@@ -12,8 +12,8 @@
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionBinding } from "@ai-sidekicks/contracts/session/directory";
-import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/daemon-reply.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type FirstTurnQueueCall } from "./control-contract.js";
 import {

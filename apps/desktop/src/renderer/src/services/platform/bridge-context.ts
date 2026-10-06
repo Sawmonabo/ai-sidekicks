@@ -3,8 +3,8 @@
 import { createContext, type Context } from "react";
 
 import type { Clock } from "#renderer/lib/clock.js";
-import type { SessionDiagnostics } from "../session-events/session-diagnostics-handle.js";
-import type { PlatformBridge } from "./platform-bridge.js";
+import type { SessionDiagnostics } from "../session-events/diagnostics-handle.js";
+import type { PlatformBridge } from "./bridge.js";
 
 /** Why the window has no bridge at all. Rendered as the "error" kind of nothing. */
 export interface BridgeUnavailable {

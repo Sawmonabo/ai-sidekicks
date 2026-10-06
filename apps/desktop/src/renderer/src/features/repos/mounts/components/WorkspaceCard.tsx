@@ -3,9 +3,11 @@
 // mount, and a mismatching mount reaches this row as `stale` plus `lastError`. The root line
 // prints the row's own `fsRoot`, never derived from the mount's `canonicalRoot`.
 
+import "./WorkspaceCard.css";
+
 import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -13,7 +15,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { type BindControlAvailability } from "../health.js";
 import { PrepareExecutionRoot } from "../execution-roots/prepare/PrepareExecutionRoot.js";
 import type { PrepareOperations } from "../execution-roots/prepare/controller.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member

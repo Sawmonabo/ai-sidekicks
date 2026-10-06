@@ -15,14 +15,14 @@
 // snapshot from an older build is expected input. The session screen records them in the
 // window's diagnostic capture.
 
-import { isRefusal, refuse, type NarrowedRefusal } from "#renderer/lib/refusal/refusal.js";
+import { isRefusal, refuse, type NarrowedRefusal } from "#renderer/lib/refusal/contract.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
-import { isEphemeralPaneKind, isPaneKind } from "#renderer/routing/panes/pane-kinds.js";
-import { parsePaneAddress } from "#renderer/routing/panes/parse-pane-address.js";
+import { isEphemeralPaneKind, isPaneKind } from "#renderer/routing/panes/kinds.js";
+import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import {
   encodePaneEntity,
   readPaneEntityCandidate,
-} from "#renderer/routing/panes/pane-entity-record.js";
+} from "#renderer/routing/panes/entity-record.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./measures.js";
 import { isPaneLayoutDensity } from "./density.js";
 import {
@@ -31,7 +31,7 @@ import {
   paneAddressKey,
   type PaneLayoutState,
   type SessionPane,
-} from "./pane-layout.js";
+} from "./state.js";
 
 /**
  * The snapshot grammar's version. Bump it whenever a member's meaning changes; a restore of any

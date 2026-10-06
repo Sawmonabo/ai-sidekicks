@@ -5,7 +5,7 @@
 
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /** Origin of every refusal the composer itself raises. */
 export const COMPOSER_REFUSAL_ORIGIN = "composer";

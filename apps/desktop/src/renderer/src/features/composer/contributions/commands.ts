@@ -5,7 +5,7 @@
 // answered by a focus listener existing, and an ask nobody listens for is dropped.
 
 import type { CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import type { CommandDefinition } from "#renderer/registries/commands/types.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { requestComposerFocus } from "../focus-requests.js";
 
 /**

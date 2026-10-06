@@ -3,13 +3,13 @@ import type { ReactNode } from "react";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpToolReading, McpToolSettingSource } from "@ai-sidekicks/contracts/mcp/server";
-import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import {
   APPROVAL_MODE_WORDS,
   IDEMPOTENCY_CLASS_WORDS,
   TOOL_SETTING_SOURCE_WORDS,
 } from "../../tool-setting-words.js";
-import type { McpMutationOutcome } from "../mcp-mutation.js";
+import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 
 /**

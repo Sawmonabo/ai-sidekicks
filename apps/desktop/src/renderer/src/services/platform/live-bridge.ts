@@ -6,7 +6,7 @@
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "#shared/fixture-launch.js";
 import type { PreloadApi } from "#shared/preload-api.js";
-import type { PlatformBridge } from "./platform-bridge.js";
+import type { PlatformBridge } from "./bridge.js";
 import { TransportReconnectSignal } from "../transport/reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */

@@ -6,13 +6,13 @@ import { StrictMode, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import {
   useStagedAttachments,
   type StagedAttachmentsBinding,
 } from "./hooks/useStagedAttachments.js";
-import type { AttachmentIngestPort } from "./services/attachment-ingest-answer.js";
+import type { AttachmentIngestPort } from "./services/ingest-port.js";
 import { bridgeOnClock, type BridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {
   INGEST_SESSION_ID,

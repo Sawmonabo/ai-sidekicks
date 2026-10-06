@@ -4,7 +4,7 @@
 // reports hundreds of rows "inserted" after a prune and pins history over a page that never
 // arrived (measured, after a window trimmed 4000 rows to 400: the prune deferral never lifted).
 
-import { countInsertedBefore, type ViewportRow } from "./viewport-snapshot.js";
+import { countInsertedBefore, type ViewportRow } from "./snapshot.js";
 
 /** What one reconcile learned about the front of the window. */
 export interface HeadInsertionReading {

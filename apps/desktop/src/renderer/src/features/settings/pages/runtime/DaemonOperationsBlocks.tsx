@@ -27,7 +27,7 @@ import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButt
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
 import type { DaemonOperations, DaemonStatusReading } from "./daemon-status-read.js";

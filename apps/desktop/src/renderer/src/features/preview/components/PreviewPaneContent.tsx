@@ -24,13 +24,13 @@ import { PageTabStrip } from "./PageTab/PageTabStrip.js";
 import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */

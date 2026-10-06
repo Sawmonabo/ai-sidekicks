@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { definition } from "./agent-library.test-support.js";
+import { definition } from "./AgentLibrary.test-support.js";
 import { projectDefinitionRows } from "./definition-rows.js";
 
 describe("the registry projection — what a row carries", () => {

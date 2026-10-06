@@ -15,7 +15,7 @@ import type {
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
 import type { ImportProgressStream, ImportProgressSubscribeCall } from "./progress.js";
-import { chooseProvider } from "./provider-import.test-support.js";
+import { chooseProvider } from "./ProviderImportPanel.test-support.js";
 import { settle } from "#test/helpers/settle.js";
 
 /** The id the stubbed start answers with. */

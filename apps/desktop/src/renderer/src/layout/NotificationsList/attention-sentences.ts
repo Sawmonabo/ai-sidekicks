@@ -8,7 +8,7 @@ import {
   answeredReadingStates,
   ATTENTION_SUBJECT,
   type AnsweredAttentionReading,
-} from "#renderer/store/attention/attention-summary.js";
+} from "#renderer/store/attention/summary.js";
 
 /**
  * One settled attention read, in one sentence for the polite lane, or `undefined` when

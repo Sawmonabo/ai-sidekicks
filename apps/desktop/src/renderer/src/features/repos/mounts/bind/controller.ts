@@ -6,8 +6,8 @@ import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mo
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkspaceBindResponse } from "@ai-sidekicks/contracts/repo/workspace";
 
-import { ActController } from "#renderer/features/repos/acts/act-controller.js";
-import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";
+import { ActController } from "#renderer/features/repos/acts/controller.js";
+import type { RepoOperations } from "#renderer/features/repos/operations.js";
 
 /** The one call this controller makes. */
 export type BindOperations = Pick<RepoOperations, "bindWorkspace">;

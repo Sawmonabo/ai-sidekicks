@@ -11,9 +11,9 @@ import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/interve
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";
-import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/attachment-ingest-acknowledgement.js";
-import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/attachment-ingest-answer.js";
-import { AttachmentIngestClient } from "#renderer/features/composer/attachments/attachment-ingest-client.js";
+import type { ChunkAcknowledgement } from "#renderer/features/composer/attachments/services/ingest-acknowledgement.js";
+import type { AttachmentIngestPort } from "#renderer/features/composer/attachments/services/ingest-port.js";
+import { AttachmentIngestClient } from "#renderer/features/composer/attachments/ingest-client.js";
 import {
   attachmentSourceFrom,
   type AttachmentSource,

@@ -9,12 +9,9 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
-import {
-  RefreshScheduler,
-  type RefreshReason,
-} from "#renderer/lib/reads/refresh/refresh-scheduler.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type ReadRound } from "#renderer/lib/reads/scope.js";
+import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   type ReadTriggerTarget,

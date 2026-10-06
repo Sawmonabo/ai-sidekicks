@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { detectConflicts, prepareBindings } from "./conflicts.js";
-import type { Keybinding } from "../commands/types.js";
+import type { Keybinding } from "../commands/keybinding.js";
 
 /** One binding, so each test names only what it is about. */
 function binding(chord: string, commandId: string, when?: string): Keybinding {

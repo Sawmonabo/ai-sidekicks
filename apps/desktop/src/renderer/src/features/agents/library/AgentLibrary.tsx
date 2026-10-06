@@ -4,9 +4,11 @@
 // read on mount and again only after a delete the daemon applied. Delete asks in the row, not a
 // dialog: the row is the subject, so a person can still read what they are about to delete.
 
+import "./AgentLibrary.css";
+
 import type { ReactNode } from "react";
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type AgentRegistryCalls } from "./view.js";
 import { useAgentLibraryView } from "./hooks/useAgentLibraryView.js";
 import { useDefinitionSettlementAnnouncement } from "./hooks/useDefinitionSettlementAnnouncement.js";

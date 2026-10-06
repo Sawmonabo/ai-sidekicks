@@ -8,7 +8,7 @@
 
 import "./SessionHeader.css";
 
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { SessionHeaderIdentity } from "./SessionHeaderIdentity.js";
 import { SessionHeaderSkeleton } from "./SessionHeaderSkeleton.js";
 

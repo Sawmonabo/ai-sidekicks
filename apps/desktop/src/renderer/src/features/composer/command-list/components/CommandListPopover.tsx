@@ -9,9 +9,9 @@ import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
-import { createConsoleCommandExecutor } from "../console-command/executor.js";
-import { noComposerCommandLineHandlers } from "../composer-command-line-handlers.js";
-import { type ComposerCommands } from "../composer-commands.js";
+import { createConsoleCommandExecutor } from "../console/executor.js";
+import { noComposerCommandLineHandlers } from "../line-handlers.js";
+import { type ComposerCommands } from "../registry-view.js";
 import {
   composeCommandList,
   filterCommandList,
@@ -21,7 +21,7 @@ import {
   type CommandListEntry,
 } from "../entries.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
-import { type ProviderCommandReadState } from "../provider-command/read.js";
+import { type ProviderCommandReadState } from "../provider/read.js";
 import { EnumerationState } from "./EnumerationState.js";
 
 /**

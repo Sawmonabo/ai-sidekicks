@@ -2,7 +2,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
-import { type SessionListRow } from "../rows/session-rows.js";
+import { type SessionListRow } from "../rows/list-row.js";
 
 /**
  * A row's facts. The touched-at instant carries its day (`formatDateTime`), because the list

@@ -2,12 +2,12 @@
 //
 // The keys are the kinds the inspector's address admits, so a kind added to it fails to compile
 // until it has a record body. Details never import this table; `EntityDetailProps` lives in
-// `entity-facets.ts` to keep that dependency one way.
+// `facets.ts` to keep that dependency one way.
 
-import type { PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
+import type { PaneContextOf } from "#renderer/registries/panes/body-for-kind.js";
 import { WorkspaceEntityDetail } from "./components/WorkspaceEntityDetail.js";
 import { WorktreeEntityDetail } from "./components/WorktreeEntityDetail.js";
-import type { EntityDetailProps } from "./entity-facets.js";
+import type { EntityDetailProps } from "./facets.js";
 
 /** One kind's record body. Every detail takes the same props and renders its own. */
 export type EntityDetailComponent = (props: EntityDetailProps) => React.JSX.Element;

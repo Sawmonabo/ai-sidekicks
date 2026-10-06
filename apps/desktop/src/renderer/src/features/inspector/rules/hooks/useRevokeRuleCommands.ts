@@ -7,17 +7,17 @@
 import { useMemo } from "react";
 
 import { useRegisterCommands } from "#renderer/registries/commands/hooks/useRegisterCommands.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { APPROVAL_COMMAND_GROUP } from "#renderer/lib/approval-vocabulary.js";
-import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
+import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import {
   REVOKE_RULE_COMMAND_OWNER,
   askToRevokeFromCommand,
   revokeRuleCommandRows,
   type RevokeRuleCommandInput,
   type RevokeRuleCommandRow,
-} from "../contributions/revoke-rule-commands.js";
+} from "../contributions/commands.js";
 
 /** Contribute a row per revocable rule for as long as the list is mounted. */
 export function useRevokeRuleCommands(input: RevokeRuleCommandInput): void {

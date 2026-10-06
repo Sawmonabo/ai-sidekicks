@@ -14,7 +14,7 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
-import type { McpMutationOutcome } from "./mcp-mutation.js";
+import type { McpMutationOutcome } from "./mutation.js";
 import { MutationOutcomeLine } from "./components/MutationOutcomeLine.js";
 import { ServerLegs } from "./components/ServerLegs.js";
 

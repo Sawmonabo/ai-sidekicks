@@ -15,8 +15,8 @@
 // state with the state it had before the window opened.
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
-import type { ProjectedSessionEvent } from "./entities/entities.js";
-import { WaitingOnPersonRegister } from "./waiting-on-person/waiting-on-person-register.js";
+import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
+import { WaitingOnPersonRegister } from "./waiting-on-person/register.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import { capTranscript, type SessionStoreState, type TranscriptRetainedEnd } from "./state.js";
 

@@ -5,8 +5,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { settle as settleReactWork } from "#test/helpers/settle.js";
 import { fixturePreviewBridge } from "../PreviewPane.test-support.js";
 import { usePreviewPaneActs } from "./usePreviewPaneActs.js";

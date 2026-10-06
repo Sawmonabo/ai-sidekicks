@@ -4,6 +4,8 @@
 // component names the region and leaves the live text to xterm's own `aria-live` region, since
 // announcing the grid again would read every cell twice.
 
+import "./XtermMountPoint.css";
+
 import { useEffect, useRef, useState } from "react";
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";

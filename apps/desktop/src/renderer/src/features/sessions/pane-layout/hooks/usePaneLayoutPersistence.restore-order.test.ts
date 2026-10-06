@@ -4,7 +4,7 @@
 // being read, and a restore landing after the person arranged the layout takes the
 // arrangement away with no error. Every case drives the real hook against a real
 // `PaneLayoutStore` and store, because the failure is in how the two effects interleave.
-// `coalescing-layout-writer.test.ts` holds the writer's claims and
+// `features/sessions/pane-layout/coalescing-writer.test.ts` holds the writer's claims and
 // `usePaneLayoutPersistence.read-failure.test.ts` the read that never landed; all mount
 // through `usePaneLayoutPersistence.test-support.tsx`.
 
@@ -12,8 +12,8 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
-import { PANE_LAYOUT_RECORD_KEY } from "../layout-persistence.js";
+import { type PaneLayoutStore } from "../store.js";
+import { PANE_LAYOUT_RECORD_KEY } from "../persistence.js";
 import {
   RESTORE_SESSION_ID,
   createPaneLayoutStore,

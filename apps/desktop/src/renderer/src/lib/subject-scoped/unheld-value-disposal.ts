@@ -21,7 +21,7 @@
 
 import { wireRejectionToError } from "../wire/errors.js";
 
-import { reportTripwire } from "../tripwires/tripwires.js";
+import { reportTripwire } from "../tripwires/registry.js";
 
 /** The site name a tripwire report from this module carries. */
 const SITE = "lib/subject-scoped/unheld-value-disposal.ts";

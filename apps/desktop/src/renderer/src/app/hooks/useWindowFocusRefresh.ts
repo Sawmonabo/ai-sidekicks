@@ -1,14 +1,14 @@
 // Window focus as a refresh reason, bound once per window so no view arms a listener of its own.
 //
 // The re-read rides the transition into focus, not the event: a window that never lost focus
-// missed nothing, and re-reading on every focus event would be the poll this design refuses.
+// missed nothing, so re-reading on every focus event would be wasted work.
 // The store's `isWindowFocused` holds whether the window was focused, so no second copy is kept.
 // A destination's listener would stop hearing the transition once a person navigated away.
 
 import { useEffect } from "react";
 
-import type { WindowStore } from "#renderer/store/window/window-store.js";
-import type { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
+import type { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 
 /**
  * Arm `ownerWindow`'s focus transition for the frame's lifetime.

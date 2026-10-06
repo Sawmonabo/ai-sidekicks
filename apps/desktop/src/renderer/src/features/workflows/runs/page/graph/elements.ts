@@ -20,7 +20,7 @@ import {
 import { formatCompactCount } from "#renderer/lib/wire/figures.js";
 import { itemCountWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
-import type { RunGraphNodeView } from "./model.js";
+import type { RunGraphNodeView } from "./node-views.js";
 
 /**
  * What a node carries into its own renderer.

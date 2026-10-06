@@ -2,9 +2,10 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
-import { CommandRegistry } from "./command-registry.js";
-import type { CommandDefinition, Keybinding } from "./types.js";
-import { commandRegistry } from "./window-command-registry.js";
+import { CommandRegistry } from "./registry.js";
+import type { Keybinding } from "./keybinding.js";
+import type { CommandDefinition } from "./definition.js";
+import { commandRegistry } from "./registry.js";
 
 /** One owner's commands and chords, contributed together so no chord names a missing command. */
 export interface CommandContribution {

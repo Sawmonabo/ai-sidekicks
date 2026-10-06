@@ -12,8 +12,8 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import type { RefreshReason } from "#renderer/lib/reads/refresh/refresh-scheduler.js";
-import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
+import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import {

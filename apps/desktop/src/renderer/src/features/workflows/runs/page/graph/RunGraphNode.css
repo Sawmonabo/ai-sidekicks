@@ -1,0 +1,198 @@
+/*
+ * A run graph node. Its ring says what its latest step is doing, and its state line says the same
+ * in words, so no state rests on color alone. Amber is only for a step waiting on a person, red
+ * only for a failure, and the accent only for a running step.
+ *
+ * A node is part of the drawing, not chrome: its type, spacing and corner come from
+ * `--meridian-workflow-canvas-*` measures in canvas units (`canvas/measures.ts`), so only the zoom
+ * scales them and a larger text size never pushes its lines past its box. Its breathing ring holds
+ * still while the canvas is scrolled out of view (`data-in-view`, written by `useInViewMarks`).
+ */
+
+.meridian-run-graph-node {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-workflow-canvas-space-1);
+  justify-content: center;
+  box-sizing: border-box;
+  block-size: 100%;
+  inline-size: 100%;
+  padding: var(--meridian-workflow-canvas-space-2) var(--meridian-workflow-canvas-space-3);
+  background: var(--meridian-surface);
+  border: var(--meridian-workflow-canvas-ring) solid var(--meridian-edge);
+  border-radius: var(--meridian-workflow-canvas-radius-sm);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  /* A click selects the node, so it reads as something to press. */
+  cursor: pointer;
+}
+
+/* The handles are geometry an edge attaches to, never a control: nothing connects here. */
+.meridian-run-graph-node__handle {
+  visibility: hidden;
+}
+
+/* The name and the first output's count share the top line; the count never truncates. */
+.meridian-run-graph-node__head {
+  display: flex;
+  gap: var(--meridian-workflow-canvas-space-2);
+  align-items: baseline;
+  min-inline-size: 0;
+}
+
+.meridian-run-graph-node__name {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.meridian-run-graph-node__count {
+  flex: none;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.meridian-run-graph-node__name,
+.meridian-run-graph-node__state,
+.meridian-run-graph-node__error,
+.meridian-run-graph-node__resume {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-run-graph-node__name {
+  font-size: var(--meridian-workflow-canvas-text-sm);
+  font-weight: 600;
+}
+
+/* Held whole on one line: the box's width is derived from it, so it never truncates. */
+.meridian-run-graph-node__kind {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+  white-space: nowrap;
+}
+
+.meridian-run-graph-node__state {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+}
+
+.meridian-run-graph-node__error {
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+}
+
+.meridian-run-graph-node__resume {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+}
+
+/* The page's selection: an outline outside the ring, so the ring keeps saying the state. */
+.meridian-run-graph-node[data-selected="true"] {
+  outline: var(--meridian-workflow-canvas-ring) solid var(--meridian-accent);
+  outline-offset: var(--meridian-workflow-canvas-ring);
+}
+
+.meridian-run-graph-node[data-status="pending"] .meridian-run-graph-node__state {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-graph-node[data-status="running"] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-run-graph-node[data-status="running"] .meridian-run-graph-node__state {
+  color: var(--meridian-accent-text);
+  font-weight: 600;
+}
+
+.meridian-run-graph-node[data-status="succeeded"] {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-run-graph-node[data-status="failed"] {
+  border-color: var(--meridian-red-mark);
+}
+
+.meridian-run-graph-node[data-status="failed"] .meridian-run-graph-node__state {
+  color: var(--meridian-red-text);
+}
+
+/* A wait nobody answers, a spent account resuming by itself, keeps a neutral ring. */
+.meridian-run-graph-node[data-status="waiting"] {
+  border-color: var(--meridian-edge-strong);
+  border-style: dashed;
+}
+
+.meridian-run-graph-node[data-waiting-on-person="true"] {
+  border-color: var(--meridian-amber-mark);
+  border-style: solid;
+}
+
+.meridian-run-graph-node[data-waiting-on-person="true"] .meridian-run-graph-node__state {
+  color: var(--meridian-amber-text);
+}
+
+/* Held for memory: its own quiet hold ring, neither amber nor anything read as a failure. */
+.meridian-run-graph-node[data-status="waiting-memory"] {
+  border-color: var(--meridian-edge-strong);
+  border-style: dotted;
+}
+
+.meridian-run-graph-node[data-status="skipped"],
+.meridian-run-graph-node[data-status="canceled"] {
+  border-style: dashed;
+}
+
+.meridian-run-graph-node[data-status="skipped"] .meridian-run-graph-node__name,
+.meridian-run-graph-node[data-status="skipped"] .meridian-run-graph-node__state,
+.meridian-run-graph-node[data-status="canceled"] .meridian-run-graph-node__name,
+.meridian-run-graph-node[data-status="canceled"] .meridian-run-graph-node__state {
+  color: var(--meridian-text-faint);
+}
+
+/*
+ * The running mark: a ring just outside the node's own, breathing in and out. It sits on the
+ * library's positioned node box, inside the gap the selection outline leaves, so the two never
+ * cover each other.
+ */
+.meridian-run-graph-node[data-status="running"]::after {
+  position: absolute;
+  inset: calc(var(--meridian-workflow-canvas-ring) * -1);
+  content: "";
+  border: var(--meridian-workflow-canvas-ring) solid var(--meridian-accent);
+  border-radius: var(--meridian-workflow-canvas-radius-sm);
+  pointer-events: none;
+  animation: meridian-run-graph-breath var(--meridian-motion-breath) var(--meridian-ease-settle)
+    infinite alternate;
+}
+
+@keyframes meridian-run-graph-breath {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A disabled node is grayed and its name struck through, whatever its step did. */
+.meridian-run-graph-node[data-disabled="true"] {
+  border-color: var(--meridian-edge);
+  border-style: dashed;
+}
+
+.meridian-run-graph-node[data-disabled="true"] .meridian-run-graph-node__name,
+.meridian-run-graph-node[data-disabled="true"] .meridian-run-graph-node__kind,
+.meridian-run-graph-node[data-disabled="true"] .meridian-run-graph-node__state,
+.meridian-run-graph-node[data-disabled="true"] .meridian-run-graph-node__count {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-graph-node[data-disabled="true"] .meridian-run-graph-node__name {
+  text-decoration: line-through;
+}
+
+/* Scrolled out of view, the running ring holds still and starts again where it stood. */
+.meridian-run-graph__canvas[data-in-view="false"]
+  .meridian-run-graph-node[data-status="running"]::after {
+  animation-play-state: paused;
+}

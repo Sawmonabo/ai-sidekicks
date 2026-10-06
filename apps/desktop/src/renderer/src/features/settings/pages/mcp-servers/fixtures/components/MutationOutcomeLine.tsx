@@ -4,13 +4,11 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/server";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
-import {
-  sessionDisplayTitleOf,
-  type SessionDirectoryState,
-} from "#renderer/store/session-directory/session-directory.js";
+import { type SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
-import type { McpMutationOutcome } from "../mcp-mutation.js";
+import type { McpMutationOutcome } from "../mutation.js";
 
 /**
  * What the last change to one control did, in place: one line for each grade the service

@@ -8,12 +8,12 @@
 // `close()` is not terminal: StrictMode runs an effect's cleanup between two setups and a changed
 // updater rebuilds the opening, so an opening is a generation that `close()` invalidates and a
 // later `open()` restarts. The holder takes the updater namespace, not the whole bridge.
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Unsubscribe, UpdateState } from "#shared/preload-api.js";
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import { READ_FAILED } from "#renderer/lib/reads/failure-codes.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { GenerationLatch, type GenerationClaim } from "#renderer/lib/reads/generation-latch.js";
 import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
 

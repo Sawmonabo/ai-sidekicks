@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { TransportReconnectSignal } from "./reconnect.js";
 import { REOPEN_SETTLED_MS, REOPEN_WAITS_MS } from "./reopen-backoff.js";
 import { openReopeningSubscription, type ReopenableStreamOpen } from "./reopening-subscription.js";

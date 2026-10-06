@@ -9,10 +9,10 @@
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./constants.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./caps.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { type ScrollCaller } from "#renderer/lib/scroll/scroll-callers.js";
+import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;

@@ -1,5 +1,5 @@
 // The event kinds each narrowed `daemon.subscribe` stream carries, and what a carried kind
-// announces. `session-event-streams.ts` builds its routing rows from these lists.
+// announces. `streams.ts` builds its routing rows from these lists.
 //
 // Every kind is a key of a record checked with `satisfies Record<...>` against a union derived from
 // the contracts census, so a newly registered run state or queue row fails the compile. The census
@@ -15,7 +15,7 @@ import {
   RUN_STATE_KINDS,
   runStateForTransitionKind,
   type RunStateTransitionKind,
-} from "#renderer/store/session-events/run/state-kinds.js";
+} from "#renderer/store/session/events/run/state-kinds.js";
 
 /**
  * The event kinds `run.subscribeState` projects: every run state a run can transition into, plus

@@ -5,7 +5,11 @@ import { useRef } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { eventCarrying, fileListOf, fileTransferOf } from "../attachment-input.test-support.js";
+import {
+  eventCarrying,
+  fileListOf,
+  fileTransferOf,
+} from "./useAttachmentDropTarget.test-support.js";
 import { useAttachmentDropTarget } from "./useAttachmentDropTarget.js";
 
 /** One file, as a picker or a drop would hand it over. */

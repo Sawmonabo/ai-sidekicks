@@ -1,0 +1,47 @@
+/* A run group's header: disclosure, actor, state and counts. */
+
+/*
+ * One finished run, on one line, with the disclosure that opens it. The 2 px inline-start edge
+ * is the leading edge a transcript row wears, set from the agent hue wheel by the
+ * component; the neutral border is the fallback for an unattributed run group.
+ */
+.meridian-run-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  /* Half the one gap between rows above and below, as every transcript row pads. */
+  padding: calc(var(--meridian-transcript-row-gap) / 2) var(--meridian-space-3);
+  border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-run-group-header__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-run-group-header__actor {
+  color: var(--meridian-text);
+}
+
+.meridian-run-group-header__state,
+.meridian-run-group-header__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-run-group-header__counts,
+.meridian-run-group-header__account {
+  font-size: var(--meridian-text-xs);
+}

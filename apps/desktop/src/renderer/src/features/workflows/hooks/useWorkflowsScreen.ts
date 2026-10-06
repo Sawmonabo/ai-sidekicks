@@ -7,17 +7,17 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
 import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
-import type { WorkflowNoticeFeedState } from "../workflow-notice-feed.js";
-import type { WorkflowRunComparison } from "../workflow-run-comparison.js";
+import type { WorkflowNoticeFeedState } from "../notice-feed.js";
+import type { WorkflowRunComparison } from "../runs/comparison.js";
 import {
   createAttentionRead,
   createDefinitionListRead,
@@ -26,7 +26,7 @@ import {
   createRunListRead,
   type WorkflowReadSources,
 } from "../reading.js";
-import type { WorkflowCommandTarget } from "../workflow-command-target.js";
+import type { WorkflowCommandTarget } from "../command-target.js";
 import { useWorkflowCommandTarget } from "./useWorkflowCommandTarget.js";
 import { useWorkflowCall, type WorkflowCallState } from "./useWorkflowCall.js";
 import { useWorkflowNoticeFeed } from "./useWorkflowNoticeFeed.js";

@@ -2,9 +2,9 @@
 // handed, a box the test decides, and a way to move it. The publisher itself is constructed by
 // each suite, because how it is constructed is part of what each suite is about.
 
-import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
+import type { PaneGeometrySample, PaneRect } from "./pane.js";
 import type { PageHost } from "./page-host.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /** A page host that records what it was handed, and can be told to reject. */
 export class RecordingPageHost implements PageHost {

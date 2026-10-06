@@ -10,14 +10,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
-import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/platform-bridge.fixture.js";
-import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-persistence-adapter.js";
+import { FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
+import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   keepWindows,
   readKeptWindows,
   type KeptWindow,
-} from "#renderer/store/window-layout/kept-window-layout.js";
+} from "#renderer/store/window/layout/kept.js";
 import { SAFE_START_ATTRIBUTE } from "#shared/window/safe-start.js";
 import { FIRST_RUN_SCENARIO_ID } from "#fixtures/scenarios/first-run.js";
 import { renderAppSettled } from "../helpers/app/harness.js";

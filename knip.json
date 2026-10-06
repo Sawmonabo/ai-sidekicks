@@ -143,11 +143,11 @@
         // the workflow node inspector.
         "src/renderer/src/features/agents/binding/components/AxisCombobox.tsx",
         // The daemon's callback tools on an agent definition's tool allowlist.
-        "src/renderer/src/features/agents/definitions/callback-tools/callback-tool-registry.ts",
+        "src/renderer/src/features/agents/definitions/callback-tools/registry.ts",
         "src/renderer/src/features/agents/definitions/callback-tools/components/CallbackToolRows.tsx",
         "src/renderer/src/features/agents/definitions/callback-tools/components/CallbackTools.tsx",
         // The agent library's chunk, mounted by the Sidekicks screen's registration.
-        "src/renderer/src/features/agents/library/agent-library-body.ts",
+        "src/renderer/src/features/agents/library/body.ts",
         // Opening a child in the Sidekicks pane, which fetches that child's own rows once.
         "src/renderer/src/features/agents/pane/hooks/useChildRunDisclosure.ts",
         // An approval card takes focus when it arrives.
@@ -156,14 +156,14 @@
         // naming a file and the limit it hit.
         "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
         "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
-        "src/renderer/src/features/composer/attachments/composer-attachment-chip.ts",
+        "src/renderer/src/features/composer/attachments/chip.ts",
         // The definitions a `/workflow run` name autocompletes over.
-        "src/renderer/src/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.tsx",
+        "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
         // Interrupt and Interrupt everything on the run controls.
-        "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
-        "src/renderer/src/features/composer/run-controls/run-driver-bindings.ts",
+        "src/renderer/src/features/composer/run/controls/hooks/useRunDriverBindings.ts",
+        "src/renderer/src/features/composer/run/controls/driver-bindings.ts",
         // The inspector's Artifacts section and its rows.
         "src/renderer/src/features/inspector/artifacts/components/ArtifactRow.tsx",
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
@@ -181,11 +181,11 @@
         "src/renderer/src/features/sessions/components/SessionList.tsx",
         "src/renderer/src/features/sessions/components/SessionListNothing.tsx",
         "src/renderer/src/features/sessions/components/SessionRowGroup.tsx",
-        "src/renderer/src/features/sessions/rows/session-list-degradation.ts",
+        "src/renderer/src/features/sessions/rows/list-degradation.ts",
         // The session header's title read and its fixture answer.
         "src/renderer/src/features/sessions/header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/services/daemon/session/identity.fixture.ts",
-        "src/renderer/src/services/daemon/session/reads.ts",
+        "src/renderer/src/services/daemon/session/summary.ts",
         // A saved workflow's row in the Workflows tab's table of definitions.
         "src/renderer/src/features/workflows/definitions/components/DefinitionListItem.tsx",
         "src/renderer/src/features/workflows/definitions/rows.ts",
@@ -203,10 +203,10 @@
         "src/renderer/src/store/attention/hooks/useAttention.ts",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster.
-        "src/renderer/src/features/settings/pages/notifications/os-notification/os-notification-delivery.ts",
+        "src/renderer/src/features/settings/pages/notifications/os/delivery.ts",
         // A provider section's session import, mounted from its own chunk.
-        "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-body.ts",
-        "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-mount.ts",
+        "src/renderer/src/features/settings/pages/providers/import/panel/body.ts",
+        "src/renderer/src/features/settings/pages/providers/import/panel/mount.ts",
         // A footnote's definition at the foot of its reply.
         "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx"
       ]

@@ -1,4 +1,4 @@
-// What the tripwire registry (`tripwires.ts`) retains.
+// What the tripwire registry (`registry.ts`) retains.
 
 /**
  * Tripwire reports retained in memory. A tripwire that keeps firing is one defect, so the buffer

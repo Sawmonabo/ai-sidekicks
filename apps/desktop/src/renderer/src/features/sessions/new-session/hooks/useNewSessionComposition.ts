@@ -8,9 +8,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore }
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import type { NewSessionControlProps } from "../control-contract.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
-import { NewSessionDraft, type NewSessionDraftState } from "../new-session-draft.js";
+import { NewSessionDraft, type NewSessionDraftState } from "../draft.js";
 import { type NewSessionSendResult } from "../settlement.js";
 
 /**

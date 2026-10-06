@@ -3,8 +3,10 @@
 // registry it draws the attachment id, and only a caller holding a reading draws the full
 // `AttachmentCard`.
 
+import "./InlineAttachmentCard.css";
+
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { AttachmentInlineCardProps } from "#renderer/registries/inline-cards/inline-card-registry.js";
+import type { AttachmentInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import type { AttachmentReading } from "../shapes.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 

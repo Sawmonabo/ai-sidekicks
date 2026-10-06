@@ -1,7 +1,7 @@
 // The app's glyph vocabulary: the names, and the geometry every face is held to.
 //
 // A name is drawn either by a Tabler face (compiled at build time through `unplugin-icons`) or by
-// one of our own SVGs, and `components/Glyph/glyph-icons.ts` records each name's answer. The names
+// one of our own SVGs, and `components/Glyph/icons.ts` records each name's answer. The names
 // live here because `styles/` sits below `components/` in the import direction and cannot import
 // a component. `GLYPH_ICONS` is a `Record<GlyphName, ...>`, so the compiler reports a name added
 // here with no face.
@@ -58,7 +58,7 @@ export const GLYPH_SIZE_CHROME = 14;
 /**
  * Every glyph the app can draw, in reading order: rail destinations, entity and pane kinds,
  * state marks, then control verbs and navigation. Which face draws each name is in
- * `components/Glyph/glyph-icons.ts`; this array declares that the set is closed.
+ * `components/Glyph/icons.ts`; this array declares that the set is closed.
  */
 export const GLYPH_NAMES = [
   // --- The rail destinations.

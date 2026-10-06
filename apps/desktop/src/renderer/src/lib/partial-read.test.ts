@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "./refusal/refusal.js";
+import { refuse } from "./refusal/contract.js";
 import { partialReadNotices, unreadableDeliveryReading } from "./partial-read.js";
 
 const PARSE_REFUSAL = refuse(

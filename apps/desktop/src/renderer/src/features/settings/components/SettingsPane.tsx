@@ -4,7 +4,7 @@
 // both empty-state arms render before any section is resolved.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { SettingsPageContent } from "./SettingsPageContent.js";
-import type { SettingsPageRegistry } from "../settings-pages.js";
+import type { SettingsPageRegistry } from "../pages/registry.js";
 import type { SettingsPageContext } from "../types.js";
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 

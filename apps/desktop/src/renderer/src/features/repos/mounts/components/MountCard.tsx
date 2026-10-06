@@ -4,22 +4,24 @@
 // Re-attach shows only on `identity_mismatch`, the permanent verdict, since `unreachable` is
 // transient.
 
+import "./MountCard.css";
+
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime } from "#renderer/lib/wire/figures.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import {
   readBindControlAvailability,
   mountHealthReading,
   mountLifecycleReading,
 } from "../health.js";
 import { ReattachControl } from "../attach/ReattachControl.js";
-import type { RepoOperations } from "../../repo-operations.js";
-import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
+import type { RepoOperations } from "../../operations.js";
+import type { RepoWorkspaceRow } from "../reading.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";

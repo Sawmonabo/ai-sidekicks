@@ -3,7 +3,7 @@
 // settled oldest first: a settle-by-method helper would answer the wrong call when a case
 // issues one method twice.
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";

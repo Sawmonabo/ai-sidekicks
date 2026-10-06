@@ -18,9 +18,9 @@ const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
 const CLAUDE_RETRIED_ERROR_MEMBERS: ReadonlySet<unknown> = new Set(["rate_limit", "overloaded"]);
 
 /**
- * Classifies Claude Code's final announced retry of a rate limit or an overload as the spent-retries
- * cause, or `null`. Typed-only: it gates on `type`, `subtype`, the `error` member and the ladder
- * members, so an unfamiliar shape yields `null`.
+ * Classifies Claude Code's final announced retry of a rate limit or an overload as the
+ * spent-retries cause, or `null`. Typed-only: it gates on `type`, `subtype`, the `error` member and
+ * the ladder members, so an unfamiliar shape yields `null`.
  */
 export function classifyClaudeSpentRetries(frame: unknown): ProviderSpentRetriesSignal | null {
   if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {

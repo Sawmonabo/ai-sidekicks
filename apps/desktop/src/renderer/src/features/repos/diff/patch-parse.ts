@@ -12,8 +12,8 @@ import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk/lines.js";
-import type { DiffModel, DiffFile, DiffIntralineSegment } from "./diff-model.js";
-import { wholeLineSegments } from "./diff-model.js";
+import type { DiffModel, DiffFile, DiffIntralineSegment } from "./model.js";
+import { wholeLineSegments } from "./model.js";
 
 /** The compared states the caller names, carried onto the parsed model verbatim. */
 export interface ComparedStates {
@@ -193,7 +193,7 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
 /**
  * Fold neighboring segments with the same verdict into one, and drop empty values. Filtering
  * one side out of a word diff leaves runs separated only by the other side's tokens, and an
- * unchanged line must stay the single segment `diff-model.ts` promises.
+ * unchanged line must stay the single segment `model.ts` promises.
  */
 function mergeAdjacent(segments: readonly DiffIntralineSegment[]): readonly DiffIntralineSegment[] {
   const merged: DiffIntralineSegment[] = [];

@@ -10,7 +10,7 @@
 // disclosure, and anything it held would end when the disclosure closed. Only the provider
 // choice is the panel's, since it is what the next import will be.
 
-import "./provider-import.css";
+import "./ProviderImportPanel.css";
 
 import { useMemo, useState } from "react";
 

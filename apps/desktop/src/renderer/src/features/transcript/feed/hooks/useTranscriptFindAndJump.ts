@@ -6,7 +6,7 @@ import { useCallback } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { type FindStepDirection } from "../../find/model.js";
+import { type FindStepDirection } from "../../find/matcher.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
 import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 

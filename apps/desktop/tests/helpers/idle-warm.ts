@@ -1,7 +1,8 @@
 // A warm scheduler a case drives by hand: it arms nothing on its own, so the case decides when an
-// idle callback runs. Shared by `lazy-body-warm.test.ts` and the idle-warm hook suites.
+// idle callback runs. Shared by `components/LazyBody/idle-warm.test.ts` and the idle-warm hook
+// suites.
 
-import { type IdleWarmScheduler } from "#renderer/components/LazyBody/lazy-body-warm.js";
+import { type IdleWarmScheduler } from "#renderer/components/LazyBody/idle-warm.js";
 
 /**
  * A scheduler whose steps run when the case says so. Handles are minted, not counted from the

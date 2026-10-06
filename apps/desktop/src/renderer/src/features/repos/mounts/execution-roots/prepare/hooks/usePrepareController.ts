@@ -6,7 +6,7 @@ import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useActController } from "#renderer/features/repos/acts/hooks/useActController.js";
 import {
   ExecutionRootPrepareController,

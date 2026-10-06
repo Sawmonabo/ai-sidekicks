@@ -7,31 +7,27 @@
 // a pixel floor as a percentage across a window resize. A pane's header drags it to a new place
 // through the shared pointer reorder, and the Alt+Shift chords below move the focused pane.
 
-import "./pane-layout.css";
+import "./SessionPaneLayout.css";
 
 import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { isEditableTarget } from "#renderer/lib/editable-target.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
-import { type PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
+import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
-import { type PaneLayoutStore } from "../pane-layout-store.js";
-import { paneLayoutActsOn } from "../pane-layout-acts.js";
+import { type PaneLayoutStore } from "../store.js";
+import { paneLayoutActsOn } from "../acts.js";
 import { useMountedPaneLayout } from "../hooks/useMountedPaneLayout.js";
-import {
-  PANE_LAYOUT_TOTAL_PERMILLE,
-  toPaneSizePercentages,
-  type SessionPane,
-} from "../pane-layout.js";
+import { PANE_LAYOUT_TOTAL_PERMILLE, toPaneSizePercentages, type SessionPane } from "../state.js";
 import { type PaneLayoutDensity } from "../measures.js";
 import { minimumPaneWidthPx } from "../density.js";
-import { commitPaneDrop } from "../pane-drag.js";
+import { commitPaneDrop } from "../drag.js";
 import { SessionPaneSlot } from "./SessionPaneSlot.js";
 
 /** What the pane layout needs: its layout store, its pane registry, and each pane's context. */

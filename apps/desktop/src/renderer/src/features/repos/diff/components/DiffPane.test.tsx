@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { buildDiffFixture } from "#test/helpers/diff/fixture/fixture.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/diff-fixture-shapes.js";
-import { type DiffModel } from "../diff-model.js";
+import { type DiffModel } from "../model.js";
 
 import { DiffPane } from "./DiffPane.js";
 import {

@@ -3,13 +3,13 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import { KeybindingTable } from "#renderer/registries/keybindings/keybinding-table.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
+import { commandRegistry } from "#renderer/registries/commands/registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
-import { type CommandDefinition } from "#renderer/registries/commands/types.js";
+import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import { createTranscriptCommands, registerTranscriptCommands } from "./commands.js";
 import { TRANSCRIPT_OWNER } from "./screens.js";

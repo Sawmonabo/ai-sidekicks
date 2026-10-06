@@ -1,12 +1,12 @@
 // The form drawn from a kind's parameter list, as a step waiting on a person shows it. It holds
 // no state; the answers and the last check's issues come from the caller, which seeds them and
-// checks them with `param-answers.ts`.
+// checks them with `answers.ts`.
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { PickedFolder } from "#shared/preload-api.js";
-import { isParamFieldShown, seedParamAnswers } from "./param-answers.js";
-import type { ParamAnswers, ParamIssues } from "./param-answers.js";
+import { isParamFieldShown, seedParamAnswers } from "./answers.js";
+import type { ParamAnswers, ParamIssues } from "./answers.js";
 import { ParamLeafField } from "./ParamLeafField.js";
 import "./ParamForm.css";
 import { ActionButton } from "../components/ActionButton.js";

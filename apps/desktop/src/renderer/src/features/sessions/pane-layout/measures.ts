@@ -1,5 +1,5 @@
 // The density presets and their pane widths.
-// The restored-pane cap is declared beside the store that spends it (`pane-layout-store.ts`).
+// The restored-pane cap is declared beside the store that spends it (`store.ts`).
 //
 // The presets live with their widths because the width table is keyed by the preset union;
 // `density.ts` holds what reads them and imports from here, not the reverse.

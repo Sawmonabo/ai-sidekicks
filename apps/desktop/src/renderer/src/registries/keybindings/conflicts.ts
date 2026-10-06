@@ -3,15 +3,15 @@
 // so the Keyboard settings page can ask without committing.
 
 import type { KeybindingPress } from "tinykeys";
-import type { Keybinding } from "../commands/types.js";
+import type { Keybinding } from "../commands/keybinding.js";
 import { normalizePressForComparison, parseChord } from "./chord.js";
 import {
   collectWhenClauseIdentifiers,
   formatWhenClause,
   type WhenClauseNode,
-} from "../commands/when-clause/when-clause.js";
+} from "../commands/when-clause/semantics.js";
 import { parseWhenClause } from "../commands/when-clause/parser.js";
-import { whenClausesCanOverlap } from "../commands/when-clause/when-clause-overlap.js";
+import { whenClausesCanOverlap } from "../commands/when-clause/overlap.js";
 
 /** Two bindings that can be live on one chord at one moment. */
 export interface KeybindingConflict {

@@ -4,7 +4,7 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { PublishedValue } from "#renderer/lib/published-value.js";
-import { RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /** Publishes this window's refusal rendering; only the window calls it. */
 export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Unsubscribe {

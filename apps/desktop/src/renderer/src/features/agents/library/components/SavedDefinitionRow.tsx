@@ -1,4 +1,6 @@
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import "./SavedDefinitionRow.css";
+
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";

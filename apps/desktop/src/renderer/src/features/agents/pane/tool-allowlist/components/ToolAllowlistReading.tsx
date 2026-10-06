@@ -1,4 +1,4 @@
-import { type ToolAllowlistWeight } from "../tool-allowlist.js";
+import { type ToolAllowlistWeight } from "../position.js";
 
 /** Total over the weight set: a third weight fails to compile before it renders. */
 const WEIGHT_CLASS_NAMES: Readonly<Record<ToolAllowlistWeight, string>> = {

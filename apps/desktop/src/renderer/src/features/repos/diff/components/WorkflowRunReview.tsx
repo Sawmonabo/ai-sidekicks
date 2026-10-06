@@ -7,9 +7,9 @@ import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowRunDiff } from "../hooks/useWorkflowRunDiff.js";
-import type { WorkflowRunDiffRequest } from "../workflow-run-diff-read.js";
+import type { WorkflowRunDiffRequest } from "../workflow-run-read.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 
 /** The loading line of a run's Review, drawn once its read has run past the short delay. */

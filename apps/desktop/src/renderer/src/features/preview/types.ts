@@ -2,7 +2,7 @@
 
 import type { PreviewPage } from "@ai-sidekicks/contracts/preview/methods";
 
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { ReadingState } from "#renderer/lib/partial-read.js";
 
 /**

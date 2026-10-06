@@ -12,7 +12,7 @@ import {
 
 import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { RunAttentionSection } from "./RunAttentionSection.js";
 

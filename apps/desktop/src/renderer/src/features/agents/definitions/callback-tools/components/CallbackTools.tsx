@@ -7,11 +7,11 @@ import "./CallbackTools.css";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
-import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/driver-capability-readings.js";
+import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readings.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
-import { type CallbackToolRegistryReading } from "../callback-tool-registry.js";
+import { type CallbackToolRegistryReading } from "../registry.js";
 
 /**
  * The flag this section gates on. The annotation makes a contracts-side rename a compile

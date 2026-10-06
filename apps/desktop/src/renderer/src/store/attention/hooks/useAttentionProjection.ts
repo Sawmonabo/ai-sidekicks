@@ -1,13 +1,13 @@
-// When the attention projection is read, and what makes it be read again. `attention-summary.ts`
-// owns the fold and the reading vocabulary; this module owns the lifetime: it performs the
-// read, holds its result, and re-reads it when the session projections underneath it move, so
-// the notification center and the all-sessions list report what needs a person now. The call
-// that reads the projection is the caller's.
+// When the attention projection is read, and what makes it be read again.
+// `store/attention/summary.ts` owns the fold and the reading vocabulary; this module owns the
+// lifetime: it performs the read, holds its result, and re-reads it when the session projections
+// underneath it move, so the notification center and the all-sessions list report what needs a
+// person now. The call that reads the projection is the caller's.
 //
 // The signal is the session projections, not a timer: interval polling is forbidden. An
 // attention item is derived from canonical session state, so a moved session store may have
 // moved the projection, and the registry's open/close emitter covers a session just opened
-// that already carries unread attention. Both come through `store/session/open-session/signal.ts`.
+// that already carries unread attention. Both come through `store/session/open/signal.ts`.
 //
 // Every re-read goes through `PushDrivenRead`, the console's one push-driven read discipline
 // (subscribe first, treat the push as opaque, coalesce through `RefreshScheduler`, serialize so
@@ -20,17 +20,17 @@
 import { useEffect, useMemo } from "react";
 
 import { type Clock } from "#renderer/lib/clock.js";
-import { RefusalError } from "#renderer/lib/refusal/refusal.js";
+import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven-read.js";
+import { PushDrivenRead, type PushDrivenReadState } from "../../reads/push-driven.js";
 import { usePushDrivenRead } from "../../reads/hooks/usePushDrivenRead.js";
-import { subscribeToOpenSessions } from "../../session/open-session/signal.js";
-import { type SessionStoreRegistry } from "../../session/session-store-registry.js";
+import { subscribeToOpenSessions } from "../../session/open/signal.js";
+import { type SessionStoreRegistry } from "../../session/registry.js";
 import {
   AttentionSummary,
   type AttentionReading,
   type RefusedAttentionSession,
-} from "../attention-summary.js";
+} from "../summary.js";
 
 /**
  * What one fan-out over the session-scoped read produced. Coverage is a separate fact from

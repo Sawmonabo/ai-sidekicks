@@ -5,9 +5,9 @@
 
 import { useCallback, useState } from "react";
 
-import type { DraftStore } from "#renderer/store/draft-store.js";
+import type { DraftStore } from "#renderer/store/drafts.js";
 import { SentMessageHistories, SentMessageHistory } from "../sent-message-history.js";
-import { caretAtEnd, caretAtStart, type DraftCaret } from "../draft-line.js";
+import { caretAtEnd, caretAtStart, type DraftCaret } from "../caret.js";
 
 /** The walk, and the record the dispatcher writes a sent body into. */
 export interface SentMessageRecall {

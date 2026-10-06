@@ -8,7 +8,7 @@
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";
 import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
-import type { PlatformBridge } from "../platform/platform-bridge.js";
+import type { PlatformBridge } from "../platform/bridge.js";
 import type { TransportReachability } from "../transport/reconnect.js";
 
 /**

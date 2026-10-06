@@ -5,7 +5,7 @@
 // often `toBe("")`, and a window with no announcer must not read as one that said nothing. The
 // throw names the politeness, since which lane is missing is what a reader acts on.
 
-import { type AnnouncementPoliteness } from "#renderer/components/LiveAnnouncer/live-announcer.js";
+import { type AnnouncementPoliteness } from "#renderer/components/LiveAnnouncer/announcer.js";
 
 /** Both regions, in document order: polite first, assertive second. */
 export function regionsOf(container: HTMLElement): HTMLElement[] {

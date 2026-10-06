@@ -18,28 +18,25 @@ import {
 } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { PaneRegistry } from "#renderer/registries/panes/pane-registry.js";
-import type { ScreenContext } from "#renderer/registries/screens/screen-context.js";
+import { PaneRegistry } from "#renderer/registries/panes/registry.js";
+import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { DraftStore } from "#renderer/store/draft-store.js";
-import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { DraftStore } from "#renderer/store/drafts.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
-import { SessionStoreRegistry } from "#renderer/store/session/session-store-registry.js";
+import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
-import { WindowStore } from "#renderer/store/window/window-store.js";
-import {
-  createWorkflowCommandTargets,
-  type WorkflowCommandTargets,
-} from "./workflow-command-target.js";
+import { WindowStore } from "#renderer/store/window/store.js";
+import { createWorkflowCommandTargets, type WorkflowCommandTargets } from "./command-target.js";
 import { WorkflowsScreen } from "./WorkflowsScreen.js";
 
 /**
  * A mounted workflows screen: the window store it routes by, what it asked the daemon, the bridge
- * it asks through, which another door onto the same daemon (a session's card) may use too, and
+ * it asks through, which another view of the same daemon (a session's card) may use too, and
  * the keyed acts it offers, which a chord presses.
  */
 export interface MountedWorkflowsScreen {

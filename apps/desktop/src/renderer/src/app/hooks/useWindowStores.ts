@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { subscribeDaemonStatus } from "#renderer/services/daemon/status.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import { WindowStores, type OpenWindowStore } from "../window-stores.js";
 

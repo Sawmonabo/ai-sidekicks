@@ -3,7 +3,7 @@ import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/r
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useStepPayloadRead } from "../hooks/useStepPayloadRead.js";
 import { StepPayload, type StepPayloadView } from "./StepPayload.js";

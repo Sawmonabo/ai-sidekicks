@@ -5,10 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { createCountingScrollContainer } from "#renderer/lib/scroll/scroll-container.test-support.js";
-import { ViewportController } from "./viewport-controller.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
+import { ViewportController } from "./controller.js";
 import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
-import { attachedController } from "./viewport-controller.test-support.js";
+import { attachedController } from "./controller.test-support.js";
 
 /**
  * The instance argument the two observer options ignore; both read the chokepoint, so it is typed

@@ -1,8 +1,8 @@
 // The reads the workflows screens draw from, each a `PushDrivenRead` refreshed by the one notice
 // feed: the runs table under its filters, the count of every run, the attention list, the saved
-// workflows the filter names, the accounts that pay, and one run's record. Every call goes through `callDaemon`, so
-// each reply is parsed against its method's registered shape; a refusal rejects the read and
-// becomes its failed state.
+// workflows the filter names, the accounts that pay, and one run's record. Every call goes through
+// `callDaemon`, so each reply is parsed against its method's registered shape; a refusal rejects
+// the read and becomes its failed state.
 
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
@@ -16,15 +16,15 @@ import type {
 
 import type { Clock } from "#renderer/lib/clock.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
-import { callDaemon, type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
+import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
 import { PROVIDER_ACCOUNT_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/unwrap-daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
-import { PushDrivenRead } from "#renderer/store/reads/push-driven-read.js";
-import { runListRequestFor } from "./runs/run-filters.js";
+import { PushDrivenRead } from "#renderer/store/reads/push-driven.js";
+import { runListRequestFor } from "./runs/filters.js";
 import { RUNS_PAGE_SIZE, type RunListAnswer, type RunListAsk } from "./runs/list-pages.js";
-import type { WorkflowNoticeFeed } from "./workflow-notice-feed.js";
+import type { WorkflowNoticeFeed } from "./notice-feed.js";
 
 /** What every workflows read is built over: the daemon, the clock and the notice feed. */
 export interface WorkflowReadSources {

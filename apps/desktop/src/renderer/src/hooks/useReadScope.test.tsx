@@ -18,7 +18,7 @@ import { type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { useReadScope } from "./useReadScope.js";
-import { type ReadRound } from "#renderer/lib/reads/read-scope.js";
+import { type ReadRound } from "#renderer/lib/reads/scope.js";
 import {
   SUBJECT_ONE,
   SUBJECT_TWO,

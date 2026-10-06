@@ -17,8 +17,8 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { FilePathRef } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/status-topic.js";

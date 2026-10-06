@@ -8,7 +8,7 @@ import type {
   WorkflowRunSnapshotPoint,
 } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type { ScenarioReply } from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
 import { readMember, readString } from "./workflow/run/writes.js";
 import { WORKFLOW_RUN_IDS } from "./workflow/run/records.js";
 

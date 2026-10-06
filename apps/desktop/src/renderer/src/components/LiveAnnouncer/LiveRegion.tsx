@@ -7,7 +7,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { LiveAnnouncer } from "./live-announcer.js";
+import { LiveAnnouncer } from "./announcer.js";
 
 /**
  * The two regions, rendered once per window and never conditionally. Uses

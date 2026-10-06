@@ -3,7 +3,7 @@
 // the mapping to `NothingKind` for the two empty-state arms lives in `WorkflowStateStrip.tsx`,
 // where the rendering does.
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * What the builder's body is showing, in the order it moves through the states: the read is in

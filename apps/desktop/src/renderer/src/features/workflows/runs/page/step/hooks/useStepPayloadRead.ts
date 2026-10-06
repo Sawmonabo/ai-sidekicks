@@ -5,10 +5,10 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { readWorkflowPayloadItems } from "#renderer/services/artifacts/workflow-payload-items.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /** Where a payload's items were kept: inline on the step's row, or as an artifact of its size. */
 export type StepPayloadStorage =

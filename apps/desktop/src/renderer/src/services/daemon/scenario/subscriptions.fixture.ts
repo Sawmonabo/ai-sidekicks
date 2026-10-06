@@ -1,10 +1,10 @@
 // What a fixture subscriber is handed, and when. `daemon.subscribe` hands beats as they fall due on
 // the frozen clock, only to a subscriber the seam says they reach and in the shape that
-// subscription registers. `session-event-streams.ts` routes, `projection.fixture.ts`
-// projects and `event/envelope.fixture.ts` composes. The whole-session stream is
-// catch up, then follow, so a store opened mid-scenario does not read the next beat as a sequence
-// gap, and one re-opened after a cursor catches up only past it. `daemon.fixture.ts` composes this
-// function.
+// subscription registers. `services/daemon/session/event/streams.ts` routes,
+// `projection.fixture.ts` projects and `event/envelope.fixture.ts` composes. The whole-session
+// stream is catch up, then follow, so a store opened mid-scenario does not read the next beat as a
+// sequence gap, and one re-opened after a cursor catches up only past it. `wire.fixture.ts`
+// composes this function.
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 
@@ -20,28 +20,25 @@ import {
   composeScenarioEventEnvelope,
   composeScenarioSessionFrames,
 } from "../event/envelope.fixture.js";
-import {
-  sessionEventStreamFor,
-  subscriptionDeliversEventKind,
-} from "../session/event/session-event-streams.js";
+import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../session/event/streams.js";
 
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
- * `session-event-streams.ts` owns which names are streams and what each carries; this function
- * does no routing of its own. `session.subscribe` streams the whole log, catch up, then follow,
- * in the frames `event/envelope.fixture.ts` composes; opened with an `afterCursor` it catches up
- * on what follows that change alone, and one this playback never delivered ends the subscription
- * refused, as the daemon refuses a cursor it cannot resolve. A bare event-type name carries
- * only itself, one envelope per beat. The two `run.*` streams are registered projections
+ * `services/daemon/session/event/streams.ts` owns which names are streams and what each carries;
+ * this function does no routing of its own. `session.subscribe` streams the whole log, catch up,
+ * then follow, in the frames `event/envelope.fixture.ts` composes; opened with an `afterCursor` it
+ * catches up on what follows that change alone, and one this playback never delivered ends the
+ * subscription refused, as the daemon refuses a cursor it cannot resolve. A bare event-type name
+ * carries only itself, one envelope per beat. The two `run.*` streams are registered projections
  * (`RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary`) built by
- * `projection.fixture.ts`, with no catch-up because they are live; the envelope would
- * teach subscribers a frame the live bridge cannot send. A beat the projection cannot build throws,
- * and `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
- * advanced the clock without silencing other subscribers. The presence subscription is not an
- * event feed: the fixture scripts no device, so it is accepted and never delivers. The machine's
- * notice streams deliver the frame the scenario opens them with, then the notices its settled
- * replies push, live, with no catch-up.
+ * `projection.fixture.ts`, with no catch-up because they are live; the envelope would teach
+ * subscribers a frame the live bridge cannot send. A beat the projection cannot build throws, and
+ * `lib/emitter.ts` re-raises after every sink has run, so the authoring error reaches whoever
+ * advanced the clock without silencing other subscribers. The presence subscription is not an event
+ * feed: the fixture scripts no device, so it is accepted and never delivers. The machine's notice
+ * streams deliver the frame the scenario opens them with, then the notices its settled replies
+ * push, live, with no catch-up.
  */
 export function subscribeToScenario(
   engine: ScenarioEngine,
@@ -50,8 +47,9 @@ export function subscribeToScenario(
   deliver: (delivered: unknown) => void,
   onEnded: ((end: DaemonSubscriptionEnd) => void) | undefined,
 ): Unsubscribe {
-  // Only the whole-session stream catches up; the stream's `scope` from `session-event-streams.ts`
-  // is that distinction, and the run streams and bare event types are live.
+  // Only the whole-session stream catches up; the stream's `scope` from
+  // `services/daemon/session/event/streams.ts` is that distinction, and the run streams and bare
+  // event types are live.
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream?.scope === "machine-presence") {
     return () => undefined;

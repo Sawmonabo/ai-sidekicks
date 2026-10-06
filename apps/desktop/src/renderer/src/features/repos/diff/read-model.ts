@@ -7,7 +7,7 @@ import type {
   GitflowDiffReadResponse,
 } from "@ai-sidekicks/contracts/gitflow/local";
 
-import type { DiffFile, DiffModel } from "./diff-model.js";
+import type { DiffFile, DiffModel } from "./model.js";
 import { parseUnifiedPatch, type ComparedStates } from "./patch-parse.js";
 
 /** The model one `gitflow.diffRead` reply draws, its two ends named as the daemon named them. */

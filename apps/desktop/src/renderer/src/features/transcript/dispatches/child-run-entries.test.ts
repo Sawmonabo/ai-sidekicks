@@ -7,7 +7,7 @@ import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-r
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { generalRow, runRow } from "../transcript-event-rows.test-support.js";
+import { generalRow, runRow } from "../event-rows.test-support.js";
 import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */

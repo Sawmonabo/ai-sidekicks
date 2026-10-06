@@ -1,6 +1,6 @@
 // The two codes a push-driven read mints when a failure carried none of its own. They live in
 // their own module so `coerce-to-refusal.ts` in `lib/` can use them without importing from
-// `store/reads/push-driven-read.ts`, which itself imports the coercion.
+// `store/reads/push-driven.ts`, which itself imports the coercion.
 
 /**
  * The codes the shared read helpers mint when a failure carried none of its own. A failure that

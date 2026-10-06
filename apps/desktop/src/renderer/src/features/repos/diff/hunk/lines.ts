@@ -6,9 +6,9 @@ import { RealClock } from "#renderer/lib/clock.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
-} from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import type { DiffLine, DiffLineKind } from "../diff-model.js";
-import { wholeLineSegments } from "../diff-model.js";
+} from "#renderer/lib/diagnostic-capture/capture.js";
+import type { DiffLine, DiffLineKind } from "../model.js";
+import { wholeLineSegments } from "../model.js";
 
 /** What each prefix character in a hunk body means. Closed by the format itself. */
 const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {

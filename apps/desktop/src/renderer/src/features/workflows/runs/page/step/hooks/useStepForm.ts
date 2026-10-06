@@ -9,10 +9,10 @@ import type {
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import {
   useWorkflowCall,
   type WorkflowCallState,
@@ -23,7 +23,7 @@ import {
   seedParamAnswers,
   type ParamAnswers,
   type ParamIssues,
-} from "#renderer/features/workflows/param-form/param-answers.js";
+} from "#renderer/features/workflows/param-form/answers.js";
 import { resolutionReceipt } from "../receipts.js";
 
 /** Where the step's form read stands. */

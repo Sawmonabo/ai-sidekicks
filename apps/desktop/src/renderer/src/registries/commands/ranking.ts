@@ -3,7 +3,7 @@
 // It is a pure function of a command list, a query and a recents list.
 
 import { compareCodeUnits } from "#renderer/lib/compare-code-units.js";
-import type { CommandDefinition } from "./types.js";
+import type { CommandDefinition } from "./definition.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
 /** One ranked palette row. */

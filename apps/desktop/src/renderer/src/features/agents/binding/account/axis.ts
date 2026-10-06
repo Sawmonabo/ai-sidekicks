@@ -9,11 +9,8 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import {
-  findReadRefusal,
-  type WireReadState,
-} from "#renderer/services/wire-reads/read-lifecycle.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * The narrow slice of the window's account registry reading this axis reads; the full readout

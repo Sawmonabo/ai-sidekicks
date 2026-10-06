@@ -7,7 +7,7 @@ import type {
 import { render } from "@testing-library/react";
 
 import { ApprovalCard } from "./ApprovalCard.js";
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 
 /** Mounts one card and returns the requests its real `onResolve` receives. */
 export function renderCard(

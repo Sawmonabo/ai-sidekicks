@@ -1,0 +1,6 @@
+/* The diff pane's empty state. */
+
+/* The no-diff arm is prose, not a grid, so it takes the inset the bands above omit. */
+.meridian-diff-pane__empty-state {
+  padding: var(--meridian-space-4);
+}

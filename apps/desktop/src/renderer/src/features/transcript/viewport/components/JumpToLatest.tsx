@@ -2,7 +2,7 @@
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { ViewportSnapshot } from "../viewport-snapshot.js";
+import type { ViewportSnapshot } from "../snapshot.js";
 
 /** Props for `JumpToLatest`. */
 export interface JumpToLatestProps {

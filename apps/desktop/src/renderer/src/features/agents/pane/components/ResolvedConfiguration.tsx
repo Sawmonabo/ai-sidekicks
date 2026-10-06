@@ -4,7 +4,7 @@
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts/agent/definition";
-import { type AgentToolAllowlistPosition } from "../tool-allowlist/tool-allowlist.js";
+import { type AgentToolAllowlistPosition } from "../tool-allowlist/position.js";
 import { ToolAllowlist } from "../tool-allowlist/components/ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 

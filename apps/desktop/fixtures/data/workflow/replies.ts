@@ -48,7 +48,7 @@ import type {
   ScenarioNotice,
   ScenarioOpeningNotice,
   ScenarioReply,
-} from "#renderer/services/daemon/scenario/scenario-reply.fixture.js";
+} from "#renderer/services/daemon/scenario/reply.fixture.js";
 import {
   WORKFLOW_DEFINITION_RECORDS,
   WORKFLOW_FIX_SESSION,

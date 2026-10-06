@@ -4,10 +4,10 @@
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
-import { type FindStepDirection, type FindResult } from "../model.js";
+import { type FindStepDirection, type FindResult } from "../matcher.js";
 import { useCaretOnOpen } from "../hooks/useCaretOnOpen.js";
 
-import "./find-box.css";
+import "./FindBox.css";
 
 /** The query, its result, and the acts the field offers. */
 export interface FindBoxProps {

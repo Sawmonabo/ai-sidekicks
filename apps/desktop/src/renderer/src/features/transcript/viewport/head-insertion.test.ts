@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HeadInsertion } from "./head-insertion.js";
-import { rowsFrom } from "./viewport-controller.test-support.js";
+import { rowsFrom } from "./controller.test-support.js";
 
 describe("the head-growth reading", () => {
   it("counts the rows a page brought and names the cursor they start at", () => {

@@ -17,8 +17,8 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
-import { createWorkflowCommandTargets } from "#renderer/features/workflows/workflow-command-target.js";
-import { withCommandTargets } from "#renderer/features/workflows/workflow-command-target.test-support.js";
+import { createWorkflowCommandTargets } from "#renderer/features/workflows/command-target.js";
+import { withCommandTargets } from "#renderer/features/workflows/command-target.test-support.js";
 import { ChainQuestion } from "./ChainQuestion.js";
 
 /** How long the fixture daemon takes to answer `workflow.gateResolve`. */

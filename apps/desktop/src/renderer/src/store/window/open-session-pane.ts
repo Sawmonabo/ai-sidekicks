@@ -1,7 +1,7 @@
 // How a screen with no pane layout of its own opens a pane: pane layouts live only inside the
 // session screen, so the pane is opened in a named session's layout and the window moves there.
 
-import type { WindowStore } from "./window-store.js";
+import type { WindowStore } from "./store.js";
 import type { PaneOpenRequest } from "./pane-open-requests.js";
 
 /**

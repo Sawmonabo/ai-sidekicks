@@ -3,6 +3,8 @@
 // no diff state, mounts diff text only as text, wraps long lines, and computes intraline
 // segments per drawn row from a cache, so virtualization bounds the cost as well as the DOM.
 
+import "./DiffRenderer.css";
+
 import { useMemo, useRef } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -13,10 +15,10 @@ import {
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
 } from "../measures.js";
-import type { DiffModel, DiffViewMode } from "../diff-model.js";
+import type { DiffModel, DiffViewMode } from "../model.js";
 import { DiffRowView } from "./DiffRowView.js";
-import type { DiffGapExpansion } from "../row-model.js";
-import { DiffRowIndex } from "../diff-row-index.js";
+import type { DiffGapExpansion } from "../rows/model.js";
+import { DiffRowIndex } from "../rows/flat-index.js";
 import { IntralineSegmentCache } from "../intraline-segment-cache.js";
 
 /** Props for `DiffRenderer`. */

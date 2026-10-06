@@ -4,9 +4,9 @@
 
 import type { WorkflowRunListResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
-import type { RunFilters } from "./run-filters.js";
+import type { RunFilters } from "./filters.js";
 
 /** How many runs one page of the table asks for: more than a screen of rows. */
 export const RUNS_PAGE_SIZE = 50;

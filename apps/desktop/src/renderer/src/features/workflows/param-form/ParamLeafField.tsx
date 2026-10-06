@@ -10,10 +10,10 @@ import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contrac
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { PickedFolder } from "#shared/preload-api.js";
 import { ActionButton } from "../components/ActionButton.js";
-import { readPickedFolder } from "./param-answers.js";
+import { readPickedFolder } from "./answers.js";
 
 /** What the form hands one leaf field. */
 export interface ParamLeafFieldProps {

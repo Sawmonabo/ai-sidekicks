@@ -1,12 +1,12 @@
 // The immutable partition operations one entity mutation performs. Every merge replaces the
 // identity of exactly the partition it touched, because a row selector's `Object.is` bail
-// depends on the rest staying put (`entities.ts`, the entity-keyed rule).
+// depends on the rest staying put (`vocabulary.ts`, the entity-keyed rule).
 //
 // Both functions are total on well-formed input and deliberately not defensive against a kind
 // outside the closed set: that is a defect in the registering feature, caught and named at the
 // projection runner's boundary, and a guard here would hide it as a missing entity.
 
-import type { StoredEntity } from "./entities.js";
+import type { StoredEntity } from "./vocabulary.js";
 import type { EntityKind, EntityRef } from "#renderer/lib/entity-kinds.js";
 
 /**

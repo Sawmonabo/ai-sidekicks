@@ -4,6 +4,8 @@
 // A refusal is not an empty state: it keeps the daemon's code in mono and message verbatim, and
 // folding it into an empty state would drop the code a person pastes into a search.
 
+import "./WorkflowStateStrip.css";
+
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { type WorkflowStripState } from "../strip-state.js";

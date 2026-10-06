@@ -1,12 +1,7 @@
 // A workspace's record: the durable side of a repo mount.
 
 import { EntityRecord } from "./EntityRecord.js";
-import {
-  instantFacet,
-  readBodyMember,
-  wireFacet,
-  type EntityDetailProps,
-} from "../entity-facets.js";
+import { instantFacet, readBodyMember, wireFacet, type EntityDetailProps } from "../facets.js";
 
 /** The workspace record body: repo mount, workspace, actor and last touch. */
 export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Element {

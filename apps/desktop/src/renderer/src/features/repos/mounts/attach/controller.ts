@@ -2,9 +2,9 @@
 // so the call carries the path and nothing about the session.
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
-import { ActController } from "../../acts/act-controller.js";
-import { type ActSettlementReading } from "../../acts/act-reading.js";
-import type { RepoOperations } from "../../repo-operations.js";
+import { ActController } from "../../acts/controller.js";
+import { type ActSettlementReading } from "../../acts/reading.js";
+import type { RepoOperations } from "../../operations.js";
 
 /** What a finished attach carries: the mount the daemon minted for it. */
 export interface AttachSettlement {

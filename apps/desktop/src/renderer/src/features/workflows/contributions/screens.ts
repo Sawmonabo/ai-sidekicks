@@ -3,14 +3,14 @@
 import {
   type ScreenRegistration,
   type ScreenRegistry,
-} from "#renderer/registries/screens/screen-registry.js";
-import type { WorkflowCommandTargets } from "../workflow-command-target.js";
+} from "#renderer/registries/screens/registry.js";
+import type { WorkflowCommandTargets } from "../command-target.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
 /**
- * Claim this feature's screen, the rail's workflows destination, against a registry rather than
- * the module-scope singleton, so a test can compose its own set. The screen offers `commandTargets` to the
- * commands that press them.
+ * Claim this feature's screen, the rail's workflows destination, against a registry rather than the
+ * module-scope singleton, so a test can compose its own set. The screen offers `commandTargets` to
+ * the commands that press them.
  */
 export function registerWorkflowScreens(
   registry: ScreenRegistry,
@@ -22,7 +22,7 @@ export function registerWorkflowScreens(
     // A loader: a `render` here would put the screen and run list on every session's initial
     // graph.
     body: () =>
-      import("../workflows-screen-body.js").then((module) => ({
+      import("../screen-body.js").then((module) => ({
         Body: module.bodyOffering(commandTargets),
       })),
   };

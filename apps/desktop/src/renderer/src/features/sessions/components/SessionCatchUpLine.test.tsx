@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";
-import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
-import { OpenSessionEntry } from "#renderer/store/session/open-session/open-session-entry.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { OpenSessionEntry } from "#renderer/store/session/open/entry.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { failingRepoMountsReader } from "#test/helpers/failing-repo-mounts-reader.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";

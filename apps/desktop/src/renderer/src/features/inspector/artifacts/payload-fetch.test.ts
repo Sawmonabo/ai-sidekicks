@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
-import type { ReadArtifact } from "./services/artifact-reads.js";
+import { SessionStore } from "#renderer/store/session/store.js";
+import type { ReadArtifact } from "./services/reads.js";
 import { ArtifactListReader } from "./list-reader.js";
 import {
   LISTED_ONE_ROW,

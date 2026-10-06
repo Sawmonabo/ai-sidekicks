@@ -8,11 +8,11 @@
 import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { render } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { SessionStore } from "#renderer/store/session/session-store.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 import { bridgeOnClock } from "./fixture/bridge.js";
-import type { ArtifactOperations } from "#renderer/features/inspector/artifacts/services/artifact-reads.js";
+import type { ArtifactOperations } from "#renderer/features/inspector/artifacts/services/reads.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
 import { SESSION_ID } from "./artifact-list-readers.js";
 import { useArtifactList } from "#renderer/features/inspector/artifacts/hooks/useArtifactList.js";

@@ -1,7 +1,7 @@
 // The daemon subscriptions the app opens, closed. The daemon runs whatever method a subscription
 // names, so main opens a subscription for a page only under one of these names and refuses every
-// other before anything is sent. The renderer's `session-event-streams.ts` routes each one, and the
-// preload names the machine settings feed from here.
+// other before anything is sent. The renderer's `services/daemon/session/event/streams.ts` routes
+// each one, and the preload names the machine settings feed from here.
 //
 // The names are written as strings so the sandboxed preload loads none of the contract's schemas;
 // the set is checked against the daemon's method map, so each must be one of its subscriptions.

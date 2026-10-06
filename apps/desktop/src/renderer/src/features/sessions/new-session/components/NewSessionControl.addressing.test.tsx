@@ -7,7 +7,7 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NewSessionControl } from "./NewSessionControl.js";
@@ -16,7 +16,7 @@ import {
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
   bridgeFor,
-} from "../new-session-draft.test-support.js";
+} from "../draft.test-support.js";
 import { SESSION_CREATE_METHOD } from "../settlement.js";
 import {
   REJECTING_FIRST_TURN,

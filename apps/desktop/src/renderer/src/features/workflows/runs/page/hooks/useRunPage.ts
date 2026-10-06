@@ -8,8 +8,8 @@ import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/fa
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { refuse } from "#renderer/lib/refusal/refusal.js";
-import type { PushDrivenReadState } from "#renderer/store/reads/push-driven-read.js";
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
 import { useWorkflowCommandTargets } from "#renderer/features/workflows/hooks/useWorkflowCommandTargets.js";

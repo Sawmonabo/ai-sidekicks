@@ -1,7 +1,7 @@
-// One row per registered callback tool, with the input schema one click away.
-// `CallbackTools.tsx` owns the withheld/exposed rule; this file only draws rows. The panel
-// names a tool's arguments (read by `callback-tool-arguments.ts`) and renders no values, so
-// it stays a list of tools rather than a schema viewer.
+// One row per registered callback tool, with the input schema one click away. `CallbackTools.tsx`
+// owns the withheld/exposed rule; this file only draws rows. The panel names a tool's arguments
+// (read by `features/agents/definitions/callback-tools/arguments.ts`) and renders no values, so it
+// stays a list of tools rather than a schema viewer.
 
 import { useMemo } from "react";
 
@@ -10,7 +10,7 @@ import { Collapsible } from "@base-ui/react/collapsible";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { callbackToolArguments, type CallbackToolArgument } from "../callback-tool-arguments.js";
+import { callbackToolArguments, type CallbackToolArgument } from "../arguments.js";
 
 /**
  * One row per entry, with the schema one click away. `deniedTone` presents the withheld arm

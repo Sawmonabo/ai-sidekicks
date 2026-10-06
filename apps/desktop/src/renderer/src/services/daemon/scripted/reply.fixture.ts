@@ -18,10 +18,10 @@ import type {
   RequestStampReader,
   ScenarioNotice,
   ScenarioRefusalEnvelope,
-} from "../scenario/scenario-reply.fixture.js";
+} from "../scenario/reply.fixture.js";
 import type { DeliveredNotice, ScenarioEngine } from "../engine.fixture.js";
 import { FixtureBridgeError, type ScriptedReplyRefusalCode } from "../refusal.fixture.js";
-import type { MachineNoticeStreamName } from "../session/event/session-event-streams.js";
+import type { MachineNoticeStreamName } from "../session/event/streams.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
@@ -154,7 +154,7 @@ export async function resolveScriptedReply(
 /**
  * Hold one resolved scripted reply to the shape the corpus registers for its method.
  *
- * Reads the same `#shared/daemon/method-bindings.ts` table `daemon-reply.ts` parses live
+ * Reads the same `#shared/daemon/method-bindings.ts` table `services/daemon/reply.ts` parses live
  * replies against, so an impossible reply fails in the scenario's own tests and two tables cannot
  * disagree. It asserts and does not substitute: the original value travels on, so a scenario cannot
  * lean on a coercion or default a live daemon lacks. A method the registry does not bind passes

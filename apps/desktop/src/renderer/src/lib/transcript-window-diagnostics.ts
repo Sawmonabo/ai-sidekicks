@@ -1,5 +1,5 @@
 // What one session's transcript viewport is showing, and the registry that carries the reading from
-// the transcript feature down to `services/session-events/session-event-subscriber.ts`.
+// the transcript feature down to `services/session-events/subscriber.ts`.
 //
 // It sits in `lib/` because the producer (the transcript feature) is above the consumer (a
 // service) in the import layering, so the consumer cannot import it. A mount registers a function,

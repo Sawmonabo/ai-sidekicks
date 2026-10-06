@@ -7,8 +7,8 @@
 import type { RootContent } from "mdast";
 import { useEffect, useMemo, useRef } from "react";
 
-import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/footnote-collection.js";
-import { type FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
+import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
+import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import {
   MarkdownNodes,
   type MarkdownRenderContext,
@@ -18,7 +18,7 @@ import {
   footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
-} from "#renderer/components/Markdown/parse/markdown-parse.js";
+} from "#renderer/components/Markdown/parse.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { SettledBlock } from "./SettledBlock.js";
 import { renderCodeBlockCopy } from "./CodeBlockCopy.js";
@@ -49,7 +49,7 @@ export interface StreamingMarkdownProps {
    * character can change what it means.
    */
   readonly isComplete: boolean;
-  /** Whether each code block carries its own Copy: an agent's reply does, a person's message not. */
+  /** Whether each code block carries its own Copy: an agent's reply does, a person's does not. */
   readonly offersCodeCopy: boolean;
 }
 

@@ -3,9 +3,9 @@
 // also proves the reader records its failure on the session.
 
 import type { Clock } from "#renderer/lib/clock.js";
-import { RepoMountsReader } from "#renderer/features/repos/mounts/repo-mounts-reader.js";
-import { scriptedRepoOperations } from "#renderer/features/repos/repo-operations.test-support.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import { RepoMountsReader } from "#renderer/features/repos/mounts/reader.js";
+import { scriptedRepoOperations } from "#renderer/features/repos/operations.test-support.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 
 /** A reader over this session whose repository calls all reject, so each pass fails. */
 export function failingRepoMountsReader(

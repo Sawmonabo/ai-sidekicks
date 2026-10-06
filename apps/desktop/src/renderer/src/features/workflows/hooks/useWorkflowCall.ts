@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { DaemonReply } from "#renderer/services/daemon/daemon-reply.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
+import type { DaemonReply } from "#renderer/services/daemon/reply.js";
 
 /** Where one call stands: not sent, in flight, refused in the daemon's words, or done. */
 export type WorkflowCallState<TResult> =
@@ -20,7 +20,8 @@ export interface WorkflowCall<TRequest, TResult> {
 
 /**
  * Hold one daemon call a person's press sends on the workflows screen, and how it settled. A
- * settlement after the view is gone sets nothing. `onDone` runs once per served answer, after the state is set.
+ * settlement after the view is gone sets nothing. `onDone` runs once per served answer, after the
+ * state is set.
  */
 export function useWorkflowCall<TRequest, TResult>(
   send: (request: TRequest) => Promise<DaemonReply<TResult>>,

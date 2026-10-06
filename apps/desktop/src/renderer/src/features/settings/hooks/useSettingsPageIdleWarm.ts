@@ -12,8 +12,8 @@ import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
   type IdleWarmScheduler,
-} from "#renderer/components/LazyBody/lazy-body-warm.js";
-import { type SettingsPageRegistry } from "../settings-pages.js";
+} from "#renderer/components/LazyBody/idle-warm.js";
+import { type SettingsPageRegistry } from "../pages/registry.js";
 
 /**
  * Warm this mount's loader-backed settings pages once, after its first frame.

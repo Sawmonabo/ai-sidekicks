@@ -3,7 +3,7 @@
 // skeleton rows while the first read is in flight.
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 
 /**

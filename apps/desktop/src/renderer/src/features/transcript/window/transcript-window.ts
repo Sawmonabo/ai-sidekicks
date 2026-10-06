@@ -5,20 +5,20 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
-import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
   ChildRunIndex,
   type ChildRunEntry,
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
-import { projectTranscriptRows } from "../projection/transcript-row-projection.js";
-import { RunGroupIndex, readRunGroupKey, type RunGroup } from "../run-groups/run-groups.js";
-import { SupersededIndex } from "../superseded/superseded-turns.js";
+import { projectTranscriptRows } from "../projection/rows.js";
+import { RunGroupIndex, readRunGroupKey, type RunGroup } from "../runs/groups.js";
+import { SupersededIndex } from "../superseded-turns.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
-} from "../system-messages/system-message-classifier.js";
-import { type ViewportRow } from "../viewport/viewport-snapshot.js";
+} from "../system-messages/classifier.js";
+import { type ViewportRow } from "../viewport/snapshot.js";
 import { replyRowIdsByFootRowId } from "./reply-rows.js";
 import { TranscriptRowRetention } from "./row-retention.js";
 

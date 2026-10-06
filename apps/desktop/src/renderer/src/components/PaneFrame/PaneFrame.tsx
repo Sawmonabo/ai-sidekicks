@@ -1,7 +1,7 @@
 // The chrome every pane wears, drawn once so six features do not draw six frames.
 //
 // The control strip holds the kind's own actions and close. Close comes from an explicit prop or
-// from `pane-controls.ts`'s context (explicit wins); with neither, the control is left out rather
+// from `controls.ts`'s context (explicit wins); with neither, the control is left out rather
 // than drawn disabled. The head is also the drag handle, so selecting text in a body never starts
 // a drag; the registration arrives through the same context, and a pane outside a pane layout is
 // simply not draggable. The pane-level key claim is a prop for the same reason: the head is not
@@ -15,7 +15,7 @@ import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./usePaneControls.js";
-import { type PaneKind } from "#renderer/routing/panes/pane-kinds.js";
+import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 
 /**
  * The glyph each pane kind wears, total over the closed set so a new kind fails to compile here.

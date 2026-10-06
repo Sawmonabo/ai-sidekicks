@@ -8,8 +8,8 @@ import type {
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";
-import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { callDaemon } from "#renderer/services/daemon/reply.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";

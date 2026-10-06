@@ -4,13 +4,15 @@
 // resolved configuration is never re-read from the registry, whose row may have moved. `createdAt`
 // sits in the head, not the effective line, whose members are all provider axes.
 
+import "./AgentBindingCard.css";
+
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";
-import { agentToolAllowlistPosition } from "../tool-allowlist/tool-allowlist.js";
+import { agentToolAllowlistPosition } from "../tool-allowlist/position.js";
 
 /** What one agent card shows. */
 export interface AgentBindingCardProps {

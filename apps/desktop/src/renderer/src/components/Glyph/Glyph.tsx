@@ -7,7 +7,7 @@
 import "./Glyph.css";
 
 import { GLYPH_DEFAULT_SIZE, type GlyphName } from "#renderer/styles/glyphs.js";
-import { GLYPH_ICONS } from "./glyph-icons.js";
+import { GLYPH_ICONS } from "./icons.js";
 
 /** Props for `Glyph`. */
 export interface GlyphProps {

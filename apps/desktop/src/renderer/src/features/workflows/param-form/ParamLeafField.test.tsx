@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 
 import type { FilePathRef, PickedFolder } from "#shared/preload-api.js";
-import { seedParamAnswers, type ParamAnswers } from "./param-answers.js";
+import { seedParamAnswers, type ParamAnswers } from "./answers.js";
 import { ParamForm } from "./ParamForm.js";
 
 const FIELDS: readonly WorkflowParamSpec[] = [

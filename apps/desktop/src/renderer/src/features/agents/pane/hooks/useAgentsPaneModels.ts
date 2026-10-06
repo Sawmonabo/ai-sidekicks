@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
-import { isCurrentSessionSubject } from "#renderer/store/subject-scoped/session-subject.js";
-import type { SessionStore } from "#renderer/store/session/session-store.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import { isCurrentSessionSubject } from "#renderer/store/session/subject.js";
+import type { SessionStore } from "#renderer/store/session/store.js";
 import { type AgentsPaneCalls } from "../../reads.js";
-import { AgentsPaneModels } from "../agents-pane-models.js";
+import { AgentsPaneModels } from "../models.js";
 
 /**
  * Hold one {@link AgentsPaneModels} for as long as this mount shows one session. A hook, not a

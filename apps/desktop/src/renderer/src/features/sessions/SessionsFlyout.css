@@ -1,0 +1,23 @@
+/* The all-sessions destination's frame. */
+
+.meridian-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-6);
+  padding: var(--meridian-space-6);
+  min-height: 100%;
+}
+
+.meridian-sessions__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 64ch;
+}
+
+.meridian-sessions__title {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}

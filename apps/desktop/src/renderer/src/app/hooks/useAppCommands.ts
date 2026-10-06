@@ -5,21 +5,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
-import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { AppearanceClient } from "#renderer/services/window/appearance-client.js";
-import type { WindowStore } from "#renderer/store/window/window-store.js";
+import type { WindowStore } from "#renderer/store/window/store.js";
 import { subscribeToCommandContributions } from "#renderer/registries/commands/contributions.js";
 import { publishCommandRefusalSink } from "#renderer/registries/commands/refusal.js";
 import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
-import type { CommandDefinition } from "#renderer/registries/commands/types.js";
-import {
-  commandRegistry,
-  registerCommands,
-} from "#renderer/registries/commands/window-command-registry.js";
-import { keybindingOverrides } from "#renderer/registries/keybindings/keybinding-override-store.js";
-import type { ScreenRegistry } from "#renderer/registries/screens/screen-registry.js";
-import { buildNavigationCommands } from "#renderer/layout/NavigationRail/navigation-commands.js";
+import type { CommandDefinition } from "#renderer/registries/commands/definition.js";
+import { commandRegistry, registerCommands } from "#renderer/registries/commands/registry.js";
+import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
+import type { ScreenRegistry } from "#renderer/registries/screens/registry.js";
+import { buildNavigationCommands } from "#renderer/layout/NavigationRail/commands.js";
 import { buildColorSchemeCommand, useBridgeCommands } from "#renderer/features/settings/index.js";
 import { discloseUnkeptScheme } from "../unkept-scheme.js";
 

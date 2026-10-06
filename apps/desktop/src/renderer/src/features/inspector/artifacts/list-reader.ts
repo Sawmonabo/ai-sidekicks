@@ -16,9 +16,9 @@ import {
   type ArtifactListReading,
   type ArtifactRowActOutcome,
 } from "./list-reading.js";
-import type { ReadArtifact } from "./services/artifact-reads.js";
+import type { ReadArtifact } from "./services/reads.js";
 import { ArtifactReadSchedule, type ArtifactReadScheduleOptions } from "./read-schedule.js";
-import type { ArtifactPayloadOutcome } from "#renderer/store/artifacts/payload.js";
+import type { ArtifactPayloadOutcome } from "#renderer/store/artifact-payload.js";
 
 /** What the reader needs: the schedule's options plus the act call. */
 export interface ArtifactListReaderOptions extends ArtifactReadScheduleOptions {

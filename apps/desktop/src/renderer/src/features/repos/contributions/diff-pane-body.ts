@@ -6,8 +6,8 @@
 import { createElement } from "react";
 
 import { DiffPane } from "../diff/components/DiffPane.js";
-import { paneBodyForKind } from "#renderer/registries/panes/pane-body-for-kind.js";
-import { type PaneContext } from "#renderer/registries/panes/pane-context.js";
+import { paneBodyForKind } from "#renderer/registries/panes/body-for-kind.js";
+import { type PaneContext } from "#renderer/registries/panes/context.js";
 
 /**
  * The diff pane's body at an address the pane layout resolved to this kind. Named `Body`

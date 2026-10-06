@@ -6,16 +6,16 @@
 // command, renders no credential-home path and re-derives no eligibility. It fires on a refusal
 // that already happened, so a run that would have been admitted is never interrupted by an offer.
 
-import "./account-plane-handoff.css";
+import "./AccountPlaneRefusal.css";
 
 import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
-import { type Refusal } from "#renderer/lib/refusal/refusal.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { type SettingsPageId } from "#renderer/routing/settings-page-ids.js";
-import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/settings-page-labels.js";
+import { SETTINGS_PAGE_LABELS } from "#renderer/features/settings/pages/labels.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";
 

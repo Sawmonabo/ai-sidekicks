@@ -24,7 +24,7 @@ export const ENTITY_KINDS = [
   "browser-page",
   // A valid reference kind with a partition of its own, not a promise that a feature projects
   // rows into it; the empty partition costs one `Map` per session. The total map over this
-  // vocabulary in `routing/panes/pane-address.ts` names it too (as not admitting a checkout).
+  // vocabulary in `routing/panes/address.ts` names it too (as not admitting a checkout).
   "repo",
 ] as const;
 

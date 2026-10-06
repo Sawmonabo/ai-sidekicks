@@ -11,8 +11,8 @@ import {
   renderFeed,
   withdrawTranscriptCommands,
 } from "./TranscriptFeed.test-support.js";
-import { withLaidOutViewport } from "../../viewport/viewport-controller.test-support.js";
-import { openSessionStoreWithFeedLog } from "../../transcript-logs.test-support.js";
+import { withLaidOutViewport } from "../../viewport/controller.test-support.js";
+import { openSessionStoreWithFeedLog } from "../../logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

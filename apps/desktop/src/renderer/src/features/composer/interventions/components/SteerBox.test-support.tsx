@@ -7,11 +7,11 @@ import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/co
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { SteerBox } from "./SteerBox.js";
-import { inertBridge } from "../../composer.test-support.js";
-import type { RunControlCommandRun } from "../../run-controls/contributions/run-control-commands.js";
-import type { RunControlCalls } from "../../run-controls/services/run-control-dispatch.js";
-import { RUN_ID } from "../../run-controls/run-control-commands.test-support.js";
-import { useRunControlDispatch } from "../../run-controls/hooks/useRunControlDispatch.js";
+import { inertBridge } from "../../Composer.test-support.js";
+import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
+import type { RunControlCalls } from "../../run/controls/services/dispatch.js";
+import { RUN_ID } from "../../run/controls/commands.test-support.js";
+import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
 
 /** What the stub answers one intervention with. */
 export type ScriptedAnswer = () => unknown;

@@ -8,8 +8,8 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import {
   CONTROLLER_DISPOSAL,
   type DisposableController,
-} from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type SubjectKey } from "#renderer/lib/subject-scoped/subject-scoped-holder.js";
+} from "#renderer/lib/subject-scoped/disposal.js";
+import { type SubjectKey } from "#renderer/lib/subject-scoped/holder.js";
 import { useLatestRef } from "../useLatestRef.js";
 import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 

@@ -7,7 +7,7 @@ import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { ChildRunExpansionState } from "./child-run-expansion.js";
 
 /** The session every case expands under; any well-formed id serves. */

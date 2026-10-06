@@ -1,7 +1,7 @@
 import { useContext } from "react";
 
-import { LiveAnnouncerContext } from "#renderer/components/LiveAnnouncer/live-announcer-context.js";
-import type { Announce } from "#renderer/components/LiveAnnouncer/live-announcer.js";
+import { LiveAnnouncerContext } from "#renderer/components/LiveAnnouncer/context.js";
+import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 
 const OUTSIDE_PROVIDER =
   "useAnnounce was called outside <LiveAnnouncerProvider>. The app has one " +

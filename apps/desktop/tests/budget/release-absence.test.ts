@@ -46,7 +46,7 @@ import { isFixtureOnlyModule } from "../../electron.vite.config.js";
 import { DESKTOP_PACKAGE_ROOT } from "#scripts/budget/budget-registry.mts";
 import { FIXTURE_GLOBAL_NAMES } from "#renderer/app/fixture/global-names.js";
 import { FIXTURE_LAUNCH_GLOBAL } from "#shared/fixture-launch.js";
-import { type PerformanceMeterKind } from "#renderer/lib/performance-meters/performance-meters.js";
+import { type PerformanceMeterKind } from "#renderer/lib/performance-meters/registry.js";
 import {
   BUILD_TARGETS,
   readBuiltTextOrFailLoudly,
@@ -63,11 +63,12 @@ import {
 const RENDERER_PRESENCE_MARKER = "meridian-frame";
 
 /**
- * The perf-meter kinds a release renderer must not carry, named rather than derived. Not every
- * kind in the tuple: `"reveal-drain"` is also a `window-cap.ts` reason code and a
- * `viewport-prune-cycle.ts` case label, and `"frame-time"` is a string other product code
- * carries, so sweeping the tuple whole would fail on a correct bundle. `"apply-latency"` and
- * `"store-size"` are the meters' own words, so their absence is evidence of the fold.
+ * The perf-meter kinds a release renderer must not carry, named rather than derived. Not every kind
+ * in the tuple: `"reveal-drain"` is also a `window-cap.ts` reason code and a
+ * `features/transcript/viewport/prune-cycle.ts` case label, and `"frame-time"` is a string other
+ * product code carries, so sweeping the tuple whole would fail on a correct bundle.
+ * `"apply-latency"` and `"store-size"` are the meters' own words, so their absence is evidence of
+ * the fold.
  *
  * Deriving the exceptions would mean reading source text, which no test here does. The cost is
  * that a listed kind gaining another reader turns the sweep red on a correct build (move it off

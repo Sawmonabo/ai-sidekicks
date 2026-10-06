@@ -8,13 +8,13 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
-import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/subject-scoped-disposal.js";
-import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import {
   EarlierHistoryReader,
   type EarlierHistoryState,
   type EarlierPageRead,
-} from "../earlier-history-reader.js";
+} from "../earlier-reader.js";
 
 /** What the head control renders, and the one act it performs. */
 export interface EarlierHistoryPaging extends EarlierHistoryState {

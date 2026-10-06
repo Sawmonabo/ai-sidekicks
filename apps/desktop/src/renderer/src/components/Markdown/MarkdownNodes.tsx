@@ -8,7 +8,7 @@ import "./markdown.css";
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
 
-import { isDeferredFenceLanguage } from "./markdown-rules.js";
+import { isDeferredFenceLanguage } from "./rules.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -260,7 +260,7 @@ function renderTableCell(
 
 /**
  * A fenced block: math, a diagram, or code, told apart by the info string, which
- * `markdown-rules.ts` reads so the deferral rule and this switch agree.
+ * `rules.ts` reads so the deferral rule and this switch agree.
  *
  * A deferred math fence renders as a formula once settled and as its source before; a diagram
  * fence renders as its source always, because the app ships no control that asks for one.

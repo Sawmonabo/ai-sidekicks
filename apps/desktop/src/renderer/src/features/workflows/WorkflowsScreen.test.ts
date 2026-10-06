@@ -12,12 +12,9 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
 import { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/streams.js";
-import {
-  PersistenceAdapterError,
-  type StoredRecord,
-} from "#renderer/store/persistence/persistence-adapter.js";
+import { PersistenceAdapterError, type StoredRecord } from "#renderer/store/persistence/adapter.js";
 import { refusePersistence } from "#renderer/store/persistence/refusals.js";
-import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-persistence-adapter.js";
+import { MemoryPersistenceAdapter } from "#renderer/store/persistence/memory-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import {
   attentionOf,

@@ -1,5 +1,5 @@
-// How a caller acts on a live run through its driver: the run and artifact ids its params carry, the
-// interrupt params, the intervention types and their payloads, and the driver's result, parsed
+// How a caller acts on a live run through its driver: the run and artifact ids its params carry,
+// the interrupt params, the intervention types and their payloads, and the driver's result, parsed
 // because it comes from provider output.
 import { z } from "zod";
 

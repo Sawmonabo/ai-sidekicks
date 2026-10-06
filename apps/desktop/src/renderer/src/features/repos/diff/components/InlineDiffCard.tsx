@@ -3,19 +3,19 @@
 // ends in a fade with nowhere to go. With both compared states it shows `DiffChangeSet`. A
 // unified patch names neither state, so they come from the row (`contributions/inline-cards.ts`).
 
-import "./diff.css";
+import "./InlineDiffCard.css";
 
 import { useId, useRef, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/inline-card-registry.js";
+import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
-import { type DiffModel } from "../diff-model.js";
+import { type DiffModel } from "../model.js";
 import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.

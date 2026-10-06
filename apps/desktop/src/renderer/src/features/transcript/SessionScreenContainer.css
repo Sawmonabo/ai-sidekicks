@@ -1,0 +1,18 @@
+/* The session screen's container. Loaded with the composition root, because the session
+ * screen draws it before any pane body has loaded. */
+
+/*
+ * One pane, full width, filling the screen view. A grid because `.meridian-frame__screen` is a
+ * scroll container and a percentage-height chain through a block would collapse.
+ * `max-height` is the ceiling that keeps the feed the thing that scrolls: with only
+ * `min-height: 100%` a long log grows this box, the viewport mounts every row, and cost grows
+ * with the session (measured on the endurance workload: 51 of 51 rows mounted in a 5,541px
+ * track inside a 768px window). A ceiling, not a `height`, so fitting panes are unchanged.
+ */
+.meridian-session-screen-container {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 100%;
+  max-height: 100%;
+}

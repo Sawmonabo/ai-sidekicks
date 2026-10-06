@@ -6,15 +6,15 @@ import { createStubBridge } from "#shared/preload-api.js";
 import type { ReactNode } from "react";
 import type { Clock } from "#renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
-import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
 import {
   FIXTURE_APP_META,
   FIXTURE_WINDOW_ID,
   type FixtureBridge,
-} from "#renderer/services/platform/platform-bridge.fixture.js";
+} from "#renderer/services/platform/bridge.fixture.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
-import type { WindowBanner } from "#renderer/store/window/window-store.js";
+import type { WindowBanner } from "#renderer/store/window/store.js";
 import {
   RAIL_ENTRY_TEMPLATES,
   type RailEntry,
