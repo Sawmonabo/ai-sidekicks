@@ -20,8 +20,6 @@ import { isHTMLElement } from "@floating-ui/utils/dom";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { clampedRowIndex } from "#renderer/hooks/useWindowedRovingIndex.js";
 import { RefusalWithRemedy } from "../../components/RefusalWithRemedy/RefusalWithRemedy.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatClockTime } from "#renderer/lib/wire/figures.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { approvalAnswer, isApprovalAnswerable } from "../offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
@@ -164,40 +162,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           tone={APPROVAL_STATE_TONES[record.state]}
         />
       </header>
-
-      <dl className="meridian-approval-card__facts">
-        <div className="meridian-approval-card__fact">
-          <dt>Requested by</dt>
-          <dd>
-            <WireFigure value={record.requestedBy} />
-          </dd>
-        </div>
-        <div className="meridian-approval-card__fact">
-          <dt>Raised by run</dt>
-          <dd>
-            <WireFigure value={record.runId} />
-          </dd>
-        </div>
-        <div className="meridian-approval-card__fact">
-          <dt>Requested scope</dt>
-          <dd>
-            <WireFigure value={record.scope} />
-          </dd>
-        </div>
-        <div className="meridian-approval-card__fact">
-          <dt>Requested</dt>
-          <dd>
-            {/* `title` carries the exact instant the daemon sent. */}
-            <WireFigure value={formatClockTime(record.createdAt)} title={record.createdAt} />
-          </dd>
-        </div>
-        <div className="meridian-approval-card__fact">
-          <dt>Last changed</dt>
-          <dd>
-            <WireFigure value={formatClockTime(record.updatedAt)} title={record.updatedAt} />
-          </dd>
-        </div>
-      </dl>
 
       {props.children}
 

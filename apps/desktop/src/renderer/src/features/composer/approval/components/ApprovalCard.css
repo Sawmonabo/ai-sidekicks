@@ -31,30 +31,6 @@
   font-weight: 500;
 }
 
-/* Who asked, from which run, the scope and when read on one screen; what was asked for sits
-   behind a disclosure. */
-.meridian-approval-card__facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: var(--meridian-space-2) var(--meridian-space-4);
-  margin: 0;
-}
-
-.meridian-approval-card__fact {
-  min-width: 0;
-}
-
-.meridian-approval-card__fact dt {
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-approval-card__fact dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .meridian-approval-card__disclosure-panel {
   display: flex;
   flex-direction: column;
