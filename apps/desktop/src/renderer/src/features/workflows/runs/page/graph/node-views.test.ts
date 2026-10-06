@@ -5,6 +5,7 @@ import type {
   WorkflowNode,
   WorkflowNodeId,
 } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 
@@ -136,6 +137,11 @@ describe("the run graph names when a parked node resumes", () => {
       status: "waiting",
       attempt: 1,
       waitCause: "account",
+      waitAccount: {
+        providerAccountId: "pa-0001" as ProviderAccountId,
+        provider: "codex",
+        label: "Work",
+      },
       resumeAt,
     });
 
