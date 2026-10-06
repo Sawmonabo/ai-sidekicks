@@ -1,15 +1,15 @@
 // The daemon-resident driver-capability cache.
 //
 // Persists a driver's capability snapshot to three driver-keyed tables (`driver_capabilities`,
-// `driver_tools`, `driver_contract_meta`) in one transaction, and rebuilds the whole
-// `GetCapabilitiesResult` from them on cold start without asking the driver. No table has a
-// session column.
+// `driver_tools`, `driver_contract_meta`) in one write through the database writer, and rebuilds
+// the whole `GetCapabilitiesResult` from them on cold start without asking the driver. No table
+// has a session column.
 // - `driver_contract_meta` is the parent row: its presence means the driver was written.
 // - The `cliVersion` pair is cache currency, not a capability, so it sits outside change
 //   detection; the unchanged branch rewrites it only when the stored pair differs.
-// - `declare` validates and sorts before opening a transaction; the read-decide-write then runs
-//   `BEGIN IMMEDIATE`, so concurrent declares cannot overwrite each other or hit
-//   `SQLITE_BUSY_SNAPSHOT`.
+// - `declare` validates and sorts first; the read-decide-write then runs in turn with every other
+//   declare of the same driver, its write committing before the next one reads, so concurrent
+//   declares cannot overwrite each other or decide from a stale snapshot.
 
 import { isDeepStrictEqual } from "node:util";
 
@@ -22,8 +22,11 @@ import {
   type NormalizedProviderToolMetadata,
 } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-import type { Database, Statement, Transaction } from "better-sqlite3";
+import type { Statement, Transaction } from "better-sqlite3";
 
+import type { DatabaseConnections } from "../../database/connections.js";
+import type { WriteStatement } from "../../database/messages.js";
+import type { DatabaseWriter } from "../../database/writer.js";
 import {
   assertValidCapabilityFlags,
   assertValidContractVersion,
@@ -117,34 +120,79 @@ function cliVersionReportsEqual(
   return left.rawVersion === right.rawVersion && left.parsedVersion === right.parsedVersion;
 }
 
+// One row per flag is upserted on every write and a flag is never dropped, so no orphan rows.
+const UPSERT_CAPABILITY_FLAG_SQL = `
+  INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
+  VALUES (@driver_name, @capability_flag, @supported, @refreshed_at)
+  ON CONFLICT(driver_name, capability_flag)
+    DO UPDATE SET supported    = excluded.supported,
+                  refreshed_at = excluded.refreshed_at`;
+
+const DELETE_TOOLS_SQL = `DELETE FROM driver_tools WHERE driver_name = ?`;
+
+const INSERT_TOOL_SQL = `
+  INSERT INTO driver_tools (driver_name, tool_name, idempotency_class, description, refreshed_at)
+  VALUES (@driver_name, @tool_name, @idempotency_class, @description, @refreshed_at)`;
+
+// The version pair rides every mutating branch, so it never lags a capability write.
+const UPSERT_CONTRACT_META_SQL = `
+  INSERT INTO driver_contract_meta (driver_name, contract_version, cli_version_raw,
+                                    cli_version_semver, refreshed_at)
+  VALUES (@driver_name, @contract_version, @cli_version_raw, @cli_version_semver, @refreshed_at)
+  ON CONFLICT(driver_name)
+    DO UPDATE SET contract_version   = excluded.contract_version,
+                  cli_version_raw    = excluded.cli_version_raw,
+                  cli_version_semver = excluded.cli_version_semver,
+                  refreshed_at       = excluded.refreshed_at`;
+
+// The version-only refresh: never touches `contract_version`, inserts, or rewrites capability
+// rows. Both version columns are written together, so a parse never outlives its printed version.
+const REFRESH_CLI_VERSION_PAIR_SQL = `
+  UPDATE driver_contract_meta
+     SET cli_version_raw    = @cli_version_raw,
+         cli_version_semver = @cli_version_semver,
+         refreshed_at       = @refreshed_at
+   WHERE driver_name = @driver_name`;
+
 /** The write seam a driver declares through: the writer narrowed to `declare`. */
 export type DriverCapabilityDeclarationSink = Pick<DriverCapabilitiesWriter, "declare">;
+
+// The tail of each driver's declares, a promise that settles when the last one queued has
+// written. Module-level so two writers over one database still take turns; an entry is deleted
+// once its queue drains.
+const declareTails = new Map<ProviderName, Promise<void>>();
+
+// Runs `declare` after every earlier declare of `driverName` has settled, whatever its outcome.
+async function inDeclareTurn<T>(driverName: ProviderName, declare: () => Promise<T>): Promise<T> {
+  const predecessor: Promise<void> = declareTails.get(driverName) ?? Promise.resolve();
+  const { promise: turnEnded, resolve: endTurn } = Promise.withResolvers<void>();
+  declareTails.set(driverName, turnEnded);
+  await predecessor;
+  try {
+    return await declare();
+  } finally {
+    endTurn();
+    if (declareTails.get(driverName) === turnEnded) {
+      declareTails.delete(driverName);
+    }
+  }
+}
 
 /** Persists a driver's declared capabilities and hydrates them back without a provider call. */
 export class DriverCapabilitiesWriter {
   readonly #selectCapabilityFlagsStmt: Statement;
   readonly #selectToolsStmt: Statement;
   readonly #selectContractMetaStmt: Statement;
-  readonly #upsertCapabilityFlagStmt: Statement;
-  readonly #deleteToolsStmt: Statement;
-  readonly #insertToolStmt: Statement;
-  readonly #upsertContractMetaStmt: Statement;
-  // Version-only refresh: must not touch `contract_version`, insert, or rewrite capability rows.
-  readonly #refreshCliVersionPairStmt: Statement;
   // One DEFERRED transaction so the three SELECTs share a snapshot; autocommit would let a
   // refresh tear the read.
   readonly #readTxn: Transaction<(driverName: ProviderName) => CachedDriverCapabilityRead>;
-  readonly #declareTxn: Transaction<
-    (
-      driverName: ProviderName,
-      newSnapshot: CapabilityDetails,
-      declaredCliVersion: DriverCliVersionReport,
-    ) => DeclareDriverCapabilitiesResult
-  >;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #now: () => string;
 
-  constructor(db: Database, now: () => string = () => new Date().toISOString()) {
+  constructor(database: DatabaseConnections, now: () => string = () => new Date().toISOString()) {
     this.#now = now;
+    this.#writer = database.writer;
+    const db = database.reader;
 
     // No ORDER BY: flags reconstruct into a keyed record, so row order is irrelevant.
     this.#selectCapabilityFlagsStmt = db.prepare(
@@ -165,60 +213,16 @@ export class DriverCapabilitiesWriter {
         WHERE driver_name = ?`,
     );
 
-    // One row per flag is upserted on every write and a flag is never dropped, so no orphan rows.
-    this.#upsertCapabilityFlagStmt = db.prepare(
-      `INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
-       VALUES (@driver_name, @capability_flag, @supported, @refreshed_at)
-       ON CONFLICT(driver_name, capability_flag)
-         DO UPDATE SET supported    = excluded.supported,
-                       refreshed_at = excluded.refreshed_at`,
-    );
-    // Delete and reinsert in one transaction so a removed tool leaves no orphan row.
-    this.#deleteToolsStmt = db.prepare(`DELETE FROM driver_tools WHERE driver_name = ?`);
-    this.#insertToolStmt = db.prepare(
-      `INSERT INTO driver_tools (driver_name, tool_name, idempotency_class, description,
-                                 refreshed_at)
-       VALUES (@driver_name, @tool_name, @idempotency_class, @description, @refreshed_at)`,
-    );
-    // The version pair rides every mutating branch, so it never lags a capability write.
-    this.#upsertContractMetaStmt = db.prepare(
-      `INSERT INTO driver_contract_meta (driver_name, contract_version, cli_version_raw,
-                                         cli_version_semver, refreshed_at)
-       VALUES (@driver_name, @contract_version, @cli_version_raw, @cli_version_semver,
-               @refreshed_at)
-       ON CONFLICT(driver_name)
-         DO UPDATE SET contract_version   = excluded.contract_version,
-                       cli_version_raw    = excluded.cli_version_raw,
-                       cli_version_semver = excluded.cli_version_semver,
-                       refreshed_at       = excluded.refreshed_at`,
-    );
-    // Both version columns are written together, so a parse never outlives its printed version.
-    this.#refreshCliVersionPairStmt = db.prepare(
-      `UPDATE driver_contract_meta
-          SET cli_version_raw    = @cli_version_raw,
-              cli_version_semver = @cli_version_semver,
-              refreshed_at       = @refreshed_at
-        WHERE driver_name = @driver_name`,
-    );
-
     this.#readTxn = db.transaction(
       (driverName: ProviderName): CachedDriverCapabilityRead => this.#cachedRead(driverName),
-    );
-    this.#declareTxn = db.transaction(
-      (
-        driverName: ProviderName,
-        newSnapshot: CapabilityDetails,
-        declaredCliVersion: DriverCliVersionReport,
-      ): DeclareDriverCapabilitiesResult =>
-        this.#readDecideWrite(driverName, newSnapshot, declaredCliVersion),
     );
   }
 
   /**
-   * Declares (or refreshes) a driver's capabilities in one IMMEDIATE transaction; an identical
-   * re-declare writes no capability row. Throws `ProviderOutputValidationError`, before any
-   * transaction opens, for an invalid contract version, a bad flag key set, or a malformed or
-   * duplicate tool.
+   * Declares (or refreshes) a driver's capabilities in one write, in turn with the driver's other
+   * declares; an identical re-declare writes no capability row. Throws
+   * `ProviderOutputValidationError`, before anything is read or written, for an invalid contract
+   * version, a bad flag key set, or a malformed or duplicate tool.
    */
   async declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
     // The declared type is erased at runtime, so a malformed driver can ship null or a primitive;
@@ -228,7 +232,7 @@ export class DriverCapabilitiesWriter {
     // Validated where the daemon read it off the spawned build, so it is trusted here.
     const declaredCliVersion: DriverCliVersionReport = input.result.cliVersion;
 
-    // Reject a bad contract_version here so the SQL CHECK never fires mid-transaction.
+    // Reject a bad contract_version here so the SQL CHECK never fires mid-write.
     assertValidContractVersion(input.result.capabilities.contractVersion);
 
     // Exactly the canonical key set: an extra key would hit the SQL CHECK, a missing one would
@@ -257,7 +261,7 @@ export class DriverCapabilitiesWriter {
       Buffer.compare(Buffer.from(left.name, "utf8"), Buffer.from(right.name, "utf8")),
     );
 
-    // Reject duplicates before the transaction so a provider bug does not look like a storage
+    // Reject duplicates before the write so a provider bug does not look like a storage
     // failure. The tools are sorted, so a duplicate is an adjacent pair.
     for (let index = 1; index < normalizedTools.length; index += 1) {
       if (normalizedTools[index]?.name === normalizedTools[index - 1]?.name) {
@@ -281,17 +285,18 @@ export class DriverCapabilitiesWriter {
     };
 
     // `cliVersion` stays out of `newSnapshot`: it is cache currency, not a capability.
-    return this.#declareTxn.immediate(input.driverName, newSnapshot, declaredCliVersion);
+    return inDeclareTurn(input.driverName, () =>
+      this.#readDecideWrite(input.driverName, newSnapshot, declaredCliVersion),
+    );
   }
 
-  // Runs inside `#declareTxn`; calls `#cachedRead` directly because better-sqlite3 rejects nested
-  // transactions.
-  #readDecideWrite(
+  // Runs in the driver's declare turn, so no other declare writes between its read and its write.
+  async #readDecideWrite(
     driverName: ProviderName,
     newSnapshot: CapabilityDetails,
     declaredCliVersion: DriverCliVersionReport,
-  ): DeclareDriverCapabilitiesResult {
-    const priorRead: CachedDriverCapabilityRead = this.#cachedRead(driverName);
+  ): Promise<DeclareDriverCapabilitiesResult> {
+    const priorRead: CachedDriverCapabilityRead = this.#readTxn.deferred(driverName);
     const priorSnapshot: CapabilityDetails | undefined = priorRead.snapshot;
     // Whether the stored pair differs, not whether a statement ran.
     const cliVersionRefreshed: boolean = !cliVersionReportsEqual(
@@ -303,46 +308,63 @@ export class DriverCapabilitiesWriter {
       // A provider upgrade with no capability change must still refresh the pair, or the stored
       // version names a build no longer installed.
       if (cliVersionRefreshed) {
-        this.#refreshCliVersionPairStmt.run({
-          driver_name: driverName,
-          cli_version_raw: declaredCliVersion.rawVersion,
-          cli_version_semver: declaredCliVersion.parsedVersion ?? null,
-          refreshed_at: this.#now(),
-        });
+        await this.#writer.write([
+          {
+            sql: REFRESH_CLI_VERSION_PAIR_SQL,
+            bindings: {
+              driver_name: driverName,
+              cli_version_raw: declaredCliVersion.rawVersion,
+              cli_version_semver: declaredCliVersion.parsedVersion ?? null,
+              refreshed_at: this.#now(),
+            },
+          },
+        ]);
       }
       return { snapshotChange: "unchanged", cliVersionRefreshed };
     }
 
     const refreshedAt: string = this.#now();
+    const statements: WriteStatement[] = [];
 
     for (const capabilityFlag of Object.keys(newSnapshot.flags) as DriverCapabilityFlag[]) {
-      this.#upsertCapabilityFlagStmt.run({
-        driver_name: driverName,
-        capability_flag: capabilityFlag,
-        supported: newSnapshot.flags[capabilityFlag] ? 1 : 0,
-        refreshed_at: refreshedAt,
+      statements.push({
+        sql: UPSERT_CAPABILITY_FLAG_SQL,
+        bindings: {
+          driver_name: driverName,
+          capability_flag: capabilityFlag,
+          supported: newSnapshot.flags[capabilityFlag] ? 1 : 0,
+          refreshed_at: refreshedAt,
+        },
       });
     }
 
-    this.#deleteToolsStmt.run(driverName);
+    // Delete and reinsert in the same write, so a removed tool leaves no orphan row.
+    statements.push({ sql: DELETE_TOOLS_SQL, bindings: [driverName] });
     for (const tool of newSnapshot.tools) {
-      this.#insertToolStmt.run({
-        driver_name: driverName,
-        tool_name: tool.name,
-        idempotency_class: tool.idempotency_class,
-        description: tool.description ?? null,
-        refreshed_at: refreshedAt,
+      statements.push({
+        sql: INSERT_TOOL_SQL,
+        bindings: {
+          driver_name: driverName,
+          tool_name: tool.name,
+          idempotency_class: tool.idempotency_class,
+          description: tool.description ?? null,
+          refreshed_at: refreshedAt,
+        },
       });
     }
 
     // The pair rides the upsert unconditionally; restating an unchanged pair costs nothing.
-    this.#upsertContractMetaStmt.run({
-      driver_name: driverName,
-      contract_version: newSnapshot.contractVersion,
-      cli_version_raw: declaredCliVersion.rawVersion,
-      cli_version_semver: declaredCliVersion.parsedVersion ?? null,
-      refreshed_at: refreshedAt,
+    statements.push({
+      sql: UPSERT_CONTRACT_META_SQL,
+      bindings: {
+        driver_name: driverName,
+        contract_version: newSnapshot.contractVersion,
+        cli_version_raw: declaredCliVersion.rawVersion,
+        cli_version_semver: declaredCliVersion.parsedVersion ?? null,
+        refreshed_at: refreshedAt,
+      },
     });
+    await this.#writer.write(statements);
 
     return {
       snapshotChange: priorSnapshot === undefined ? "created" : "changed",
@@ -377,7 +399,7 @@ export class DriverCapabilitiesWriter {
     };
   }
 
-  // Runs inside `#readTxn` or `#declareTxn`, so both halves share one read snapshot.
+  // Runs inside `#readTxn`, so both halves share one read snapshot.
   #cachedRead(driverName: ProviderName): CachedDriverCapabilityRead {
     const contractMeta: DriverContractMetaRow | undefined = this.#selectContractMetaStmt.get(
       driverName,

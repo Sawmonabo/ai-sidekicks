@@ -13,7 +13,7 @@
  *   would destroy the previous binding's base and head branches, which no other row records.
  */
 
-import type { Database, Statement } from "better-sqlite3";
+import type { Statement } from "better-sqlite3";
 
 import {
   ExecutionModeSchema,
@@ -36,6 +36,7 @@ import {
   type GitInvocationResult,
   type GitRunner,
 } from "../git/process.js";
+import type { DatabaseConnections } from "../database/connections.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 
 import { RepoMountNotFoundError } from "./repo/errors.js";
@@ -62,7 +63,7 @@ export interface ExecutionRootWorktreeProvisioner {
 
 /**
  * The four workspace primitives as one object, so the gate's verdict and the compare-and-swap
- * read and write the same rows on one connection. `WorkspaceService` satisfies it structurally.
+ * read and write the same rows. `WorkspaceService` satisfies it structurally.
  */
 export interface WorkspaceLifecyclePrimitives {
   /** The gate: passes `ready` and `busy`, refuses `stale`, and is a defect otherwise. */
@@ -77,11 +78,8 @@ export interface WorkspaceLifecyclePrimitives {
 
 /** Constructor dependencies for {@link ExecutionRootService}. */
 export interface ExecutionRootServiceDeps {
-  /**
-   * The daemon's SQLite handle; it must be the connection `workspaces` writes through, which the
-   * composition root owns.
-   */
-  readonly database: Database;
+  /** The daemon database: reads on its reader, `branch_contexts` writes through its writer. */
+  readonly database: DatabaseConnections;
   /** The workspace lifecycle primitives, the only `workspaces` write channel. */
   readonly workspaces: WorkspaceLifecyclePrimitives;
   /** The worktree service, narrowed to the calls the `provisioned-worktree` arm makes. */
@@ -143,7 +141,7 @@ export interface PreparedExecutionRoot {
 type ExecutionRootInvariantKind =
   /** A `workspaces` row carries a mode outside the execution-mode vocabulary. */
   | "unreadable_workspace_row"
-  /** A `branch_contexts` write reported a row count this module cannot explain. */
+  /** A `branch_contexts` upsert returned no row id. */
   | "branch_context_write_lost"
   /** `symbolic-ref` could not be run, or answered with a status this module cannot read. */
   | "branch_verification_failed";
@@ -180,24 +178,6 @@ interface MountLookupParams {
   readonly repo_mount_id: string;
 }
 
-interface WorktreePairLookupParams {
-  readonly worktree_id: string;
-  readonly workspace_id: string;
-}
-
-interface BranchContextWriteParams {
-  readonly id: string;
-  readonly workspace_id: string;
-  readonly worktree_id: string | null;
-  readonly base_branch: string;
-  readonly head_branch: string;
-  readonly now: string;
-}
-
-interface BranchContextDeleteParams {
-  readonly id: string;
-}
-
 interface WorkspaceRootRow {
   readonly id: string;
   readonly session_id: string;
@@ -216,6 +196,34 @@ interface AttachedMountRow {
 interface BranchContextIdRow {
   readonly id: string;
 }
+
+// The conflict target repeats the partial index's WHERE clause, as SQLite requires. `@id` is
+// discarded on the update arm, so the row's own id is returned.
+const UPSERT_WORKTREE_CONTEXT_SQL = `INSERT INTO branch_contexts (
+          id, workspace_id, worktree_id,
+          base_branch, head_branch, created_at, updated_at
+        )
+   VALUES (
+          @id, @workspace_id, @worktree_id,
+          @base_branch, @head_branch, @now, @now
+        )
+   ON CONFLICT (worktree_id, workspace_id) WHERE worktree_id IS NOT NULL
+   DO UPDATE SET base_branch = excluded.base_branch,
+                 head_branch = excluded.head_branch,
+                 updated_at  = excluded.updated_at
+   RETURNING id`;
+
+const INSERT_BRANCH_CONTEXT_SQL = `INSERT INTO branch_contexts (
+          id, workspace_id, worktree_id,
+          base_branch, head_branch, created_at, updated_at
+        )
+   VALUES (
+          @id, @workspace_id, @worktree_id,
+          @base_branch, @head_branch, @now, @now
+        )`;
+
+// Keyed on the row id alone, so it can only reach the one row the failing call inserted.
+const DELETE_BRANCH_CONTEXT_SQL = `DELETE FROM branch_contexts WHERE id = @id`;
 
 /**
  * How a root came to be. Only `created` is compensated: a `bound` root is the user's own checkout.
@@ -244,10 +252,7 @@ export class ExecutionRootService {
 
   readonly #selectWorkspaceStmt: Statement<WorkspaceLookupParams, WorkspaceRootRow>;
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
-  readonly #selectWorktreePairContextStmt: Statement<WorktreePairLookupParams, BranchContextIdRow>;
-  readonly #upsertWorktreeContextStmt: Statement<BranchContextWriteParams>;
-  readonly #insertBranchContextStmt: Statement<BranchContextWriteParams>;
-  readonly #deleteBranchContextStmt: Statement<BranchContextDeleteParams>;
+  readonly #writer: DatabaseConnections["writer"];
 
   constructor(deps: ExecutionRootServiceDeps) {
     this.#workspaces = deps.workspaces;
@@ -263,7 +268,8 @@ export class ExecutionRootService {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newBranchContextId = deps.newBranchContextId ?? mintUuidV7;
 
-    const database = deps.database;
+    const database = deps.database.reader;
+    this.#writer = deps.database.writer;
 
     // Projected in SQL so the row type stays flat.
     this.#selectWorkspaceStmt = database.prepare(
@@ -283,46 +289,6 @@ export class ExecutionRootService {
       `SELECT id, canonical_root
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
-    );
-
-    this.#selectWorktreePairContextStmt = database.prepare(
-      `SELECT id
-         FROM branch_contexts
-        WHERE worktree_id = @worktree_id AND workspace_id = @workspace_id`,
-    );
-
-    // The conflict target repeats the partial index's WHERE clause, as SQLite requires. `@id` is
-    // discarded on the update arm, so the caller re-reads the row id.
-    this.#upsertWorktreeContextStmt = database.prepare(
-      `INSERT INTO branch_contexts (
-              id, workspace_id, worktree_id,
-              base_branch, head_branch, created_at, updated_at
-            )
-       VALUES (
-              @id, @workspace_id, @worktree_id,
-              @base_branch, @head_branch, @now, @now
-            )
-       ON CONFLICT (worktree_id, workspace_id) WHERE worktree_id IS NOT NULL
-       DO UPDATE SET base_branch = excluded.base_branch,
-                     head_branch = excluded.head_branch,
-                     updated_at  = excluded.updated_at`,
-    );
-
-    this.#insertBranchContextStmt = database.prepare(
-      `INSERT INTO branch_contexts (
-              id, workspace_id, worktree_id,
-              base_branch, head_branch, created_at, updated_at
-            )
-       VALUES (
-              @id, @workspace_id, @worktree_id,
-              @base_branch, @head_branch, @now, @now
-            )`,
-    );
-
-    // Keyed on the row id alone, so it can only reach the one row the failing call inserted.
-    this.#deleteBranchContextStmt = database.prepare(
-      `DELETE FROM branch_contexts
-        WHERE id = @id`,
     );
   }
 
@@ -381,7 +347,7 @@ export class ExecutionRootService {
         branchName,
         runId,
       );
-      branchContextId = this.#writeBranchContext(workspace.id, materialized);
+      branchContextId = await this.#writeBranchContext(workspace.id, materialized);
     } catch (preparationFailure) {
       // A failed context write leaves a root nothing will adopt, invisible to the sweep; an unset
       // `materialized` means materialization itself failed and its own service recorded that.
@@ -497,27 +463,28 @@ export class ExecutionRootService {
 
   /**
    * Writes or refreshes the workspace's branch context: an upsert on the `(worktree_id,
-   * workspace_id)` pair for a worktree root, a plain insert for `bound-root`. Synchronous, so a
-   * second connection loses on the partial-unique index with a constraint failure, not a duplicate.
+   * workspace_id)` pair for a worktree root, a plain insert for `bound-root`. The upsert is one
+   * statement, so a concurrent prepare refreshes the same row instead of adding a duplicate.
    */
-  #writeBranchContext(workspaceId: string, materialized: MaterializedRoot): string {
+  async #writeBranchContext(workspaceId: string, materialized: MaterializedRoot): Promise<string> {
     const now = this.#now();
 
     if (materialized.worktreeId !== null) {
       const worktreeId = materialized.worktreeId;
-      this.#upsertWorktreeContextStmt.run({
-        id: this.#newBranchContextId(),
-        workspace_id: workspaceId,
-        worktree_id: worktreeId,
-        base_branch: materialized.baseBranch,
-        head_branch: materialized.branchName,
-        now,
-      });
-      // Re-read: the update arm discards the bound `@id`.
-      const bound = this.#selectWorktreePairContextStmt.get({
-        worktree_id: worktreeId,
-        workspace_id: workspaceId,
-      });
+      const [upserted] = await this.#writer.write([
+        {
+          sql: UPSERT_WORKTREE_CONTEXT_SQL,
+          bindings: {
+            id: this.#newBranchContextId(),
+            workspace_id: workspaceId,
+            worktree_id: worktreeId,
+            base_branch: materialized.baseBranch,
+            head_branch: materialized.branchName,
+            now,
+          },
+        },
+      ]);
+      const bound = upserted?.rows[0] as BranchContextIdRow | undefined;
       if (bound === undefined) {
         throw new ExecutionRootServiceInvariantError(
           `branch context for workspace ${workspaceId} and worktree ${worktreeId} did not persist`,
@@ -529,14 +496,19 @@ export class ExecutionRootService {
 
     // `bound-root`: rows accumulate, so this cannot conflict with an existing one.
     const branchContextId = this.#newBranchContextId();
-    this.#insertBranchContextStmt.run({
-      id: branchContextId,
-      workspace_id: workspaceId,
-      worktree_id: null,
-      base_branch: materialized.baseBranch,
-      head_branch: materialized.branchName,
-      now,
-    });
+    await this.#writer.write([
+      {
+        sql: INSERT_BRANCH_CONTEXT_SQL,
+        bindings: {
+          id: branchContextId,
+          workspace_id: workspaceId,
+          worktree_id: null,
+          base_branch: materialized.baseBranch,
+          head_branch: materialized.branchName,
+          now,
+        },
+      },
+    ]);
     return branchContextId;
   }
 
@@ -610,7 +582,9 @@ export class ExecutionRootService {
     // The preparation catch passes `null`: the context write is what failed, so no row exists.
     if (branchContextId !== null) {
       try {
-        this.#deleteBranchContextStmt.run({ id: branchContextId });
+        await this.#writer.write([
+          { sql: DELETE_BRANCH_CONTEXT_SQL, bindings: { id: branchContextId } },
+        ]);
       } catch (deleteFailure) {
         failures.push(deleteFailure);
       }

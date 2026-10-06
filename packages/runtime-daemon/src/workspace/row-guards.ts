@@ -8,6 +8,7 @@ import {
   type DirectoryReadabilityProbe,
 } from "./trust-envelope.js";
 import { type FilesystemPathProbe } from "./projector.js";
+import { WriteRefusedError } from "../database/writer.js";
 import { WorkspaceServiceInvariantError, type WorkspaceServiceInvariantKind } from "./errors.js";
 
 /**
@@ -126,21 +127,26 @@ function namesOneCompleteLocation(candidate: string): boolean {
 }
 
 /**
- * Assert a compare-and-swap moved exactly one row. Called inside a `transactionalPrelude`, where
- * the throw aborts the transaction and takes the event row with it. `movedSubject` names the row
- * that failed the predicate (for `bind`'s conditional insert, the repo mount).
+ * Awaits a write whose compare-and-swap expects one row, answering a refusal (the row moved, so the
+ * write and its event were not kept) with the illegal-transition error. `movedSubject` names the
+ * row that failed the predicate (for `bind`'s conditional insert, the repo mount).
  */
-export function assertSingleRowChanged(
-  result: { readonly changes: number },
+export async function expectSingleRowChanged<T>(
+  write: Promise<T>,
   workspaceId: string,
   attemptedAction: string,
   movedSubject: string = "it",
-): void {
-  if (result.changes !== 1) {
+): Promise<T> {
+  try {
+    return await write;
+  } catch (error) {
+    if (!(error instanceof WriteRefusedError)) {
+      throw error;
+    }
     throw new WorkspaceServiceInvariantError(
       `cannot ${attemptedAction} workspace "${workspaceId}": ${movedSubject} left its ` +
         "expected state before the write committed",
-      { kind: "illegal_state_transition", workspaceId },
+      { kind: "illegal_state_transition", workspaceId, cause: error },
     );
   }
 }

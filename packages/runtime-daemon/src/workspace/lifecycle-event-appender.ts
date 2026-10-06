@@ -10,6 +10,7 @@ import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contract
 import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
+import type { WriteStatement } from "../database/messages.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
@@ -19,8 +20,8 @@ import { mintUuidV7 } from "../uuid-v7.js";
 
 /**
  * The durable append seam, typed against the append path's own signature. A table write that must
- * commit atomically with the event row is passed as `transactionalPrelude`, which the append path
- * runs in the same transaction, just before the INSERT.
+ * commit atomically with the event row is passed as `transactionalPrelude`, statements the append
+ * path commits in the same write, just before the row.
  */
 export interface LifecycleEventLog {
   append(
@@ -45,7 +46,7 @@ export interface LifecycleEventLinkage {
   readonly correlationId?: string | null | undefined;
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
-  readonly transactionalPrelude?: (() => void) | undefined;
+  readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
 }
 
 /** Builds one lifecycle envelope from a parsed payload and appends it. */

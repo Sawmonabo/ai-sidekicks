@@ -2,10 +2,9 @@
 // unchanged at every later start, so the id a mount, an event or a registration carries never
 // moves.
 
-import type { Database } from "better-sqlite3";
-
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
+import type { DatabaseConnections } from "../../database/connections.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 
 /** This machine as the daemon knows it. */
@@ -25,11 +24,11 @@ interface LocalMachineRow {
  * so no other start writes the row meanwhile.
  */
 export async function readOrMintLocalMachine(
-  database: Database,
+  database: DatabaseConnections,
   readName: () => Promise<string>,
   now: () => Date,
 ): Promise<LocalMachine> {
-  const existing = database
+  const existing = database.reader
     .prepare<[], LocalMachineRow>("SELECT node_id, name FROM local_machine WHERE singleton = 1")
     .get();
   if (existing !== undefined) {
@@ -37,12 +36,13 @@ export async function readOrMintLocalMachine(
   }
 
   const minted: LocalMachineRow = { node_id: mintUuidV7(), name: await readName() };
-  database
-    .prepare(
-      `INSERT INTO local_machine (singleton, node_id, name, minted_at)
-       VALUES (1, @nodeId, @name, @mintedAt)`,
-    )
-    .run({ nodeId: minted.node_id, name: minted.name, mintedAt: now().toISOString() });
+  await database.writer.write([
+    {
+      sql: `INSERT INTO local_machine (singleton, node_id, name, minted_at)
+            VALUES (1, @nodeId, @name, @mintedAt)`,
+      bindings: { nodeId: minted.node_id, name: minted.name, mintedAt: now().toISOString() },
+    },
+  ]);
   return toLocalMachine(minted);
 }
 

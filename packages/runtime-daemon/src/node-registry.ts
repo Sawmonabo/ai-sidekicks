@@ -4,6 +4,8 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
+import type { DatabaseWriter } from "./database/writer.js";
+
 /** A `node_trust_state` row: one registration of a machine for its owning user. */
 export interface NodeTrustStateRow {
   readonly node_id: string;
@@ -18,34 +20,38 @@ export interface RegisterNodeInput {
   readonly ownerUserId: string;
 }
 
+// A re-registration refreshes only `updated_at`; the first-seen time stays.
+const UPSERT_REGISTRATION_SQL = `INSERT INTO node_trust_state (node_id, owner_user_id, established_at, updated_at)
+  VALUES (@node_id, @owner_user_id, @now, @now)
+  ON CONFLICT(node_id, owner_user_id) DO UPDATE SET updated_at = excluded.updated_at`;
+
 /** Durable registration of this machine, keyed by machine and owning user. */
 export class NodeRegistry {
-  readonly #upsertRegistrationStatement: Statement;
+  readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectRegistrationStatement: Statement;
   readonly #now: () => string;
 
-  constructor(database: Database, now: () => string = () => new Date().toISOString()) {
+  constructor(
+    database: { readonly reader: Database; readonly writer: Pick<DatabaseWriter, "write"> },
+    now: () => string = () => new Date().toISOString(),
+  ) {
+    this.#writer = database.writer;
     this.#now = now;
-    // A re-registration refreshes only `updated_at`; the first-seen time stays.
-    this.#upsertRegistrationStatement = database.prepare(
-      `INSERT INTO node_trust_state (node_id, owner_user_id, established_at, updated_at)
-       VALUES (@node_id, @owner_user_id, @now, @now)
-       ON CONFLICT(node_id, owner_user_id) DO UPDATE SET updated_at = excluded.updated_at`,
-    );
-    this.#selectRegistrationStatement = database.prepare(
+    this.#selectRegistrationStatement = database.reader.prepare(
       `SELECT node_id, owner_user_id, established_at, updated_at
          FROM node_trust_state
         WHERE node_id = ? AND owner_user_id = ?`,
     );
   }
 
-  /** Records the machine for its owning user, or refreshes an existing registration. */
-  register(input: RegisterNodeInput): void {
-    this.#upsertRegistrationStatement.run({
-      node_id: input.nodeId,
-      owner_user_id: input.ownerUserId,
-      now: this.#now(),
-    });
+  /** Records the machine for its owning user, or refreshes an existing one, once committed. */
+  async register(input: RegisterNodeInput): Promise<void> {
+    await this.#writer.write([
+      {
+        sql: UPSERT_REGISTRATION_SQL,
+        bindings: { node_id: input.nodeId, owner_user_id: input.ownerUserId, now: this.#now() },
+      },
+    ]);
   }
 
   /** Reads the registration; `undefined` when the machine is not registered for that user. */

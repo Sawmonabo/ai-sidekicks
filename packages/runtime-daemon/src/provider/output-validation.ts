@@ -148,7 +148,7 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
     });
   }
   // A hole passes `Array.isArray` but the later insert loop would yield `undefined` for it and
-  // throw a raw TypeError inside an open transaction.
+  // throw a raw TypeError while the write is being built.
   for (let index = 0; index < tools.length; index += 1) {
     if (!(index in tools)) {
       throw new ProviderOutputValidationError("Invalid provider capability result.", {
@@ -162,7 +162,7 @@ export function assertValidGetCapabilitiesResultShape(result: unknown): void {
 /**
  * Validates a capability `flags` map; throws `ProviderOutputValidationError`. It must hold
  * exactly `DRIVER_CAPABILITY_FLAGS` as own boolean keys, because an extra key would hit the SQL
- * CHECK mid-transaction and an inherited flag beside a typo'd key would pass a prototype lookup.
+ * CHECK mid-write and an inherited flag beside a typo'd key would pass a prototype lookup.
  */
 export function assertValidCapabilityFlags(flags: unknown): void {
   if (!isPlainObject(flags)) {

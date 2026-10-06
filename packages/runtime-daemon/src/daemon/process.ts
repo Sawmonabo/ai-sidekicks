@@ -1,15 +1,14 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
-// two starts on one data folder only one goes on; it then opens the database, knows this machine,
-// captures the environment providers are built from, listens on its socket and writes this start's
-// session token once the bind has succeeded. A client that reads the previous token in the moment
-// between the bind and the write is refused once, and its next read finds this start's token. Its
-// stop, asked for over the socket or by a terminate signal, ends it cleanly.
+// two starts on one data folder only one goes on; it then opens the database, through its writer
+// for writes and a read-only connection for reads, knows this machine, captures the environment
+// providers are built from, listens on its socket and writes this start's session token once the
+// bind has succeeded. A client that reads the previous token in the moment between the bind and
+// the write is refused once, and its next read finds this start's token. Its stop, asked for over
+// the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
 import * as path from "node:path";
-
-import type { Database } from "better-sqlite3";
 
 import {
   DAEMON_STOP_DRAIN_BOUND_MS,
@@ -23,6 +22,11 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { bootstrap } from "../bootstrap/index.js";
+import {
+  closeDatabaseConnections,
+  openDatabaseConnections,
+  type DatabaseConnections,
+} from "../database/connections.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
@@ -31,7 +35,6 @@ import { MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
-import { openDatabase } from "../session/migration-runner.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -93,7 +96,7 @@ export class DaemonProcess {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
 
   readonly #dataFolderLock: DataFolderLock;
-  readonly #database: Database;
+  readonly #database: DatabaseConnections;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
@@ -107,7 +110,7 @@ export class DaemonProcess {
     startedAt: Date;
     dataFolder: string;
     dataFolderLock: DataFolderLock;
-    database: Database;
+    database: DatabaseConnections;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
     sessionToken: string;
@@ -126,7 +129,10 @@ export class DaemonProcess {
     const registry = negotiator.wrap(this.#inFlightMutations.wrap(new MethodRegistryImpl()));
     negotiator.registerHandshakeMethod(registry);
     registerLifecycleMethods(registry, {
-      flush: () => this.#inFlightMutations.waitForPending(),
+      flush: async () => {
+        await this.#inFlightMutations.waitForPending();
+        await this.#database.writer.flush();
+      },
       acceptStop: () => this.#acceptStop(),
     });
     registerStatusMethods(registry, {
@@ -171,10 +177,15 @@ export class DaemonProcess {
         },
         // The service reads as degraded from a listener failure until it stops.
         onListenerError: (error) => {
-          this.#markListenerFailed();
+          this.#markDegraded();
           options.writeServiceLog(`The socket's listener failed: ${describeError(error)}`);
         },
       },
+    });
+    // A dead writer fails every write from then on, so the service reads as degraded too.
+    void this.#database.writer.whenWorkerFailed.then((error) => {
+      this.#markDegraded();
+      options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
     });
   }
 
@@ -195,7 +206,10 @@ export class DaemonProcess {
     await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);
     try {
-      const database = openDatabase(path.join(dataFolder, DATABASE_FILE_NAME));
+      const database = await openDatabaseConnections({
+        databasePath: path.join(dataFolder, DATABASE_FILE_NAME),
+        writeServiceLog: options.writeServiceLog,
+      });
       try {
         const localMachine = await readOrMintLocalMachine(
           database,
@@ -220,7 +234,7 @@ export class DaemonProcess {
         await daemon.#listen(options.runFolder, sessionToken);
         return daemon;
       } catch (error) {
-        database.close();
+        await closeDatabaseConnections(database);
         throw error;
       }
     } catch (error) {
@@ -231,9 +245,9 @@ export class DaemonProcess {
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the writes already under way and drains every terminal (each gets
-   * its graceful signal, then a kill); then closes the database and lets the data folder go.
-   * Repeated calls share the first stop.
+   * the drain bound, waits for the calls already under way and drains every terminal (each gets
+   * its graceful signal, then a kill); then waits for every write taken to commit, closes the
+   * database and lets the data folder go. Repeated calls share the first stop.
    */
   stop(): Promise<void> {
     if (this.#stopping === undefined) {
@@ -289,7 +303,7 @@ export class DaemonProcess {
     return Promise.resolve();
   }
 
-  #markListenerFailed(): void {
+  #markDegraded(): void {
     if (this.#processState === "starting" || this.#processState === "running") {
       this.#processState = "degraded";
     }
@@ -304,8 +318,8 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // The writes under way and the terminals are independent, so both finish inside one drain
-    // bound. A write still running at the bound fails once the database closes under it.
+    // The calls under way and the terminals are independent, so both finish inside one drain
+    // bound. A call still running at the bound fails once the database closes under it.
     const [stillWriting, drain] = await Promise.allSettled([
       this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
       this.#ptyHost.shutdown({
@@ -323,8 +337,9 @@ export class DaemonProcess {
     } else {
       failures.push(drain.reason);
     }
+    // The writer's queue drains before its connection closes; the writes it holds never hang.
     try {
-      this.#database.close();
+      await closeDatabaseConnections(this.#database);
     } catch (error) {
       failures.push(error);
     }

@@ -7,7 +7,6 @@ import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,9 +16,12 @@ import {
 import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../database/__fixtures__/scratch-file.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import { openDatabase } from "../../session/migration-runner.js";
 import { TrustEnvelopeViolationError } from "../repo/errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
@@ -76,7 +78,7 @@ const KNOWN_SESSIONS: SessionExistenceReader = {
 const READY_BIND_EVENTS: readonly string[] = ["workspace.preparing", "workspace.ready"];
 
 interface TestHarness {
-  readonly db: DatabaseType;
+  readonly database: ScratchDatabase;
   readonly emitter: WorkspaceEventEmitter;
   readonly service: WorkspaceService;
   readonly tmpDir: string;
@@ -89,7 +91,7 @@ let harness: TestHarness;
 /** Builds a service over the harness database, optionally overriding one seam. */
 function createService(overrides: Partial<WorkspaceServiceDeps> = {}): WorkspaceService {
   return new WorkspaceService({
-    database: harness.db,
+    database: harness.database,
     events: harness.emitter,
     sessions: KNOWN_SESSIONS,
     newWorkspaceId: makeWorkspaceIdSource(),
@@ -114,38 +116,47 @@ interface MountFixture {
   readonly canonicalRoot: string;
 }
 
-function insertMount(fixture: MountFixture): void {
+async function insertMount(fixture: MountFixture): Promise<void> {
   const now = new Date().toISOString();
-  harness.db
-    .prepare(
-      `INSERT INTO repo_mounts (
-         id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
-       ) VALUES (@id, @node_id, @local_path, @canonical_root, 'git', 'attached', @now, @now, '{}')`,
-    )
-    .run({
-      id: fixture.id,
-      node_id: "node-local",
-      local_path: fixture.canonicalRoot,
-      canonical_root: fixture.canonicalRoot,
-      now,
-    });
+  await harness.database.writer.write([
+    {
+      sql: `INSERT INTO repo_mounts (
+              id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at,
+              metadata
+            ) VALUES (
+              @id, @node_id, @local_path, @canonical_root, 'git', 'attached', @now, @now, '{}'
+            )`,
+      bindings: {
+        id: fixture.id,
+        node_id: "node-local",
+        local_path: fixture.canonicalRoot,
+        canonical_root: fixture.canonicalRoot,
+        now,
+      },
+    },
+  ]);
+}
+
+/** Runs one raw statement through the writer, as another writer would. */
+async function writeRaw(sql: string, ...bindings: unknown[]): Promise<void> {
+  await harness.database.writer.write([{ sql, bindings }]);
 }
 
 function countRows(table: "workspaces" | "repo_mounts"): number {
-  const statement = harness.db.prepare(`SELECT COUNT(*) AS total FROM ${table}`);
+  const statement = harness.database.reader.prepare(`SELECT COUNT(*) AS total FROM ${table}`);
   return (statement.get() as { readonly total: number }).total;
 }
 
 function readEventTypes(sessionId: string = SESSION_ID): readonly string[] {
   return (
-    harness.db
+    harness.database.reader
       .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence ASC")
       .all(sessionId) as ReadonlyArray<{ readonly type: string }>
   ).map((row) => row.type);
 }
 
 function readWorkspaceMetadata(workspaceId: string): Record<string, unknown> {
-  return JSON.parse(requireWorkspaceRow(harness.db, workspaceId).metadata) as Record<
+  return JSON.parse(requireWorkspaceRow(harness.database.reader, workspaceId).metadata) as Record<
     string,
     unknown
   >;
@@ -156,18 +167,21 @@ function readWorkspaceMetadata(workspaceId: string): Record<string, unknown> {
  * awaits this probe, so the write lands after the service read the row and before it acts on
  * that read. Later calls answer normally.
  */
-function interferingProbe(interfere: () => void, reachable: boolean): FilesystemPathProbeFn {
+function interferingProbe(
+  interfere: () => Promise<void>,
+  reachable: boolean,
+): FilesystemPathProbeFn {
   let fired = false;
-  return (path: string) => {
+  return async (path: string) => {
     if (!fired) {
       fired = true;
-      interfere();
+      await interfere();
     }
-    return Promise.resolve({
+    return {
       probedPath: path,
       reachable,
       checkedAt: "2026-08-04T00:00:00.000Z",
-    } satisfies FilesystemPathProbe);
+    } satisfies FilesystemPathProbe;
   };
 }
 
@@ -182,11 +196,9 @@ beforeEach(async () => {
   const tmpDir: string = await realpath(
     await mkdtemp(join(tmpdir(), "ai-sidekicks-workspace-service-test-")),
   );
-  const db: DatabaseType = openDatabase(join(tmpDir, "test.db"));
+  const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({
-      db,
-    }),
+    sessionEvents: new EventLogService({ writer: database.writer }),
   });
 
   // `siblingRoot` exists so the traversal arm fails on containment rather than on absence.
@@ -197,10 +209,10 @@ beforeEach(async () => {
   }
 
   harness = {
-    db,
+    database,
     emitter,
     service: new WorkspaceService({
-      database: db,
+      database,
       events: emitter,
       sessions: KNOWN_SESSIONS,
       newWorkspaceId: makeWorkspaceIdSource(),
@@ -211,8 +223,8 @@ beforeEach(async () => {
   };
 });
 
-afterEach(() => {
-  harness.db.close();
+afterEach(async () => {
+  await harness.database.close();
   rmSync(harness.tmpDir, { recursive: true, force: true });
 });
 
@@ -221,8 +233,8 @@ afterEach(() => {
 // ----------------------------------------------------------------------------
 
 describe("bind", () => {
-  beforeEach(() => {
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
+  beforeEach(async () => {
+    await insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
   });
 
   it("refuses a session that does not exist, before any probe or write", async () => {
@@ -279,9 +291,7 @@ describe("bind", () => {
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
       const resolved = await validateExecutionRootOriginal(candidate);
-      harness.db
-        .prepare("UPDATE repo_mounts SET state = 'detached' WHERE id = ?")
-        .run(GIT_MOUNT_ID);
+      await writeRaw("UPDATE repo_mounts SET state = 'detached' WHERE id = ?", GIT_MOUNT_ID);
       return resolved;
     });
 
@@ -307,7 +317,7 @@ describe("root preparation cycle", () => {
   let workspaceId: string;
 
   beforeEach(async () => {
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
+    await insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
     workspaceId = await bindReadyWorkspace(
       harness.service,
       SESSION_ID,
@@ -330,17 +340,17 @@ describe("root preparation cycle", () => {
       expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
     }
     // Refused before the write, so the cycle stays open and retryable.
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe(
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
       "preparing" satisfies WorkspaceState,
     );
-    expect(readWorkspaceRow(harness.db, workspaceId)?.fs_root).toBeNull();
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.fs_root).toBeNull();
 
     // Negative control: a guard that refused everything would pass the loop above. The check
     // reads path shape only, so the Windows forms pass on a POSIX host too.
     const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
     for (const completeRoot of completeRoots) {
       await harness.service.completeRootPreparation(workspaceId, completeRoot);
-      expect(readWorkspaceRow(harness.db, workspaceId)?.fs_root).toBe(completeRoot);
+      expect(readWorkspaceRow(harness.database.reader, workspaceId)?.fs_root).toBe(completeRoot);
       await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     }
   });
@@ -352,7 +362,9 @@ describe("root preparation cycle", () => {
       "fatal: could not read from https://octocat:ghp_abcdefghijklmnop@github.com/acme/repo.git",
     );
 
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "stale" satisfies WorkspaceState,
+    );
 
     const lastError = readWorkspaceMetadata(workspaceId)["lastError"];
     expect(typeof lastError).toBe("string");
@@ -391,7 +403,9 @@ describe("root preparation cycle", () => {
 
     await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
 
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "ready" satisfies WorkspaceState,
+    );
     // A `ready` workspace must not keep advertising a failure that was fixed.
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
   });
@@ -405,7 +419,9 @@ describe("root preparation cycle", () => {
 
     expect(refusal).toBeInstanceOf(WorkspaceBusyError);
     expect((refusal as WorkspaceBusyError).holdingRunId).toBe(RUN_ID);
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "busy" satisfies WorkspaceState,
+    );
   });
 });
 
@@ -467,7 +483,7 @@ describe("lastError normalization", () => {
   });
 
   it("records NO lastError when nothing publishable survives", async () => {
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
+    await insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
     const workspaceId = await bindReadyWorkspace(
       harness.service,
       SESSION_ID,
@@ -480,7 +496,9 @@ describe("lastError normalization", () => {
     // `wireFreeFormString` requires `.min(1)`, one non-whitespace character and no NUL;
     // persisting an illegal value would make the list response that reports this failure
     // unrepresentable.
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "stale" satisfies WorkspaceState,
+    );
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
 
     const response = await harness.service.list({ sessionId: SESSION_ID });
@@ -516,7 +534,7 @@ describe("assertWritable", () => {
   let workspaceId: string;
 
   beforeEach(async () => {
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
+    await insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
     workspaceId = await bindReadyWorkspace(
       harness.service,
       SESSION_ID,
@@ -528,12 +546,14 @@ describe("assertWritable", () => {
   it("passes a ready workspace", async () => {
     await expect(harness.service.assertWritable(workspaceId)).resolves.toBeUndefined();
     // The gate observed the row; it did not change it.
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("ready" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "ready" satisfies WorkspaceState,
+    );
     expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
   });
 
   it("throws the typed `workspace.stale` refusal for a stale workspace", async () => {
-    harness.db.prepare("UPDATE workspaces SET state = 'stale' WHERE id = ?").run(workspaceId);
+    await writeRaw("UPDATE workspaces SET state = 'stale' WHERE id = ?", workspaceId);
 
     const refusal = await captureRejection(() => harness.service.assertWritable(workspaceId));
 
@@ -549,7 +569,9 @@ describe("assertWritable", () => {
       WorkspaceStaleError,
     );
     // The refusal is not a private verdict: the next reader sees the row stale too.
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "stale" satisfies WorkspaceState,
+    );
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 });
@@ -562,7 +584,7 @@ describe("run holds", () => {
   let workspaceId: string;
 
   beforeEach(async () => {
-    insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
+    await insertMount({ id: GIT_MOUNT_ID, canonicalRoot: harness.gitMountRoot });
     workspaceId = await bindReadyWorkspace(
       harness.service,
       SESSION_ID,
@@ -595,24 +617,28 @@ describe("run holds", () => {
     // The read reports the vanished root, and the run keeps the workspace it holds: no other run
     // can take it, and the hold still names the run that has it.
     expect(whileHeld.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("busy" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "busy" satisfies WorkspaceState,
+    );
     expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
     expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
 
-    expect(harness.service.releaseBusy(workspaceId)).toBe(true);
+    expect(await harness.service.releaseBusy(workspaceId)).toBe(true);
     await harness.service.list({ sessionId: SESSION_ID });
 
     // The first read after the release stales it, so no new run starts on the missing root.
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "stale" satisfies WorkspaceState,
+    );
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {
     // Window: `markStale` reads the row, sees a live state, and only then opens the append. A
     // reader that stales the row in between makes this call's compare-and-swap match nothing.
-    // The append path inserts its event row unconditionally once the prelude returns, so
-    // declining has to be a throw; a prelude that only flagged "no row matched" would commit a
-    // second `workspace.stale` for one real transition.
+    // The append path inserts its event row unconditionally after the prelude, so declining has
+    // to be a refusal; a prelude that did not expect one changed row would commit a second
+    // `workspace.stale` for one real transition.
     const concurrentReader = createService();
     const concurrentOutcomes: boolean[] = [];
     const emitStaleOriginal = harness.emitter.emitWorkspaceStale.bind(harness.emitter);
@@ -627,7 +653,9 @@ describe("run holds", () => {
     // returns false.
     expect(concurrentOutcomes).toEqual([true]);
     expect(lostTheRace).toBe(false);
-    expect(readWorkspaceRow(harness.db, workspaceId)?.state).toBe("stale" satisfies WorkspaceState);
+    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
+      "stale" satisfies WorkspaceState,
+    );
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
@@ -637,15 +665,17 @@ describe("run holds", () => {
     // re-read decides what to report. These branches are unreachable from a single-threaded
     // suite otherwise.
     const takenByAnother = createService({
-      probePath: interferingProbe(() => {
-        harness.db
-          .prepare(
+      probePath: interferingProbe(
+        () =>
+          writeRaw(
             `UPDATE workspaces
                 SET state = 'busy', metadata = json_set(metadata, '$.holdingRunId', ?)
               WHERE id = ?`,
-          )
-          .run(OTHER_RUN_ID, workspaceId);
-      }, true),
+            OTHER_RUN_ID,
+            workspaceId,
+          ),
+        true,
+      ),
     });
 
     const refusal = await captureRejection(() => takenByAnother.markBusy(workspaceId, RUN_ID));

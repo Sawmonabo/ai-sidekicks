@@ -2,11 +2,11 @@
 // Imports only contracts, never its consumers, so the module graph stays a tree and the
 // module-level state below cannot be read before it is initialized.
 //
-// - `append()` reads the head and writes the row with no await between, so two appends alone
+// - The database writer reads the head and writes the row in one step, so two appends alone
 //   cannot derive one `sequence`. The lock is for a caller whose decision spans awaits, such as
-//   a terminal run event's check, state swap and append: a better-sqlite3 transaction cannot span
-//   an `await`, so the hold keeps any other append on that session waiting until the caller has
-//   written. The purge takes it too, so it never deletes between such a caller's read and write.
+//   a terminal run event's check, state swap and append: a write cannot span an `await`, so the
+//   hold keeps any other append on that session waiting until the caller has written. The purge
+//   takes it too, so it never deletes between such a caller's read and write.
 // - The scope is one session, so a long hold on one session never blocks another.
 // - The lock is process-local. Two daemon processes on one database file are caught only by the
 //   unique constraint, which fails loudly instead of duplicating a sequence.

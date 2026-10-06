@@ -1,10 +1,6 @@
 // The worktree lifecycle events a client reads: each method's type and state, the subject ids a
 // payload carries, and the refusal that keeps a subjectless event out of the log.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -13,9 +9,12 @@ import { WorktreeLifecyclePayloadSchema } from "@ai-sidekicks/contracts/worktree
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../database/__fixtures__/scratch-file.js";
 import { EventLogService } from "../../../events/log-service.js";
 import type { UnsequencedEventEnvelope } from "../../../events/log-service.js";
-import { openDatabase } from "../../../session/migration-runner.js";
 import { WorktreeEventEmitter } from "../event-emitter.js";
 import type { EmitWorktreeEventInput } from "../event-emitter.js";
 import type { LifecycleEventLog } from "../../../workspace/lifecycle-event-appender.js";
@@ -83,6 +82,7 @@ function recordingEventLog(appended: UnsequencedEventEnvelope[]): LifecycleEvent
     append: (envelope) => {
       appended.push(envelope);
       return Promise.resolve({
+        isStored: true,
         id: envelope.id,
         sequence: appended.length - 1,
       });
@@ -95,33 +95,26 @@ function recordingEventLog(appended: UnsequencedEventEnvelope[]): LifecycleEvent
 // ----------------------------------------------------------------------------
 
 interface TestContext {
+  scratch: ScratchDatabase;
   db: DatabaseType;
   eventLog: EventLogService;
-  tmpDir: string;
 }
 
 let ctx: TestContext;
 
-beforeEach(() => {
-  const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-emitter-test-"));
-  const dbPath: string = join(tmpDir, "test.db");
-  // Canonical factory, so pragmas and migrations match production. `session_events` has no foreign
+beforeEach(async () => {
+  // The daemon's own open, so pragmas and schema match production. `session_events` has no foreign
   // key to sessions or worktrees, so no rows are seeded.
-  const db: DatabaseType = openDatabase(dbPath);
+  const scratch: ScratchDatabase = await openScratchDatabase();
   ctx = {
-    db,
-    eventLog: new EventLogService({
-      db,
-    }),
-    tmpDir,
+    scratch,
+    db: scratch.reader,
+    eventLog: new EventLogService({ writer: scratch.writer }),
   };
 });
 
-afterEach(() => {
-  if (ctx.db.open) {
-    ctx.db.close();
-  }
-  rmSync(ctx.tmpDir, { recursive: true, force: true });
+afterEach(async () => {
+  await ctx.scratch.close();
 });
 
 function makeEmitter(): WorktreeEventEmitter {

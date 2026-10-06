@@ -7,11 +7,12 @@
 // winner's token.
 // Over the socket, the status read reports the running service and its process, and reads
 // degraded once the listener fails; `daemon.start` is a method it does not have; a flush leaves
-// it running, a stop or restart ends it with another client still connected, and a connection
-// whose handshake was incompatible cannot stop it. The machine's settings file is read and written
-// over the socket: one client's change reaches the file and another client's subscription, and a
-// closed connection's subscription lets go of the file. A stop waits for a write under way and
-// leaves it on disk, and ends within its drain bound while a write hangs.
+// it running and answers only once the writes queued before it have committed, a stop or restart
+// ends it with another client still connected, and a connection whose handshake was incompatible
+// cannot stop it. The machine's settings file is read and written over the socket: one client's
+// change reaches the file and another client's subscription, and a closed connection's
+// subscription lets go of the file. A stop waits for a write under way and leaves it on disk, and
+// ends within its drain bound while a write hangs.
 
 import { execFileSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -44,6 +45,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
+import { DatabaseWriter } from "../../database/writer.js";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
@@ -503,6 +505,49 @@ describe("the lifecycle verbs over the socket", () => {
     expect(await call("daemon.status.read")).toMatchObject({ result: { processState: "running" } });
     expect(drains).toStrictEqual([]);
     await access(writeAheadLogPath());
+    await client.close();
+  });
+
+  it("answers a flush only once the write queued before it has committed", async () => {
+    const writers: DatabaseWriter[] = [];
+    const openWriter = DatabaseWriter.open.bind(DatabaseWriter);
+    const spy = vi.spyOn(DatabaseWriter, "open").mockImplementation(async (options) => {
+      const writer = await openWriter(options);
+      writers.push(writer);
+      return writer;
+    });
+    onTestFinished(() => {
+      spy.mockRestore();
+    });
+    await startDaemon(drainNothing);
+    const writer = writers[0]!;
+    const { client, call } = await openSession();
+
+    // A slow write goes to the worker at once, so the next write waits in the queue behind it.
+    const slow = writer.write([
+      {
+        sql: `WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter
+              WHERE n < 10000000) SELECT COUNT(*) FROM counter`,
+      },
+    ]);
+    const kick = writer.flush();
+    let isQueuedCommitted = false;
+    const queued = writer
+      .write([
+        {
+          sql: `INSERT INTO node_trust_state (node_id, owner_user_id, established_at, updated_at)
+                VALUES ('node-1', 'user-1', @now, @now)`,
+          bindings: { now: STARTED_AT },
+        },
+      ])
+      .then(() => {
+        isQueuedCommitted = true;
+      });
+
+    expect(await call("daemon.flush")).toMatchObject({ result: { flushed: true } });
+
+    expect(isQueuedCommitted).toBe(true);
+    await Promise.all([slow, kick, queued]);
     await client.close();
   });
 

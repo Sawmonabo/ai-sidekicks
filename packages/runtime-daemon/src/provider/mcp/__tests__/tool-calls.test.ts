@@ -18,21 +18,22 @@ describe("durable MCP task-handle observation", () => {
     expect(extractMcpTaskId({ task: { taskId: 7 } })).toBeUndefined();
   });
 
-  it("hands the sink the dispatch identity with the handle, and nothing otherwise", () => {
+  it("hands the sink the dispatch identity with the handle, and nothing otherwise", async () => {
     // `commandId` reaches the sink verbatim: it names the `command_receipts` row the handle is
     // written to, which the MCP server and tool names cannot. A dispatch without a handle calls
     // nothing, so the column stays NULL and after a restart the call stays halted.
     const observations: McpTaskHandleObservation[] = [];
-    const collectingSink = (observation: McpTaskHandleObservation): void => {
+    const collectingSink = (observation: McpTaskHandleObservation): Promise<void> => {
       observations.push(observation);
+      return Promise.resolve();
     };
     const dispatch = {
       commandId: "command-7",
       serverName: "filesystem",
       toolName: "read_file",
     } as const;
-    observeMcpTaskAcceptance(collectingSink, dispatch, { task: { taskId: "task-9" } });
-    observeMcpTaskAcceptance(collectingSink, dispatch, { task: {} });
+    await observeMcpTaskAcceptance(collectingSink, dispatch, { task: { taskId: "task-9" } });
+    await observeMcpTaskAcceptance(collectingSink, dispatch, { task: {} });
     expect(observations).toEqual([
       {
         commandId: "command-7",

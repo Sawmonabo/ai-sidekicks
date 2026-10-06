@@ -2,14 +2,12 @@
 // a draft is held, replaced, cleared by an empty draft, and refused for a session the
 // daemon has no record of; `session.read` answers the draft that is held.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import type { Database } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openDatabase } from "../../../../session/migration-runner.js";
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../../../database/__fixtures__/scratch-file.js";
 import { SessionDraftStore } from "../../../../session/draft-store.js";
 import { insertStoredEvent } from "../../../../session/__fixtures__/stored-event.js";
 import { MethodRegistryImpl } from "../../../registry.js";
@@ -32,20 +30,18 @@ const LOG_READ = {
   transcriptCursors: { latest: "0" },
 } as SessionLogRead;
 
-let temporaryFolder: string;
-let database: Database;
+let scratch: ScratchDatabase;
 let registry: MethodRegistryImpl;
 
 function heldDraft(): { text: string; updated_at: string } | undefined {
-  return database
+  return scratch.reader
     .prepare("SELECT text, updated_at FROM session_drafts WHERE session_id = ?")
     .get(SESSION_ID) as { text: string; updated_at: string } | undefined;
 }
 
-beforeEach(() => {
-  temporaryFolder = mkdtempSync(join(tmpdir(), "session-draft-update-"));
-  database = openDatabase(join(temporaryFolder, "daemon.db"));
-  insertStoredEvent(database, {
+beforeEach(async () => {
+  scratch = await openScratchDatabase();
+  await insertStoredEvent(scratch.writer, {
     id: "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001",
     sessionId: SESSION_ID,
     sequence: 0,
@@ -60,14 +56,13 @@ beforeEach(() => {
     version: "1.0",
   });
   registry = new MethodRegistryImpl();
-  const draftStore = new SessionDraftStore(database, () => new Date(STORED_AT));
+  const draftStore = new SessionDraftStore(scratch, () => new Date(STORED_AT));
   registerSessionDraftUpdate(registry, draftStore);
   registerSessionRead(registry, { readSession: async () => LOG_READ, draftStore });
 });
 
-afterEach(() => {
-  database.close();
-  rmSync(temporaryFolder, { recursive: true, force: true });
+afterEach(async () => {
+  await scratch.close();
 });
 
 describe("session.draftUpdate", () => {
@@ -105,7 +100,7 @@ describe("session.draftUpdate", () => {
       registry.dispatch("session.draftUpdate", { sessionId: UNKNOWN_SESSION_ID, text: "Fix" }, {}),
     ).rejects.toBeInstanceOf(SessionNotFoundError);
 
-    const heldForUnknown = database
+    const heldForUnknown = scratch.reader
       .prepare("SELECT 1 FROM session_drafts WHERE session_id = ?")
       .get(UNKNOWN_SESSION_ID);
     expect(heldForUnknown).toBeUndefined();

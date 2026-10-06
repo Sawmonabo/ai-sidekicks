@@ -3,10 +3,6 @@
 // from one sessionId and actor, and that a malformed payload is refused at the parse before
 // anything is appended. Runs over a real database and event log.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -14,8 +10,11 @@ import { RepoWorkspaceLifecyclePayloadSchema } from "@ai-sidekicks/contracts/rep
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
+import {
+  openScratchDatabase,
+  type ScratchDatabase,
+} from "../../database/__fixtures__/scratch-file.js";
 import { EventLogService } from "../../events/log-service.js";
-import { openDatabase } from "../../session/migration-runner.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 
 // The emission boundary validates the ids as UUIDs, so the fixtures must be real UUIDs.
@@ -50,25 +49,20 @@ function readRawRows(db: DatabaseType, sessionId: string): ReadonlyArray<Lifecyc
 }
 
 interface TestContext {
-  db: DatabaseType;
+  database: ScratchDatabase;
   eventLog: EventLogService;
-  tmpDir: string;
 }
 
 let ctx: TestContext;
 
-beforeEach(() => {
-  const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-workspace-emitter-test-"));
+beforeEach(async () => {
   // No session row is seeded because `session_events.session_id` has no foreign key.
-  const db: DatabaseType = openDatabase(join(tmpDir, "test.db"));
-  ctx = { db, eventLog: new EventLogService({ db }), tmpDir };
+  const database = await openScratchDatabase();
+  ctx = { database, eventLog: new EventLogService({ writer: database.writer }) };
 });
 
-afterEach(() => {
-  if (ctx.db.open) {
-    ctx.db.close();
-  }
-  rmSync(ctx.tmpDir, { recursive: true, force: true });
+afterEach(async () => {
+  await ctx.database.close();
 });
 
 function makeEmitter(): WorkspaceEventEmitter {
@@ -80,7 +74,7 @@ function makeEmitter(): WorkspaceEventEmitter {
  * category comes from the registry; the anchor test keeps that from being circular.
  */
 function readSingleRow(expectedType: SessionEventType): LifecycleRow {
-  const rows: ReadonlyArray<LifecycleRow> = readRawRows(ctx.db, SESSION_ID);
+  const rows: ReadonlyArray<LifecycleRow> = readRawRows(ctx.database.reader, SESSION_ID);
   expect(rows).toHaveLength(1);
   const row: LifecycleRow | undefined = rows[0];
   if (row === undefined) {
@@ -187,7 +181,7 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
         workspaceId: "workspace-1",
       }),
     ).rejects.toThrow();
-    expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(0);
+    expect(readRawRows(ctx.database.reader, SESSION_ID)).toHaveLength(0);
   });
 
   it("rejects a malformed sessionId and appends nothing", async () => {
@@ -197,7 +191,7 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
         workspaceId: WORKSPACE_ID,
       }),
     ).rejects.toThrow();
-    expect(readRawRows(ctx.db, "session-1")).toHaveLength(0);
+    expect(readRawRows(ctx.database.reader, "session-1")).toHaveLength(0);
   });
 
   it("rejects an over-length actor and appends nothing", async () => {
@@ -209,6 +203,6 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
         actor: "a".repeat(257),
       }),
     ).rejects.toThrow();
-    expect(readRawRows(ctx.db, SESSION_ID)).toHaveLength(0);
+    expect(readRawRows(ctx.database.reader, SESSION_ID)).toHaveLength(0);
   });
 });
