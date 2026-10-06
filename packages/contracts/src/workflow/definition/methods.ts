@@ -9,13 +9,13 @@ import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { PermissionLevelSchema, type PermissionLevel } from "../../session/controls/methods.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../session/session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import {
   WorkflowRunIdSchema,
   WorkflowRunStatusSchema,
   type WorkflowRunId,
   type WorkflowRunStatus,
-} from "../run/run.js";
+} from "../run/status.js";
 import {
   WorkflowContentHashSchema,
   WorkflowDefinitionIdSchema,
@@ -29,7 +29,7 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowNodeKindId,
-} from "./definition.js";
+} from "./document.js";
 import {
   WorkflowDefinitionSettingResponseSchema,
   WorkflowDraftReadRequestSchema,

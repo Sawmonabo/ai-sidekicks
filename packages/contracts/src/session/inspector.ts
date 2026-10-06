@@ -8,8 +8,9 @@ import { composedTextSchema, countSchema, percentSchema } from "../internal/wire
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../method-descriptor.js";
 import { defineMethodDescriptors } from "../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../provider/account/account.js";
-import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./id.js";
 import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./controls/methods.js";
 
 /**

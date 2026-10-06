@@ -11,15 +11,12 @@ import {
   type AgentId,
   type AgentProviderBinding,
 } from "./definition.js";
-import {
-  ProviderAccountIdSchema,
-  ProviderNameSchema,
-  type ProviderAccountId,
-  type ProviderName,
-} from "../provider/account/account.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { DeclaredLossKindSchema, type DeclaredLossKind } from "../provider/driver/transcript.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/wire.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session/session.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
+import { wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
 
 /** The event a deferred switch settles with when it applied. */

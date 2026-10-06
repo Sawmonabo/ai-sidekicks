@@ -20,7 +20,7 @@
 
 import { JsonRpcRemoteError, type LocalSubscriptionConsumer } from "@ai-sidekicks/client-sdk";
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { NEGOTIATION_VERSION_MISMATCH_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";

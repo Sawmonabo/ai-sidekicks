@@ -12,7 +12,7 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "../method-descriptor.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../session/session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**

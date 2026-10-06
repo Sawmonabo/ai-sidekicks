@@ -2,7 +2,7 @@
 // the wire, before the daemon acts on it.
 import { describe, expect, it } from "vitest";
 
-import type { InterventionType } from "../../provider/driver/driver.js";
+import type { InterventionType } from "../../provider/driver/intervention.js";
 import { RECOVERY_CONDITIONS } from "../../provider/driver/recovery.js";
 import {
   InterventionRequestPayloadSchema,

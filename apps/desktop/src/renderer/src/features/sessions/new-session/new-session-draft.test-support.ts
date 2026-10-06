@@ -4,7 +4,7 @@
 // suites never script slightly different replies.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";

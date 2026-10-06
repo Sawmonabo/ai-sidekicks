@@ -10,7 +10,7 @@
 // a refusal instead of an unhandled rejection a shipped window does not report.
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
-import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
+import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionBinding } from "@ai-sidekicks/contracts/session/directory";
 import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";

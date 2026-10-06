@@ -4,7 +4,7 @@
 // the last event it saw instead of silently skipping the gap.
 import { describe, expect, it } from "vitest";
 
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 

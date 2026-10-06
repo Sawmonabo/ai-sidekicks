@@ -11,10 +11,10 @@
 import "./accounts-fixture-body.css";
 
 import {
-  PROVIDER_NAMES,
   type ProviderAccount,
   type ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 import {
   Fragment,
   useEffect,

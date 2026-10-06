@@ -7,7 +7,8 @@
 import { z } from "zod";
 
 import { decodedByteLength } from "../internal/base64.js";
-import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "../session/session.js";
+import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**

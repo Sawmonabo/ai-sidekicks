@@ -15,7 +15,7 @@ import {
   ProviderAccountUsageReadResponseSchema,
 } from "../methods.js";
 import { ProviderAccountRegisterRequestSchema } from "../sign-in.js";
-import { ACCOUNT_ID, validProviderAccount } from "./account.test-support.js";
+import { ACCOUNT_ID, validProviderAccount } from "./record.test-support.js";
 
 const SESSION_ID = "0192f3a1-4b5c-7d8e-9f01-23456789abcd";
 const SESSION_ID_2 = "0192f3a1-4b5c-7d8e-9f01-23456789abce";

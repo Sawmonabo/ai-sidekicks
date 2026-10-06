@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
 import { parseMarkdownDocument } from "./markdown-document-rows.js";

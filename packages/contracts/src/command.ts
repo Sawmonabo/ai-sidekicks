@@ -13,8 +13,8 @@ import { z } from "zod";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
-import { SessionIdSchema, type SessionId } from "./session/session.js";
+import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest command id the daemon accepts. */

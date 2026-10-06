@@ -7,16 +7,15 @@
 // the two cannot disagree.
 import { z } from "zod";
 
-import { AgentTreeMemberSchema, type AgentTreeMember } from "../agent/agent.js";
+import { AgentTreeMemberSchema, type AgentTreeMember } from "../agent/methods.js";
 import {
   BillingModeSchema,
   ProviderAccountIdSchema,
-  ProviderNameSchema,
   type BillingMode,
   type ProviderAccountId,
-  type ProviderName,
-} from "../provider/account/account.js";
-import { SessionIdSchema, type SessionId } from "./session.js";
+} from "../provider/account/record.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import { SessionIdSchema, type SessionId } from "./id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /** A cost in whole micro-dollars, the one money unit on the wire. */

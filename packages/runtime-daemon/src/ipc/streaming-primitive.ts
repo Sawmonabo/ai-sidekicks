@@ -11,7 +11,7 @@
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
 import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcError, JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcError, JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   LocalSubscriptionProducer,
   SubscriptionCancelParams,
@@ -20,7 +20,7 @@ import type {
   SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,

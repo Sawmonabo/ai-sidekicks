@@ -7,8 +7,8 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { WindowStore } from "#renderer/store/window/window-store.js";

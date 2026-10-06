@@ -7,7 +7,7 @@ import {
   ProviderAccountIdSchema,
   type ProviderAccount,
   type ProviderAccountUsageWindow,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import { ProviderAccountFold } from "./provider-account-fold.js";
 

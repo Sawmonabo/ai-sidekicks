@@ -1,7 +1,7 @@
 // The find matcher and its boundary: the cap is asserted beside the uncapped total, so a
 // capped count cannot understate how broad the query is.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import { findInTranscript, stepFindMatch } from "./model.js";

@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { usePayloadJsonRow } from "./hooks/usePayloadJsonRow.js";
 import { payloadJsonRowCount } from "./payload-rows.js";

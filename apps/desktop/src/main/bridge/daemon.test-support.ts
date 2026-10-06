@@ -9,7 +9,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_END_METHOD,
   type SubscriptionEndParams,

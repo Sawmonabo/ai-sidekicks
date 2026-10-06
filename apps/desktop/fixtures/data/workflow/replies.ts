@@ -14,14 +14,15 @@ import type { WORKFLOW_NOTICE_STREAM } from "#shared/daemon/daemon-streams.js";
 import type {
   WorkflowNodeId,
   WorkflowPinnedItem,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
   WorkflowDefinitionListResponse,
   WorkflowVersionChainReadResponse,
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type { WorkflowPinDataSetResponse } from "@ai-sidekicks/contracts/workflow/definition/builder";
-import type { WorkflowRunId, WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type {
   WorkflowRunCancelResponse,
   WorkflowRunResumeResponse,

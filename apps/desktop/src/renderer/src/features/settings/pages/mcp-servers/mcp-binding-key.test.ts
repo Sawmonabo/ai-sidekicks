@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/server";
 
 import { mcpBindingKeyOf } from "./mcp-binding-key.js";
 

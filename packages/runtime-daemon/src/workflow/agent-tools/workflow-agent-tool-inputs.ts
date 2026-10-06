@@ -15,7 +15,7 @@ import {
   WorkflowDraftDocumentSchema,
   type WorkflowDefinitionId,
   type WorkflowDraftDocument,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 import { z } from "zod";
 
 const positiveNumber = z.number().int().positive();

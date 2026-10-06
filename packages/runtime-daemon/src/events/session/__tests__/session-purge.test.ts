@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/node-id";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/session";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { openDatabase } from "../../../session/migration-runner.js";
 import { withSessionAppendLock } from "../append-lock.js";

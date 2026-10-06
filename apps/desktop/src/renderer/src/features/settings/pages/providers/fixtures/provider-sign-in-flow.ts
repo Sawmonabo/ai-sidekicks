@@ -9,8 +9,8 @@ import type {
   BillingMode,
   ProviderAccount,
   ProviderAccountId,
-  ProviderName,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   ProviderAccountProbeResponse,
   ProviderAccountSetCurrentResponse,

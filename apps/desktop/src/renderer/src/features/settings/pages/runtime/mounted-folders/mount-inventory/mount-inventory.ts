@@ -20,7 +20,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type {
   WorkspaceListRequest,
   WorkspaceListResponse,
-} from "@ai-sidekicks/contracts/workspace";
+} from "@ai-sidekicks/contracts/repo/workspace";
 
 import { RefusalError } from "#renderer/lib/refusal/refusal.js";
 import { MOUNT_INVENTORY_READ_CAP } from "./caps.js";

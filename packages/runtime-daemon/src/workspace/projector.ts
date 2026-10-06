@@ -14,7 +14,7 @@ import {
   type RepoMountHealth,
   type VcsType,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo/repo";
+} from "@ai-sidekicks/contracts/repo/mount";
 
 /**
  * One synchronous filesystem measurement, handed in by the service layer. Every projection checks

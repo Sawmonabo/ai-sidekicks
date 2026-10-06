@@ -17,7 +17,7 @@ import {
   type MethodDescriptor,
 } from "../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../project.js";
-import { wireUncappedFreeFormString } from "../session/session.js";
+import { wireUncappedFreeFormString } from "../free-form-string.js";
 
 /** A secret record's id. The daemon mints it. */
 export type WorkflowSecretId = string & { readonly __brand: "WorkflowSecretId" };

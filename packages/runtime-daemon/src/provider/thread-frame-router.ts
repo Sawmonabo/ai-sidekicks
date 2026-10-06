@@ -36,7 +36,7 @@
 // through `subagent.started` and `subagent.completed`, never through the child's own frames.
 // The terminal-emission gate consumes the route unchanged.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 

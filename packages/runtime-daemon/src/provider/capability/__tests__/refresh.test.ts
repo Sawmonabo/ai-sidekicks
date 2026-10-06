@@ -2,7 +2,7 @@
 // CapabilityRefresher, which reads only when asked and keeps a failed or hung read from stopping a
 // sibling's read or a later refresh.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeSilentDriverDiagnostics } from "../../__fixtures__/silent-driver-diagnostics.js";

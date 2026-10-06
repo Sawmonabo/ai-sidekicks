@@ -3,9 +3,10 @@
  * that arrived before its run, the lifecycle options, and the readers for frames it routes.
  */
 
-import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import {

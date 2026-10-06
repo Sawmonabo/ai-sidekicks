@@ -14,7 +14,7 @@ import {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
 } from "@ai-sidekicks/client-sdk";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

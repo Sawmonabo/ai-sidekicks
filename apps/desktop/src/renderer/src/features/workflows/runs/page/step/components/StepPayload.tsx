@@ -1,6 +1,6 @@
 import "./StepPayload.css";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";

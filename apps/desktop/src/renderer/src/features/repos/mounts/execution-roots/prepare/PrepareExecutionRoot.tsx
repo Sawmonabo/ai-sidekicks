@@ -6,7 +6,7 @@ import "./PrepareExecutionRoot.css";
 
 import { useCallback } from "react";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";

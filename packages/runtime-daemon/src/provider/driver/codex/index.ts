@@ -17,18 +17,18 @@
  * identity, and tests drive the real code through fakes.
  */
 
+import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type {
   ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
-  ProviderModel,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
   ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";

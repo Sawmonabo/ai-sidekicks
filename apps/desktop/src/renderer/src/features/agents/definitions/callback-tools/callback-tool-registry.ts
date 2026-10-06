@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import { WORKFLOW_RUN_TOOL } from "@ai-sidekicks/contracts/workflow/run-tool";
 
 /**

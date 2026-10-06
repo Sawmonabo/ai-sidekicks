@@ -4,7 +4,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
 import { bridgeAnswering, type BridgeUnderTest } from "#test/helpers/fixture/bridge.js";
 import { settle } from "#test/helpers/settle.js";

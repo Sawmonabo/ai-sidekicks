@@ -4,8 +4,8 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { Database } from "better-sqlite3";
 

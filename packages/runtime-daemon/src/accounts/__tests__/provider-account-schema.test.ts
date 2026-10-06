@@ -10,8 +10,8 @@ import {
   CREDENTIAL_GENERATION_MIN,
   type BillingMode,
   type ProviderAccountHealthState,
-  type ProviderName,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import { type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

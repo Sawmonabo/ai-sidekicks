@@ -21,7 +21,7 @@ import {
   MachineSettingsChangeSchema,
   MachineSettingsSubscribeRequestSchema,
 } from "@ai-sidekicks/contracts/machine-settings";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ZodType } from "zod";
 

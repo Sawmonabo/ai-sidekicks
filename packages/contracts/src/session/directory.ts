@@ -4,8 +4,8 @@
 // and the `session.*` method table for these verbs and for `session.subscribe`.
 //
 // These shapes name repositories, worktrees, providers, agent definitions and the session event
-// union, all of which import `session/session.ts` at load, so the shapes that need them live here
-// and `session/session.ts` keeps only what they build on.
+// union, all of which import `session/methods.ts` at load, so the shapes that need them live here
+// and `session/methods.ts` keeps only what they build on.
 import { z } from "zod";
 
 import {
@@ -24,14 +24,14 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../provider/account/account.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/driver.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/caps.js";
 import {
   ExecutionModeSchema,
   RepoMountIdSchema,
   type ExecutionMode,
   type RepoMountId,
-} from "../repo/repo.js";
+} from "../repo/mount.js";
 import {
   SessionConvertRequestSchema,
   SessionConvertResponseSchema,
@@ -39,25 +39,21 @@ import {
   type SessionConvertResponse,
 } from "./convert.js";
 import {
-  EventCursorSchema,
   SESSION_NAME_MAX_LEN,
-  SessionIdSchema,
   SessionShapeSchema,
   SessionStateSchema,
   SessionStreamFrameSchema,
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
-  wireFreeFormString,
-  wireUncappedFreeFormString,
-  type EventCursor,
-  type SessionId,
   type SessionShape,
   type SessionState,
   type SessionStreamFrame,
   type SessionSubscribeRequest,
   type SessionSubscribeResponse,
-} from "./session.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/worktree.js";
+} from "./methods.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
+import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**

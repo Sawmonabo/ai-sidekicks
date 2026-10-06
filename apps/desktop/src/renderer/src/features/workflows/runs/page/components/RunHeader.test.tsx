@@ -12,8 +12,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";

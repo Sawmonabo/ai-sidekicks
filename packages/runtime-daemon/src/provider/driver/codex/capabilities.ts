@@ -11,7 +11,7 @@
 import type {
   DriverCapabilityFlag,
   ProviderModel,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
 import {
   applyCapabilityDetection,

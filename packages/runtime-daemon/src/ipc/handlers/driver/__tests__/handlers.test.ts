@@ -6,21 +6,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import type {
-  ApplyInterventionParams,
-  DriverCapabilityFlag,
-  RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/wire";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/methods";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/driver";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/account/account";
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
 import { mapJsonRpcError } from "../../../jsonrpc-error-mapping.js";

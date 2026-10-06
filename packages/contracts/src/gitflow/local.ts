@@ -11,20 +11,13 @@ import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import {
-  DRIVER_FAILURE_DETAIL_MAX_LEN,
-  RunIdSchema,
-  type RunId,
-} from "../provider/driver/driver.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "../session/session.js";
-import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/definition.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/run.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "../workflow/definition/document.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow/run/status.js";
 import {
   ChangeRequestSummarySchema,
   GIT_HOST_KINDS,

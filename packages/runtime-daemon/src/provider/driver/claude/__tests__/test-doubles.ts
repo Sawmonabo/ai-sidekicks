@@ -2,11 +2,9 @@
 // `session/transport.ts`, so a drifted signature fails the typecheck. Nothing here spawns a
 // process, touches the filesystem or reads an environment variable.
 
-import type {
-  ApplyInterventionParams,
-  RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { OutboundTextFrame } from "../../../outbound-frame.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";

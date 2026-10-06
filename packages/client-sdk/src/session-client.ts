@@ -14,19 +14,18 @@
 // `ClientTransport`.
 
 import type {
-  EventCursor,
-  SessionId,
   SessionReadRequest,
   SessionReadResponse,
   SessionStreamFrame,
-} from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/session/methods";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   SessionCreateRequest,
   SessionCreateResponse,
 } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/session";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 
 import {
   callMethod,

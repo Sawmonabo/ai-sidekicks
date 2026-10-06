@@ -7,23 +7,16 @@ import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
 import { composedTextSchema } from "../../internal/wire-scalars.js";
-import { PROVIDER_VERSION_MAX_LEN } from "../../provider/provider.js";
-import { ProviderNameSchema, type ProviderName } from "../../provider/account/account.js";
-import {
-  DRIVER_FAILURE_DETAIL_MAX_LEN,
-  RunIdSchema,
-  type RunId,
-} from "../../provider/driver/driver.js";
+import { PROVIDER_VERSION_MAX_LEN } from "../../provider/settings.js";
+import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../../provider/driver/caps.js";
+import { RunIdSchema, type RunId } from "../../provider/driver/intervention.js";
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-} from "../../provider/driver/wire.js";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  wireUncappedFreeFormString,
-  type SessionId,
-} from "../session.js";
+} from "../../provider/driver/methods.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../id.js";
 import { TokensPerRunSchema, UsdMicrosSchema } from "../cost.js";
 import {
   PermissionLevelSchema,

@@ -34,8 +34,8 @@ import type {
   SettingsFileRepair,
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { ServicePlaceLocation } from "@ai-sidekicks/contracts/service-place";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 
 import type { AppFacts } from "./app-facts.js";
 import type { AppearanceChoice, AppearanceGrounds, AppearanceRecord } from "./appearance.js";

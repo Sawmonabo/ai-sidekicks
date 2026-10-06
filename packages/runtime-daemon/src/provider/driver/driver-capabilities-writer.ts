@@ -15,11 +15,13 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   DRIVER_CAPABILITY_FLAGS,
-  ProviderToolMetadataSchema,
   type DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import {
+  ProviderToolMetadataSchema,
   type NormalizedProviderToolMetadata,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import {

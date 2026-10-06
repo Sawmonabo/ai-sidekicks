@@ -13,7 +13,7 @@ import {
   McpSubscribeRequestSchema,
   type McpServerConfigChangedNotice,
   type McpSubscribeRequest,
-} from "./mcp.js";
+} from "./server.js";
 import {
   McpServerStatusChangedNoticeSchema,
   type McpServerStatusChangedNotice,

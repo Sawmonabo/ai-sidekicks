@@ -3,7 +3,7 @@
 // `transcript-window.ts` and the fold in `run-group-fold.ts`. A pass keeps only what it
 // republishes, so the table never outgrows the window.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 

@@ -2,7 +2,7 @@
 // then the order the rows arrived in, the daemon's own first. A row's state never moves it, so a
 // session that finishes under the pointer stays where the pointer is.
 
-import type { SessionState } from "@ai-sidekicks/contracts/session/session";
+import type { SessionState } from "@ai-sidekicks/contracts/session/methods";
 
 // The state of a session whose deletion has started. Typed against the wire union so a rename in
 // `packages/contracts` fails here.

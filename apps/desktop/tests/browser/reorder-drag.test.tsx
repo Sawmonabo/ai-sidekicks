@@ -17,7 +17,7 @@ import { FrameWindows } from "../helpers/frame-windows.js";
 import { renderSettled } from "../helpers/app/harness.js";
 import { bridgeWrapper, FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
 import { liveRegionText, politeText } from "../helpers/live-region.js";
-import type { PreviewPage } from "@ai-sidekicks/contracts/preview/preview";
+import type { PreviewPage } from "@ai-sidekicks/contracts/preview/methods";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";

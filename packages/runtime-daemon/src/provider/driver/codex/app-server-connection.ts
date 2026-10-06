@@ -4,7 +4,7 @@
  */
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   buildProviderSpawnEnv,

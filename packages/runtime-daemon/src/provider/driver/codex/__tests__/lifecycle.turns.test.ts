@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
 import type { SubagentPolicy } from "../../provider-driver.js";
 import {

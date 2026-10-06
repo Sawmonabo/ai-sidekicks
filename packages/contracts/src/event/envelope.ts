@@ -6,8 +6,9 @@ import {
   EVENT_FIELD_MAX_LEN,
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
-} from "./core.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session/session.js";
+} from "./version.js";
+import { wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -54,7 +55,7 @@ export const EventCategorySchema: z.ZodType<EventCategory> = z.enum([
 ]);
 
 // Declared in `./core.js`, the leaf below this file, and re-exported here.
-export type { EventEnvelopeVersion } from "./core.js";
+export type { EventEnvelopeVersion } from "./version.js";
 export {
   /** @consumedBy a reader that checks an event envelope's version */
   EVENT_ENVELOPE_VERSION_MAX_LEN,
@@ -62,7 +63,7 @@ export {
   EVENT_ENVELOPE_VERSION_PATTERN,
   EVENT_FIELD_MAX_LEN,
   EventEnvelopeVersionSchema,
-} from "./core.js";
+} from "./version.js";
 
 /**
  * Three-way comparison of two envelope versions (-1, 0, 1), numeric on MAJOR then MINOR, never as

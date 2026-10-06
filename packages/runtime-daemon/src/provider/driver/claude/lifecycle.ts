@@ -13,8 +13,9 @@ import type {
   ProviderCommandListResult,
   ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { InterruptRunParams, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { SpawnEnvPair } from "../../spawn-env.js";

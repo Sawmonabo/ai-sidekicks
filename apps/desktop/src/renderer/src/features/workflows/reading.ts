@@ -4,9 +4,9 @@
 // each reply is parsed against its method's registered shape; a refusal rejects the read and
 // becomes its failed state.
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import type { WorkflowDefinitionListResponse } from "@ai-sidekicks/contracts/workflow/definition/methods";
-import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowRunAttentionListResponse,
   WorkflowRunListResponse,

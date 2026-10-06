@@ -10,13 +10,11 @@
 // - An unknown tool name or schema-invalid arguments answer `failed` before any Cedar round-trip,
 //   so malformed provider output never reaches the approval pipeline.
 
-import {
-  DRIVER_TOOL_NAME_MAX_LEN,
-  type RunId,
-  type SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import { type SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/caps";
+import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,

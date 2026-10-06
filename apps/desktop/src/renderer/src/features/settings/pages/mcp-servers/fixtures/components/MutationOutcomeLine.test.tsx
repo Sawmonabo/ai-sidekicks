@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   McpApplicationGrade,
   McpLiveApplicationResult,
-} from "@ai-sidekicks/contracts/mcp/mcp";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/mcp/server";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";

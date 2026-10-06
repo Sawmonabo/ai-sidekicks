@@ -14,9 +14,9 @@ import type {
   McpMutationResult,
   McpServerInventoryEntry,
   McpToolOverrideMutationResult,
-} from "@ai-sidekicks/contracts/mcp/mcp";
-import type { McpServerStatus } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/mcp/server";
+import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Clock } from "#renderer/lib/clock.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";

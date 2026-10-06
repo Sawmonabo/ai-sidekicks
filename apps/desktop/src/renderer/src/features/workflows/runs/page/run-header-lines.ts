@@ -3,11 +3,9 @@
 // run's status and its blocking or failing step, so every kind of stop is written the same way
 // and none is kept by hand. A waiting run's cause is read in the first line and nowhere else.
 
-import {
-  WORKFLOW_STEP_TIMED_OUT_CODE,
-  type WorkflowStep,
-  type WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
+import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock } from "#renderer/lib/wire/figures.js";

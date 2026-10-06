@@ -3,7 +3,7 @@
 // tuple with its predicate derived from it, so the two cannot drift; a type added to the
 // registered event types is an edit here and nowhere else.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 

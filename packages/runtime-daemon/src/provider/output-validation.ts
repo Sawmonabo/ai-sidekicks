@@ -3,10 +3,10 @@
 // `driver_contract_meta`, so they live here once. Every rejection is a
 // `ProviderOutputValidationError`, never a raw Zod or SQLite error.
 
-import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/driver";
-import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/wire";
-import { wireFreeFormString } from "@ai-sidekicks/contracts/session/session";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/methods";
+import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import semver from "semver";
 
 import type { DriverCliVersionReport } from "./driver/provider-driver.js";

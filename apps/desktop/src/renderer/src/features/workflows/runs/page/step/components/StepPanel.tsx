@@ -2,8 +2,8 @@ import { Tabs } from "@base-ui/react/tabs";
 import { useState } from "react";
 
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";

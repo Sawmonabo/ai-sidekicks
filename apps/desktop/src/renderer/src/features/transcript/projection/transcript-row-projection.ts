@@ -10,10 +10,10 @@ import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
   type TranscriptEventRow,
-} from "@ai-sidekicks/contracts/transcript/row/row";
+} from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { readRollbackBoundaryPayload } from "#renderer/services/daemon/rollback-boundary-payload.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";

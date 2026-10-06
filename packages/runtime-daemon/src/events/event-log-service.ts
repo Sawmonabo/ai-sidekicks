@@ -12,7 +12,7 @@
 //   consumes no sequence.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database, Statement } from "better-sqlite3";
 
 import { canonicalizeEvent, normalizeOccurredAt } from "./canonicalizer.js";

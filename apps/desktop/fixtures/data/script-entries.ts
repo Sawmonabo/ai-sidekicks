@@ -16,7 +16,7 @@
 // so an extra member is rejected on the wire; the other run transitions and `subagent.*` have
 // none.
 
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 
 import type { ScenarioBeat } from "../scenario.js";
 

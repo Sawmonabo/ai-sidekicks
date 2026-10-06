@@ -6,7 +6,7 @@
 // announcer, so it is a `.tsx`.
 
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/repo/workspace";
 import { act, render } from "@testing-library/react";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";

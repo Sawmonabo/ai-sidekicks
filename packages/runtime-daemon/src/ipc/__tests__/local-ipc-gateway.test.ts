@@ -10,8 +10,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import type { Handler } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   encodeFrame,
   FramingError,

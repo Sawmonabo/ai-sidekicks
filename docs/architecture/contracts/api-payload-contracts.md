@@ -191,7 +191,7 @@ type DriverCapabilityFlag =
   | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (Spec-004 §The provider command and skill surface)
   | "output_speed"; // declares a user-settable provider-side output-speed mode; BOTH pinned drivers declare it; detectionSource is PROBED on Claude Code, from the fast-mode state its `initialize` reply reports before any turn, and STATIC on Codex, where reading a returned tier as a speed tier is a judgment (Spec-004 §The output-speed axis). Claude realizes the axis through its own fast-output setting, `apply_flag_settings {fastMode}`, sent after every spawn and before a run that changes it; Codex realizes it through the person-settable `serviceTier` member — present in the default, non-field-gated generation — carried on thread establishment (`thread/start`), resume (`thread/resume`), fork (`thread/fork`) and each `turn/start`, against the speed tiers its model catalog publishes (`Model.serviceTiers`, `defaultServiceTier`, each tier `{ id, name, description }`, with a `Fast` tier carried in upstream source), behind the provider's own `features.fast_mode` gate and surfaced to the person as the composer's `Fast` / `Standard` control and the `/fast` word
 // The executable union
-// (packages/contracts/src/provider/driver/driver.ts) must export every member above, so no member is
+// (packages/contracts/src/provider/driver/capabilities.ts) must export every member above, so no member is
 // declarable in doc only. The shipped assertValidCapabilityFlags rejects
 // any snapshot whose key count differs, so the union, the validator, the
 // driver_capabilities.capability_flag CHECK in the one local schema and the conformance tests
@@ -1356,7 +1356,7 @@ Every dot-delimited segment starts with a lowercase letter and may contain camel
 The regex accepts the registered surface and rejects:
 
 - `session/create` — slash-style (visually conflated with HTTP path segments; ambiguous in JSON-RPC contexts where method names appear in the JSON `method` field, not URLs).
-- `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session/session.ts`, so a string-form would be ambiguous at every call site).
+- `SessionCreate` — PascalCase (collides with the project's TypeScript type-name convention; `Session.create` is rejected on the same ground — the root widening admits an uppercase letter _inside_ a segment, never at its start; `SessionCreate` is already a request-payload type symbol per `packages/contracts/src/session/methods.ts`, so a string-form would be ambiguous at every call site).
 - `sessionCreate` — bare camelCase without a namespace dot (cannot express the namespace/operation split without a convention-internal delimiter; doesn't scale to nested namespaces).
 
 **Method-name table** (Plan-005 Phase 3 surface):
@@ -1386,7 +1386,7 @@ The runtime regex check is owed by the Plan-005 substrate at `packages/runtime-d
 
 ### JSON-RPC Handshake `protocolVersion` Field
 
-The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) JSON-RPC handshake substrate (`packages/contracts/src/jsonrpc/jsonrpc.ts`, `packages/contracts/src/jsonrpc/negotiation.ts`, `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`, and the client-SDK transport surface).
+The field is carried across the [Plan-005](../../plans/005-local-ipc-and-daemon-control.md) JSON-RPC handshake substrate (`packages/contracts/src/jsonrpc/message.ts`, `packages/contracts/src/jsonrpc/negotiation.ts`, `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`, and the client-SDK transport surface).
 
 **Canonical format**: ISO 8601 date-string in `YYYY-MM-DD` form. The substrate Zod schema at `packages/contracts/src/jsonrpc/negotiation.ts#ProtocolVersionSchema` MUST be:
 
@@ -1404,7 +1404,7 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ### JSON-RPC Request `id` Bound
 
-**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc/jsonrpc.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`, which enforces it.
+**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc/message.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`, which enforces it.
 
 **Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "invalid_envelope"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
 
@@ -1599,9 +1599,9 @@ Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): holder 
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
 // The daemon's provider layer (`packages/runtime-daemon/src/provider/`) realizes this enumeration for the
-// driver-internal shapes; `packages/contracts/src/provider/driver/driver.ts` (`DriverInterventionResult`) and
+// driver-internal shapes; `packages/contracts/src/provider/driver/intervention.ts` (`DriverInterventionResult`) and
 // `packages/contracts/src/provider/driver/transcript.ts` (`ProviderCommandEntry`, `ProviderOutputSpeedState`)
-// realize it for the ones that reach a client, and `packages/contracts/src/session/session.ts` holds the
+// realize it for the ones that reach a client, and `packages/contracts/src/free-form-string.ts` holds the
 // `wireFreeFormString` helper both use.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
@@ -2004,7 +2004,7 @@ type ApplyInterventionParams =
 // The carrier sets no count bound of its own: how many files a message carries is what the daemon and the
 // provider accept, and a provider that will not take one refuses in its own words. The brand is
 // homed with its earliest-shipping consumer per Plan-003 CP-003-4 — this payload — and every later
-// consumer imports it (`packages/contracts/src/provider/driver/driver.ts#ArtifactIdSchema`); Plan-011 Task 1
+// consumer imports it (`packages/contracts/src/provider/driver/intervention.ts#ArtifactIdSchema`); Plan-011 Task 1
 // imports rather than restates, so no second definition of an artifact id exists.
 interface SteerPayload {
   content: string;
@@ -2469,7 +2469,7 @@ interface GetCapabilitiesResult {
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
   // provenance re-reads the driver. Driver-side only: deliberately NOT carried on the client-facing
   // `driver.listCapabilities` payload, which this member does not widen. The client-facing `driver.*`
-  // set is the method table in `packages/contracts/src/provider/driver/wire.ts`: `driver.listModes`,
+  // set is the method table in `packages/contracts/src/provider/driver/methods.ts`: `driver.listModes`,
   // `driver.listModels`, `driver.listCapabilities`, `driver.interruptRun`,
   // `driver.applyIntervention`, `driver.compactContext` and `driver.listProviderCommands`
   // (`{sessionId, agentId}` → `ProviderCommandListResult`, an agent's `/` list read once),
@@ -2887,7 +2887,7 @@ type EventCategory =
 // packages/contracts/src/event/variant-types.ts (usage.model_rerouted, its
 // schema in packages/contracts/src/event/session-event.ts), which Plan-004
 // owns, rather than imported from an emitting plan's module (contrast the
-// repo/workspace/worktree family, authored in repo/repo.ts / worktree/worktree.ts under
+// repo/workspace/worktree family, authored in repo/mount.ts / worktree/lifecycle.ts under
 // emitter-authors-payload); Plan-004 T1.10 registers event.compacted.
 // Registering a payload variant is additive-MINOR per ADR-017 §Decision #8;
 // these type strings are listed in Spec-005 §Event Type Summary, so
@@ -3720,7 +3720,7 @@ The control plane's account routes that `sidekicks sign-in`, `sidekicks sign-out
 
 ```ts
 // Plan-006 shared shapes (D-006-2 / D-006-4) — canonical origin
-// packages/contracts/src/repo/repo.ts; Plan-007 imports these per Plan-006 CP-006-1.
+// packages/contracts/src/repo/mount.ts; Plan-007 imports these per Plan-006 CP-006-1.
 // A project is a git repository: `repo.attach` refuses a folder that is not one, and a chat's own
 // workspace is git-initialized from its first byte, so there is no non-git kind.
 type VcsType = "git";
@@ -3857,7 +3857,7 @@ Plan-006's repo-attachment and workspace-binding surface is exposed as `repo.*` 
 | `repo.detach`        | `mutation`     | `RepoDetachRequest`        | `RepoDetachResponse`        |
 | `repo.mountReattach` | `mutation`     | `RepoMountReattachRequest` | `RepoMountReattachResponse` |
 
-Canonical Zod schemas live in `packages/contracts/src/repo/folders.ts` (`repo.attach`, `repo.mountRead`, `repo.detach`, `repo.mountReattach`) and `packages/contracts/src/workspace.ts` (`repo.workspaceBind`, `repo.workspaceList`) per the §Source-of-Truth Policy.
+Canonical Zod schemas live in `packages/contracts/src/repo/folders.ts` (`repo.attach`, `repo.mountRead`, `repo.detach`, `repo.mountReattach`) and `packages/contracts/src/repo/workspace.ts` (`repo.workspaceBind`, `repo.workspaceList`) per the §Source-of-Truth Policy.
 
 Plan-007's worktree surface adds further `repo.*` methods (Plan-007 D-007-3) — the same namespace, not a new root, because the namespace-root enumeration admits `repo` and mounts, workspaces and worktrees form one repo aggregate — and the session move `session.setWorkingFolder`, which registers on the session root (§Session Method-Name Registry). A session's place is chosen in `session.create` or `repo.workspaceBind`, so no mode select exists, and a worktree's figures ride `repo.worktreeStatusRead`, so no reuse check exists. Registration rides the same Plan-005-partial `MethodRegistry` path. Method strings stay imperative and disjoint-by-form from the past-participle Spec-005 durable event names (`worktree.created` through `worktree.retired`).
 
@@ -3867,7 +3867,7 @@ Plan-007's worktree surface adds further `repo.*` methods (Plan-007 D-007-3) —
 | `repo.worktreeRetire` | `mutation` | `WorktreeRetireRequest` | `WorktreeRetireResponse` |
 | `repo.worktreeStatusRead` | `query` | `WorktreeStatusReadRequest` | `WorktreeStatusReadResponse` |
 
-Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree/worktree.ts` (Plan-007 D-007-1) per the §Source-of-Truth Policy. The others — `repo.removedWorktreeList`, `repo.worktreeRestore`, `repo.removedWorktreeDelete`, `repo.worktreeSetupSubscribe`, `repo.worktreeSetupRetry`, `repo.branchList` and `repo.workingTreeSubscribe` — are listed in [§Operations Not Yet Built](#operations-not-yet-built); their schemas are in `packages/contracts/src/worktree/removed-worktree.ts`, `packages/contracts/src/worktree/setup.ts` and `packages/contracts/src/repo/git-reads.ts`.
+Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree/lifecycle.ts` (Plan-007 D-007-1) per the §Source-of-Truth Policy. The others — `repo.removedWorktreeList`, `repo.worktreeRestore`, `repo.removedWorktreeDelete`, `repo.worktreeSetupSubscribe`, `repo.worktreeSetupRetry`, `repo.branchList` and `repo.workingTreeSubscribe` — are listed in [§Operations Not Yet Built](#operations-not-yet-built); their schemas are in `packages/contracts/src/worktree/removed.ts`, `packages/contracts/src/worktree/setup.ts` and `packages/contracts/src/repo/git-reads.ts`.
 
 **The worktree-candidate read is `repo.worktreeStatusRead`, widened rather than joined by a sibling.** The switcher's rows need ahead, behind, dirtiness and occupancy per candidate directory; those members are below, on that read's own worktree rows. One read rather than two is the contract, not a convenience: a switcher composing its rows from a status read and a separate counts read could draw a directory as free while another read called it occupied, and the trash lock is exactly the affordance that must never be wrong.
 
@@ -3892,7 +3892,7 @@ Canonical Zod schemas for these pairs live in `packages/contracts/src/worktree/w
 ### Plan-007 — Worktree Lifecycle And Execution Modes
 
 ```ts
-// Branded IDs introduced by Plan-007 (canonical origin: packages/contracts/src/worktree/worktree.ts;
+// Branded IDs introduced by Plan-007 (canonical origin: packages/contracts/src/worktree/lifecycle.ts;
 // declared in-block rather than under §Branded ID Types / §Shared Enums for cite stability)
 type BranchContextId = string & { readonly __brand: "BranchContextId" };
 // A worktree removed with `Discard and remove` and kept whole until the person deletes the copy: a
@@ -4904,7 +4904,7 @@ interface ArtifactListResponse {
 // single payload-bearing call (Spec-012 §Ingest Validation And Payload Bounds (V1),
 // transport binding): the local IPC transport enforces a hard 4 MB per-frame ceiling on the declared
 // Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
-// packages/contracts/src/jsonrpc/jsonrpc.ts and enforced by
+// packages/contracts/src/jsonrpc/message.ts and enforced by
 // packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-006 §Wire Format), so a payload
 // larger than one frame cannot cross it and a single-call shape would be
 // un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
@@ -5208,7 +5208,7 @@ type TranscriptRollbackBoundary = Omit<TranscriptEventRowBase, "category" | "typ
   epoch: number; // the epoch the rollback rewound
   superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
   type: "run.rolled_back";
-  payload: RunRolledBackEvent; // validated into the typed shape (defined under §Plans 002 And 015 above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (`packages/contracts/src/transcript/row/row.ts`): a plain `TranscriptEventRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal.
+  payload: RunRolledBackEvent; // validated into the typed shape (defined under §Plans 002 And 015 above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (`packages/contracts/src/transcript/row.ts`): a plain `TranscriptEventRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal.
 };
 
 type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union every transcript surface returns — TranscriptReadResponse.entries and ChildRunExpandResponse.entries are both TranscriptEventRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
@@ -8227,7 +8227,7 @@ The session's workflow callback tools (ADR-025; [Spec-015 §Interfaces And Contr
 
 No tool in the set takes the session it acts on as an argument, per [Spec-010 §Interfaces And Contracts](../../specs/010-approvals-permissions-and-trust-boundaries.md#interfaces-and-contracts): the daemon derives it from the invoking turn's own context, validates the derived value, and refuses a smuggled one, so a forged target cannot be reached. `workflow_run` and `workflow_node_execute` take a definition by name, which names one workflow in the one library, issuing the same start path as `workflow.runStart` in the invoking turn's session and its recorded folder; in a chat, `workflow_run` also takes an optional `project`, a project's name as `session_options` lists it, and the run then works in that project's own folder; a Cedar denial answers `denied` carrying `workflow.start_denied`. None of these tools is a JSON-RPC method: the chat-start surface adds no registry row of its own.
 
-Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.repository_required` (422, `nodeIds`) for a start that names no project's repository, of a version holding a Git, Read a repo diff or Run tests step; `workflow.project_on_project_session` (422) for a start in a project session that names a project; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-38)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-38) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from `WORKFLOW_DEFINITION_FINDING_RULES` in `packages/contracts/src/workflow/definition/definition.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-014: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
+Error vocabulary: [error-contracts.md](./error-contracts.md) §Workflow. Every refusal point on this surface carries a code of its own in the registry's `<root>.<noun>_<condition>` form, registered in its contract before the capability is implemented, and none ships unregistered ([Spec-015 §Loud-errors discipline (C-12)](../../specs/015-workflow-authoring-and-execution.md#loud-errors-discipline-c-12) forbids untyped refusals). A state refusal is 409, well-formed input the daemon cannot act on is 422, and findings ride the error as an extension list. The calls above refuse with: `workflow.not_found`; `workflow.gate_closed`; `workflow.start_denied` for a denied or unresolvable start; `workflow.repository_required` (422, `nodeIds`) for a start that names no project's repository, of a version holding a Git, Read a repo diff or Run tests step; `workflow.project_on_project_session` (422) for a start in a project session that names a project; `workflow.run_not_cancelable` and `workflow.resume_not_parked` for cancel and resume; the [Spec-015 §Frozen-definition repair (SA-38)](../../specs/015-workflow-authoring-and-execution.md#frozen-definition-repair-sa-38) re-pin refusals `workflow.repair_not_parked`, `workflow.repair_attempt_in_flight` and `workflow.repair_version_unaccountable`; `workflow.definition_refused` (422), carrying `findings: [{rule, nodeIds, detail?}]` — the whole list the daemon's re-check finds, each `rule` from `WORKFLOW_DEFINITION_FINDING_RULES` in `packages/contracts/src/workflow/definition/document.ts`; `workflow.revision_stale` (409) for a stale form revision; `workflow.version_stale` (409) for a stale definition version; `workflow.step_not_waiting` (409) for a form submitted or read, or an approval answered, on a step no longer waiting; `workflow.retry_unavailable` (409, `reason: source_running`); `workflow.run_not_deletable` (409) on a `new`, `running` or `waiting` run; `workflow.invalid_transition` (409) for a run or step move its state does not allow, such as retrying a step that did not fail or posting results from an unfinished run; `workflow.trigger_unarmable` for a trigger that cannot arm; `workflow.import_schema_unknown` for an import whose schema version is unknown; and, on the secret verbs, `workflow.secret_name_invalid` (`reason: pattern | taken`) and `workflow.secret_store_unavailable` (`cause: locked | unavailable`). The webhook listener refuses a call whose token does not match with `workflow.webhook_token_mismatch`. A step that fails carries its code on its `error` and on the `workflow.step_failed` event, for the life of the run record: `workflow.code_over_budget`, `workflow.code_install_failed` (`reason: disk_space | tool_error`), `workflow.step_thread_failed` (`reason: out_of_memory | start_timeout | exited`), `workflow.sandbox_unavailable` (`provider: claude | codex`), `workflow.step_timed_out` (`cause: step_timeout | run_cap`), `workflow.secret_not_found` (carrying only the reference) and `workflow.secret_store_unavailable`. The park, pacing and cancelability rules mint no code of their own. Durable events owned by Plan-014: the `workflow.*` types across the workflow families enumerated in [Spec-015 §Event types (SA-19)](../../specs/015-workflow-authoring-and-execution.md#event-types-sa-19) and registered in the [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) census, whose categories that spec carries as its own sections; their typed payloads are the `Workflow*Payload` shapes above.
 
 ---
 

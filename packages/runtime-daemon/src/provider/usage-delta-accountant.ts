@@ -28,7 +28,7 @@
 //     because the `usage_telemetry` payload has no per-cache-axis member.
 
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { type DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 

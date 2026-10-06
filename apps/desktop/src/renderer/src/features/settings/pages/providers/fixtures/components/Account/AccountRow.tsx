@@ -1,4 +1,4 @@
-import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";

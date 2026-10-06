@@ -15,7 +15,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import { z } from "zod";
 
 import type { ClientTransport } from "./contract.js";

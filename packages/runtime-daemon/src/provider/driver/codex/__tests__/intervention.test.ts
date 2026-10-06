@@ -6,13 +6,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DRIVER_CAPABILITY_FLAGS,
-  DriverInterventionResultSchema,
-  type ApplyInterventionParams,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import {
+  DriverInterventionResultSchema,
+  type ApplyInterventionParams,
   type InterruptRunParams,
-  type RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
 import {
   CodexInterventionDispatcher,

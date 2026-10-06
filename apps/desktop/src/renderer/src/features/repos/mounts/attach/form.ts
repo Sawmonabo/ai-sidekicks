@@ -4,7 +4,7 @@
 // check reads a trimmed copy but the request carries the path as typed, since surrounding
 // spaces are legal POSIX filename characters.
 
-import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/session/session";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
 /** What the dialog holds while it is open: the path, exactly as typed. */
 export interface AttachFormState {

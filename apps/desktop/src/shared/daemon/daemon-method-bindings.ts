@@ -9,7 +9,7 @@
 // the ones the app opens.
 
 import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";
-import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/wire";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
 import { GITFLOW_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/gitflow/methods";
 import { HIGHLIGHT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/highlight";
 import { MCP_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/governance";
@@ -17,7 +17,7 @@ import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/session";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
 import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
 import { WORKFLOW_DEFINITION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/definition/methods";

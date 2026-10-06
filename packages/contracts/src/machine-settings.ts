@@ -17,8 +17,8 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ExecutionModeSchema, type ExecutionMode } from "./repo/repo.js";
-import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session/session.js";
+import { ExecutionModeSchema, type ExecutionMode } from "./repo/mount.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { isoDateTimeSchema, portSchema } from "./internal/wire-scalars.js";
 
 /** Where the file sits, relative to the person's home folder. */

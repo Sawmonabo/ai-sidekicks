@@ -7,8 +7,8 @@
 // token. It arrives from any program on the machine, so it is untrusted input:
 // the parser accepts only the exact form `composeAppLink` writes and hands back
 // nothing but a validated id.
-import { SessionIdSchema, type SessionId } from "./session/session.js";
-import { WorkflowRunIdSchema, type WorkflowRunId } from "./workflow/run/run.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
+import { WorkflowRunIdSchema, type WorkflowRunId } from "./workflow/run/status.js";
 
 /** What a `sidekicks://` link opens: a session, or a workflow run's page. */
 export type AppLinkTarget =

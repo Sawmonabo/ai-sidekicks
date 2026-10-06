@@ -5,16 +5,18 @@
 
 import type {
   WorkflowRunStatus,
-  WorkflowStartedBy,
   WorkflowStepStatus,
-  WorkflowTriggerKind,
   WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/status";
+import type {
+  WorkflowStartedBy,
+  WorkflowTriggerKind,
+} from "@ai-sidekicks/contracts/workflow/run/trigger";
 import {
   WORKFLOW_SANDBOX_UNAVAILABLE_CODE,
   WORKFLOW_STEP_THREAD_FAILED_CODE,
   WORKFLOW_STEP_TIMED_OUT_CODE,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/failures";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";
 

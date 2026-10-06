@@ -14,7 +14,7 @@
 
 import * as nodePath from "node:path";
 
-import type { VcsType } from "@ai-sidekicks/contracts/repo/repo";
+import type { VcsType } from "@ai-sidekicks/contracts/repo/mount";
 
 import { DEFAULT_GIT_EXECUTABLE, runGitWithExecFile, type GitRunner } from "../../git/process.js";
 import { RepoRootResolutionError } from "./errors.js";

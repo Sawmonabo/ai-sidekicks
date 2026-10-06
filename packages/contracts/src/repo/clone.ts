@@ -9,7 +9,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "../internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import { ProjectIdSchema, type ProjectId } from "../project.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../session/session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 
 /** The longest repository URL `repo.clone` takes. */
 export const REPO_CLONE_URL_MAX_LEN = 2048;

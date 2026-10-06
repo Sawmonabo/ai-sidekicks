@@ -3,7 +3,7 @@
 // `SessionEventSchema` in event/session-event.ts parses them.
 
 import { z } from "zod";
-import { EVENT_FIELD_MAX_LEN } from "./core.js";
+import { EVENT_FIELD_MAX_LEN } from "./version.js";
 import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   withEpochStamp,
@@ -12,11 +12,12 @@ import {
   type SourcePosition,
 } from "./envelope.js";
 import { NodeIdSchema, type NodeId } from "../node-id.js";
-import type { RepoWorkspaceLifecyclePayload } from "../repo/repo.js";
+import type { RepoWorkspaceLifecyclePayload } from "../repo/mount.js";
 import type { SessionCreatedPayload } from "../session/created.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session/session.js";
+import { wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import type { WorktreeCreatedPayload, WorktreeRetiredPayload } from "../worktree/events.js";
-import type { WorktreeLifecyclePayload } from "../worktree/worktree.js";
+import type { WorktreeLifecyclePayload } from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 // Each variant interface extends the envelope, narrowing `type`, `category` and `payload` to the

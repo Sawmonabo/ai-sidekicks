@@ -11,7 +11,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 
 /**
  * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix

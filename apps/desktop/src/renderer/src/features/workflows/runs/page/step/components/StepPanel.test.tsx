@@ -10,18 +10,16 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   WorkflowBinaryRef,
   WorkflowDocument,
   WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
-import {
-  WORKFLOW_STEP_THREAD_FAILED_CODE,
-  type WorkflowStep,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
+import { WORKFLOW_STEP_THREAD_FAILED_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
+import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";

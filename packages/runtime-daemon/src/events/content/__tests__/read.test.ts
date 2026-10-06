@@ -9,7 +9,7 @@ import {
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/session";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 
 import { hydrateStoredEvent } from "../read.js";

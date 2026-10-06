@@ -33,7 +33,7 @@ import {
   JSONRPC_VERSION,
   JsonRpcErrorCode,
   MAX_MESSAGE_BYTES,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";

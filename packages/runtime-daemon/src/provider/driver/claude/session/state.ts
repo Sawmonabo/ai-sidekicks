@@ -3,8 +3,9 @@
  * routing band, the slot it occupies, and the frame router configuration.
  */
 
-import type { ExecutionPosture, RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { type CompactionWaitScheduler } from "../../../compaction-wait.js";
 import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";

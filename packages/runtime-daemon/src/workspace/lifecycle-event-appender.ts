@@ -7,7 +7,7 @@
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import type { EventCategory, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
-import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoWorkspaceLifecyclePayloadOf } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type {

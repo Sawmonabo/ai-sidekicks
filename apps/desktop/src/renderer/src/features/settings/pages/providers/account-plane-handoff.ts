@@ -17,7 +17,7 @@
 import type {
   ProviderLoginExpiredRemedy,
   ProviderRemedy,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
 

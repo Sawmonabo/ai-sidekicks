@@ -3,10 +3,10 @@
 // status chip and the graph all ask, so each rule is written once here.
 
 import type {
-  WorkflowStep,
   WorkflowStepStatus,
   WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 
 /** One of a node's step records, and the pass of the node it belongs to. */
 export interface NodePass {

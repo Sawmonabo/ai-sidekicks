@@ -2,7 +2,7 @@
 // typed compaction frame that proves it ran.
 
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { OutboundTextFrameWriter } from "../../outbound-frame.js";

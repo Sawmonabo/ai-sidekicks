@@ -4,19 +4,19 @@
 // limit. The reasoning read names no principal: the caller is the authenticated connection.
 import { z } from "zod";
 
-import { jsonUtf8ByteLength } from "../jsonrpc/jsonrpc.js";
-import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
+import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
+import { wireFreeFormString } from "../free-form-string.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  wireFreeFormString,
   type EventCursor,
   type SessionId,
-} from "../session/session.js";
+} from "../session/id.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
-import { TranscriptEventRowSchema, type TranscriptEventRow } from "./row/row.js";
+import { TranscriptEventRowSchema, type TranscriptEventRow } from "./row.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 // Page budget shared by every paged reply

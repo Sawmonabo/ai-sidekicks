@@ -4,10 +4,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { MachinePresence, PresenceSubscribeResponse } from "@ai-sidekicks/contracts/presence";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,

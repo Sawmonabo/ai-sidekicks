@@ -17,7 +17,7 @@
 import type {
   ProviderAccount,
   ProviderAccountUsageWindow,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";

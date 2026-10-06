@@ -11,38 +11,42 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../../method-descriptor.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/account.js";
-import { SessionIdSchema, type SessionId } from "../../session/session.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/record.js";
+import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowNodeIdSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
   type WorkflowNodeId,
-} from "../definition/definition.js";
+} from "../definition/document.js";
 import {
   WorkflowDefinitionSummarySchema,
   type WorkflowDefinitionSummary,
 } from "../definition/methods.js";
 import {
   WORKFLOW_WAIT_CAUSES,
-  WorkflowCostSchema,
   WorkflowRunIdSchema,
-  WorkflowRunModeSchema,
   WorkflowRunStatusSchema,
-  WorkflowStartedBySchema,
-  WorkflowStepSchema,
-  WorkflowTriggerKindSchema,
   WorkflowWaitCauseSchema,
-  type WorkflowCost,
   type WorkflowRunId,
-  type WorkflowRunMode,
   type WorkflowRunStatus,
-  type WorkflowStartedBy,
-  type WorkflowStep,
-  type WorkflowTriggerKind,
   type WorkflowWaitCause,
-} from "./run.js";
+} from "./status.js";
+import {
+  WorkflowCostSchema,
+  WorkflowStepSchema,
+  type WorkflowCost,
+  type WorkflowStep,
+} from "./step.js";
+import {
+  WorkflowRunModeSchema,
+  WorkflowStartedBySchema,
+  WorkflowTriggerKindSchema,
+  type WorkflowRunMode,
+  type WorkflowStartedBy,
+  type WorkflowTriggerKind,
+} from "./trigger.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
 
 /** The statuses of a run that is still going: new, running or waiting. */
@@ -138,7 +142,7 @@ export const WorkflowEdgeItemCountSchema: z.ZodType<WorkflowEdgeItemCount> = z
 /**
  * The end snapshot a finished run's `Open in Review` compares with its start. Pinned, it names
  * the execution whose start and end snapshots are compared; missing, it carries the daemon's words
- * for why the end snapshot could not be taken, and the door stays in place saying so.
+ * for why the end snapshot could not be taken, and `Open in Review` stays in place saying so.
  */
 export type WorkflowRunReview =
   | { state: "pinned"; epoch: number }

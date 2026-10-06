@@ -3,7 +3,7 @@
 // mount, and a mismatching mount reaches this row as `stale` plus `lastError`. The root line
 // prints the row's own `fsRoot`, never derived from the mount's `canonicalRoot`.
 
-import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/repo";
+import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";

@@ -10,7 +10,7 @@ import {
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/session";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { drainMicrotasks } from "../../provider/__fixtures__/drain-microtasks.js";
 import { openDatabase } from "../../session/migration-runner.js";

@@ -6,15 +6,13 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type IdempotencyClass,
-  type InterventionType,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { type InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { type IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
-import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/worktree";
+import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 

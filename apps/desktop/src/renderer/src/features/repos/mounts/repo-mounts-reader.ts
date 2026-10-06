@@ -11,7 +11,7 @@
 // projection.
 
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";

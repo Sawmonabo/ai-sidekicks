@@ -6,7 +6,7 @@
 
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/repo/workspace";
 
 /** The session both suites read for. */
 export const SESSION_ID = "019b7911-0000-7000-8000-000000000001";

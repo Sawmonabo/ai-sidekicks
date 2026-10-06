@@ -3,8 +3,8 @@
 // `not-read` and an empty list are different facts: `status` says whether a read was made.
 
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/workspace";
-import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/worktree";
+import type { WorkspaceListResponse } from "@ai-sidekicks/contracts/repo/workspace";
+import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];

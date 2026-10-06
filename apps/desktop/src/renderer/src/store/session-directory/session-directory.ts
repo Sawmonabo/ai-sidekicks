@@ -6,7 +6,7 @@
 // focus, reconnect (through `store/reads/triggers.ts`), or a settled act calling
 // `requestSessionDirectoryRead`. `subscribe` is not routed into the revision below because the
 // mount read is the subscribe read.
-import type { SessionShape } from "@ai-sidekicks/contracts/session/session";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**

@@ -400,7 +400,7 @@ const repositoryConfig = defineConfig(
       ],
     },
   },
-  // `event/core.ts` is the acyclic leaf of the contracts module graph. `event/session-event.ts`
+  // `event/version.ts` is the acyclic leaf of the contracts module graph. `event/session-event.ts`
   // imports it, so an import back into `./session-event.js` re-closes the cycle; under Vite's SSR
   // transform a module-scope read of the uninitialized binding is `undefined` rather than a throw,
   // so the breakage is silent until a payload-schema union branch fails to construct.
@@ -411,7 +411,7 @@ const repositoryConfig = defineConfig(
   // for this file. The static import, the dynamic import and `export { … } from` are denied here;
   // `export *` is banned everywhere.
   {
-    files: ["packages/contracts/src/event/core.ts"],
+    files: ["packages/contracts/src/event/version.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -420,29 +420,29 @@ const repositoryConfig = defineConfig(
         {
           selector: 'ImportDeclaration[source.value="./session-event.js"]',
           message:
-            "event/core.ts is the acyclic leaf of the contracts module " +
+            "event/version.ts is the acyclic leaf of the contracts module " +
             "graph — importing ./session-event.js from it closes an import cycle, " +
             "which can leave a module-scope schema undefined with no error.",
         },
         {
           selector: 'ImportExpression[source.value="./session-event.js"]',
           message:
-            "event/core.ts is the acyclic leaf of the contracts module graph — a " +
+            "event/version.ts is the acyclic leaf of the contracts module graph — a " +
             "dynamic import of ./session-event.js closes the cycle just as the static form does.",
         },
         {
           selector: 'ExportNamedDeclaration[source.value="./session-event.js"]',
           message:
-            "event/core.ts is the acyclic leaf of the contracts module graph — " +
+            "event/version.ts is the acyclic leaf of the contracts module graph — " +
             "re-exporting from ./session-event.js closes the cycle exactly as importing it does.",
         },
       ],
     },
   },
   // `crypto.randomUUID()` emits a v4 UUID: 122 random bits, no time ordering. Daemon-assigned ids
-  // are UUID v7 (contracts `session/session.ts` and `event/session-event.ts`), and the wire schemas
+  // are UUID v7 (contracts `session/id.ts` and `event/session-event.ts`), and the wire schemas
   // accept any version on purpose (control-plane rows are Postgres `gen_random_uuid()` v4), so
-  // nothing downstream rejects a v4 and a factory written the old way is wrong and silent. Every
+  // nothing downstream rejects a v4 and a factory minting one is wrong and silent. Every
   // daemon persisted-row id and event id mints through `mintUuidV7` (`src/ids/uuid-v7.ts`).
   //
   // Carried on `no-restricted-properties` and `no-restricted-imports`: the block above owns

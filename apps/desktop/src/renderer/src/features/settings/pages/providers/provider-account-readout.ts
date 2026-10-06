@@ -8,7 +8,7 @@ import type {
   ProviderAccount,
   ProviderAccountUsageWindow,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { UnreadableDeliveryReading } from "#renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "#renderer/services/wire-reads/read-lifecycle.js";

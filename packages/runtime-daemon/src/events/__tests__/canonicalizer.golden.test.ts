@@ -7,9 +7,9 @@ import {
   EventEnvelopeSchema,
   EventEnvelopeVersionSchema,
 } from "@ai-sidekicks/contracts/event/envelope";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/session";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import type { EventEnvelope, EventEnvelopeVersion } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "../canonicalizer.js";
 import { captureThrow } from "../../__fixtures__/capture-failure.js";

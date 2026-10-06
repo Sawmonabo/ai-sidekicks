@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/session";
+import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
 
 import {
   createFixture,

@@ -5,7 +5,7 @@
 // shipped one deleted. The helpers are `daemon-reply.test-support.ts` beside this file and the
 // shared `tests/helpers/fixture/bridge.ts`.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { vi } from "vitest";
 
 import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/diagnostic-capture.js";

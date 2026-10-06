@@ -17,13 +17,15 @@
  */
 
 import type {
-  ApplyInterventionParams,
   DriverCapabilities,
   DriverCapabilityFlag,
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type {
+  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
-  RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,

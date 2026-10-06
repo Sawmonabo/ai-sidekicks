@@ -16,11 +16,8 @@ import "./mcp-fixture-body.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/mcp";
-import {
-  PROVIDER_NAMES,
-  type ProviderName,
-} from "@ai-sidekicks/contracts/provider/account/account";
+import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/server";
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";

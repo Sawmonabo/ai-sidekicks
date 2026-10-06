@@ -10,7 +10,7 @@ import type {
   ProviderAccountId,
   ProviderAccountListResponse,
   ProviderAccountUsageWindow,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { ProviderAccountReadout } from "../provider-account-readout.js";
 import { instantMilliseconds } from "./frozen-instant.test-support.js";

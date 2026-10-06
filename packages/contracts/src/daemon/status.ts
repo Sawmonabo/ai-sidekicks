@@ -6,7 +6,7 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { ProcessIdentitySchema, type ProcessIdentity } from "../process-identity.js";
 import { ReleaseVersionSchema } from "../release-manifest.js";
-import { FILE_PATH_MAX_LEN } from "../session/session.js";
+import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** Where the service is in its own life. */

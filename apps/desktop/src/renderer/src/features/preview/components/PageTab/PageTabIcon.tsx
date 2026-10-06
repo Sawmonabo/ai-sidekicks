@@ -1,7 +1,7 @@
 // A page tab's icon slot: a spinner while the page loads, else the page's favicon, else nothing.
 // The favicon arrives as bytes and is drawn from a `data:` address, so nothing is fetched.
 
-import type { PreviewPage } from "@ai-sidekicks/contracts/preview/preview";
+import type { PreviewPage } from "@ai-sidekicks/contracts/preview/methods";
 
 /** The page whose icon slot is drawn. */
 export interface PageTabIconProps {

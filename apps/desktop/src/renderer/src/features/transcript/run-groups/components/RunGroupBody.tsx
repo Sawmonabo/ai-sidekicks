@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import {

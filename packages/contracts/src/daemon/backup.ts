@@ -17,7 +17,7 @@ import {
 } from "../method-descriptor.js";
 import { ReleaseVersionSchema } from "../release-manifest.js";
 import { ServicePlaceLocationSchema, type ServicePlaceLocation } from "../service-place.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../session/session.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**

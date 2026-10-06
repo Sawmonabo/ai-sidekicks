@@ -7,14 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import type {
-  ApplyInterventionParams,
-  RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 

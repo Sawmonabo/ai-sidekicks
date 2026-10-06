@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 
 import type { ProviderImportProgress } from "@ai-sidekicks/contracts/provider/import";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   ImportProgressReading,
   ImportProgressStream,

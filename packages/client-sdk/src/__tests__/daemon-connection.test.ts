@@ -24,7 +24,7 @@ import {
   MAX_MESSAGE_BYTES,
   type JsonRpcErrorResponse,
   type JsonRpcRequest,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   CURRENT_PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,

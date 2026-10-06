@@ -3,10 +3,8 @@
  * sandbox.
  */
 
-import type {
-  ExecutionPosture,
-  SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import { CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS } from "../subagent-policy.js";
 
 /** The server every callback tool is served under; the provider namespaces tools by server. */

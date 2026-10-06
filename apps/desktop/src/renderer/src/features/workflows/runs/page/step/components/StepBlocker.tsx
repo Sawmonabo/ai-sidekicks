@@ -1,6 +1,6 @@
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
-import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount } from "#renderer/lib/wire/figures.js";

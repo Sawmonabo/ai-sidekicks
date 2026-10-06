@@ -1,19 +1,18 @@
-// The `session.created` payload. Kept apart from `session/session.ts` because `agent/agent.ts`
-// imports `session/session.ts` and this payload names the lead as the live agent list does.
+// The `session.created` payload. Kept apart from `session/methods.ts` because `agent/methods.ts`
+// imports `session/methods.ts` and this payload names the lead as the live agent list does.
 import { z } from "zod";
 
 import { AgentDefinitionIdSchema, type AgentDefinitionId } from "../agent/definition.js";
-import { AgentListEntrySchema, type AgentListEntry } from "../agent/agent.js";
+import { AgentListEntrySchema, type AgentListEntry } from "../agent/methods.js";
+import { SessionShapeSchema, type SessionShape } from "./methods.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  SessionShapeSchema,
   UserIdSchema,
   type EventCursor,
   type SessionId,
-  type SessionShape,
   type UserId,
-} from "./session.js";
+} from "./id.js";
 
 /** The session a fork was taken from, and the message it was taken at. */
 export interface SessionCreatedParent {

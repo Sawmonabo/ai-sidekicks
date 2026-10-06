@@ -32,7 +32,7 @@ import {
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";

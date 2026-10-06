@@ -4,7 +4,7 @@
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import type { PlatformBridge } from "../platform/platform-bridge.js";

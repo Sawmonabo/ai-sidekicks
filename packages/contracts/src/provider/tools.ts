@@ -4,12 +4,12 @@
 // registers them; each schema checks the arguments where the call reaches the daemon.
 import { z } from "zod";
 
+import { SESSION_NAME_MAX_LEN } from "../session/methods.js";
 import {
   FILE_PATH_MAX_LEN,
-  SESSION_NAME_MAX_LEN,
   wireFreeFormString,
   wireUncappedFreeFormString,
-} from "../session/session.js";
+} from "../free-form-string.js";
 
 /**
  * `session_send`: a message to another session. `to` is that session's name as `session_list`

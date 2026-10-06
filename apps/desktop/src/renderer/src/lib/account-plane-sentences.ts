@@ -7,10 +7,10 @@
 import type {
   BillingMode,
   ProviderAuthMode,
-  ProviderName,
   ProviderReadinessState,
   ProviderRemedy,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { PROVIDER_LABELS } from "./provider-labels.js";
 

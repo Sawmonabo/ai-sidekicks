@@ -4,11 +4,10 @@
 // Readiness is per account, never per provider. Nothing here gates: the spawn probe decides.
 
 import {
-  PROVIDER_NAMES,
   type ProviderAccount,
-  type ProviderName,
   type ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import {
   findReadRefusal,

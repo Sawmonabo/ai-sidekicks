@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ProviderToolMetadata } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ProviderToolMetadata } from "@ai-sidekicks/contracts/provider/driver/tools";
 
 import {
   CLAUDE_TOOL_CATALOG,

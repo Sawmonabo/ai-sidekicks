@@ -3,25 +3,20 @@
 // `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`.
 import { z } from "zod";
 
-import { ChildHandleSchema, type ChildHandle } from "../agent/agent.js";
-import { EVENT_FIELD_MAX_LEN } from "../event/core.js";
+import { ChildHandleSchema, type ChildHandle } from "../agent/methods.js";
+import { EVENT_FIELD_MAX_LEN } from "../event/version.js";
 import { brandedUuidIdSchema } from "../internal/branded.js";
-import {
-  ArtifactIdSchema,
-  RunIdSchema,
-  type ArtifactId,
-  type RunId,
-} from "../provider/driver/driver.js";
-import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/wire.js";
+import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/methods.js";
 import { QuestionIdSchema, type QuestionId } from "../question.js";
-import { WorkspaceIdSchema, type WorkspaceId } from "../repo/repo.js";
+import { WorkspaceIdSchema, type WorkspaceId } from "../repo/mount.js";
 import {
   FILE_PATH_MAX_LEN,
-  SessionIdSchema,
   wireFreeFormString,
   wireUncappedFreeFormString,
-  type SessionId,
-} from "../session/session.js";
+} from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
 

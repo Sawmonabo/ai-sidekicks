@@ -1,43 +1,278 @@
-// One step of a workflow run: reading its input, output or log, the agent and human
-// steps' saved outputs, answering an approval step or a chain's question, loading,
-// saving and submitting a waiting form, and opening a fix session on a failed step,
-// with the refusals, the step events and the method table. A step is addressed by its
-// run, its node and which execution of that node, because a loop runs one node many
-// times. A descriptor registers nothing.
+// One step of a workflow run: the step record every run method and event shares, reading a step's
+// input, output or log, the agent and human steps' saved outputs, answering an approval step or a
+// chain's question, loading, saving and submitting a waiting form, and opening a fix session on a
+// failed step, with the refusals, the step events and the method table. A step is addressed by its
+// run, its node and which execution of that node, because a loop runs one node many times. A
+// descriptor registers nothing.
 import { z } from "zod";
 
-import { ApprovalDecisionSchema, type ApprovalDecision } from "../../approval.js";
-import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/account.js";
-import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/driver.js";
 import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "../../session/session.js";
+  AgentResolvedConfigurationSchema,
+  type AgentResolvedConfiguration,
+} from "../../agent/definition.js";
+import { ApprovalDecisionSchema, type ApprovalDecision } from "../../approval.js";
+import { uuidTextFormSchema } from "../../internal/branded.js";
+import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
+import { QuestionIdSchema, type QuestionId } from "../../question.js";
+import { ProcessExitSchema, type ProcessExit } from "../../run/control.js";
+import { UsdMicrosSchema } from "../../session/cost.js";
+import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/record.js";
+import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/intervention.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../../trust-statement.js";
 import {
   WorkflowDefinitionIdSchema,
+  WorkflowItemSchema,
   WorkflowNodeIdSchema,
   WorkflowStepErrorSchema,
   WorkflowVersionIdSchema,
   type WorkflowDefinitionId,
+  type WorkflowItem,
   type WorkflowNodeId,
   type WorkflowStepError,
-} from "../definition/definition.js";
+} from "../definition/document.js";
 import { WorkflowParamSpecSchema, type WorkflowParamSpec } from "../kind.js";
 import {
-  WorkflowCostSchema,
-  WorkflowPayloadRefSchema,
   WorkflowRunIdSchema,
+  WorkflowStepStatusSchema,
   WorkflowWaitCauseSchema,
-  type WorkflowCost,
-  type WorkflowPayloadRef,
   type WorkflowRunId,
+  type WorkflowStepStatus,
   type WorkflowWaitCause,
-} from "./run.js";
+} from "./status.js";
 import { countSchema, isoDateTimeSchema } from "../../internal/wire-scalars.js";
+
+// The step record
+
+/**
+ * The most bytes a step payload is carried inline, counted on its JSON encoding. A
+ * larger payload is stored as an artifact and referenced, and the panel says which.
+ */
+export const WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP: number = 64 * 1024;
+
+/**
+ * A step payload by reference: inline items up to the cap, an artifact above it, which names how
+ * many items it holds so a count is drawn without reading it. Step data is kept until the person
+ * deletes the run or its session; nothing expires it on its own.
+ */
+export type WorkflowPayloadRef =
+  | { kind: "inline"; items: WorkflowItem[] }
+  | { kind: "artifact"; artifactId: ArtifactId; sizeBytes: number; itemCount: number };
+/** Wire schema for {@link WorkflowPayloadRef}; an inline payload over the cap is refused. */
+export const WorkflowPayloadRefSchema: z.ZodType<WorkflowPayloadRef> = z.discriminatedUnion(
+  "kind",
+  [
+    z
+      .object({ kind: z.literal("inline"), items: z.array(WorkflowItemSchema) })
+      .strict()
+      .refine(
+        (payload) => jsonUtf8ByteLength(payload.items) <= WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP,
+        {
+          path: ["items"],
+          message:
+            `An inline payload is at most ${WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP} bytes; ` +
+            "a larger one is an artifact.",
+        },
+      ),
+    z
+      .object({
+        kind: z.literal("artifact"),
+        artifactId: ArtifactIdSchema,
+        sizeBytes: z.number().int().positive(),
+        itemCount: countSchema,
+      })
+      .strict(),
+  ],
+);
+
+/**
+ * What a step or a run cost, in whole micro-dollars, and the account that paid.
+ * Present only where a provider was billed; a step that spent nothing carries none.
+ */
+export interface WorkflowCost {
+  usdMicros: number;
+  providerAccountId: ProviderAccountId;
+}
+/** Wire schema for {@link WorkflowCost}. */
+export const WorkflowCostSchema: z.ZodType<WorkflowCost> = z
+  .object({
+    usdMicros: UsdMicrosSchema,
+    providerAccountId: ProviderAccountIdSchema,
+  })
+  .strict();
+
+/** One input slot's feed: the node, its output and which execution of it fed the slot. */
+export interface WorkflowStepSource {
+  nodeId: WorkflowNodeId;
+  outputIndex: number;
+  executionIndex: number;
+}
+
+/**
+ * The question a step waiting for a chat reply holds. `questionId` is the record
+ * `question.resolve` answers and `waitId` the wait it settles, so the step panel and the session's
+ * question card answer one wait and the first answer through either settles both.
+ */
+export interface WorkflowStepQuestion {
+  questionId: QuestionId;
+  waitId: string;
+  prompt: string;
+}
+/** Wire schema for {@link WorkflowStepQuestion}. */
+export const WorkflowStepQuestionSchema: z.ZodType<WorkflowStepQuestion> = z
+  .object({
+    questionId: QuestionIdSchema,
+    waitId: uuidTextFormSchema,
+    prompt: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * How a person answered a step that waited on them. `declined` is the `Decline` on a command
+ * step's own approval card, which fails that step.
+ */
+export const WORKFLOW_STEP_RESOLUTIONS = ["approved", "rejected", "answered", "declined"] as const;
+/** One of {@link WORKFLOW_STEP_RESOLUTIONS}. */
+export type WorkflowStepResolutionKind = (typeof WORKFLOW_STEP_RESOLUTIONS)[number];
+
+/**
+ * The record of how a person answered a step and when, kept on the step so the receipt it earns,
+ * `Approved at 2:14 PM`, reads the same after a reload.
+ */
+export interface WorkflowStepResolution {
+  kind: WorkflowStepResolutionKind;
+  at: string;
+}
+/** Wire schema for {@link WorkflowStepResolution}. */
+export const WorkflowStepResolutionSchema: z.ZodType<WorkflowStepResolution> = z
+  .object({ kind: z.enum(WORKFLOW_STEP_RESOLUTIONS), at: isoDateTimeSchema })
+  .strict();
+
+/**
+ * The snapshot an approval pause took. Pinned, it names which execution of the run (each
+ * re-execution opens the next epoch) and which of its approval pauses, counted from 1, and Review
+ * opens on what the run changed from that epoch's start to this pause. Missing, it carries the
+ * daemon's words for why the snapshot could not be taken, and `Open in Review` stays in place
+ * saying so.
+ */
+export type WorkflowStepReviewPause =
+  | { state: "pinned"; epoch: number; pauseNumber: number }
+  | { state: "missing"; reason: string };
+/** Wire schema for {@link WorkflowStepReviewPause}. */
+export const WorkflowStepReviewPauseSchema: z.ZodType<WorkflowStepReviewPause> =
+  z.discriminatedUnion("state", [
+    z
+      .object({
+        state: z.literal("pinned"),
+        epoch: countSchema,
+        pauseNumber: z.number().int().positive(),
+      })
+      .strict(),
+    z.object({ state: z.literal("missing"), reason: z.string().min(1) }).strict(),
+  ]);
+
+/**
+ * One execution of one node. `executionIndex` is per-run and increasing, so it orders
+ * a branching run faithfully; `source` records, per input slot, the edge that actually
+ * fed it and which execution of the source produced it (null for a slot nothing fed).
+ * A waiting step names its cause and, where armed, the instant it resumes itself and
+ * the instant its `Timeout` gives up.
+ */
+export interface WorkflowStep {
+  workflowRunId: WorkflowRunId;
+  nodeId: WorkflowNodeId;
+  attempt: number;
+  executionIndex: number;
+  source: (WorkflowStepSource | null)[];
+  status: WorkflowStepStatus;
+  waitCause?: WorkflowWaitCause | undefined;
+  resumeAt?: string | undefined;
+  waitDeadlineAt?: string | undefined;
+  startedAt: string;
+  finishedAt?: string | undefined;
+  inputRef: WorkflowPayloadRef;
+  outputRef: WorkflowPayloadRef;
+  logRef: WorkflowPayloadRef;
+  cost?: WorkflowCost | undefined;
+  error?: WorkflowStepError | undefined;
+  /** Present on a failed step whose process ended on its own: its exit and last lines. */
+  processExit?: ProcessExit | undefined;
+  advisories?: string[] | undefined;
+  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+  /** Present exactly on a step waiting for a chat reply. */
+  question?: WorkflowStepQuestion | undefined;
+  /** Present once a person has answered this step. */
+  resolution?: WorkflowStepResolution | undefined;
+  /** Present on an approval step of a run that captured its checkout: its pause's snapshot. */
+  reviewPause?: WorkflowStepReviewPause | undefined;
+  /** Present on an `Execute workflow` step once it started its child run, which it links to. */
+  childWorkflowRunId?: WorkflowRunId | undefined;
+}
+/**
+ * Wire schema for {@link WorkflowStep}. A waiting step carries its cause and no other
+ * step does; the two instants appear only on a waiting step.
+ */
+export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
+  .object({
+    workflowRunId: WorkflowRunIdSchema,
+    nodeId: WorkflowNodeIdSchema,
+    attempt: z.number().int().positive(),
+    executionIndex: countSchema,
+    source: z.array(
+      z
+        .object({
+          nodeId: WorkflowNodeIdSchema,
+          outputIndex: countSchema,
+          executionIndex: countSchema,
+        })
+        .strict()
+        .nullable(),
+    ),
+    status: WorkflowStepStatusSchema,
+    waitCause: WorkflowWaitCauseSchema.optional(),
+    resumeAt: isoDateTimeSchema.optional(),
+    waitDeadlineAt: isoDateTimeSchema.optional(),
+    startedAt: isoDateTimeSchema,
+    finishedAt: isoDateTimeSchema.optional(),
+    inputRef: WorkflowPayloadRefSchema,
+    outputRef: WorkflowPayloadRefSchema,
+    logRef: WorkflowPayloadRefSchema,
+    cost: WorkflowCostSchema.optional(),
+    error: WorkflowStepErrorSchema.optional(),
+    processExit: ProcessExitSchema.optional(),
+    advisories: z.array(z.string().min(1)).optional(),
+    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
+    question: WorkflowStepQuestionSchema.optional(),
+    resolution: WorkflowStepResolutionSchema.optional(),
+    reviewPause: WorkflowStepReviewPauseSchema.optional(),
+    childWorkflowRunId: WorkflowRunIdSchema.optional(),
+  })
+  .strict()
+  .refine((step) => step.processExit === undefined || step.status === "failed", {
+    path: ["processExit"],
+    message: "Only a failed step carries how its process exited.",
+  })
+  .refine((step) => (step.status === "waiting") === (step.waitCause !== undefined), {
+    path: ["waitCause"],
+    message: "A waiting step names its cause, and no other step carries one.",
+  })
+  .refine(
+    (step) =>
+      step.status === "waiting" ||
+      (step.resumeAt === undefined && step.waitDeadlineAt === undefined),
+    { path: ["resumeAt"], message: "Only a waiting step carries a resume or a deadline instant." },
+  )
+  .refine(
+    (step) =>
+      (step.question !== undefined) === (step.status === "waiting" && step.waitCause === "reply"),
+    { path: ["question"], message: "A step waiting for a reply carries its question." },
+  )
+  .refine((step) => step.resolution === undefined || step.status !== "waiting", {
+    path: ["resolution"],
+    message: "A step a person has answered is no longer waiting.",
+  });
 
 const executionIndexSchema = countSchema;
 

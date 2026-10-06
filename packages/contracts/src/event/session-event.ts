@@ -25,7 +25,7 @@ import {
   BackupFailedPayloadSchema,
   BackupRestoredPayloadSchema,
 } from "../daemon/backup.js";
-import { EVENT_FIELD_MAX_LEN } from "./core.js";
+import { EVENT_FIELD_MAX_LEN } from "./version.js";
 import {
   EventCompactedPayloadSchema,
   assistantMessagePayloadSchema,
@@ -50,11 +50,12 @@ import {
   PlanHandedOffPayloadSchema,
   PlanProposedPayloadSchema,
 } from "../plan.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema } from "../provider/driver/driver.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { RunIdSchema } from "../provider/driver/intervention.js";
 import { PtyControlChangedPayloadSchema } from "../pty.js";
 import { QuestionAskedPayloadSchema } from "../question.js";
 import { RelayPinRefusedPayloadSchema } from "../relay.js";
-import { RepoWorkspaceLifecyclePayloadSchema } from "../repo/repo.js";
+import { RepoWorkspaceLifecyclePayloadSchema } from "../repo/mount.js";
 import { RunRecoveryResolvedPayloadSchema } from "../run/control.js";
 import {
   RunRefusalChoiceRequestedPayloadSchema,
@@ -80,12 +81,12 @@ import {
 } from "../session/goal.js";
 import { SessionRestoreFinishedPayloadSchema } from "../session/restore.js";
 import {
-  SessionIdSchema,
   SessionLifecycleChangePayloadSchema,
   SessionMarkChangePayloadSchema,
   SessionRenamedPayloadSchema,
-  wireFreeFormString,
-} from "../session/session.js";
+} from "../session/methods.js";
+import { wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema } from "../session/id.js";
 import {
   WorkflowCanceledPayloadSchema,
   WorkflowResultsPostedPayloadSchema,
@@ -107,7 +108,7 @@ import {
   WorktreeCreatedPayloadSchema,
   WorktreeRetiredPayloadSchema,
 } from "../worktree/events.js";
-import { WorktreeLifecyclePayloadSchema } from "../worktree/worktree.js";
+import { WorktreeLifecyclePayloadSchema } from "../worktree/lifecycle.js";
 
 // The `satisfies` check makes a missing, unregistered or duplicate type a compile error.
 const SESSION_EVENT_CATEGORY_RECORD = {

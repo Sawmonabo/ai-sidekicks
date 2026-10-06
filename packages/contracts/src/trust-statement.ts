@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { wireFreeFormString } from "./session/session.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest name a machine or a device carries: the one name every other device shows. */

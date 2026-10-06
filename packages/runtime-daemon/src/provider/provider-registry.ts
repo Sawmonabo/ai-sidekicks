@@ -14,8 +14,8 @@
 import type {
   DriverCapabilities,
   DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
   type ProviderDriver,

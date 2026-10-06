@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
-import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/record";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";

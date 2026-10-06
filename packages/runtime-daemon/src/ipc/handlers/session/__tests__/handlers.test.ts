@@ -7,16 +7,15 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type {
-  EventCursor,
-  SessionId,
   SessionReadRequest,
   SessionStreamChange,
   SessionStreamFrame,
   SessionSubscribeRequest,
   SessionSubscribeResponse,
-} from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/session/methods";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type {
   SessionCreateRequest,
@@ -26,8 +25,8 @@ import type {
   SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/session";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/methods";
 import {
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_END_METHOD,

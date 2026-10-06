@@ -3,7 +3,7 @@
 // and the bounded reorder buffer. These are diagnostics for the person, never `session_events`
 // envelopes; a frame that reaches this channel is never silently dropped.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 /**
  * The closed set of diagnostic kinds. The counter-name map is keyed by it, so a kind added

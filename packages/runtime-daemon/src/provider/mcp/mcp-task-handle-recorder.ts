@@ -12,7 +12,7 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import type { DriverDiagnosticsEmitter } from "../driver/diagnostics.js";
 import type { McpTaskHandleObservation, McpTaskHandleSink } from "./tool-calls.js";

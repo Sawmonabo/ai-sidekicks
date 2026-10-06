@@ -10,7 +10,7 @@ import "./PageTabStrip.css";
 
 import { useMemo, useState } from "react";
 
-import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/methods";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";

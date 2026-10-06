@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { Edge } from "@xyflow/react";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import {

@@ -1,8 +1,8 @@
 // What a tool's settings read, in the words the page's per-tool row says them in. The wire's
 // values and sources never reach the screen.
 
-import type { McpApprovalMode, McpToolSettingSource } from "@ai-sidekicks/contracts/mcp/mcp";
-import type { IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { McpApprovalMode, McpToolSettingSource } from "@ai-sidekicks/contracts/mcp/server";
+import type { IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/tools";
 
 /** The on-screen words for each approval mode, under `Ask before running`. */
 export const APPROVAL_MODE_WORDS: Readonly<Record<McpApprovalMode, string>> = {

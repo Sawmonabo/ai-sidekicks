@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   WorkflowItemSchema,
   type WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { ElementHeightShim } from "#test/helpers/element/element-height-shim.js";

@@ -1,6 +1,6 @@
 // The accessibility tier's workflows mount: the session it addresses and a saved-workflow factory.
 
-import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 /** The session the workflows mount addresses. */

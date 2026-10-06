@@ -17,13 +17,13 @@
 // The registration is not `mutating`: it changes no domain row, so a version-mismatched
 // connection keeps this method.
 
-import type { DriverSubscribeEventsParams } from "@ai-sidekicks/contracts/provider/driver/wire";
+import type { DriverSubscribeEventsParams } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { DRIVER_EVENT_TYPES } from "@ai-sidekicks/contracts/provider/driver/event";
-import { DriverSubscribeEventsParamsSchema } from "@ai-sidekicks/contracts/provider/driver/wire";
+import { DriverSubscribeEventsParamsSchema } from "@ai-sidekicks/contracts/provider/driver/methods";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
 import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 

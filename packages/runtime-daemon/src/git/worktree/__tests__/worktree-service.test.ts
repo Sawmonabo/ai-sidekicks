@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/repo";
+import type { WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 
 import { EventLogService } from "../../../events/event-log-service.js";
 import type { EventLogAppendReceipt } from "../../../events/event-log-service.js";

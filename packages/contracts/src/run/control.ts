@@ -15,21 +15,16 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
-import {
-  ArtifactIdSchema,
-  DRIVER_FAILURE_DETAIL_MAX_LEN,
-  InterventionTypeSchema,
-  RunIdSchema,
-  type ArtifactId,
-  type ExecutionPosture,
-  type InterventionType,
-  type RunId,
-} from "../provider/driver/driver.js";
+import { type ExecutionPosture } from "../provider/driver/capabilities.js";
+import { InterventionTypeSchema, type InterventionType } from "../provider/driver/intervention.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-} from "../provider/driver/wire.js";
+} from "../provider/driver/methods.js";
 import { RecoveryConditionSchema, type RecoveryCondition } from "../provider/driver/recovery.js";
 import {
   ChildInterruptRequestSchema,
@@ -83,11 +78,10 @@ import {
 import { PermissionLevelSchema } from "../session/controls/methods.js";
 import {
   FILE_PATH_MAX_LEN,
-  SessionIdSchema,
   wireFreeFormString,
   wireUncappedFreeFormString,
-  type SessionId,
-} from "../session/session.js";
+} from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 
 /** Identifies one intervention on a run. */
 export type InterventionId = string & { readonly __brand: "InterventionId" };

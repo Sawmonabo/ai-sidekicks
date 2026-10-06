@@ -4,18 +4,17 @@
 import { z } from "zod";
 
 import { EVENT_FIELD_MAX_LEN } from "../event/envelope.js";
+import { SearchMatchRangeSchema, type SearchMatchRange } from "../session/methods.js";
+import { wireFreeFormString } from "../free-form-string.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  wireFreeFormString,
   type EventCursor,
-  SearchMatchRangeSchema,
-  type SearchMatchRange,
   type SessionId,
-} from "../session/session.js";
+} from "../session/id.js";
 
 import { TRANSCRIPT_READ_LIMIT_MAX, requirePageToRideOneFrame } from "./operations.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row/row.js";
+import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**

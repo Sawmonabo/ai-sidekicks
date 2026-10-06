@@ -2,7 +2,7 @@
 // Each driver maps its own status vocabulary; the bound and the rejection shape are
 // provider-neutral.
 
-import type { McpServerStatus } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import { McpServerStatusEmissionSchema, type McpServerStatusEmission } from "./provider-driver.js";
 
 /**

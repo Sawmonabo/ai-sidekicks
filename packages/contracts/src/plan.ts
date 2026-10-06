@@ -13,9 +13,10 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
-import { RunIdSchema, type RunId } from "./provider/driver/driver.js";
-import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session/session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import { FILE_PATH_MAX_LEN } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { PermissionLevelSchema, type PermissionLevel } from "./session/controls/methods.js";
 import { countSchema } from "./internal/wire-scalars.js";
 

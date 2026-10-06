@@ -29,16 +29,16 @@ import type {
   McpServerInventoryEntry,
   McpToolOverrideMutationResult,
   McpToolReading,
-} from "@ai-sidekicks/contracts/mcp/mcp";
+} from "@ai-sidekicks/contracts/mcp/server";
 import type {
   ProviderAccountNotification,
   ProviderAccount,
   ProviderAccountId,
   ProviderAccountListResponse,
   ProviderLoginExpiredRemedy,
-  ProviderName,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   type ProviderAccountNotAuthenticatedDetails,
@@ -51,7 +51,7 @@ import {
   type ProviderAccountLoginResponse,
   type ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   ScenarioNotice,
   ScenarioRefusalEnvelope,

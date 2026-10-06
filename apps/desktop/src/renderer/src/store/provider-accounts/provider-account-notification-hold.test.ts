@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   ProviderAccountNotificationSchema,
   type ProviderAccountNotification,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import { ProviderAccountNotificationHold } from "./provider-account-notification-hold.js";
 

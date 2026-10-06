@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { parseMarkdownDocument } from "../markdown-document-rows.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";

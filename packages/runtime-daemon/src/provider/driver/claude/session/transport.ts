@@ -4,12 +4,10 @@
  * resume, rewind or probe a session.
  */
 
-import type {
-  ExecutionPosture,
-  RunId,
-  SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { type ThreadFrameRoute } from "../../../thread-frame-router.js";
 import { type CumulativeAxisReadings } from "../../../usage-delta-accountant.js";
 import {

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { McpToolReading, McpToolSettingSource } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpToolReading, McpToolSettingSource } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
 import {
   APPROVAL_MODE_WORDS,

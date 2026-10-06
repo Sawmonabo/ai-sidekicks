@@ -12,7 +12,7 @@ import { constants as filesystemConstants } from "node:fs";
 import { access, realpath as realpathFromFilesystem, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";

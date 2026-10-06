@@ -17,34 +17,36 @@
 // runtime.
 
 import {
+  type DriverCapabilities,
+  type DriverCapabilityFlag,
+  type ExecutionPosture,
+  type ProviderMode,
+  type ProviderModel,
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { type McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
+import {
+  type ApplyInterventionParams,
+  type DriverInterventionResult,
+  type InterruptRunParams,
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import {
+  type ProviderToolMetadata,
+  type SessionCallbackTool,
+} from "@ai-sidekicks/contracts/provider/driver/tools";
+import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-  RunIdSchema,
-  type ApplyInterventionParams,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type DriverInterventionResult,
-  type ExecutionPosture,
-  type InterruptRunParams,
-  type McpServerStatus,
-  type ProviderMode,
-  type ProviderModel,
-  type ProviderToolMetadata,
-  type RunId,
-  type SessionCallbackTool,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/caps";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import {
   RecoveryConditionSchema,
   type RecoveryCondition,
 } from "@ai-sidekicks/contracts/provider/driver/recovery";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/session";
+import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
+import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,

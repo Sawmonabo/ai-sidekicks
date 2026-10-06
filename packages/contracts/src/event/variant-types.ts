@@ -45,7 +45,7 @@ import type { SessionEventType } from "./registry.js";
 import type { GitSettledPayload } from "../gitflow/local.js";
 import type { McpServerOauthCompletedPayload } from "../mcp/governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "../plan.js";
-import type { RunId } from "../provider/driver/driver.js";
+import type { RunId } from "../provider/driver/intervention.js";
 import type { PtyControlChangedPayload } from "../pty.js";
 import type { QuestionAskedPayload } from "../question.js";
 import type { RelayPinRefusedPayload } from "../relay.js";
@@ -70,11 +70,11 @@ import type { SessionConvertedPayload } from "../session/convert.js";
 import type { SessionGoalClearedPayload, SessionGoalUpdatedPayload } from "../session/goal.js";
 import type { SessionRestoreFinishedPayload } from "../session/restore.js";
 import type {
-  SessionId,
   SessionLifecycleChangePayload,
   SessionMarkChangePayload,
   SessionRenamedPayload,
-} from "../session/session.js";
+} from "../session/methods.js";
+import type { SessionId } from "../session/id.js";
 import type {
   WorkflowCanceledPayload,
   WorkflowResultsPostedPayload,

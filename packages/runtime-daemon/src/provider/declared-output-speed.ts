@@ -2,13 +2,13 @@
 // every driver (bounded by the contract and never by a vocabulary, absent when the bounds refuse),
 // and the per-run report of the state each run runs at.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import {
   ProviderOutputSpeedStateSchema,
   type ProviderOutputSpeedState,
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DriverDiagnosticsEmitter } from "./driver/diagnostics.js";
 
 /** One declaration as the provider made it: the state, and its reason or `null` if it gave none. */

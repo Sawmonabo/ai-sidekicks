@@ -7,8 +7,11 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { McpLiveApplicationResult, McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/mcp";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type {
+  McpLiveApplicationResult,
+  McpServerLegStatus,
+} from "@ai-sidekicks/contracts/mcp/server";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";

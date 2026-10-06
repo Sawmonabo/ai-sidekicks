@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/methods";
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/session";
+import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { SCENARIOS } from "#fixtures/index.js";

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   WorktreeStatusReadRequestSchema,
   type WorktreeStatusReadResponse,
-} from "@ai-sidekicks/contracts/worktree/worktree";
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { projectWorktreeStatusRead } from "../projector.js";
 import type { WorktreeStatusReading, WorktreeStatusRow } from "../projector.js";

@@ -13,9 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   WorkspaceListResponseSchema,
   WORKSPACE_LAST_ERROR_MAX_LEN,
-} from "@ai-sidekicks/contracts/workspace";
-import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo/repo";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/repo/workspace";
+import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";

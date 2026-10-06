@@ -3,7 +3,7 @@
 // not seal a pasted token. A refusal whose members do not parse carries neither, and still renders
 // its code and sentence.
 
-import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
 import {
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
   ProviderAccountNotAuthenticatedDetailsSchema,

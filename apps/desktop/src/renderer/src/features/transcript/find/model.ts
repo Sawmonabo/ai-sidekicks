@@ -3,7 +3,7 @@
 // whole session. It searches a row's `summary` and wire `type`, never the payload: an open
 // record whose large values would produce hits the person cannot see.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Matches the find field ranks and offers next/previous over.

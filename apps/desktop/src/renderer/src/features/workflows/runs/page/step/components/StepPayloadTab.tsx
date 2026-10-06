@@ -1,4 +1,4 @@
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";

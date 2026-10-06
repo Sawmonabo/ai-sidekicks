@@ -4,7 +4,7 @@
 // completion returns the saved result. A user can act mid-call, so every
 // continuation re-reads the record after its await and a stale one writes nothing. No timer.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { reportTripwire } from "#renderer/lib/tripwires/tripwires.js";

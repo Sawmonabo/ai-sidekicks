@@ -7,7 +7,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
-import { JsonRpcErrorSchema, type JsonRpcError } from "./jsonrpc.js";
+import { JsonRpcErrorSchema, type JsonRpcError } from "./message.js";
 
 /**
  * The method name of the daemon-to-client notification carrying one subscription value. The

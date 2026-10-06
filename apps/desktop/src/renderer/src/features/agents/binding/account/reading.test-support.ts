@@ -5,7 +5,7 @@ import type {
   ProviderAccount,
   ProviderAccountId,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { AccountRegistryReading } from "./axis.js";
 

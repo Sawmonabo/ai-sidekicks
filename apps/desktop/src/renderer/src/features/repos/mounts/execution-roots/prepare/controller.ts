@@ -1,8 +1,8 @@
 // Prepares one workspace's execution root. A prepare is never re-sent on a refresh: that would
 // put a second root on disk for one press.
 
-import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/repo";
-import type { ExecutionRootPrepareResponse } from "@ai-sidekicks/contracts/worktree/worktree";
+import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
+import type { ExecutionRootPrepareResponse } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { ActController } from "#renderer/features/repos/acts/act-controller.js";
 import { type ActSettlementReading } from "#renderer/features/repos/acts/act-reading.js";

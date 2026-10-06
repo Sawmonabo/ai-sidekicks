@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { WorkflowNodeKindIdSchema, type WorkflowNodeKindId } from "./definition/definition.js";
+import { WorkflowNodeKindIdSchema, type WorkflowNodeKindId } from "./definition/document.js";
 
 const WORKFLOW_NODE_KIND_CATEGORIES = [
   "trigger",

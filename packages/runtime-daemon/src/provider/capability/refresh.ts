@@ -7,7 +7,7 @@
  *   `DriverCapabilitiesWriter`; the refresher adds none.
  */
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import semver from "semver";
 
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./probe.js";

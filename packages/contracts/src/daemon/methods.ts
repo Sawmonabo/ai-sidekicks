@@ -7,7 +7,7 @@ import type {
   MethodRequestOf,
   MethodResponseOf,
 } from "../method-descriptor.js";
-import type { AgentMethodDescriptors } from "../agent/agent.js";
+import type { AgentMethodDescriptors } from "../agent/methods.js";
 import type { ApprovalMethodDescriptors } from "../approval.js";
 import type { ArtifactMethodDescriptors } from "../artifacts/methods.js";
 import type { AttentionMethodDescriptors } from "../attention.js";
@@ -34,11 +34,11 @@ import type { PluginMethodDescriptors } from "../plugin.js";
 import type { PresenceMethodDescriptors } from "../presence.js";
 import type { PreviewPageLinkMethodDescriptors } from "../preview/page-host.js";
 import type { PreviewPortMethodDescriptors } from "../preview/port.js";
-import type { PreviewMethodDescriptors } from "../preview/preview.js";
+import type { PreviewMethodDescriptors } from "../preview/methods.js";
 import type { ProviderAccountMethodDescriptors } from "../provider/account/methods.js";
-import type { DriverMethodDescriptors } from "../provider/driver/wire.js";
+import type { DriverMethodDescriptors } from "../provider/driver/methods.js";
 import type { SessionImportMethodDescriptors } from "../provider/import.js";
-import type { ProviderMethodDescriptors } from "../provider/provider.js";
+import type { ProviderMethodDescriptors } from "../provider/settings.js";
 import type { PtyMethodDescriptors, TerminalControlMethodDescriptors } from "../pty.js";
 import type { QuestionMethodDescriptors } from "../question.js";
 import type { RelayMethodDescriptors } from "../relay.js";
@@ -51,7 +51,7 @@ import type { SessionDraftMethodDescriptors } from "../session/draft.js";
 import type { SessionGoalMethodDescriptors } from "../session/goal.js";
 import type { SessionInspectorMethodDescriptors } from "../session/inspector.js";
 import type { SessionRestoreMethodDescriptors } from "../session/restore.js";
-import type { SessionMethodDescriptors } from "../session/session.js";
+import type { SessionMethodDescriptors } from "../session/methods.js";
 import type { SkillMethodDescriptors } from "../skill.js";
 import type { TranscriptMethodDescriptorRegistry } from "../transcript/methods.js";
 import type { TurnMethodDescriptors } from "../turn.js";

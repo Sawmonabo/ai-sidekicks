@@ -3,7 +3,7 @@
 
 import { Menu } from "@base-ui/react/menu";
 
-import type { PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
+import type { PreviewPageId } from "@ai-sidekicks/contracts/preview/methods";
 
 import { OverlayMenuPopup } from "#renderer/components/OverlayPopups/OverlayMenuPopup.js";
 

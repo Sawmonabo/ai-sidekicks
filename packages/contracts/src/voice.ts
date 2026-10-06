@@ -15,8 +15,8 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
-import { SessionIdSchema, type SessionId } from "./session/session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The bytes in one 100 ms frame of 16 kHz 16-bit mono audio. */
 export const VOICE_DICTATION_FRAME_MAX_BYTES: number = (16_000 * 2) / 10;

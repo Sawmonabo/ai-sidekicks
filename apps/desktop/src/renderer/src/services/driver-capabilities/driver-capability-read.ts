@@ -9,7 +9,7 @@
 // reasons with no interval or retry loop, and a settled readout stays on screen during the next
 // read so a control does not vanish on every window focus.
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import {

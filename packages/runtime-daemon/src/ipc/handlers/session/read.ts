@@ -8,8 +8,8 @@ import type {
   SessionReadRequest,
   SessionReadResponse,
   SessionRecord,
-} from "@ai-sidekicks/contracts/session/session";
-import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 
 import type { SessionDraftStore } from "../../../session/session-draft-store.js";
 

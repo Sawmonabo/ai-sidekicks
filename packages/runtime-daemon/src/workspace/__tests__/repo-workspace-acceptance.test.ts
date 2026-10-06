@@ -12,8 +12,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import type { NodeId } from "@ai-sidekicks/contracts/node-id";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/workspace";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/repo/workspace";
 
 import { EventLogService } from "../../events/event-log-service.js";
 import { openDatabase } from "../../session/migration-runner.js";

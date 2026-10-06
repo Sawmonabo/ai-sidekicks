@@ -7,13 +7,13 @@ import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { AgentDefinition } from "@ai-sidekicks/contracts/agent/definition";
-import type { AgentListAck, AgentListRequest } from "@ai-sidekicks/contracts/agent/agent";
+import type { AgentListAck, AgentListRequest } from "@ai-sidekicks/contracts/agent/methods";
 import type {
   ChildRunLinkReadRequest,
   ChildRunLinkReadResponse,
 } from "@ai-sidekicks/contracts/orchestration";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";

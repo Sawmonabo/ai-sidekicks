@@ -4,8 +4,9 @@ import type {
   WorkflowDocument,
   WorkflowNode,
   WorkflowNodeId,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowRunId, WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/status";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { formatDayClock } from "#renderer/lib/wire/figures.js";
 import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "./model.js";

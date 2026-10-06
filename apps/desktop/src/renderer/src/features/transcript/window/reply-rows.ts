@@ -3,7 +3,7 @@
 // and each run and epoch keeps its own, so a helper's reply or a rewound one never joins another.
 // The reply's foot, with its Copy of the whole reply, sits on its last reply row.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { classifyTranscriptRow } from "../rows/kind.js";
 

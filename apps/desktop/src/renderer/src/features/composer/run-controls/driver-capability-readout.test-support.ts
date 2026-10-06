@@ -4,8 +4,8 @@
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 import type { DeclaredDriverFlags } from "#renderer/store/driver-capabilities/driver-capability-readout.js";
 

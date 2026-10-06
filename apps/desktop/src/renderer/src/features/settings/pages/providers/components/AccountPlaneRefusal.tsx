@@ -8,10 +8,8 @@
 
 import "./account-plane-handoff.css";
 
-import type {
-  ProviderLoginExpiredRemedy,
-  ProviderName,
-} from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderLoginExpiredRemedy } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/refusal.js";

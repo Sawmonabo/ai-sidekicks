@@ -15,13 +15,9 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
-import {
-  FILE_PATH_MAX_LEN,
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-} from "./session/session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The longest cloud task id the daemon accepts. */
 export const CLOUD_TASK_ID_MAX_LEN = 256;

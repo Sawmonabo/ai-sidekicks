@@ -3,11 +3,11 @@
 
 import { z } from "zod";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import {
   WorkflowItemSchema,
   type WorkflowItem,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import { refuse } from "#renderer/lib/refusal/refusal.js";
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/daemon-reply.js";

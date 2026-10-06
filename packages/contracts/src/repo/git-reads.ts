@@ -6,15 +6,14 @@
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
-import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
+import { RepoMountIdSchema, type RepoMountId } from "./mount.js";
 import {
-  SessionIdSchema,
   wireFreeFormString,
   wireUncappedFreeFormString,
-  type SessionId,
   FILE_PATH_MAX_LEN,
-} from "../session/session.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/worktree.js";
+} from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**

@@ -4,7 +4,7 @@
 // sent. Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
 

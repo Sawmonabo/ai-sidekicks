@@ -2,7 +2,7 @@
 // a run that changes it sends `apply_flag_settings` once, nothing the provider refuses or the
 // driver's table lacks is recorded as applied, and each run reports the state it runs at.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import { describe, expect, it } from "vitest";
 

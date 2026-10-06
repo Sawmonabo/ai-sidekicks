@@ -8,10 +8,11 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import type { SessionId, SessionShape, UserId } from "@ai-sidekicks/contracts/session/session";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { JsonRpcClientOptions } from "../transport/json-rpc-client.js";

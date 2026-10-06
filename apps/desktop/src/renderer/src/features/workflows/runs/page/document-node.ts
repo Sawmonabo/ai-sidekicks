@@ -4,7 +4,7 @@
 import type {
   WorkflowDocument,
   WorkflowNode,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 
 /**
  * The node `nodeId` names in the run's pinned document, the trigger included; `undefined` until

@@ -1,7 +1,7 @@
 // `driver.subscribeEvents` streams one run's driver activity: the session events of six
-// categories. A separate module because `event/session-event.ts` reads `provider/driver/driver.ts`
-// values at module scope, so importing `event/session-event.ts` from `provider/driver/driver.ts`
-// would close an eager cycle that fails at runtime as an `undefined` schema.
+// categories. A separate module because `event/session-event.ts` reads the driver's caps and run
+// id at module scope, so importing `event/session-event.ts` from those modules would close an eager
+// cycle that fails at runtime as an `undefined` schema.
 //
 // `DRIVER_EVENT_TYPES` covers every type the six categories carry, including one with no payload
 // variant, because the filter decides what belongs on the stream, not what parses. `DriverEvent`
@@ -25,7 +25,7 @@ import {
   defineMethodDescriptors,
   type SubscriptionMethodDescriptor,
 } from "../../method-descriptor.js";
-import { DriverSubscribeEventsParamsSchema, type DriverSubscribeEventsParams } from "./wire.js";
+import { DriverSubscribeEventsParamsSchema, type DriverSubscribeEventsParams } from "./methods.js";
 
 // The six categories a driver event may carry; everything below derives from this choice.
 type DriverEventCategory =

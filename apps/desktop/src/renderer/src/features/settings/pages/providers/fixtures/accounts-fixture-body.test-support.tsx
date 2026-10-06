@@ -8,7 +8,7 @@ import type {
   ProviderAccountId,
   ProviderAccountUsageWindow,
   ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";

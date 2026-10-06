@@ -5,7 +5,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/repo";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";

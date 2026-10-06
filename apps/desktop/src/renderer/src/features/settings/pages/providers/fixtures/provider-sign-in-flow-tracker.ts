@@ -13,7 +13,7 @@
 // as not finished. A start or a cancel the service refuses is drawn on that account's row in the
 // service's own words: a refused start frees the flow, and a refused cancel leaves it running.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderAccountLoginResponse } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";

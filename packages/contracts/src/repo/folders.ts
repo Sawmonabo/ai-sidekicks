@@ -20,14 +20,10 @@ import {
   type RepoMountState,
   type VcsType,
   type WorkspaceId,
-} from "./repo.js";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  FILE_PATH_MAX_LEN,
-} from "../session/session.js";
-import { WorktreeIdSchema, type WorktreeId } from "../worktree/worktree.js";
+} from "./mount.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**

@@ -10,10 +10,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";

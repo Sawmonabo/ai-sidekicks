@@ -8,7 +8,7 @@
  * - A policy whose name matching differs from the host's is refused, not reconciled.
  */
 
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/provider-driver-descriptors.js";
 

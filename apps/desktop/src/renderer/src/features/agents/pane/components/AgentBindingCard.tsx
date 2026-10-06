@@ -6,7 +6,7 @@
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
-import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
+import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";
 import { ToolAllowlistLine } from "../tool-allowlist/components/ToolAllowlistLine.js";

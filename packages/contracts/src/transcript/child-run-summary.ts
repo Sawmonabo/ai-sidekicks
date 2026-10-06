@@ -8,7 +8,7 @@
 // would throw `ReferenceError` at import time instead of failing to compile.
 import { z } from "zod";
 
-import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 

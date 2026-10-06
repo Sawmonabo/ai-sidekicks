@@ -9,7 +9,7 @@
 // on an object would show `[object Object]` as a tool name. The string rule lives in
 // `lib/wire/strings.ts`; a caller reads `readWireString(projectedPayload(row)["toolName"])`.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /** The empty record a row with no open payload reads as; frozen for memoized callers. */
 const NO_PAYLOAD: Readonly<Record<string, unknown>> = Object.freeze({});

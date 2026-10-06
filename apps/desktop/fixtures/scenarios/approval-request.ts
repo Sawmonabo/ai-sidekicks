@@ -19,8 +19,8 @@ import {
   SessionIdSchema,
   type UserId,
   type SessionId,
-} from "@ai-sidekicks/contracts/session/session";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/session/id";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

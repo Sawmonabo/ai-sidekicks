@@ -1,6 +1,6 @@
 // `spawn/settings.ts`: the sandbox settings every sandboxed spawn is realized with.
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { describe, expect, it } from "vitest";
 
 import { composeClaudeSandboxSettings } from "../settings.js";

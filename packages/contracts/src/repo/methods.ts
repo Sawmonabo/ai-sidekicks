@@ -38,7 +38,7 @@ import {
   type RemovedWorktreeListResponse,
   type RemovedWorktreeRequest,
   type WorktreeRestoreResponse,
-} from "../worktree/removed-worktree.js";
+} from "../worktree/removed.js";
 import {
   RepoCloneAnswerRequestSchema,
   RepoCloneFolderReadRequestSchema,
@@ -104,7 +104,7 @@ import {
   type WorkspaceBindResponse,
   type WorkspaceListRequest,
   type WorkspaceListResponse,
-} from "../workspace.js";
+} from "./workspace.js";
 import {
   ExecutionRootPrepareRequestSchema,
   ExecutionRootPrepareResponseSchema,
@@ -118,7 +118,7 @@ import {
   type WorktreeRetireResponse,
   type WorktreeStatusReadRequest,
   type WorktreeStatusReadResponse,
-} from "../worktree/worktree.js";
+} from "../worktree/lifecycle.js";
 import {
   WorktreeSetupRequestSchema,
   WorktreeSetupStatusSchema,

@@ -8,7 +8,7 @@ import type {
   WorkflowBinaryRef,
   WorkflowItem,
   WorkflowPairedItem,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import type { MarkdownDocumentRow, ParsedMarkdownDocument } from "./markdown-document-rows.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";

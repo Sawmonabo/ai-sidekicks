@@ -9,7 +9,7 @@ import type {
   RepoMountState,
   VcsType,
   WorkspaceState,
-} from "@ai-sidekicks/contracts/repo/repo";
+} from "@ai-sidekicks/contracts/repo/mount";
 
 import { openDatabase } from "../../session/migration-runner.js";
 

@@ -120,7 +120,7 @@ This plan's design decisions. Each is registered in the corpus it touches: Spec-
 
 **Precondition:** Plan-003 Phase 1 merged; D-002-1 (`version` = any-run-progression counter) and D-002-2 (`expectedRunVersion` mandatory, fail-closed) — T1.7's accessor `version` field and T1.6's request shape implement these outcomes.
 
-Phase 1 also waits on Plan-003 Phase 1: T1.1's `QueueItemCreate` imports the `ArtifactId` brand from Plan-003's `provider/driver/driver.ts` (CP-003-4), and T1.2 / T1.3 type against the driver contract that phase owns.
+Phase 1 also waits on Plan-003 Phase 1: T1.1's `QueueItemCreate` imports the `ArtifactId` brand from Plan-003's `provider/driver/intervention.ts` (CP-003-4), and T1.2 / T1.3 type against the driver contract that phase owns.
 
 #### Tasks
 
@@ -128,12 +128,12 @@ Phase 1 also waits on Plan-003 Phase 1: T1.1's `QueueItemCreate` imports the `Ar
 - **Files:** `packages/contracts/src/run/control.ts` (CREATE)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (the queue calls against runtime-owned durable state)
 - **Verifies invariant:** I-002-1, I-002-19
-- **Consumes:** `QueueItemState` enum (queued / admitted / superseded / canceled / not_delivered) + branded `QueueItemId` / `RunId` / `SessionId` (in-package); the `ArtifactId` brand ← [Plan-003](./003-provider-driver-contract-and-capabilities.md) `provider/driver/driver.ts` (CP-003-4)
+- **Consumes:** `QueueItemState` enum (queued / admitted / superseded / canceled / not_delivered) + branded `QueueItemId` / `RunId` / `SessionId` (in-package); the `ArtifactId` brand ← [Plan-003](./003-provider-driver-contract-and-capabilities.md) `provider/driver/intervention.ts` (CP-003-4)
 - **T1.2 — `InterventionRequestPayload` discriminated union** (`interrupt` | `faster_model_retry`), mirroring `docs/architecture/contracts/api-payload-contracts.md §Plan-002 — Queue Steer Pause Resume` byte-for-byte. The `interrupt` arm carries `pending: 'nextTurn' | 'returnToDraft'` — the waiting messages go as the next turn, or return to the draft one line per message in send order — and the optional `deliverFirst`, naming the waiting item `Send now` delivers first. The union has no `steer` arm: a person's steer is always a queue send, `run.queueCreate` (T1.1), whose message carries its attachments as `ArtifactId[]`, and the driver's own steer verb is used under that send (T3.8). **Assertion:** each arm round-trips; a request with `type: "steer"` is refused.
 - **Files:** `packages/contracts/src/run/control.ts` (EXTEND)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (InterventionRequest — target run id, type, mandatory expectedRunVersion guard; the interrupt's `pending` and `deliverFirst`)
 - **Verifies invariant:** I-002-4
-- **Consumes:** `RunId`, `InterventionType` (`'steer' | 'interrupt' | 'faster_model_retry'` — Plan-003-owned, `provider/driver/driver.ts` §Shared Enums per CP-003-4, imported upward; its `steer` member is the driver's delivery of a queued message, T3.8, never a request a client sends)
+- **Consumes:** `RunId`, `InterventionType` (`'steer' | 'interrupt' | 'faster_model_retry'` — Plan-003-owned, `provider/driver/intervention.ts` §Shared Enums per CP-003-4, imported upward; its `steer` member is the driver's delivery of a queued message, T3.8, never a request a client sends)
 - **T1.3 — `InterventionRequestResponse` + `RunStateChangeEvent`** — the response is discriminated on `interventionType` so the seam parses `result` strictly per type; `requested` / `accepted` / `rejected` / `expired` responses carry no `result`; a `rejected` response carries the machine-readable `rejectionReason` so a refusal rides the lifecycle response, not the `JsonRpcError` channel. `RunStateChangeEvent` carries `newState`, `pausing` among the values.
 - **Files:** `packages/contracts/src/run/control.ts` (EXTEND)
 - **Spec coverage:** Spec-003 §Interfaces And Contracts (InterventionResult + RunStateChange event)

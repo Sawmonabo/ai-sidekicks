@@ -22,9 +22,9 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./provider/account/account.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/driver.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session/session.js";
+import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/caps.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /**

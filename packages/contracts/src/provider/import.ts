@@ -16,8 +16,8 @@ import type {
   SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
 import { defineMethodDescriptors, EmptyPayloadSchema } from "../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "./account/account.js";
-import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../session/session.js";
+import { ProviderNameSchema, type ProviderName } from "./name.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 
 /** Longest accepted import id. */
 export const PROVIDER_IMPORT_ID_MAX_LEN = 256;

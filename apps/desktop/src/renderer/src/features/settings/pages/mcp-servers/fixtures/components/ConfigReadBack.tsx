@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/server";
 import { SERVER_TRANSPORT_WORDS } from "../../server-transport-words.js";
 
 /**

@@ -11,8 +11,9 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session/session.js";
-import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow/definition/definition.js";
+import { wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
+import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow/definition/document.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /**

@@ -1,7 +1,7 @@
 // Two `Set as default` presses in flight: only the newer press's reply is drawn, so an older one
 // refused after the newer one landed cannot mark the page refused.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import { act, renderHook } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 

@@ -2,9 +2,9 @@
 // against the model's catalog row so a level the model does not list runs at standard; the tier
 // the thread declares back; and the per-run report of the tier each turn settled at.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   readDeclaredOutputSpeed,
   type RunOutputSpeedSettledListener,

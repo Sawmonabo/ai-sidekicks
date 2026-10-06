@@ -6,33 +6,37 @@
 // Every instant is a whole number of minutes before the scenario's start, built from the epoch
 // rather than parsed, so no stamp depends on the host's zone.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,
   WorkflowItem,
   WorkflowNode,
   WorkflowNodeId,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
+import type {
+  WorkflowRunId,
+  WorkflowRunStatus,
+  WorkflowStepStatus,
+  WorkflowWaitCause,
+} from "@ai-sidekicks/contracts/workflow/run/status";
 import type {
   WorkflowCost,
   WorkflowPayloadRef,
-  WorkflowRunId,
-  WorkflowRunMode,
-  WorkflowRunStatus,
-  WorkflowStartedBy,
   WorkflowStep,
   WorkflowStepQuestion,
   WorkflowStepResolution,
   WorkflowStepReviewPause,
-  WorkflowStepStatus,
+} from "@ai-sidekicks/contracts/workflow/run/step";
+import type {
+  WorkflowRunMode,
+  WorkflowStartedBy,
   WorkflowTriggerKind,
-  WorkflowWaitCause,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/trigger";
 import type {
   WorkflowChainQuestion,
   WorkflowChainRoot,
@@ -41,7 +45,7 @@ import type {
   WorkflowRunReadResponse,
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
 /** The instant the playback calls now, matching the scenario these replies are spread into. */
 export const WORKFLOW_FIXTURE_NOW_MS: number = Date.UTC(2026, 0, 1, 14, 20);

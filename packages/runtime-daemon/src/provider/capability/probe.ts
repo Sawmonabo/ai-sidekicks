@@ -12,8 +12,8 @@
  *   turn would break the never-started-session property that keeps probes non-mutating.
  */
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import type { CapabilityDetectionSource } from "../driver/provider-driver.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/provider-driver-descriptors.js";

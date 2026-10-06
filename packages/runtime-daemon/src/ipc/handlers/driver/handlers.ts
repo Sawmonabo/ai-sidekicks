@@ -15,8 +15,8 @@ import type {
   ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
-  RunId,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   CompactContextRequest,
   DriverCapabilityReport,
@@ -28,7 +28,7 @@ import type {
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
-} from "@ai-sidekicks/contracts/provider/driver/wire";
+} from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
 import type {
   DriverCompactionResult,
@@ -37,10 +37,10 @@ import type {
   ProviderCommandListResult,
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/wire";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import type { DriverCapabilityCache } from "../../../provider/capability/cache.js";
 import {

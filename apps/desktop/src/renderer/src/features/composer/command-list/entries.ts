@@ -6,7 +6,7 @@
 // offered under another.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import type { CommandDefinition } from "#renderer/registries/commands/types.js";
 import type { ComposerTarget } from "../composer-target.js";

@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { readEarlierTranscriptPage } from "./transcript-page.js";

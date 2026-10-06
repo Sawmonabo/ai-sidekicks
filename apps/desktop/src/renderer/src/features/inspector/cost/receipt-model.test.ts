@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import type { SessionCostReceipt } from "@ai-sidekicks/contracts/session/cost";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { verifyReceiptPartitions } from "./receipt-model.js";
 
 /** Two providers, one with voice, whose every level adds up to the one above it. */

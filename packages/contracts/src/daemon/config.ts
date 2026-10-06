@@ -4,7 +4,7 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { FILE_PATH_MAX_LEN } from "../session/session.js";
+import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { TokensPerRunSchema, UsdMicrosSchema } from "../session/cost.js";
 import { countSchema, isoDateTimeSchema, portSchema } from "../internal/wire-scalars.js";
 

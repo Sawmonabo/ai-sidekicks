@@ -20,13 +20,9 @@ import {
   EnvironmentRowSchema,
   type EnvironmentRow,
 } from "./machine-settings.js";
-import { RepoMountIdSchema, type RepoMountId } from "./repo/repo.js";
-import {
-  SessionIdSchema,
-  wireFreeFormString,
-  type SessionId,
-  FILE_PATH_MAX_LEN,
-} from "./session/session.js";
+import { RepoMountIdSchema, type RepoMountId } from "./repo/mount.js";
+import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { countSchema } from "./internal/wire-scalars.js";
 
 /** The daemon-minted id of a project: the record beside a mount that the person names. */

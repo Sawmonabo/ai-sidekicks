@@ -2,7 +2,7 @@
 // Providers page's words. A remedy for another way back would send a person down a path that
 // cannot work for that account.
 
-import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import { describe, expect, it } from "vitest";
 
 import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";

@@ -1,7 +1,7 @@
 // Page-list pages for the tab strip's suite, built in one place so a new `PreviewPage` member
 // cannot be forgotten in one copy that still compiles.
 
-import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
+import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/methods";
 
 /** One page, defaulted so a case names only the field it is about. */
 export function previewPage(

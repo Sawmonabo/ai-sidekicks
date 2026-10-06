@@ -1,7 +1,5 @@
-import type {
-  ProviderAccount,
-  ProviderName,
-} from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { RegistrationOutcomeLine } from "../RegistrationOutcomeLine.js";

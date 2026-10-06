@@ -18,13 +18,13 @@ import {
   type ExecutionMode,
   type VcsType,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo/repo";
+} from "@ai-sidekicks/contracts/repo/mount";
 import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,
   WorkspaceListRequest,
   WorkspaceListResponse,
-} from "@ai-sidekicks/contracts/workspace";
+} from "@ai-sidekicks/contracts/repo/workspace";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { RepoMountNotFoundError } from "./repo/errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";

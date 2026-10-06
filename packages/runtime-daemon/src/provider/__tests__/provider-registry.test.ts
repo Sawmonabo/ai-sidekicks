@@ -2,19 +2,21 @@
 // codes, a failed registration leaves no entry, and the latest registration's snapshot wins.
 
 import type {
-  ApplyInterventionParams,
   DriverCapabilities,
   DriverCapabilityFlag,
-  DriverInterventionResult,
-  InterruptRunParams,
   ProviderModel,
   ProviderMode,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type {
+  ApplyInterventionParams,
+  DriverInterventionResult,
+  InterruptRunParams,
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   DriverCompactionResult,
   ProviderCommandListResult,
 } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { describe, expect, it } from "vitest";
 
 import { CLI_VERSION_REPORT, makeFlags } from "../capability/__fixtures__/results.js";

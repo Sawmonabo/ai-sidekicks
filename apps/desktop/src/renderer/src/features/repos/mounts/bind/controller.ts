@@ -2,9 +2,9 @@
 // chat in its new project. A bind answers with the mode and lifecycle state and no root; the
 // workspace list is where a root is read from.
 
-import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/repo";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import type { WorkspaceBindResponse } from "@ai-sidekicks/contracts/workspace";
+import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { WorkspaceBindResponse } from "@ai-sidekicks/contracts/repo/workspace";
 
 import { ActController } from "#renderer/features/repos/acts/act-controller.js";
 import type { RepoOperations } from "#renderer/features/repos/repo-operations.js";

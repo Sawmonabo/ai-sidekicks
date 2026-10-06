@@ -11,12 +11,12 @@
  *   (that column holds the provider's own).
  */
 
+import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import type {
   IdempotencyClass,
-  McpServerStatus,
   NormalizedProviderToolMetadata,
   ProviderToolMetadata,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/tools";
 
 import {
   boundMcpServerStatusEmission,

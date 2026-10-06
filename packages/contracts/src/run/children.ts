@@ -9,13 +9,13 @@ import {
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "../agent/agent.js";
+} from "../agent/methods.js";
 import { countSchema } from "../internal/wire-scalars.js";
-import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/wire.js";
-import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
+import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/methods.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
 import { QueueItemIdSchema, type QueueItemId } from "./queue.js";
 import { RunStateSchema, type RunState } from "./state.js";
-import { wireFreeFormString, wireUncappedFreeFormString } from "../session/session.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
 
 /**
  * Sends a message onto one child's own queue, where it waits for the child's next

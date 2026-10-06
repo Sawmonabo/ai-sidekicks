@@ -30,7 +30,7 @@ import {
   type RepoMountId,
   type RepoMountState,
   type WorkspaceState,
-} from "@ai-sidekicks/contracts/repo/repo";
+} from "@ai-sidekicks/contracts/repo/mount";
 
 import {
   RepoAlreadyAttachedError,

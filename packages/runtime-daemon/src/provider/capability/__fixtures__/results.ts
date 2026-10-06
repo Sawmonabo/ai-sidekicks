@@ -3,7 +3,7 @@
 import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
 import type { DriverCapabilityHydrationResult } from "../../driver/driver-capabilities-writer.js";
 import type {

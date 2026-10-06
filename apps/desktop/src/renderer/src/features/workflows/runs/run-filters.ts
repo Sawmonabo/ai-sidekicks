@@ -4,11 +4,13 @@
 
 import {
   WORKFLOW_RUN_STATUSES,
-  WORKFLOW_TRIGGER_KINDS,
   type WorkflowRunStatus,
+} from "@ai-sidekicks/contracts/workflow/run/status";
+import {
+  WORKFLOW_TRIGGER_KINDS,
   type WorkflowTriggerKind,
-} from "@ai-sidekicks/contracts/workflow/run/run";
-import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/run/trigger";
+import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunListRequest } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { MILLISECONDS_PER_DAY } from "#renderer/lib/instant.js";

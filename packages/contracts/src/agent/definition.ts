@@ -18,16 +18,11 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "../internal/branded.js";
-import {
-  ProviderAccountIdSchema,
-  PROVIDER_NAMES,
-  ProviderNameSchema,
-  type ProviderAccountId,
-  type ProviderName,
-} from "../provider/account/account.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/driver.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/wire.js";
-import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../session/session.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
+import { PROVIDER_NAMES, ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** The longest reason text a refusal or a load failure carries. */

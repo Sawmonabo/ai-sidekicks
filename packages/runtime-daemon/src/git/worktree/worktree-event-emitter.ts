@@ -17,7 +17,7 @@ import {
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
   type WorktreeState,
-} from "@ai-sidekicks/contracts/worktree/worktree";
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type {
   WorktreeCreatedEvent,
   WorktreeDirtyEvent,

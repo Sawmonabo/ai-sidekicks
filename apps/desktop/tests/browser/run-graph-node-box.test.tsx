@@ -7,7 +7,7 @@
 import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type {
   WorkflowEdgeItemCount,
   WorkflowRunReadResponse,

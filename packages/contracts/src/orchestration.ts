@@ -19,11 +19,15 @@ import {
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "./agent/agent.js";
+} from "./agent/methods.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider/driver/driver.js";
-import { DRIVER_WIRE_REASON_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider/driver/wire.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/caps.js";
+import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import {
+  DRIVER_WIRE_REASON_MAX_LEN,
+  DRIVER_WIRE_TOKEN_MAX_LEN,
+} from "./provider/driver/methods.js";
 import { RunStateSchema, type RunState } from "./run/state.js";
 import { refuseSelfParentingRun } from "./transcript/child-run-summary.js";
 import {
@@ -37,7 +41,8 @@ import {
   type SessionCostReceipt,
   type SessionCostReceiptRequest,
 } from "./session/cost.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session/session.js";
+import { wireFreeFormString } from "./free-form-string.js";
+import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 // orchestration.runCreate
 
@@ -205,7 +210,7 @@ export const ChildRunRejectionSchema: z.ZodType<ChildRunRejection> = z
   .strict();
 
 /**
- * The Sidekicks badge's figures, supplied by the daemon because the screen may hold
+ * The agents badge's figures, supplied by the daemon because the screen may hold
  * only part of the list: the children running now, the children dispatched in all,
  * and the children waiting on an approval.
  */

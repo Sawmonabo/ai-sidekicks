@@ -1,13 +1,13 @@
 // The opening every scripted session plays before its first run: the room and its lead.
 // It reads the entry type from `script-entries.ts`, which reads nothing from here.
 
-import { AgentListEntrySchema, type AgentListEntry } from "@ai-sidekicks/contracts/agent/agent";
+import { AgentListEntrySchema, type AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import {
   SessionCreatedPayloadSchema,
   type SessionCreatedPayload,
 } from "@ai-sidekicks/contracts/session/created";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
-import type { SessionShape } from "@ai-sidekicks/contracts/session/session";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import type { Scenario } from "../scenario.js";
 import type { ScriptEntry } from "./script-entries.js";

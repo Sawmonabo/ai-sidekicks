@@ -15,7 +15,7 @@ import type {
   RunPauseRequest,
   RunResumeRequest,
 } from "@ai-sidekicks/contracts/run/control";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
 import { readRunId } from "#renderer/services/daemon/wire/identifiers.js";
 import { AnsweredRunVersions } from "../../answered-run-versions.js";

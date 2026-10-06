@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";

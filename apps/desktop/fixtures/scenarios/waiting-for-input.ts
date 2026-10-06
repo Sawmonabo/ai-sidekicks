@@ -32,13 +32,12 @@ import {
   SessionIdSchema,
   type UserId,
   type SessionId,
-} from "@ai-sidekicks/contracts/session/session";
+} from "@ai-sidekicks/contracts/session/id";
 import {
-  RunIdSchema,
-  type RunId,
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

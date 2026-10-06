@@ -3,7 +3,10 @@
 // re-send it. A rejected call is recorded as the service's refusal, so the confirmation says
 // why and its control is usable again.
 
-import type { WorktreeId, WorktreeRetireResponse } from "@ai-sidekicks/contracts/worktree/worktree";
+import type {
+  WorktreeId,
+  WorktreeRetireResponse,
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";

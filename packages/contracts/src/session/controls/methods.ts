@@ -15,20 +15,18 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "../../internal/branded.js";
 import { composedTextSchema, countSchema } from "../../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
-import { McpServerNameSchema } from "../../mcp/mcp.js";
+import { McpServerNameSchema } from "../../mcp/server.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../../method-descriptor.js";
 import { defineMethodDescriptors } from "../../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../../provider/account/account.js";
-import {
-  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
-  MCP_SERVER_STATUS_SEVERITY_ORDER,
-  type McpServerStatus,
-} from "../../provider/driver/driver.js";
+import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
+import { MCP_SERVER_STATUS_SEVERITY_ORDER, type McpServerStatus } from "../../mcp/server.js";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/caps.js";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
 } from "../../provider/driver/transcript.js";
-import { SessionIdSchema, wireUncappedFreeFormString, type SessionId } from "../session.js";
+import { wireUncappedFreeFormString } from "../../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../id.js";
 import {
   OrchestrationBudgetStateSchema,
   TokensPerRunSchema,

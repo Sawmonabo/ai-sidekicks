@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { encodeFrame, FrameAccumulator } from "../content-length-framing.js";
-import { MAX_MESSAGE_BYTES, type JsonRpcMessage } from "../jsonrpc/jsonrpc.js";
+import { MAX_MESSAGE_BYTES, type JsonRpcMessage } from "../jsonrpc/message.js";
 
 function notification(text: string): JsonRpcMessage {
   return { jsonrpc: "2.0", method: "x.y", params: { text } };

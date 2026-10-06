@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,
-} from "@ai-sidekicks/contracts/workspace";
+} from "@ai-sidekicks/contracts/repo/workspace";
 
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { BindWorkspaceController } from "./controller.js";

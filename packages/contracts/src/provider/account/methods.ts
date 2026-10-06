@@ -1,6 +1,6 @@
 // The `providerAccount.*` methods not in `provider/account/sign-in.ts` (update, remove,
 // set-current, probe, memory import, usage read) and the namespace's method table. The account
-// record and its reads are in `provider/account/account.ts`.
+// record and its reads are in `provider/account/record.ts`.
 //
 // Credential material crosses these methods on exactly one input,
 // `ProviderAccountRegisterRequest.nonInteractiveToken`, and on no output: no response or
@@ -38,7 +38,6 @@ import {
   ProviderAccountSchema,
   ProviderAccountSubscribeRequestSchema,
   ProviderLoginExpiredRemedySchema,
-  ProviderNameSchema,
   type BillingMode,
   type CredentialGeneration,
   type ProviderAccount,
@@ -50,8 +49,8 @@ import {
   type ProviderAccountNotification,
   type ProviderAccountSubscribeRequest,
   type ProviderLoginExpiredRemedy,
-  type ProviderName,
-} from "./account.js";
+} from "./record.js";
+import { ProviderNameSchema, type ProviderName } from "../name.js";
 import {
   ProviderAccountLoginCancelRequestSchema,
   ProviderAccountLoginCancelResponseSchema,
@@ -71,7 +70,8 @@ import {
   type ProviderAccountResetCredentialHomeResponse,
 } from "./sign-in.js";
 import { UsdMicrosSchema } from "../../session/cost.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../../session/session.js";
+import { wireFreeFormString } from "../../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import { isoDateTimeSchema } from "../../internal/wire-scalars.js";
 
 /** A model id on a usage row, as the provider names it. */

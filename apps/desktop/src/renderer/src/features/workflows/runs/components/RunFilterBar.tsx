@@ -3,10 +3,12 @@ import { useId } from "react";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import {
   WORKFLOW_RUN_STATUSES,
-  WORKFLOW_TRIGGER_KINDS,
   type WorkflowRunStatus,
+} from "@ai-sidekicks/contracts/workflow/run/status";
+import {
+  WORKFLOW_TRIGGER_KINDS,
   type WorkflowTriggerKind,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/trigger";
 
 import { RUN_STATUS_WORDS, TRIGGER_KIND_WORDS } from "../../words.js";
 import { RUN_DATE_RANGES, RUN_DATE_RANGE_WORDS, type RunFilters } from "../run-filters.js";

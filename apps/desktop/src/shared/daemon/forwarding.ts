@@ -3,7 +3,7 @@
 // preload turns a refusal back into a rejection the renderer can read, and a subscription that
 // ends is told to the page as an end rather than left to go quiet.
 
-import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 /** A daemon call the renderer asks main to forward. */
 export interface DaemonCallRequest {

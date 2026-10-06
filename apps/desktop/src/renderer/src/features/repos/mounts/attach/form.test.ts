@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/session/session";
+import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
 import { resolveAttachForm } from "./form.js";
 

@@ -22,7 +22,7 @@ import {
 } from "./machine-settings.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import type { RuntimeNodeProcedureDescriptors } from "./runtime-node.js";
-import { wireFreeFormString } from "./session/session.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import {
   ChannelPublicKeySchema,
   DeviceIdSchema,

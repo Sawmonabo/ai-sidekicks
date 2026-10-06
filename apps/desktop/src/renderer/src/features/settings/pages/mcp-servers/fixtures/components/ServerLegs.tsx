@@ -6,7 +6,7 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../mcp-server-status-words.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
-import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import { toneForServerStatus } from "../server-status-tone.js";
 

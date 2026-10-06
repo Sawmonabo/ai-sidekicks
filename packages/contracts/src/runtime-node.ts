@@ -13,7 +13,7 @@ import {
   type EmptyPayload,
 } from "./method-descriptor.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { wireFreeFormString } from "./session/session.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import {
   MACHINE_OR_DEVICE_NAME_MAX_LEN,
   MachineIdentityKeySchema,

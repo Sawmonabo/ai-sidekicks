@@ -30,7 +30,7 @@ import {
   type TranscriptBodyReadResponse,
   type TranscriptPatchReadRequest,
   type TranscriptPatchReadResponse,
-} from "./row/content.js";
+} from "./content.js";
 import {
   TranscriptSearchRequestSchema,
   TranscriptSearchResponseSchema,

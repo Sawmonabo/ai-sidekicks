@@ -3,9 +3,9 @@
 // cannot be asked). Health is the daemon's status string: the console never probes a path or
 // ranks failing verdicts. `identity_mismatch` means the root answers but holds another repository.
 
-import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountHealth } from "@ai-sidekicks/contracts/repo/mount";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
-import type { RepoMountState } from "@ai-sidekicks/contracts/repo/repo";
+import type { RepoMountState } from "@ai-sidekicks/contracts/repo/mount";
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 
 /**

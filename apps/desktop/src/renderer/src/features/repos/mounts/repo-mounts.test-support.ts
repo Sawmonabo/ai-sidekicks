@@ -6,7 +6,7 @@
 import type {
   BranchContextId,
   WorktreeStatusRecord,
-} from "@ai-sidekicks/contracts/worktree/worktree";
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 
 import { act, screen } from "@testing-library/react";

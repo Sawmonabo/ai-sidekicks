@@ -12,7 +12,8 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { UserIdSchema, wireUncappedFreeFormString, type UserId } from "./session/session.js";
+import { wireUncappedFreeFormString } from "./free-form-string.js";
+import { UserIdSchema, type UserId } from "./session/id.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** `account.delete` takes nothing: the account is the caller's. */

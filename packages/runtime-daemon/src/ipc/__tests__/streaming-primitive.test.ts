@@ -5,14 +5,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   SubscriptionCancelParams,
   SubscriptionCancelResult,
   SubscriptionEndParams,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,

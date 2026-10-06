@@ -5,7 +5,7 @@
 // unknown one is refused, not answered with an empty reply.
 import { z } from "zod";
 
-import { jsonUtf8ByteLength } from "./jsonrpc/jsonrpc.js";
+import { jsonUtf8ByteLength } from "./jsonrpc/message.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { countSchema } from "./internal/wire-scalars.js";

@@ -12,7 +12,7 @@ import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
   McpWritableBindingRef,
-} from "@ai-sidekicks/contracts/mcp/mcp";
+} from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";

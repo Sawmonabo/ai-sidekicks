@@ -9,7 +9,7 @@ import { graphlib, layout } from "@dagrejs/dagre";
 import type {
   WorkflowDocument,
   WorkflowNode,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 
 import {
   NODE_EXTRA_LINE_HEIGHT,

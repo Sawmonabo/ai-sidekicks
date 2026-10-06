@@ -1,7 +1,7 @@
 import type {
   ProviderAccount,
   ProviderAccountId,
-} from "@ai-sidekicks/contracts/provider/account/account";
+} from "@ai-sidekicks/contracts/provider/account/record";
 import type { ReactNode } from "react";
 
 import { readCarriedLoginRemedy } from "#renderer/services/provider-accounts/refusal-details.js";

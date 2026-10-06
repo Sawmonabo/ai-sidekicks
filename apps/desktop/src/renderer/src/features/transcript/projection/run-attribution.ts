@@ -1,7 +1,7 @@
 // Which run a wire payload names. Its subject is the contracts package's registered payload
 // shapes, not the projection: it reads an open record and answers with a run id or nothing.
 
-import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts/transcript/row/row";
+import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Reads the run a payload belongs to, or `undefined` where it belongs to none.

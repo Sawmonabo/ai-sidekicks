@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/server";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
 import {
   sessionDisplayTitleOf,

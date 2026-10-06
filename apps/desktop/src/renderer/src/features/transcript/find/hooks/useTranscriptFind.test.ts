@@ -2,7 +2,7 @@
 // act. Matching is `model.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { describe, expect, it } from "vitest";
 
 import { useTranscriptFind, type TranscriptFindState } from "./useTranscriptFind.js";

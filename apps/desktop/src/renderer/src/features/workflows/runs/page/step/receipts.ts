@@ -2,13 +2,13 @@
 // `Timeout`, leaves where its controls stood, read from the record the daemon keeps, so a receipt
 // reads the same after a reload. There is no way back from one.
 
-import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type { WorkflowNodeKindId } from "@ai-sidekicks/contracts/workflow/definition/document";
+import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import {
-  WORKFLOW_STEP_TIMED_OUT_CODE,
   type WorkflowStep,
   type WorkflowStepResolution,
   type WorkflowStepResolutionKind,
-} from "@ai-sidekicks/contracts/workflow/run/run";
+} from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowChainQuestion } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { formatCount, formatDayClock, formatDayClockAt } from "#renderer/lib/wire/figures.js";

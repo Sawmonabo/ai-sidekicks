@@ -2,7 +2,7 @@
 // the account that paid. A run or step that spent nothing reads `$0.00` and names no account. The
 // daemon sums a run's cost from its steps' stored amounts; nothing here adds figures.
 
-import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowCost } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { formatMoney } from "#renderer/lib/wire/figures.js";
 

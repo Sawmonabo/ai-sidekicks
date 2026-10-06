@@ -17,7 +17,7 @@
 //   synchronous `socket.write`. The wire-frame-ordering tests in `handlers/__tests__` catch a
 //   change that adds one.
 
-import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 

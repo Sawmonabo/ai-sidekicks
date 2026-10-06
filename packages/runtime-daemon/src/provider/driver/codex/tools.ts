@@ -9,11 +9,11 @@
 // - Left out: `mcpToolCall` and `dynamicToolCall` (their classes come from the MCP floor and the
 //   session registry), `subAgentActivity`, and the message and lifecycle arms.
 
+import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import type {
   IdempotencyClass,
-  McpServerStatus,
   NormalizedProviderToolMetadata,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
+} from "@ai-sidekicks/contracts/provider/driver/tools";
 
 import {
   boundMcpServerStatusEmission,

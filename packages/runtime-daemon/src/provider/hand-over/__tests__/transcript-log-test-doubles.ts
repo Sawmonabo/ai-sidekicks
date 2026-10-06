@@ -1,7 +1,7 @@
 // The session log and content port a canonical transcript fold reads, held in memory.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { StoredEvent } from "../../../session/types.js";
 import {

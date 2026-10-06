@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
-import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
+import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/document";
+import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step";
 
 import { useSubjectRead } from "#renderer/hooks/useSubjectRead.js";

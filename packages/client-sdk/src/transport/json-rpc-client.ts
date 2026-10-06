@@ -15,12 +15,12 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   MethodDescriptor,
   SubscriptionMethodDescriptor,
 } from "@ai-sidekicks/contracts/method-descriptor";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,

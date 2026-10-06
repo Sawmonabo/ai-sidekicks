@@ -1,6 +1,6 @@
 // The mixed window both run group suites fold, so their claims stay about the same run groups.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type RunGroup } from "./run-groups.js";
 import { generalRow, runRow } from "../transcript-event-rows.test-support.js";

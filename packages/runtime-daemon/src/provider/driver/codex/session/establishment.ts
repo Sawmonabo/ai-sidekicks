@@ -2,7 +2,7 @@
 // resuming or forking its thread, then installing the record and rebinding the routing band. A
 // failed resume never becomes a new session: it returns the typed `recovery-needed` failure.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PendingCompactionRegistry } from "../../../compaction-wait.js";
 import type { UsageDeltaAccountant } from "../../../usage-delta-accountant.js";
 import type { RuntimeBindingQuarantine } from "../../../outbound-frame.js";

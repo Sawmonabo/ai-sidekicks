@@ -12,15 +12,14 @@ import {
   ProviderAccountHealthStateSchema,
   ProviderAccountIdSchema,
   ProviderAccountSchema,
-  ProviderNameSchema,
   type BillingMode,
   type CredentialGeneration,
   type ProviderAccount,
   type ProviderAccountHealthState,
   type ProviderAccountId,
-  type ProviderName,
-} from "./account.js";
-import { wireFreeFormString } from "../../session/session.js";
+} from "./record.js";
+import { ProviderNameSchema, type ProviderName } from "../name.js";
+import { wireFreeFormString } from "../../free-form-string.js";
 import { isoDateTimeSchema } from "../../internal/wire-scalars.js";
 
 /** The longest provider verification URL, carried verbatim. */

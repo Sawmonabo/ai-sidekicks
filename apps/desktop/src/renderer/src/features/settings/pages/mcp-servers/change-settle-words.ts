@@ -1,8 +1,8 @@
 // When a change made on the MCP servers page takes effect, in the one line the page settles it
 // with for each grade the background service answered. The grade itself never reaches the screen.
 
-import type { McpApplicationGrade } from "@ai-sidekicks/contracts/mcp/mcp";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import type { McpApplicationGrade } from "@ai-sidekicks/contracts/mcp/server";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 

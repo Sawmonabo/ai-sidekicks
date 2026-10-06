@@ -17,7 +17,7 @@ import {
   type WorkflowLayout,
   type WorkflowNodeId,
   type WorkflowPinnedItem,
-} from "./definition.js";
+} from "./document.js";
 
 // Refusals
 

@@ -5,11 +5,9 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type ProviderToolMetadata,
-} from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
+import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { type ProviderToolMetadata } from "@ai-sidekicks/contracts/provider/driver/tools";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { openDatabase } from "../../../session/migration-runner.js";
 import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";

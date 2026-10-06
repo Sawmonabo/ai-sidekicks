@@ -13,7 +13,7 @@
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js"
     },
-    "./event/core": null,
+    "./event/version": null,
     "./gitflow/shared": null,
     "./internal/*": null,
     "./*.test": null,

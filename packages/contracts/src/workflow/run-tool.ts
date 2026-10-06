@@ -4,8 +4,8 @@
 import { z } from "zod";
 
 import { PROJECT_NAME_MAX_LEN } from "../project.js";
-import type { SessionCallbackTool } from "../provider/driver/driver.js";
-import { wireFreeFormString } from "../session/session.js";
+import type { SessionCallbackTool } from "../provider/driver/tools.js";
+import { wireFreeFormString } from "../free-form-string.js";
 
 /**
  * The `workflow_run` input: a workflow named by its name, which the library holds once, and the

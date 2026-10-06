@@ -3,7 +3,7 @@
 // place the shape is read. It is test support because nothing in production decodes a transcript
 // row: the app produces them.
 
-import { TranscriptEventRowSchema } from "@ai-sidekicks/contracts/transcript/row/row";
+import { TranscriptEventRowSchema } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Whether one projected row satisfies the registered transcript-event-row contract. It uses the

@@ -10,7 +10,7 @@ import type {
   AgentDefinitionId,
   AgentProviderBinding,
 } from "@ai-sidekicks/contracts/agent/definition";
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";

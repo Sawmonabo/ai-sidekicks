@@ -2,16 +2,16 @@
 // operation, the compaction result, the provider-command enumeration and the output-speed state.
 
 import { z } from "zod";
-import { ProviderNameSchema, type ProviderName } from "../account/account.js";
+import { ProviderNameSchema, type ProviderName } from "../name.js";
 import {
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-  type RunId,
-} from "./driver.js";
-import { wireFreeFormString } from "../../session/session.js";
+} from "./caps.js";
+import { type RunId } from "./intervention.js";
+import { wireFreeFormString } from "../../free-form-string.js";
 
 // ---- Declared losses ----
 

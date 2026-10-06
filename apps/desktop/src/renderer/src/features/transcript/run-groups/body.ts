@@ -4,7 +4,7 @@
 // body unbounded), and the re-pin is the engine's `overflow-anchor`: the transcript's scroll
 // offsets are written in one module, so this body has no second writer.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /**
  * Rows a single run group renders before its body clips.

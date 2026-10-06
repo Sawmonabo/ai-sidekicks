@@ -19,14 +19,14 @@ import type {
   JsonRpcId,
   JsonRpcNotification,
   JsonRpcResponse,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
   isJsonRpcIdWithinBound,
   JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
   MAX_MESSAGE_BYTES,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import { PROTOCOL_VERSION_REGEX } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import {
   encodeFrame,

@@ -1,4 +1,4 @@
-import type { EventCursor } from "@ai-sidekicks/contracts/session/session";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowRunSnapshotPoint } from "@ai-sidekicks/contracts/gitflow/local";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 

@@ -2,7 +2,7 @@
 // speaks for the account resolution reached, and never disowns or replaces a pinned value.
 // Cases build plain objects, since the model is a pure function over a reading.
 
-import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import { describe, expect, it } from "vitest";
 
 import {

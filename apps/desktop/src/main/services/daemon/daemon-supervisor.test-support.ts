@@ -13,7 +13,7 @@ import {
   JSONRPC_VERSION,
   JsonRpcErrorCode,
   type JsonRpcRequest,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   CURRENT_PROTOCOL_VERSION,
   type DaemonHelloAck,

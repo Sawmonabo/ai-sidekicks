@@ -6,7 +6,7 @@
 // gap, and one re-opened after a cursor catches up only past it. `daemon.fixture.ts` composes this
 // function.
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";

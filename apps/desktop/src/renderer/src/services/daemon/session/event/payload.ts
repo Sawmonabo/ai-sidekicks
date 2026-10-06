@@ -9,10 +9,8 @@
 
 import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
-import {
-  SessionStreamFrameSchema,
-  type EventCursor,
-} from "@ai-sidekicks/contracts/session/session";
+import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
+import { type EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";

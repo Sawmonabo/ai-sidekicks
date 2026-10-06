@@ -9,7 +9,7 @@
 // - Every refused attachment is disposed before `failed` is returned.
 
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import { applyClaudeOutputSpeed } from "../output-speed.js";
 import type {

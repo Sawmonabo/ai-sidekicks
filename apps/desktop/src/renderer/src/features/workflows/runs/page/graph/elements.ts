@@ -9,7 +9,7 @@ import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import type {
   WorkflowDocument,
   WorkflowNode,
-} from "@ai-sidekicks/contracts/workflow/definition/definition";
+} from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import type { CanvasPoint } from "./layout.js";

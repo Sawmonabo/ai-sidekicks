@@ -1,4 +1,4 @@
-// Run admission and the child tree are what the bridge, a workflow and the Sidekicks
+// Run admission and the child tree are what the bridge, a workflow and the agents
 // badge rely on. These cases hold that a run names exactly one target, that no run is
 // its own parent, and that the badge's figures never exceed the total.
 import { describe, expect, it } from "vitest";

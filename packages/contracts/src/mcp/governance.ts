@@ -45,16 +45,16 @@ import {
   type McpSetToolOverrideRequest,
   type McpToolOverrideMutationResult,
   type McpUpsertServerRequest,
-} from "./mcp.js";
+} from "./server.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "../method-descriptor.js";
-import { ProviderNameSchema, type ProviderName } from "../provider/account/account.js";
-import type { McpServerStatus } from "../provider/driver/driver.js";
-import { SessionIdSchema, type SessionId } from "../session/session.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import type { McpServerStatus } from "./server.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 
 // Governance payloads
 

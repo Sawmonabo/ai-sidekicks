@@ -7,8 +7,8 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 import {
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-} from "./provider/driver/driver.js";
-import { wireFreeFormString } from "./session/session.js";
+} from "./provider/driver/caps.js";
+import { wireFreeFormString } from "./free-form-string.js";
 
 /** `callbackTool.list` takes no members. */
 export type CallbackToolListRequest = Record<string, never>;

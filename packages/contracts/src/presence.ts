@@ -16,7 +16,7 @@ import {
   EmptyPayloadSchema,
   type EmptyPayload,
 } from "./method-descriptor.js";
-import { wireFreeFormString } from "./session/session.js";
+import { wireFreeFormString } from "./free-form-string.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 
 /** The longest device category, such as "desktop" or "mobile", in characters. */

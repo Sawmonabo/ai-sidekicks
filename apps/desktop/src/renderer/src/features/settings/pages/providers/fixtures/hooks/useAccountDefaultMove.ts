@@ -1,4 +1,4 @@
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import { useState } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";

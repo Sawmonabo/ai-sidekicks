@@ -8,8 +8,8 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { PreviewAddressSchema, PreviewPageIdSchema, type PreviewPageId } from "./preview.js";
-import { FILE_PATH_MAX_LEN } from "../session/session.js";
+import { PreviewAddressSchema, PreviewPageIdSchema, type PreviewPageId } from "./methods.js";
+import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**

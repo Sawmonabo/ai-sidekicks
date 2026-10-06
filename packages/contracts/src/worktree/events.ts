@@ -2,15 +2,16 @@
 // session swept back to the repository root, and a session's branch changed.
 //
 // This module imports nothing from `../event/session-event.js` and nothing whose import closure
-// reaches it, for the module-cycle reason in the header of `repo/repo.ts`.
+// reaches it, for the module-cycle reason in the header of `repo/mount.ts`.
 import { z } from "zod";
 
 import {
   buildRepoWorkspaceLifecyclePayloadSchemaWith,
   RepoMountIdSchema,
   type RepoMountId,
-} from "../repo/repo.js";
-import { SessionIdSchema, wireUncappedFreeFormString, type SessionId } from "../session/session.js";
+} from "../repo/mount.js";
+import { wireUncappedFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import {
   RemovedWorktreeIdSchema,
   WorktreeIdSchema,
@@ -19,7 +20,7 @@ import {
   type WorktreeId,
   type WorktreeLifecyclePayload,
   type WorktreeState,
-} from "./worktree.js";
+} from "./lifecycle.js";
 
 /**
  * `worktree.created`'s payload: the shared lifecycle payload, and on a put-back the kept

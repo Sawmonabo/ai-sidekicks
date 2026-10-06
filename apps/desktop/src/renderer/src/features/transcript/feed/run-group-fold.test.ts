@@ -1,7 +1,7 @@
 // The run group fold, driven with no store and no React. A run longer than the cap needs
 // this file: a virtualized feed mounts a range whatever the fold admitted.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row/row";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";

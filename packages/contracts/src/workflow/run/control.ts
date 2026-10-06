@@ -4,9 +4,10 @@
 // descriptor registers nothing.
 import { z } from "zod";
 
+import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
-import { SessionIdSchema, type SessionId } from "../../session/session.js";
+import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import {
   WorkflowDefinitionIdSchema,
   WorkflowItemSchema,
@@ -15,19 +16,39 @@ import {
   type WorkflowDefinitionId,
   type WorkflowItem,
   type WorkflowNodeId,
-} from "../definition/definition.js";
+} from "../definition/document.js";
+import {
+  WORKFLOW_RUN_STATUSES,
+  WorkflowRunIdSchema,
+  type WorkflowRunId,
+  type WorkflowRunStatus,
+} from "./status.js";
 import {
   WORKFLOW_RUN_MODES,
-  WORKFLOW_RUN_STATUSES,
-  WorkflowCancelReasonSchema,
-  WorkflowRunIdSchema,
   WorkflowRunModeSchema,
   WorkflowStartedBySchema,
-  type WorkflowRunId,
   type WorkflowRunMode,
-  type WorkflowRunStatus,
   type WorkflowStartedBy,
-} from "./run.js";
+} from "./trigger.js";
+
+/**
+ * The most bytes a cancellation reason may take, counted as UTF-8 bytes of its JSON encoding
+ * (quotes and escapes included) rather than its length, so the same sentence is not refused sooner
+ * in one script than in another.
+ */
+export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
+
+/**
+ * A cancellation's reason as the person typed it, within the byte cap. It is recorded
+ * on the run and its canceled event and never reaches a step's output or anything an
+ * agent reads.
+ */
+export const WorkflowCancelReasonSchema: z.ZodType<string, string> = z
+  .string()
+  .min(1)
+  .refine((reason) => jsonUtf8ByteLength(reason) <= WORKFLOW_CANCEL_REASON_BYTE_CAP, {
+    message: `reason must be at most ${WORKFLOW_CANCEL_REASON_BYTE_CAP} bytes as JSON.`,
+  });
 
 // Several replies answer with only some statuses. Each subset is taken from the one
 // status list rather than spelled again, so a renamed status cannot leave a subset behind.

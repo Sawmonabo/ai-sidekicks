@@ -16,7 +16,7 @@
 // earlier one held, whose superseded reply is discarded. The cap applies to the union, and the
 // frames reach the fold in arrival order.
 
-import type { ProviderAccountNotification } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountNotification } from "@ai-sidekicks/contracts/provider/account/record";
 
 /**
  * The cap on provider-account notifications held while the registry's opening read is in flight.

@@ -4,7 +4,7 @@
 // because the library holds a name once under it. Candidates are a prefix reading, since an
 // unfinished word is a prefix.
 
-import { foldWorkflowName } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import { foldWorkflowName } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
 /** What resolving a typed name against the enumeration answered. */

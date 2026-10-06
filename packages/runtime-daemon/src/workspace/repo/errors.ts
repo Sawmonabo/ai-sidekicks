@@ -10,7 +10,7 @@
  *   and `sanitizeFields` as a backstop.
  */
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 

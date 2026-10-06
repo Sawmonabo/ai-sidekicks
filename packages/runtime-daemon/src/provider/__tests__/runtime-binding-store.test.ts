@@ -4,10 +4,10 @@
 // unsandboxed, so does a stored driver name that names no provider, the version pair holds its
 // CHECK and records the build that answered, and the resume request is rebuilt from the row.
 
-import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/wire";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/driver";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/account/account";
-import type { SessionId } from "@ai-sidekicks/contracts/session/session";
+import { DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/methods";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 

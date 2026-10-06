@@ -2,7 +2,7 @@
 // Every state asserted is one the wire can carry, and the sign-in cases drive the real tracker
 // through plain stub calls.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/account";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 

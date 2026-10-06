@@ -3,11 +3,12 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../agent/definition.js";
-import { AgentListEntrySchema, type AgentListEntry } from "../agent/agent.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/account.js";
-import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/wire.js";
-import { RunIdSchema, type RunId } from "../provider/driver/driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session/session.js";
+import { AgentListEntrySchema, type AgentListEntry } from "../agent/methods.js";
+import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/methods.js";
+import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { wireFreeFormString } from "../free-form-string.js";
+import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { countSchema } from "../internal/wire-scalars.js";
 
 /**

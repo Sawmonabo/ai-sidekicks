@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   JsonRpcErrorCode,
   type JsonRpcNotification,
-} from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+} from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,

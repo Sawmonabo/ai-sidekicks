@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { RepoWorkspaceLifecyclePayloadSchema } from "@ai-sidekicks/contracts/repo/repo";
+import { RepoWorkspaceLifecyclePayloadSchema } from "@ai-sidekicks/contracts/repo/mount";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session-event";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
