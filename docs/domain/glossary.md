@@ -26,7 +26,7 @@ This glossary covers the primary domain terms from `vision.md` and the canonical
 | `RepoMount` | A git repository attached to the machine as a project's folder, once per machine; every session of that project binds to it. A chat's managed workspace is a mount too, owned by its one chat. |
 | `Workspace` | A session's execution context, rooted at one checkout: the project's checkout, a worktree the daemon made, or a chat's managed workspace. |
 | `Worktree` | An isolated checkout derived from a repository and typically used as the default write target for coding runs. |
-| `ExecutionMode` | Where a session's runs work: `bound-root`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisioned-worktree`, a worktree the daemon's worktree lifecycle made or reused. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
+| `ExecutionMode` | Where a session's runs work: `bound-root`, the root already bound to its workspace (the project's checkout, or a chat's managed workspace), or `provisioned-worktree`, a worktree the daemon's worktree lifecycle made. There is no disposable copy and no read-only place: how much a session may change is its permission level, not its execution mode. |
 | `Artifact` | An immutable output or record produced by a run, a user, or the system. |
 | `Approval` | A durable decision record that resolves a gated request. |
 | `Workflow` | A reusable, versioned execution template that structures multi-step work inside a session. |
