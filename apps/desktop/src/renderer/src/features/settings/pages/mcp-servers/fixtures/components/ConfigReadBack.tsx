@@ -28,13 +28,13 @@ export function ConfigReadBack(props: {
         <>
           <WireFigure value={config.command} />
           {renderArgumentList(config.args)}
-          {renderNameList("Environment variables read", config.envVarNames)}
+          {renderNameList("Environment variables", config.envVarNames)}
         </>
       ) : (
         <>
           <WireFigure value={config.url} />
           {renderNameList("Query parameters set", config.urlQueryParamNames)}
-          {renderNameList("Headers sent", config.headerNames)}
+          {renderNameList("Headers", config.headerNames)}
           {config.bearerTokenEnvVar === undefined ? null : (
             <span className="meridian-settings-page__aside">
               Bearer token read from <WireFigure value={config.bearerTokenEnvVar} /> — the variable

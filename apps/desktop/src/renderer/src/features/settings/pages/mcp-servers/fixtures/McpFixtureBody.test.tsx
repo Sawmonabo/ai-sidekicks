@@ -10,7 +10,11 @@ import {
   createFixtureBridge,
   type FixtureBridge,
 } from "#renderer/services/platform/platform-bridge.fixture.js";
-import type { McpMutationResult, McpServerInventoryEntry } from "@ai-sidekicks/contracts/mcp/mcp";
+import type {
+  McpMutationResult,
+  McpServerInventoryEntry,
+  McpToolOverrideMutationResult,
+} from "@ai-sidekicks/contracts/mcp/mcp";
 import type { McpServerStatus } from "@ai-sidekicks/contracts/provider/driver/driver";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { Clock } from "#renderer/lib/clock.js";
@@ -40,7 +44,14 @@ const FILESYSTEM: McpServerInventoryEntry = {
   },
   status: "connected",
   enabled: true,
-  toolOverrides: [],
+  tools: [
+    {
+      toolName: "write_file",
+      enabled: { value: true, source: "server" },
+      approvalMode: { value: "prompt", source: "override" },
+      idempotencyClass: { value: "manual_reconcile_only", source: "server" },
+    },
+  ],
 };
 
 const ISSUE_TRACKER: McpServerInventoryEntry = {
@@ -60,7 +71,7 @@ const ISSUE_TRACKER: McpServerInventoryEntry = {
     { sessionId: SESSION_B, bindingId: "leg-b", status: "connected" },
   ],
   enabled: true,
-  toolOverrides: [],
+  tools: [],
 };
 
 const SCRATCHPAD: McpServerInventoryEntry = {
@@ -81,12 +92,13 @@ const REVIEWER: McpServerInventoryEntry = {
   config: { transport: "stdio", command: "reviewer-mcp" },
   status: "connected",
   enabled: true,
-  toolOverrides: [],
+  tools: [],
 };
 
+// Saved, and missed one of the two running sessions.
 const PARTIAL_APPLICATION: McpMutationResult = {
   server: { ...FILESYSTEM, enabled: false },
-  applied: "live_reconcile",
+  applied: "user_config_write",
   liveResults: [
     { sessionId: SESSION_A, bindingId: "leg-a", outcome: "applied" },
     {
@@ -98,6 +110,12 @@ const PARTIAL_APPLICATION: McpMutationResult = {
   ],
 };
 
+// The filesystem binding's one tool switched off, enforced at once.
+const TOOL_SWITCHED_OFF: McpToolOverrideMutationResult = {
+  server: FILESYSTEM,
+  applied: { enabled: "daemon_enforced" },
+};
+
 function operationsServing(
   servers: readonly McpServerInventoryEntry[],
   overrides: Partial<McpServerOperations> = {},
@@ -106,6 +124,7 @@ function operationsServing(
     listInventory: async () => await Promise.resolve({ servers }),
     subscribeInventoryChanges: () => () => undefined,
     sendEnabled: async () => await Promise.resolve(PARTIAL_APPLICATION),
+    sendToolOverride: async () => await Promise.resolve(TOOL_SWITCHED_OFF),
     ...overrides,
   };
 }
@@ -150,17 +169,18 @@ function mcpPageTree(
 }
 
 /**
- * The first row's enablement control, the press every mutation case makes. Throws so a case that
+ * The first row's `On for runs` switch, the press most mutation cases make. Throws so a case that
  * never reached a settled inventory fails at the press.
  */
-function firstEnableButton(container: HTMLElement): HTMLButtonElement {
-  const [button] = [...container.querySelectorAll("button")].filter((candidate) =>
-    /this binding$/u.test(candidate.textContent ?? ""),
+function firstEnableButton(container: HTMLElement): HTMLElement {
+  const label = [...container.querySelectorAll(".meridian-switch__label")].find(
+    (candidate) => candidate.textContent === "On for runs",
   );
-  if (button === undefined) {
+  const control = label?.querySelector('[role="switch"]');
+  if (!(control instanceof HTMLElement)) {
     throw new Error("the settled inventory rendered no enablement control to press");
   }
-  return button;
+  return control;
 }
 
 async function renderSettledMcpPage(
@@ -243,22 +263,50 @@ describe("McpFixtureBody", () => {
       "In this project, on this machine only",
       "/work/repo",
     ]);
-    expect(whereItApplies("reviewer")).toStrictEqual(["Declared by plugin", "review-tools"]);
+    expect(whereItApplies("reviewer")).toStrictEqual(["Declared by plugin review-tools"]);
   });
 
   it("names no invented status on the degraded row", async () => {
     const { container } = await renderSettledMcpPage(operationsServing([SCRATCHPAD]));
     const degradedRow = rowNamed(container, "scratchpad");
-    expect(degradedRow?.textContent).toContain("could not be read");
-    expect(degradedRow?.textContent).not.toContain("No tool on this binding carries an override");
+    expect(degradedRow?.textContent).toContain("Per-tool settings cannot be read right now.");
+    expect(degradedRow?.querySelectorAll('[role="switch"]')).toHaveLength(0);
   });
 
-  it("renders a partial application: one leg applied, one failed", async () => {
+  it("settles a partial application in place: saved, and one session still on the old setting", async () => {
     const { container, clock } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(clock);
-    expect(container.textContent).toContain("live_reconcile");
-    expect(container.textContent).toContain("mcp.config_write_conflict");
+    const lines = [...container.querySelectorAll(".meridian-mcp__outcome p")].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toStrictEqual([
+      "Saved to Claude Code's settings. New sessions use it.",
+      "A session is still running with the old setting.",
+    ]);
+  });
+
+  it("switches one tool by sending only that facet, and settles under that tool", async () => {
+    const sendToolOverride = vi.fn(async () => await Promise.resolve(TOOL_SWITCHED_OFF));
+    const { container, clock } = await renderSettledMcpPage(
+      operationsServing([FILESYSTEM], { sendToolOverride }),
+      () => "tool-press",
+    );
+    const toolRow = container.querySelector(".meridian-mcp__tool");
+    const toolSwitch = toolRow?.querySelector('[role="switch"]');
+    if (!(toolSwitch instanceof HTMLElement)) {
+      throw new Error("the settled inventory rendered no tool switch to press");
+    }
+    fireEvent.click(toolSwitch);
+    await settleScheduledRead(clock);
+    expect(sendToolOverride).toHaveBeenCalledWith({
+      provider: "claude",
+      scope: "user",
+      serverName: "filesystem",
+      override: { toolName: "write_file", enabled: false },
+      clientIdempotencyKey: "tool-press",
+    });
+    expect(toolRow?.querySelector(".meridian-mcp__outcome")?.textContent).toBe("In force now.");
   });
 
   it("sends the key the caller minted for that press", async () => {
@@ -307,7 +355,7 @@ function operationsHoldingTheirMutation(): {
 }
 
 // What the held mutation's answer prints.
-const HELD_MUTATION_OUTCOME_TEXT = "mcp.config_write_conflict";
+const HELD_MUTATION_OUTCOME_TEXT = "Saved to Claude Code's settings. New sessions use it.";
 
 describe("McpFixtureBody — a bridge replaced under a mounted fixture body", () => {
   it("shows no outcome from a bridge the mount no longer holds", async () => {

@@ -6,13 +6,24 @@
 // focus, reconnect (through `store/reads/triggers.ts`), or a settled act calling
 // `requestSessionDirectoryRead`. `subscribe` is not routed into the revision below because the
 // mount read is the subscribe read.
+import type { SessionShape } from "@ai-sidekicks/contracts/session/session";
 import type { Unsubscribe } from "#shared/preload-api.js";
 
-/** One session the service lists. A session with no title is shown by its identifier. */
+/**
+ * One session the service lists. A session with no title reads by its shape, `New chat` or
+ * `New session` (see {@link sessionDisplayTitleOf}).
+ */
 export interface SessionDirectoryEntry {
   readonly sessionId: string;
   readonly title?: string;
+  readonly shape: SessionShape;
   readonly state: string;
+}
+
+/** The words a session is named by on screen, and whether they stand in for a missing title. */
+export interface SessionDisplayTitle {
+  readonly text: string;
+  readonly isUntitled: boolean;
 }
 
 /** The call that lists the service's sessions. */
@@ -92,3 +103,22 @@ export function offeredSessionIds(
   const alreadyOffered = new Set(offered);
   return [...offered, ...openSessionIds.filter((sessionId) => !alreadyOffered.has(sessionId))];
 }
+
+/**
+ * What a session is called wherever a surface names it: its title, or for an untitled session
+ * `New chat` on a chat and `New session` on a project, which a surface draws faint and italic.
+ */
+export function sessionDisplayTitleOf(
+  entry: Pick<SessionDirectoryEntry, "title" | "shape">,
+): SessionDisplayTitle {
+  if (entry.title !== undefined) {
+    return { text: entry.title, isUntitled: false };
+  }
+  return { text: UNTITLED_SESSION_WORDS[entry.shape], isUntitled: true };
+}
+
+// What an untitled session reads, by its shape.
+const UNTITLED_SESSION_WORDS: Readonly<Record<SessionShape, string>> = {
+  chat: "New chat",
+  project: "New session",
+};

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { Switch } from "#renderer/components/Switch/Switch.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../mcp-server-status-words.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
@@ -12,11 +13,12 @@ import type {
   McpServerInventoryEntry,
   McpWritableBindingRef,
 } from "@ai-sidekicks/contracts/mcp/mcp";
+import type { SessionDirectoryState } from "#renderer/store/session-directory/session-directory.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 import { ServerLegs } from "./ServerLegs.js";
 import { toneForServerStatus } from "../server-status-tone.js";
-import { ToolOverrideList } from "./ToolOverrideList.js";
+import { ToolSettingList } from "./ToolSettingList.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 // Where a binding a person writes applies, in the words the add form offers for each scope.
@@ -27,23 +29,33 @@ const WHERE_IT_APPLIES: Readonly<Record<McpWritableBindingRef["scope"], string>>
 };
 
 /**
- * One inventory row: the binding's identity, what is known about it, and the control this
+ * One inventory row: the binding's identity, what is known about it, and the controls this
  * fixture body sends.
  *
  * The identity is the scope-qualified tuple, never the name: two same-named servers in two
  * scopes are two bindings, so provider, where it applies and its project or plugin are all on
- * screen. The control is offered and not eligibility-gated; it disables only while its own call
- * is in flight. When the binding store is unreachable the overrides are absent from the wire, and
- * the row says so.
+ * screen. Every control is offered and none is eligibility-gated; each disables only while its
+ * own call is in flight and settles in place under itself. A control whose reading the service
+ * did not send is not drawn: `On for runs` without an `enabled`, and the per-tool rows while the
+ * binding store is unreachable, where the row says so.
  */
 export function ServerRow(props: {
   readonly entry: McpServerInventoryEntry;
+  /** The outcome of the binding's own switch. */
   readonly outcome: McpMutationOutcome;
-  readonly pending: boolean;
+  readonly toolOutcomeFor: (toolName: string) => McpMutationOutcome;
   readonly onSetEnabled: (binding: McpServerBindingRef, enabled: boolean) => void;
+  readonly onSetToolEnabled: (
+    binding: McpServerBindingRef,
+    toolName: string,
+    enabled: boolean,
+  ) => void;
+  readonly sessionDirectory: SessionDirectoryState | undefined;
 }): ReactNode {
-  const { entry, outcome, pending, onSetEnabled } = props;
+  const { entry, outcome, toolOutcomeFor, onSetEnabled, onSetToolEnabled, sessionDirectory } =
+    props;
   const binding = bindingOf(entry);
+  const { enabled } = entry;
   return (
     <li className="meridian-mcp__row">
       <div className="meridian-mcp__row-identity">
@@ -53,14 +65,20 @@ export function ServerRow(props: {
           label={MCP_SERVER_STATUS_WORDS[entry.status]}
           tone={toneForServerStatus(entry.status)}
         />
-        {entry.requiredServer === true ? <Chip label="required" tone="attention" /> : null}
+        {entry.requiredServer === true ? <Chip label="Must start for a run to start" /> : null}
       </div>
 
       <div className="meridian-mcp__row-provenance">
-        <span className="meridian-settings-page__aside">
-          {binding.scope === "plugin" ? "Declared by plugin" : WHERE_IT_APPLIES[binding.scope]}
-        </span>
-        {binding.scope === "user" ? null : <WireFigure value={binding.scopeRef} />}
+        {binding.scope === "plugin" ? (
+          <span className="meridian-settings-page__aside">
+            Declared by plugin <WireFigure value={binding.scopeRef} />
+          </span>
+        ) : (
+          <>
+            <span className="meridian-settings-page__aside">{WHERE_IT_APPLIES[binding.scope]}</span>
+            {binding.scope === "user" ? null : <WireFigure value={binding.scopeRef} />}
+          </>
+        )}
         {entry.observedAt === undefined ? (
           <span className="meridian-settings-page__aside">Never observed.</span>
         ) : (
@@ -78,34 +96,40 @@ export function ServerRow(props: {
         <ServerLegs legs={entry.legs} />
       </div>
 
-      <div className="meridian-mcp__row-block">
-        <h4 className="meridian-mcp__row-block-title">Tool overrides</h4>
-        {entry.bindingStoreUnavailable === true ? (
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title="The binding store could not be read."
-            detail="Which tools carry overrides is unknown right now — not false, and not empty."
+      {enabled === undefined ? null : (
+        <div className="meridian-mcp__row-block">
+          <Switch
+            label="On for runs"
+            checked={enabled}
+            disabled={outcome.kind === "sending"}
+            onCheckedChange={(checked) => {
+              onSetEnabled(binding, checked);
+            }}
           />
-        ) : (
-          <ToolOverrideList overrides={entry.toolOverrides} />
-        )}
-      </div>
+          <MutationOutcomeLine outcome={outcome} sessionDirectory={sessionDirectory} />
+        </div>
+      )}
 
-      <div className="meridian-mcp__row-actions">
-        <button
-          type="button"
-          className="meridian-settings-page__action meridian-action-button"
-          disabled={pending}
-          onClick={() => {
-            onSetEnabled(binding, entry.enabled !== true);
+      {entry.bindingStoreUnavailable === true ? (
+        <Nothing
+          kind="not-checked"
+          placement="block"
+          title={
+            "Per-tool settings cannot be read right now. Those controls are not drawn because " +
+            "the reading they act on did not arrive; everything else on this page is offered " +
+            "exactly as usual."
+          }
+        />
+      ) : (
+        <ToolSettingList
+          tools={entry.tools}
+          outcomeFor={toolOutcomeFor}
+          onSetToolEnabled={(toolName, toolEnabled) => {
+            onSetToolEnabled(binding, toolName, toolEnabled);
           }}
-        >
-          {entry.enabled === true ? "Disable this binding" : "Enable this binding"}
-        </button>
-      </div>
-
-      <MutationOutcomeLine outcome={outcome} />
+          sessionDirectory={sessionDirectory}
+        />
+      )}
     </li>
   );
 }

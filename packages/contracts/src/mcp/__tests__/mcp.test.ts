@@ -118,18 +118,20 @@ describe("the inventory entry", () => {
     config: { transport: "stdio", command: "npx" },
     status: "connected",
   };
-  const answered = { enabled: true, toolOverrides: [] };
+  const answered = { enabled: true, tools: [] };
 
   it("serves the arm whose binding store answered and the arm whose store did not", () => {
     expect(McpGetResponseSchema.safeParse({ server: { ...base, ...answered } }).success).toBe(true);
+    const plugin = { ...base, ...answered, scope: "plugin", scopeRef: "docs-kit" };
+    expect(McpGetResponseSchema.safeParse({ server: plugin }).success).toBe(true);
     expect(
       McpGetResponseSchema.safeParse({ server: { ...base, bindingStoreUnavailable: true } })
         .success,
     ).toBe(true);
   });
 
-  it("refuses tool overrides on an entry whose binding store did not answer", () => {
-    const invented = { ...base, bindingStoreUnavailable: true, toolOverrides: [] };
+  it("refuses tool readings on an entry whose binding store did not answer", () => {
+    const invented = { ...base, bindingStoreUnavailable: true, tools: [] };
     expect(McpGetResponseSchema.safeParse({ server: invented }).success).toBe(false);
   });
 

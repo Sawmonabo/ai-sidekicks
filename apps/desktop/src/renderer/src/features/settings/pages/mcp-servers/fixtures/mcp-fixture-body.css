@@ -50,10 +50,9 @@
 }
 
 /* Every enumeration on this card is bounded and scrolls inside its own box, so many legs,
-   overrides, names or arguments do not push the controls off the page. */
+   tools, names or arguments do not push the controls off the page. */
 .meridian-mcp__legs,
-.meridian-mcp__overrides,
-.meridian-mcp__live-results,
+.meridian-mcp__tools,
 .meridian-mcp__name-list,
 .meridian-mcp__argument-list {
   display: flex;
@@ -74,8 +73,8 @@
 }
 
 .meridian-mcp__leg,
-.meridian-mcp__override,
-.meridian-mcp__live-result {
+.meridian-mcp__tool,
+.meridian-mcp__tool-setting {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -96,4 +95,11 @@
   padding: var(--meridian-space-2);
   border-left: var(--meridian-leading-edge) solid var(--meridian-edge-strong);
   background: var(--meridian-surface-sunken);
+}
+
+/* An untitled session is named in the session list's untitled look. */
+.meridian-mcp__untitled-session {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+  font-weight: 500;
 }

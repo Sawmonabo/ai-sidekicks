@@ -1,27 +1,32 @@
 import type { ReactNode } from "react";
 
-import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import type { McpLiveApplicationResult } from "@ai-sidekicks/contracts/mcp/mcp";
+import { formatWireString } from "#renderer/lib/wire/figures.js";
+import {
+  sessionDisplayTitleOf,
+  type SessionDirectoryState,
+} from "#renderer/store/session-directory/session-directory.js";
+import { settleLineFor } from "../../change-settle-words.js";
 import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
- * What the last mutation on one binding did: where it took effect, and what happened on each
- * live leg.
+ * What the last change to one control did, in place: one line for each grade the service
+ * answered, saying when the change takes effect, then one line for each running session it
+ * failed on, named as the session list names it.
  *
- * A partial outcome renders as one: a mutation can commit durably and fail on one session's
- * leg, and one aggregate verdict would leave a session running against a binding the person
- * believes is off. `applied` renders verbatim, never as "done": `live_reconcile` reached
- * running sessions, `user_config_write` reached a file, `next_run` reaches nothing until a run
- * starts, and `daemon_enforced` binds at the daemon and touches no provider configuration. Absent
- * live results (the mutation touched no live binding) and an empty list (the daemon looked and
- * found none) are different facts with different sentences.
+ * A partial outcome reads as one: a change can be saved and still miss one running session, and
+ * a single verdict would leave that session on the old setting while the person believes it
+ * moved. No grade, outcome value, error code or session id reaches the screen.
  */
-export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcome }): ReactNode {
-  const { outcome } = props;
+export function MutationOutcomeLine(props: {
+  readonly outcome: McpMutationOutcome;
+  /** The service's sessions, which name a session the change failed on. */
+  readonly sessionDirectory: SessionDirectoryState | undefined;
+}): ReactNode {
+  const { outcome, sessionDirectory } = props;
   if (outcome.kind === "idle") {
     return null;
   }
@@ -37,53 +42,45 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
   if (outcome.kind === "refused") {
     return <InlineRefusal code={outcome.refusal.code} detail={outcome.refusal.detail} />;
   }
-  const { result } = outcome;
+  const { binding, settlement } = outcome;
+  const failedSessions = (settlement.liveResults ?? []).filter(
+    (liveResult) => liveResult.outcome === "failed",
+  );
   return (
-    <div className="meridian-mcp__outcome">
-      <p className="meridian-settings-page__state">
-        Applied as <Chip label={result.applied} mono />
-      </p>
-      {result.liveResults === undefined ? (
-        <p className="meridian-settings-page__aside">
-          The background service reported no live leg for this change — nothing was holding this
-          binding open when it was applied.
+    <div className="meridian-mcp__outcome" role="status">
+      {settlement.grades.map((grade) => (
+        <p key={grade} className="meridian-settings-page__state">
+          {settleLineFor(grade, binding.provider)}
         </p>
-      ) : (
-        renderLiveResults(result.liveResults)
-      )}
+      ))}
+      {failedSessions.map((liveResult) => (
+        <p key={mcpLiveLegKeyOf(liveResult)} className="meridian-settings-page__state">
+          {renderSessionName(liveResult, sessionDirectory)} is still running with the old setting.
+        </p>
+      ))}
     </div>
   );
 }
 
 /**
- * The per-leg outcomes, one row each, keyed by the same pair and encoder as the leg list.
- * A helper rather than a second component: one component per file.
+ * The session a change failed on, as the session list names it, an untitled one faint and
+ * italic. Where the directory does not name it, the line says only that a session did.
  */
-function renderLiveResults(results: readonly McpLiveApplicationResult[]): ReactNode {
-  if (results.length === 0) {
-    return (
-      <p className="meridian-settings-page__aside">
-        The background service reported an empty set of live legs — it looked, and there were none.
-      </p>
-    );
+function renderSessionName(
+  liveResult: McpLiveApplicationResult,
+  sessionDirectory: SessionDirectoryState | undefined,
+): ReactNode {
+  const entry =
+    sessionDirectory?.status === "served"
+      ? sessionDirectory.sessions.find((session) => session.sessionId === liveResult.sessionId)
+      : undefined;
+  if (entry === undefined) {
+    return "A session";
   }
-  return (
-    <ul className="meridian-mcp__live-results">
-      {results.map((liveResult) => (
-        <li key={mcpLiveLegKeyOf(liveResult)} className="meridian-mcp__live-result">
-          <Chip
-            label={liveResult.outcome}
-            mono
-            tone={liveResult.outcome === "applied" ? "neutral" : "failure"}
-          />
-          <span className="meridian-settings-page__aside">in session</span>
-          <WireFigure value={liveResult.sessionId} />
-          {liveResult.errorCode === undefined ? null : <WireFigure value={liveResult.errorCode} />}
-          {liveResult.detail === undefined ? null : (
-            <span className="meridian-settings-page__aside">{liveResult.detail}</span>
-          )}
-        </li>
-      ))}
-    </ul>
+  const title = sessionDisplayTitleOf(entry);
+  return title.isUntitled ? (
+    <span className="meridian-mcp__untitled-session">{title.text}</span>
+  ) : (
+    formatWireString(title.text)
   );
 }

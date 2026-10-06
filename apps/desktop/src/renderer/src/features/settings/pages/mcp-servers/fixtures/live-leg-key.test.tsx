@@ -7,11 +7,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type {
-  McpLiveApplicationResult,
-  McpServerInventoryEntry,
-  McpServerLegStatus,
-} from "@ai-sidekicks/contracts/mcp/mcp";
+import type { McpLiveApplicationResult, McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/mcp";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { duplicateKeyReports, reportsWhileReactRan } from "#test/helpers/react-reports.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
@@ -33,34 +29,16 @@ const LEGS_SHARING_A_HANDLE: readonly McpServerLegStatus[] = [
   { sessionId: SECOND_SESSION, bindingId: SHARED_BINDING_ID, status: "failed" },
 ];
 
+// Both failed, since only a session a change failed on gets a line of its own.
 const LIVE_RESULTS_SHARING_A_HANDLE: readonly McpLiveApplicationResult[] = [
-  { sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID, outcome: "applied" },
-  {
-    sessionId: SECOND_SESSION,
-    bindingId: SHARED_BINDING_ID,
-    outcome: "failed",
-    errorCode: "mcp.config_write_conflict",
-  },
+  { sessionId: FIRST_SESSION, bindingId: SHARED_BINDING_ID, outcome: "failed" },
+  { sessionId: SECOND_SESSION, bindingId: SHARED_BINDING_ID, outcome: "failed" },
 ];
-
-const SERVER_ROW: McpServerInventoryEntry = {
-  provider: "claude",
-  scope: "user",
-  serverName: "filesystem",
-  config: { transport: "stdio", command: "npx" },
-  status: "connected",
-  enabled: true,
-  toolOverrides: [],
-};
 
 const SETTLED_OUTCOME: McpMutationOutcome = {
   kind: "settled",
   binding: { provider: "claude", scope: "user", serverName: "filesystem" },
-  result: {
-    server: SERVER_ROW,
-    applied: "live_reconcile",
-    liveResults: [...LIVE_RESULTS_SHARING_A_HANDLE],
-  },
+  settlement: { grades: ["user_config_write"], liveResults: LIVE_RESULTS_SHARING_A_HANDLE },
 };
 
 describe("mcpLiveLegKeyOf", () => {
@@ -84,7 +62,7 @@ describe("the two lists that render a live leg", () => {
 
   it("gives each per-leg mutation outcome its own React identity", async () => {
     const { reported } = await reportsWhileReactRan(() =>
-      render(<MutationOutcomeLine outcome={SETTLED_OUTCOME} />),
+      render(<MutationOutcomeLine outcome={SETTLED_OUTCOME} sessionDirectory={undefined} />),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
   });

@@ -18,7 +18,9 @@ import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
+  IdempotencyClassSchema,
   MCP_SERVER_STATUS_SEVERITY_ORDER,
+  type IdempotencyClass,
   type McpServerStatus,
 } from "../provider/driver/driver.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/wire.js";
@@ -230,15 +232,39 @@ const MCP_SERVER_FAILED_REASON_VALUES = ["commandNotRunnable"] as const;
 export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[number];
 
 /**
- * One tool's override, by facet; at least one facet is present. An absent facet inherits, and a
- * client shows it as absent, never as a default it picked (the daemon's fallback for an absent
- * `idempotencyClass` is `manual_reconcile_only`).
+ * One tool's override as `mcp.setToolOverride` sets it, by facet; at least one facet is present,
+ * and an absent facet is left as it stands. What a tool reads in force is its
+ * {@link McpToolReading}.
  */
 export interface McpToolOverride {
   toolName: string;
   enabled?: boolean | undefined;
   approvalMode?: McpApprovalMode | undefined;
   idempotencyClass?: "idempotent" | "compensable" | undefined;
+}
+
+const MCP_TOOL_SETTING_SOURCE_VALUES = ["server", "override"] as const;
+
+/** Where a tool's value in force comes from: the server's own, or an override set on the page. */
+export type McpToolSettingSource = (typeof MCP_TOOL_SETTING_SOURCE_VALUES)[number];
+
+/** One per-tool value in force, as the daemon resolved it, and where it came from. */
+export interface McpToolSetting<Value> {
+  value: Value;
+  source: McpToolSettingSource;
+}
+
+/**
+ * One tool a binding's server offers, each setting in force and where it came from. The daemon
+ * resolves each one from the server's own declaration and the person's override, so a client
+ * draws them and works none of them out: an unset approval mode reads the provider's default in
+ * the normalized vocabulary, and an unset interrupted-call class reads `manual_reconcile_only`.
+ */
+export interface McpToolReading {
+  toolName: string;
+  enabled: McpToolSetting<boolean>;
+  approvalMode: McpToolSetting<McpApprovalMode>;
+  idempotencyClass: McpToolSetting<IdempotencyClass>;
 }
 
 /**
@@ -271,7 +297,7 @@ export type McpServerInventoryEntry = McpServerBindingRef &
     | {
         bindingStoreUnavailable?: undefined;
         enabled: boolean;
-        toolOverrides: McpToolOverride[];
+        tools: McpToolReading[];
       }
     | {
         bindingStoreUnavailable: true;
@@ -609,9 +635,20 @@ const inventoryFactsShape = {
   requiredServer: z.boolean().optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
+const McpToolSettingSourceSchema = z.enum(MCP_TOOL_SETTING_SOURCE_VALUES);
+const toolSettingSchema = <Value extends z.ZodType>(value: Value) =>
+  z.object({ value, source: McpToolSettingSourceSchema }).strict();
+const McpToolReadingSchema: z.ZodType<McpToolReading> = z
+  .object({
+    toolName: McpToolNameSchema,
+    enabled: toolSettingSchema(z.boolean()),
+    approvalMode: toolSettingSchema(McpApprovalModeSchema),
+    idempotencyClass: toolSettingSchema(IdempotencyClassSchema),
+  })
+  .strict();
 const storeAnsweredEntryShape = {
   enabled: z.boolean(),
-  toolOverrides: z.array(McpToolOverrideSchema),
+  tools: z.array(McpToolReadingSchema),
 };
 const bindingStoreUnavailableEntryShape = {
   bindingStoreUnavailable: z.literal(true),
@@ -631,6 +668,7 @@ const McpServerInventoryEntrySchema: z.ZodType<McpServerInventoryEntry> = z
     ...inventoryEntryArms(userBindingShape),
     ...inventoryEntryArms(projectBindingShape),
     ...inventoryEntryArms(localBindingShape),
+    ...inventoryEntryArms(pluginBindingShape),
   ])
   .refine((entry) => entry.failedReason === undefined || entry.status === "failed", {
     message: "failedReason is carried only on a failed server.",

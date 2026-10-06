@@ -28,7 +28,9 @@ function countedDirectoryCall(): CountedDirectoryCall {
     readCount: () => readCount,
     read: () => {
       readCount += 1;
-      return Promise.resolve([{ sessionId: `session-read-${String(readCount)}`, state: "active" }]);
+      return Promise.resolve([
+        { sessionId: `session-read-${String(readCount)}`, shape: "project", state: "active" },
+      ]);
     },
   };
 }
@@ -131,7 +133,7 @@ describe("offeredSessionIds — the union a view offers", () => {
   it("puts the node's sessions first and appends what only this window knows", () => {
     const directory: SessionDirectoryState = {
       status: "served",
-      sessions: [{ sessionId: "session-node", state: "active" }],
+      sessions: [{ sessionId: "session-node", shape: "project", state: "active" }],
     };
 
     expect(offeredSessionIds(directory, ["session-local"])).toStrictEqual([

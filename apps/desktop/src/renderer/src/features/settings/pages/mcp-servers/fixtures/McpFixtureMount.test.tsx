@@ -1,5 +1,5 @@
 // The MCP servers page as a fixture launch mounts it: the fixture body registered into the page,
-// its inventory read and its enablement change reaching the scenario's scripted replies through
+// its inventory read and its changes reaching the scenario's scripted replies through
 // `callDaemon`, and the re-read after a change answering with what was written.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -36,9 +36,7 @@ describe("McpFixtureMount", () => {
     );
     expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad"]);
 
-    const [enableControl] = [...container.querySelectorAll("button")].filter((button) =>
-      /this binding$/u.test(button.textContent ?? ""),
-    );
+    const [enableControl] = runSwitchesIn(container);
     if (enableControl === undefined) {
       throw new Error("the scripted inventory rendered no enablement control to press");
     }
@@ -47,7 +45,7 @@ describe("McpFixtureMount", () => {
     await settle(() => {
       fixture.scenarioEngine.advance(200);
     });
-    expect(container.textContent).toContain("next_run");
+    expect(container.textContent).toContain("Saved. The next session uses it.");
   });
 
   it("keeps a switched-off binding switched off after the inventory is read again", async () => {
@@ -61,19 +59,12 @@ describe("McpFixtureMount", () => {
       </FixtureBridgeProvider>,
     );
     await settleScheduledRead(fixture.scenarioEngine.clock);
-    const enablementControls = (): readonly string[] =>
-      [...container.querySelectorAll("button")]
-        .map((button) => button.textContent ?? "")
-        .filter((label) => /this binding$/u.test(label));
-    expect(enablementControls()).toStrictEqual([
-      "Disable this binding",
-      "Disable this binding",
-      "Enable this binding",
-    ]);
+    const enablementControls = (): readonly (string | null)[] =>
+      runSwitchesIn(container).map((control) => control.getAttribute("aria-checked"));
+    // The binding whose store could not be read sent no enablement, so it has no switch.
+    expect(enablementControls()).toStrictEqual(["true", "true"]);
 
-    const [disableControl] = [...container.querySelectorAll("button")].filter(
-      (button) => button.textContent === "Disable this binding",
-    );
+    const [disableControl] = runSwitchesIn(container);
     if (disableControl === undefined) {
       throw new Error("the scripted inventory rendered no control to switch a binding off");
     }
@@ -84,10 +75,14 @@ describe("McpFixtureMount", () => {
     });
     await settleScheduledRead(fixture.scenarioEngine.clock);
 
-    expect(enablementControls()).toStrictEqual([
-      "Enable this binding",
-      "Disable this binding",
-      "Enable this binding",
-    ]);
+    expect(enablementControls()).toStrictEqual(["false", "true"]);
   });
 });
+
+/** Each row's `On for runs` switch, in row order. */
+function runSwitchesIn(container: HTMLElement): readonly HTMLElement[] {
+  return [...container.querySelectorAll(".meridian-switch__label")]
+    .filter((label) => label.textContent === "On for runs")
+    .map((label) => label.querySelector('[role="switch"]'))
+    .filter((control): control is HTMLElement => control instanceof HTMLElement);
+}

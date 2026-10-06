@@ -11,7 +11,7 @@ import type { SessionListRow } from "./session-rows.js";
 function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
   return {
     status: "served",
-    sessions: sessionIds.map((sessionId) => ({ sessionId, state: "active" })),
+    sessions: sessionIds.map((sessionId) => ({ sessionId, shape: "project", state: "active" })),
   };
 }
 

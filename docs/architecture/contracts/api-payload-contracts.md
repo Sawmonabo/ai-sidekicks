@@ -8372,8 +8372,8 @@ interface McpServerLegStatus {
 // config, live status (McpServerStatus, §Plans 003, 004 And 005 seam), the binding row, the override
 // rows. A DISCRIMINATED PAIR on bindingStoreUnavailable (Spec-024 §Fallback Behavior): the normal arm serves
 // all four sources; the degraded arm (binding store unreachable) serves the provider-observed sources
-// only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (toolOverrides and
-// the Claude enabled overlay live in the unreachable store).
+// only, with every store-dependent field STRUCTURALLY ABSENT rather than fabricated (tools, whose
+// sources need the override rows, and the Claude enabled overlay live in the unreachable store).
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
   config: McpServerConfigView; // the redacted normalized declaration (see above)
@@ -8386,7 +8386,7 @@ type McpServerInventoryEntry = McpServerBindingRef & {
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
         enabled: boolean; // provider-declared enabled state composed with the daemon's Claude enabled overlay (the overlay lives on the binding row)
-        toolOverrides: McpToolOverride[];
+        tools: McpToolReading[]; // every tool the server offers, in the order the daemon serves them
       }
     | {
         bindingStoreUnavailable: true; // degraded read: binding store unreachable — mutations fail closed (Spec-024 §Fallback Behavior)
@@ -8394,14 +8394,32 @@ type McpServerInventoryEntry = McpServerBindingRef & {
       }
   );
 
-// At least one facet is REQUIRED — a toolName-only override is meaningless and the canonical DDL
-// rejects the all-NULL row, so the Zod mirror refines "enabled, approvalMode, or idempotencyClass
-// present" and a facet-less request dies as a typed validation error, never a constraint failure.
+// One tool's settings as the page draws them, every per-tool value saying where it came from: each
+// facet's value IN FORCE, resolved by the daemon from the server's own declaration and the person's
+// override row, and its source — "server" (`The server's own`) or "override" (`Set here`). The
+// client draws both and derives neither.
+type McpToolSettingSource = "server" | "override";
+interface McpToolSetting<Value> {
+  value: Value;
+  source: McpToolSettingSource;
+}
+interface McpToolReading {
+  toolName: string;
+  enabled: McpToolSetting<boolean>; // with no override: the provider config (for Codex, the preserved native baseline)
+  approvalMode: McpToolSetting<McpApprovalMode>; // with no override: the provider default, in the normalized vocabulary
+  idempotencyClass: McpToolSetting<IdempotencyClass>; // with no override: the manual_reconcile_only floor
+}
+
+// The override REQUEST shape (mcp.setToolOverride): the facets the request touches; an absent facet
+// is left as it stands. At least one facet is REQUIRED — a toolName-only override is meaningless and
+// the canonical DDL rejects the all-NULL row, so the Zod mirror refines "enabled, approvalMode, or
+// idempotencyClass present" and a facet-less request dies as a typed validation error, never a
+// constraint failure.
 interface McpToolOverride {
   toolName: string;
-  enabled?: boolean; // absent = inherit provider config (for Codex-materialized facets, "provider config" means the preserved native baseline — a clear restores it; Spec-024 §Tool-Level Overrides)
-  approvalMode?: McpApprovalMode; // absent = provider default
-  idempotencyClass?: "idempotent" | "compensable"; // absent = the Spec-004 §Tool Metadata manual_reconcile_only floor
+  enabled?: boolean;
+  approvalMode?: McpApprovalMode;
+  idempotencyClass?: "idempotent" | "compensable";
 }
 
 // Per-facet application grades for override mutations (Spec-024 §Tool-Level Overrides): Codex
