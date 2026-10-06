@@ -7306,10 +7306,13 @@ interface WorkflowHumanFormDraftSaveResponse {
 // counter (its store initializes at 1); that counter guards draft saves only and is
 // never this submit token, which derives from the step's stored output alone (`workflow_steps`).
 interface WorkflowHumanFormSubmitRequest extends WorkflowStepKey {
-  // One value per field of the form's input schema. A form has no artifact field: a
-  // value that names a file or folder is a `path` field, picked through the platform's
-  // own chooser.
+  // One value per field of the form's input schema, except a `path` field's. A form has
+  // no artifact field: a value that names a file or folder is a `path` field, picked
+  // through the platform's own chooser, and its answer rides `paths`.
   fields: Record<string, unknown>;
+  // One answer per `path` field, at most once each; `field` is its dotted place in the
+  // form (`target.0.folder`). Main's relay swaps the picker's token for the path here.
+  paths?: { field: string; path: string }[];
   expectedRevision: number;
 }
 interface WorkflowHumanFormSubmitResponse {
