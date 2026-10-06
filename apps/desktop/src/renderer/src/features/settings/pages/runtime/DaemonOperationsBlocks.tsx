@@ -23,17 +23,15 @@ import { useCallback, useState, type ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { formatByteQuantity, formatClockTime, formatPercent } from "#renderer/lib/wire/figures.js";
 import type { Refusal } from "#renderer/lib/refusal/refusal.js";
 import { SettingsFact } from "../../components/SettingsFact.js";
 import type { SettingsPageContext } from "../../types.js";
-import {
-  useDaemonStatus,
-  type DaemonOperations,
-  type DaemonStatusReading,
-} from "./hooks/useDaemonStatus.js";
+import type { DaemonOperations, DaemonStatusReading } from "./daemon-status-read.js";
+import { useDaemonStatus } from "./hooks/useDaemonStatus.js";
 import {
   useDaemonControl,
   type DaemonControl,
@@ -94,7 +92,6 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
   // Read after the controls: their settlements are one of the two facts that stale the
   // answer (see `hooks/useDaemonStatus.ts`).
   const status = useDaemonStatus(
-    props.context.bridge,
     { connection: mainProcessState.connection, settledControlCount: control.settledCount },
     props.operations,
   );
@@ -107,7 +104,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     <>
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Reported status</h3>
-        {renderStatusRegion(status)}
+        {renderStatusRegion(status.reading, status.checkAgain)}
       </section>
 
       <section className="meridian-settings-page__block">
@@ -163,8 +160,11 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
   );
 }
 
-/** The daemon's own status line, on whichever of the read's three phases applies. */
-function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
+/**
+ * The daemon's own status line, on whichever of the read's three phases applies, with
+ * `Check again` beside a settled reading.
+ */
+function renderStatusRegion(reading: DaemonStatusReading, checkAgain: () => void): ReactNode {
   switch (reading.phase) {
     case "reading":
       return (
@@ -180,34 +180,37 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
       );
     case "read":
       return (
-        <dl className="meridian-settings-page__facts">
-          <SettingsFact term="Reported state">
-            <WireFigure value={reading.status.processState} />
-          </SettingsFact>
-          <SettingsFact term="Version">
-            <WireFigure value={reading.status.version} />
-          </SettingsFact>
-          <SettingsFact term="Processor">
-            {renderUsageReading(
-              reading.status.processor === null
-                ? undefined
-                : {
-                    figure: formatPercent(reading.status.processor.percent / 100),
-                    readAt: reading.status.processor.readAt,
-                  },
-            )}
-          </SettingsFact>
-          <SettingsFact term="Memory">
-            {renderUsageReading(
-              reading.status.memory === null
-                ? undefined
-                : {
-                    figure: formatByteQuantity(reading.status.memory.residentBytes).text,
-                    readAt: reading.status.memory.readAt,
-                  },
-            )}
-          </SettingsFact>
-        </dl>
+        <>
+          <dl className="meridian-settings-page__facts">
+            <SettingsFact term="Reported state">
+              <WireFigure value={reading.status.processState} />
+            </SettingsFact>
+            <SettingsFact term="Version">
+              <WireFigure value={reading.status.version} />
+            </SettingsFact>
+            <SettingsFact term="Processor">
+              {renderUsageReading(
+                reading.status.processor === null
+                  ? undefined
+                  : {
+                      figure: formatPercent(reading.status.processor.percent / 100),
+                      readAt: reading.status.processor.readAt,
+                    },
+              )}
+            </SettingsFact>
+            <SettingsFact term="Memory">
+              {renderUsageReading(
+                reading.status.memory === null
+                  ? undefined
+                  : {
+                      figure: formatByteQuantity(reading.status.memory.residentBytes).text,
+                      readAt: reading.status.memory.readAt,
+                    },
+              )}
+            </SettingsFact>
+          </dl>
+          <TryAgainButton word="Check again" onPress={checkAgain} />
+        </>
       );
     case "failed":
       return (
@@ -216,6 +219,7 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           placement="block"
           title="The background service is not answering."
           detail={reading.refusal.detail}
+          action={<TryAgainButton onPress={checkAgain} />}
         />
       );
   }
@@ -258,7 +262,7 @@ function renderControlConfirm(
           type="button"
           className={
             "meridian-settings-page__action " +
-            "meridian-settings-page__action--primary meridian-action-button"
+            "meridian-settings-page__action--destructive meridian-action-button"
           }
           disabled={isDispatched}
           title={dispatchedReason}

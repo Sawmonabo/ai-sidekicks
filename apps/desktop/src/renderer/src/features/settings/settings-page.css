@@ -134,6 +134,13 @@
   color: var(--meridian-accent);
 }
 
+/* The act a confirm asks about when it ends work: the palette's red on text and edge only, as
+   the shared destructive face draws it, and only while enabled, so a closed one fades. */
+.meridian-settings-page__action--destructive:enabled {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}
+
 .meridian-settings-page__progress-label {
   color: var(--meridian-text);
 }

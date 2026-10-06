@@ -2,12 +2,17 @@
 //
 // Shared by the suites beside it. The operations are built once per mount because the status
 // answer is held against the bridge that produced it; a bridge rebuilt per render would make
-// a re-read case read as a re-read that never happened.
+// a re-read case read as a re-read that never happened. The page runs on a frozen clock under
+// the bridge provider, so a case moves its reads past the scheduler's window itself.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "#renderer/services/platform/platform-bridge.fixture.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "#test/helpers/settle.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { NEVER_SETTLES } from "#test/helpers/abandoned-pass.js";
 import type { MainProcessState } from "#shared/daemon/daemon-status-topic.js";
@@ -15,7 +20,7 @@ import { UNREPORTED_MAIN_PROCESS_STATE } from "#renderer/store/window/main-proce
 import { settingsPageContextWith } from "#test/helpers/settings-page-mount.js";
 import { DaemonOperationsBlocks } from "./DaemonOperationsBlocks.js";
 import { RuntimePage } from "./RuntimePage.js";
-import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
+import type { DaemonOperations } from "./daemon-status-read.js";
 
 /** The calls a case wants to see, in the order they were made. */
 export interface ControlLedger {
@@ -35,6 +40,8 @@ export interface MountedRuntimePage {
   readonly ledger: ControlLedger;
   /** Re-render the page under a different supervisor state, over the same bridge. */
   readonly showMainProcessState: (next: MainProcessState) => void;
+  /** Move the page's clock past the read scheduler's window and let every read settle. */
+  readonly settleReads: () => Promise<void>;
 }
 
 /** Mount the page with its call-bearing blocks over scripted operations. */
@@ -51,6 +58,7 @@ export function renderRuntimePage(options: {
 }): MountedRuntimePage {
   const ledger: ControlLedger = { calls: [], statusReads: [] };
   const { bridge } = createFixtureBridge({ scenario: unscriptedScenario("runtime-page") });
+  const clock = new ManualClock();
   const holdOpen = async (): Promise<void> => {
     if (options.holdsControls === true) {
       await NEVER_SETTLES;
@@ -75,9 +83,11 @@ export function renderRuntimePage(options: {
   const pageUnder = (mainProcessState: MainProcessState): ReactNode => {
     const context = settingsPageContextWith(bridge, undefined, { mainProcessState });
     return (
-      <RuntimePage context={context}>
-        <DaemonOperationsBlocks context={context} operations={operations} />
-      </RuntimePage>
+      <PlatformBridgeProvider bridge={bridge} clock={clock}>
+        <RuntimePage context={context}>
+          <DaemonOperationsBlocks context={context} operations={operations} />
+        </RuntimePage>
+      </PlatformBridgeProvider>
     );
   };
   const { container, rerender } = render(
@@ -88,6 +98,12 @@ export function renderRuntimePage(options: {
     ledger,
     showMainProcessState: (next) => {
       rerender(pageUnder(next));
+    },
+    settleReads: async () => {
+      await act(async () => {
+        clock.advance(PAST_REFRESH_DEBOUNCE_MS);
+        await crossMacrotaskBoundary();
+      });
     },
   };
 }

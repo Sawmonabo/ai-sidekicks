@@ -1,12 +1,13 @@
 /* The settings screen's own styles: the rail, the search field and the pane. A page body's
  * chrome is in `settings-page.css` and a page's own controls are in that page's sibling
- * sheet. Every value is a Meridian token but the rail's fixed width and the collapse point, both
- * explained below.
+ * sheet. Every value is a Meridian token but the rail's width and the collapse point. The rail
+ * is 13.5rem, 216px at the default text size: root-relative like every chrome width, so it grows
+ * with the text size.
  */
 
 .meridian-settings {
   display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-columns: 13.5rem minmax(0, 1fr);
   gap: var(--meridian-space-6);
   align-items: start;
   padding: var(--meridian-space-6);
@@ -22,11 +23,11 @@
 }
 
 /* The two panes become one column before the reflow floor, because they cannot both hold a
- * measure there: the rail's fixed 216px, the 2rem gutter and the screen's own 2rem padding on
- * each side already come to 312px, and the whole viewport at the floor is 320px minus the
- * frame's rail, at least 52px at the default text size. Stacking keeps WCAG 2.2 SC 1.4.10 true
- * at that width; the rail stops sticking with it, since a sticky rail above a stacked pane would
- * hold scarce vertical room for a list a person has finished with.
+ * measure there: the 13.5rem rail, the 2rem gutter and the screen's own 2rem padding on each side
+ * come to 19.5rem, 312px at the default text size and more at a larger one, while the whole
+ * viewport at the floor is 320px less the frame's 3.25rem rail. Stacking keeps WCAG 2.2
+ * SC 1.4.10 true at that width; the rail stops sticking with it, since a sticky rail above a
+ * stacked pane would hold scarce vertical room for a list a person has finished with.
  *
  * 60rem is the collapse point `features/agents/library/agent-library.css` already uses; the
  * console has one floor and one collapse point.
