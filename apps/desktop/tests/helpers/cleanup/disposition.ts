@@ -6,7 +6,7 @@
 // Outcomes a later launch can feel raise; a tree that was SIGKILLed and is therefore gone is only
 // a breadcrumb. `cleanupFailure` draws that line once.
 
-import { describeFailure } from "#main/services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 
 import { type CleanupOutcome, type ClosableApplication } from "./contract.js";
 import { type ProfileRemovalFailure } from "../launch/profile.js";

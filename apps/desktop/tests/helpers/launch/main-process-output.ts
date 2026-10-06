@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { MAIN_DIAGNOSTIC_LOG_FILE_NAME } from "#main/services/diagnostic-log.js";
-import { describeFailure } from "#main/services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { PROFILE_LOGS_FOLDER_NAME } from "#main/services/install-profile.js";
 
 /** How much of each record a failed launch carries: its end, where a startup failure is written. */

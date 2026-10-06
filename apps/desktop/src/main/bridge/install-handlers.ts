@@ -27,7 +27,7 @@ import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows
 import type { DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";

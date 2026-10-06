@@ -24,7 +24,7 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
-import { errorText } from "./document.mts";
+import { describeFailure } from "#shared/failure-message.ts";
 import { DESKTOP_PACKAGE_ROOT, type BudgetRegistry } from "./registry.mts";
 import {
   BudgetSubjectMissingError,
@@ -162,7 +162,7 @@ export class RendererBundleMeasurer {
     } catch (manifestError) {
       this.#refuse(
         `no readable chunk manifest at ${RENDERER_MANIFEST_RELATIVE_PATH} ` +
-          `(${errorText(manifestError)})`,
+          `(${describeFailure(manifestError)})`,
       );
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -189,7 +189,7 @@ export class RendererBundleMeasurer {
       // Counting a named-but-unreadable file as zero bytes would be a silent under-count.
       this.#refuse(
         `the chunk manifest names ${relativePath}, which the output tree cannot give ` +
-          `(${errorText(readError)})`,
+          `(${describeFailure(readError)})`,
       );
     }
     return {

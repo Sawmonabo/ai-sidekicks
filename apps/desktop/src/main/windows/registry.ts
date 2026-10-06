@@ -36,7 +36,7 @@ import type { WindowDefaultSizes } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
 import { newWindowBounds } from "./places/new-bounds.js";
 import type { WindowPlace, WindowPlaceFile } from "./places/file.js";

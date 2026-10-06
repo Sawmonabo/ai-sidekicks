@@ -11,7 +11,10 @@
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./scripts",
+    // The package root, not `./scripts`: a script imports `src/shared/` modules through `#shared`
+    // (the one failure formatter), and a `noEmit` pass still refuses a file outside `rootDir`
+    // (TS6059). Nothing is emitted, so the wider root changes no output path.
+    "rootDir": ".",
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.
     "composite": false,
@@ -25,7 +28,7 @@
     "allowImportingTsExtensions": true
   },
   "include": ["scripts/**/*"],
-  // The executables' tests and their support import shared test helpers from `tests/helpers/`,
-  // outside `rootDir`; `tsconfig.test.json` typechecks them.
+  // The executables' tests and their support import shared test helpers from `tests/helpers/`;
+  // `tsconfig.test.json` typechecks them.
   "exclude": ["dist", "out", "node_modules", "scripts/**/*.test.ts", "scripts/**/*.test-support.ts"]
 }

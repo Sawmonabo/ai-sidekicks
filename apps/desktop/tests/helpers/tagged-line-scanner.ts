@@ -2,7 +2,7 @@
 // unfinished tail is carried into the next chunk; use one scanner per stream, since sharing one
 // would splice the tail of stdout onto the head of stderr.
 
-import { describeFailure } from "#main/services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 
 /** Returns the text after `tag` on every line a chunk completes. */
 export class TaggedLineScanner {

@@ -4,6 +4,7 @@
 // process or half a partition.
 
 import { RealClock } from "#renderer/lib/clock.js";
+import { describeFailure } from "#shared/failure-message.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
@@ -55,7 +56,7 @@ export class EntityProjectionRunner {
         severity: "error",
         source: "store/session",
         kind: "projector-threw",
-        detail: `${event.kind}: ${error instanceof Error ? error.message : String(error)}`,
+        detail: `${event.kind}: ${describeFailure(error)}`,
       });
       return undefined;
     }

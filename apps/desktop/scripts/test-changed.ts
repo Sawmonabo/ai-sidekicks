@@ -29,6 +29,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 
+import { describeFailure } from "#shared/failure-message.ts";
+
 const LOG_PREFIX = "[test-changed]";
 
 const USAGE =
@@ -179,7 +181,7 @@ async function forwardedFileFilters(forwarded: readonly string[]): Promise<reado
   } catch (error) {
     process.stderr.write(
       `${LOG_PREFIX} vitest cannot read these arguments: ` +
-        `${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`,
+        `${describeFailure(error)}\n${USAGE}\n`,
     );
     process.exit(MISUSE_EXIT_CODE);
   }

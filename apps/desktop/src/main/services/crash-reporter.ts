@@ -15,7 +15,7 @@ import {
 import type { CrashReporter } from "electron";
 
 import type { MainDiagnosticLog } from "./diagnostic-log.js";
-import { describeFailure } from "./failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "./missing-path.js";
 
 /** What the crash reporter reads the settings file through and starts Crashpad with. */

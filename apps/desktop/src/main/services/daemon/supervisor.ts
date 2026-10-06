@@ -44,7 +44,7 @@ import type {
   MainProcessState,
 } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import { describeFailure } from "../failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/status.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";

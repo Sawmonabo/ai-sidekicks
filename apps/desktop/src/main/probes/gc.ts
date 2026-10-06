@@ -18,7 +18,7 @@ import { queryObjects } from "node:v8";
 
 import { GC_PROBE_TAG } from "#shared/probe-tags.js";
 
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { firstWindowContents } from "./first-window-contents.js";
 
 /** GC cycles per run. Twenty is enough for a retention leak to show as drift. */

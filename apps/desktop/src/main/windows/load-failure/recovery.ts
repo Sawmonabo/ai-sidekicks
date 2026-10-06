@@ -9,7 +9,7 @@ import {
   reportUnwrittenDiagnostics,
   type MainDiagnosticLog,
 } from "../../services/diagnostic-log.js";
-import { describeFailure } from "../../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { buildLoadFailureUrl } from "./document.js";
 
 /**

@@ -11,7 +11,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appeara
 import type { KeptAppearance } from "./appearance/kept-record.js";
 import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
-import { describeFailure } from "./services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 
 const IS_MACOS = process.platform === "darwin";
 

@@ -52,7 +52,7 @@ import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
 import { NOT_CONNECTED_MESSAGE, type DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor, ServiceEndingMethod } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { copiedFilePaths, mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
 import type { FilePathRefOwner, FilePathRefs } from "./file-path/refs.js";
 import type { PastedImages } from "./native/file-intake.js";

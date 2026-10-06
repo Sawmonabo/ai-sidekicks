@@ -28,7 +28,7 @@ import {
   renderLoadFailureDocument,
 } from "../../windows/load-failure/document.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import { describeFailure } from "../failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../missing-path.js";
 import { resolveRendererAsset } from "./assets.js";
 import { stampRootElement, type RootStamp } from "./root-stamp.js";

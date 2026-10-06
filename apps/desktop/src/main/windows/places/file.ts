@@ -16,7 +16,7 @@ import * as z from "zod/mini";
 import { isConsoleWindowId } from "#shared/window/frame-name.js";
 
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
-import { describeFailure } from "../../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import { writeOwnerOnlyJsonFileSync } from "../../services/owner-only-file.js";
 import { isPlainObject } from "../../services/plain-object.js";

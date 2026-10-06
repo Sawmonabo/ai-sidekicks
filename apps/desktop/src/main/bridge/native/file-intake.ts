@@ -11,7 +11,7 @@ import path from "node:path";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
-import { describeFailure } from "../../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import { OWNER_ONLY_FILE_MODE, OWNER_ONLY_FOLDER_MODE } from "../../services/owner-only-file.js";
 import type { FilePathRefOwner, FilePathRefs } from "../file-path/refs.js";

@@ -18,6 +18,7 @@
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
+import { describeFailure } from "#shared/failure-message.js";
 import {
   diagnosticStampAt,
   windowDiagnosticCapture,
@@ -126,7 +127,7 @@ export class OpenSessionEntry {
           severity: "error",
           source: "store/session",
           kind: "apply-drain-failed",
-          detail: `session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+          detail: `session ${sessionId}: ${describeFailure(error)}`,
         });
       },
       ...(options.applyCoalesceMs === undefined ? {} : { coalesceMs: options.applyCoalesceMs }),

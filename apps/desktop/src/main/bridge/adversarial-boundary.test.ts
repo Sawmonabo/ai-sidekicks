@@ -40,7 +40,7 @@ import {
   scriptedConnection,
   type ScriptedConnection,
 } from "./daemon.test-support.js";
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { PASTED_IMAGES_FOLDER_NAME } from "./native/file-intake.js";
 import type { WindowHandlerContext } from "./window.js";
 

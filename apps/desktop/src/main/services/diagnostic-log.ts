@@ -21,7 +21,7 @@
 import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { describeFailure } from "./failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "./missing-path.js";
 import { OWNER_ONLY_FILE_MODE, OWNER_ONLY_FOLDER_MODE } from "./owner-only-file.js";
 

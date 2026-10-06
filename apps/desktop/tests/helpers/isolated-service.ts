@@ -15,7 +15,7 @@ import path from "node:path";
 import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { onTestFinished } from "vitest";
 
-import { describeFailure } from "#main/services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { spawnManagedChild } from "./electron/child/spawner.js";
 import { PACKAGE_ROOT } from "./fixture/bundle.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";

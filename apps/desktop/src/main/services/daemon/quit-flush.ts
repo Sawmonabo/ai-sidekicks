@@ -16,7 +16,7 @@ import {
   type DiagnosticLogFailureReporter,
   type MainDiagnosticLog,
 } from "../diagnostic-log.js";
-import { describeFailure } from "../failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 import { SERVICE_FLUSH_WAIT_MS } from "./supervisor.js";
 
 const LOG_SOURCE = "main/services/daemon";

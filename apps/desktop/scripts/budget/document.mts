@@ -6,6 +6,8 @@ import { readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { describeFailure } from "#shared/failure-message.ts";
+
 /**
  * The only registry revision this reader accepts. An older document is refused rather than
  * defaulted, because a default would answer registry queries wrongly instead of loudly.
@@ -156,7 +158,7 @@ export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
     text = readFileSync(budgetsFilePath, "utf8");
   } catch (readError) {
     throw new BudgetRegistryError(
-      `Cannot read the budget registry at ${budgetsFilePath}: ${errorText(readError)}`,
+      `Cannot read the budget registry at ${budgetsFilePath}: ${describeFailure(readError)}`,
       { cause: readError },
     );
   }
@@ -166,7 +168,7 @@ export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
     parsed = JSON.parse(text);
   } catch (parseError) {
     throw new BudgetRegistryError(
-      `${budgetsFilePath} is not valid JSON: ${errorText(parseError)}`,
+      `${budgetsFilePath} is not valid JSON: ${describeFailure(parseError)}`,
       { cause: parseError },
     );
   }
@@ -178,9 +180,4 @@ export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
     );
   }
   return result.data;
-}
-
-/** The message of a caught failure, for a refusal that names its cause. */
-export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -4,7 +4,7 @@
 // page reads what failed and the system's code, and main's log keeps the whole message. Every
 // other failure is one main wrote for the page and crosses by its own message.
 
-import { describeFailure } from "../services/failure-message.js";
+import { describeFailure } from "#shared/failure-message.js";
 
 /** The members that mark a failure the operating system raised, or a program main ran. */
 const SYSTEM_FAILURE_MEMBERS = ["syscall", "path", "errno", "cmd"] as const;
