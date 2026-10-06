@@ -7,7 +7,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
 import type { SettingsPageContext } from "#renderer/features/settings/types.js";
 import { MountedFolderRow } from "./MountedFolderRow.js";

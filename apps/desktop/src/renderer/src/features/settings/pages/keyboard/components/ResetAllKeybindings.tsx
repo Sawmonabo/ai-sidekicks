@@ -54,7 +54,7 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
       <button
         type="button"
         className={
-          "meridian-keymap__reset-all meridian-action-button " + "meridian-action-button--compact"
+          "meridian-keymap__reset-all meridian-action-button meridian-action-button--compact"
         }
         aria-label={
           `Reset ${formatCount(props.changedRows.length)} changed chords to the ones the app ` +

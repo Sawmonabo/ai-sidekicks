@@ -150,8 +150,8 @@ export class WindowStore {
   }
 
   /**
-   * Record what the main process says about itself. Compared first: the subscription answers with
-   * a fresh object per frame, so a heartbeat would otherwise re-render every reader.
+   * Record what the main process says about itself. Compared first: every frame is a fresh
+   * object, so a report equal to the last would otherwise re-render every reader.
    */
   public publishMainProcessReport(report: MainProcessState): void {
     const { mainProcessState } = this.#store.getState();

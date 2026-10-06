@@ -1,4 +1,4 @@
-import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
 import { describeDefinitionSettlement, type AgentDefinitionReading } from "../definition-rows.js";
 
 /**

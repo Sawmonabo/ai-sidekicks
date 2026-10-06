@@ -7,7 +7,6 @@
 import { lossyStringify } from "#renderer/lib/wire/errors.js";
 
 import { KeyedRegistry } from "#renderer/lib/keyed-registry.js";
-import { COMMAND_PALETTE_RECENTS_CAP } from "./palette-caps.js";
 import type { CommandDefinition } from "./types.js";
 import {
   compareCommandsForDisplay,
@@ -149,3 +148,6 @@ export class CommandRegistry {
       : rankCommandsForQuery(visibleCommands, trimmedQuery, recentRankById);
   }
 }
+
+/** How many recently run commands the palette remembers. */
+const COMMAND_PALETTE_RECENTS_CAP = 8;

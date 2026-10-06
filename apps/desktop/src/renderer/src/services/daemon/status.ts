@@ -46,7 +46,10 @@ function reachabilityOf(
     case "connecting":
     case "starting":
       return undefined;
-    default:
+    case "transient_disconnect":
+    case "unknown":
+    case "degraded":
+    case "stopped":
       return "unreachable";
   }
 }

@@ -1,4 +1,4 @@
-import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
+import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
 import type { AttentionReading } from "#renderer/store/attention/attention-summary.js";
 import { describeAttentionSettlement } from "../attention-sentences.js";
 
