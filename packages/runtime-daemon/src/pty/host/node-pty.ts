@@ -71,9 +71,6 @@ export type NodePtySpawnFn = (
 /** Windows console-control event codes per Win32 `GenerateConsoleCtrlEvent`. */
 export type ConsoleCtrlEvent = 0 | 1; // CTRL_C_EVENT | CTRL_BREAK_EVENT
 
-/** Result of a `taskkill` run; both PTY backends share it. */
-export type { TaskkillResult };
-
 /**
  * Effectful primitives `NodePtyHost` reaches through, all injectable so tests run on every
  * platform with `vi.fn()` doubles. Callers pass `Partial<NodePtyHostDeps>` to the constructor;

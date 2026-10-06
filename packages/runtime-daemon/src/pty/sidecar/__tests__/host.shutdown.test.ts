@@ -273,8 +273,8 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
   );
 
   it(
-    "bounds the Windows tree-kill escalation by 5 " +
-      "s wall-clock when spawnTaskkill never settles",
+    "bounds the Windows tree-kill escalation by 5 s " +
+      "wall-clock when spawnTaskkill never settles",
     async () => {
       // Even if `taskkill.exe` never returns, `escalateHardKillTree` gives up after 5 s and the
       // drain resolves. Without that bound this test would hang past vitest's 5 s test timeout.

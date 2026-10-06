@@ -6,12 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { NodePtyHost } from "../node-pty.js";
-import type {
-  ConsoleCtrlEvent,
-  NodePtyChild,
-  NodePtySpawnFn,
-  TaskkillResult,
-} from "../node-pty.js";
+import type { ConsoleCtrlEvent, NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
+import type { TaskkillResult } from "../../taskkill-windows.js";
 import { makeFakeChild } from "../../__fixtures__/child-doubles.js";
 import type { SpawnRequest } from "../protocol.js";
 
