@@ -76,9 +76,14 @@ export class KeptAppearance {
     return this.#record.scheme;
   }
 
+  /** The scheme the platform draws in now: the one chosen, or the system's under `system`. */
+  public get resolvedScheme(): ColorScheme {
+    return this.#nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  }
+
   /** The ground a window's first frame is painted in, for the scheme in force now. */
   public get ground(): string {
-    return this.#record.grounds[this.#resolvedScheme()];
+    return this.#record.grounds[this.resolvedScheme];
   }
 
   /**
@@ -141,10 +146,6 @@ export class KeptAppearance {
       this.#notify();
     }
     this.#isWriting = false;
-  }
-
-  #resolvedScheme(): ColorScheme {
-    return this.#nativeTheme.shouldUseDarkColors ? "dark" : "light";
   }
 
   #notify(): void {

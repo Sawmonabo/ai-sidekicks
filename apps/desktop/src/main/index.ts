@@ -185,7 +185,7 @@ function startApplication(): void {
           return appearance.record;
         },
         get platformScheme() {
-          return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+          return appearance.resolvedScheme;
         },
         get isSafeStart() {
           return openWindows.isSafeStart;
