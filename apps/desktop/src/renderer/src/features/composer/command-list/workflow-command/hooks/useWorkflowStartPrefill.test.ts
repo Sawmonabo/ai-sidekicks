@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("the palette entry", () => {
   it("does not write over unsent text, and names what would go", () => {
-    // An unconditional write left `/workflow start ` with the message gone.
+    // An unconditional write left `/workflow run ` with the message gone.
     const { draftStore, rendered } = mountComposerLine("ship the parser fix");
 
     pressPaletteRow();

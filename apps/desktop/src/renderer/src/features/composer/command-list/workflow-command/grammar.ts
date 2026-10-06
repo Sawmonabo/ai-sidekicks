@@ -1,6 +1,6 @@
 // The one command root the composer registers for workflows, and how its line reads:
-// `/workflow start <name>`. The recognizer is handed only the first word, so a registered id
-// containing a space would be unreachable and `workflow.start` would parse the documented form as
+// `/workflow run <name>`. The recognizer is handed only the first word, so a registered id
+// containing a space would be unreachable and `workflow.run` would parse the documented form as
 // the unregistered name `workflow`. A second verb is a second word here, not a second id. An
 // unrecognized verb is its own reading, never read as the name of a workflow.
 
@@ -10,19 +10,19 @@ import { readSlashCommandName, splitFirstWord } from "../../slash-command-syntax
 export const WORKFLOW_COMMAND_ROOT = "workflow";
 
 /** Every verb the root takes. A tuple, so the vocabulary is declared once and reaches the copy. */
-export const WORKFLOW_COMMAND_VERBS = ["start"] as const;
+export const WORKFLOW_COMMAND_VERBS = ["run"] as const;
 
 /** One such verb. Derived, so nothing restates the set. */
 export type WorkflowCommandVerb = (typeof WORKFLOW_COMMAND_VERBS)[number];
 
-const [START_VERB] = WORKFLOW_COMMAND_VERBS;
+const [RUN_VERB] = WORKFLOW_COMMAND_VERBS;
 
 /** What the palette entry types for somebody who found the command there. */
-export const WORKFLOW_START_COMMAND_PREFILL: string = `/${WORKFLOW_COMMAND_ROOT} ${START_VERB} `;
+export const WORKFLOW_RUN_COMMAND_PREFILL: string = `/${WORKFLOW_COMMAND_ROOT} ${RUN_VERB} `;
 
-/** What a line naming the workflow root reads as: no verb, an unknown verb, or `start`. */
+/** What a line naming the workflow root reads as: no verb, an unknown verb, or `run`. */
 export type WorkflowCommandReading =
-  | { readonly status: "start"; readonly definitionName: string | undefined }
+  | { readonly status: "run"; readonly definitionName: string | undefined }
   | { readonly status: "verb-missing" }
   | { readonly status: "verb-unknown"; readonly verb: string };
 
@@ -45,7 +45,7 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
     return { status: "verb-unknown", verb };
   }
   const argument = rest.trim();
-  return { status: "start", definitionName: argument.length === 0 ? undefined : argument };
+  return { status: "run", definitionName: argument.length === 0 ? undefined : argument };
 }
 
 /**
@@ -53,8 +53,8 @@ export function readWorkflowCommandLine(lineText: string): WorkflowCommandReadin
  *
  * @consumedBy the composer's workflow candidate list
  */
-export function workflowStartLineFor(definitionName: string): string {
-  return `${WORKFLOW_START_COMMAND_PREFILL}${definitionName}`;
+export function workflowRunLineFor(definitionName: string): string {
+  return `${WORKFLOW_RUN_COMMAND_PREFILL}${definitionName}`;
 }
 
 /** Whether one word is a verb this root takes. Narrows, so no caller re-tests it. */

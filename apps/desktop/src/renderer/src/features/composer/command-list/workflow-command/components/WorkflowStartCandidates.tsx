@@ -1,4 +1,4 @@
-// The definitions a half-typed `/workflow start <name>` could still become, offered as a list while
+// The definitions a half-typed `/workflow run <name>` could still become, offered as a list while
 // the name is typed. Nothing here reads a wire: definitions arrive as props and filtering is over
 // the list in hand. Selecting one completes the line; the popover's rule against inserting text
 // covers provider entries only, not the argument of a command the runtime itself intercepts.
@@ -21,12 +21,11 @@ export interface WorkflowStartCandidatesProps {
   readonly onComplete: (definitionName: string) => void;
 }
 
-/** The candidate list, for the caller to mount while a `/workflow start` argument is open. */
+/** The candidate list, for the caller to mount while a `/workflow run` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
   return (
     <div className="meridian-workflow-start__candidates">
-      <p className="meridian-workflow-start__candidates-lede">Workflows this session can start</p>
       {renderReading(definitions, complete, typedPrefix, onComplete)}
     </div>
   );
@@ -49,7 +48,7 @@ function renderReading(
     return complete ? (
       <Nothing
         kind="empty"
-        title="No workflow this session can start matches what you have typed"
+        title={`No workflow matches “${typedPrefix ?? ""}”`}
         detail="Clear the name to see every workflow."
       />
     ) : (

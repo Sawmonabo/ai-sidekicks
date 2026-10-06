@@ -1,4 +1,4 @@
-// The documented line `/workflow start <name>` parses to the whole name, an unrecognized verb is
+// The documented line `/workflow run <name>` parses to the whole name, an unrecognized verb is
 // named rather than read as a definition, and the documented line reaches a start end to end
 // through the real recognizer, router, executor and registry.
 
@@ -28,7 +28,7 @@ const registeredIds: string[] = [];
 function registerRoot(commandId: string): void {
   commandRegistry.register({
     id: commandId,
-    title: "Start a workflow",
+    title: "Run a workflow",
     group: "Workflow",
     run: () => undefined,
   });
@@ -53,12 +53,12 @@ afterEach(() => {
 
 describe("the `/workflow` line", () => {
   it.each([
-    ["a plain name", "/workflow start nightly-review", "nightly-review"],
-    ["a name with spaces in it", "/workflow start nightly review", "nightly review"],
-    ["surrounding whitespace", "/workflow   start   nightly  ", "nightly"],
+    ["a plain name", "/workflow run nightly-review", "nightly-review"],
+    ["a name with spaces in it", "/workflow run nightly review", "nightly review"],
+    ["surrounding whitespace", "/workflow   run   nightly  ", "nightly"],
   ])("reads %s", (_case, text, expected) => {
     expect(readWorkflowCommandLine(text)).toStrictEqual({
-      status: "start",
+      status: "run",
       definitionName: expected,
     });
   });
@@ -72,10 +72,10 @@ describe("the `/workflow` line", () => {
 });
 
 describe("the documented line, end to end through the recognizer and the router", () => {
-  it("intercepts `/workflow start <name>` and starts the named definition", async () => {
+  it("intercepts `/workflow run <name>` and starts the named definition", async () => {
     registerRoot(WORKFLOW_COMMAND_ROOT);
     const calls = recordedWorkflowCalls();
-    const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);
+    const resolution = routerOverRegistry().resolve("/workflow run nightly", SESSION_TARGET);
 
     expect(resolution).toStrictEqual({
       outcome: "console-command",
@@ -105,7 +105,7 @@ describe("the documented line, end to end through the recognizer and the router"
 
     const outcome = await executor({
       commandName: resolution.commandName,
-      text: "/workflow start nightly",
+      text: "/workflow run nightly",
     });
 
     expect(outcome).toStrictEqual({ status: "applied" });

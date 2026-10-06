@@ -37,7 +37,7 @@ export function mountDraftLine(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: PaneAddress | undefined;
-  /** The workflow calls a typed `/workflow start <name>` makes; an empty catalog by default. */
+  /** The workflow calls a typed `/workflow run <name>` makes; an empty catalog by default. */
   readonly workflowStartOperations?: WorkflowStartOperations;
 }): MountedDraftLine {
   const frameStore = new WindowStore();

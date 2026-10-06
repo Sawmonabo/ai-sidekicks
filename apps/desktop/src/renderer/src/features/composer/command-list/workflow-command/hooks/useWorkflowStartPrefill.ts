@@ -1,5 +1,5 @@
 // The palette entry's own act: putting the command word on the line without eating it. The palette
-// has no line and so no name, so it prefills `/workflow start ` and asks for the caret; the
+// has no line and so no name, so it prefills `/workflow run ` and asks for the caret; the
 // command-line handler runs once the line is complete. `DraftStore.write` replaces the whole text
 // with no history, so the write happens only into a blank line and otherwise waits for an explicit
 // decision. Blankness is decided by trimming; the text itself is never trimmed.
@@ -11,7 +11,7 @@ import { type CommandDefinition } from "#renderer/registries/commands/types.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/window-command-registry.js";
 import type { DraftStore } from "#renderer/store/draft-store.js";
 import { requestComposerFocus } from "#renderer/features/composer/focus-requests.js";
-import { WORKFLOW_COMMAND_ROOT, WORKFLOW_START_COMMAND_PREFILL } from "../grammar.js";
+import { WORKFLOW_COMMAND_ROOT, WORKFLOW_RUN_COMMAND_PREFILL } from "../grammar.js";
 
 /** The owner this command is contributed under. One per feature, one live at a time. */
 const WORKFLOW_START_COMMAND_OWNER = "composer-workflow-start";
@@ -55,7 +55,7 @@ export function useWorkflowStartPrefill(options: {
   const [displacedText, setDisplacedText] = useState<string | undefined>(undefined);
 
   const writePrefill = useCallback(() => {
-    draftStore.write(draftKey, WORKFLOW_START_COMMAND_PREFILL);
+    draftStore.write(draftKey, WORKFLOW_RUN_COMMAND_PREFILL);
     requestComposerFocus();
   }, [draftStore, draftKey]);
 
@@ -63,7 +63,7 @@ export function useWorkflowStartPrefill(options: {
     () => [
       {
         id: WORKFLOW_COMMAND_ROOT,
-        title: "Start a workflow",
+        title: "Run a workflow",
         group: WORKFLOW_START_COMMAND_GROUP,
         when: WHEN_SESSION_ACTIVE,
         keywords: ["workflow", "start", "run"],

@@ -1,5 +1,5 @@
 // The composer's one Send: the control, its dispatch, and the refusal beside it. It takes the
-// two daemon calls a send makes, and the two a typed `/workflow start <name>` makes, as
+// two daemon calls a send makes, and the two a typed `/workflow run <name>` makes, as
 // arguments, so a composition with none does not mount it. A press is `useSendController.ts`'s;
 // Send derives no eligibility and the daemon refuses.
 //
@@ -20,14 +20,14 @@ import { useSendController } from "../send/hooks/useSendController.js";
 export type SendButtonProps = ComposerProps & {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
-  /** The two calls a typed `/workflow start <name>` makes: the definition read and the start. */
+  /** The two calls a typed `/workflow run <name>` makes: the definition read and the start. */
   readonly workflowStartOperations: WorkflowStartOperations;
 };
 
 /** Send for the addressed draft, resolving to the wire call the addressed target admits. */
 export function SendButton(props: SendButtonProps): React.JSX.Element {
   const target = useComposerAddress(props.sessionStore, props.focusedPane);
-  // The handler a command that reads its arguments off the line runs with, so `/workflow start
+  // The handler a command that reads its arguments off the line runs with, so `/workflow run
   // <name>` starts the named workflow in this composer's session.
   const commandLineHandlers = useWorkflowStartHandlers({
     operations: props.workflowStartOperations,

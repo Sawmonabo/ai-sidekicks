@@ -26,7 +26,7 @@ export function matchWorkflowDefinition(
 /**
  * The definitions a partially typed name could still become; an empty prefix offers all.
  *
- * @consumedBy the definitions a `/workflow start` name autocompletes over
+ * @consumedBy the definitions a `/workflow run` name autocompletes over
  */
 export function workflowDefinitionCandidates(
   definitions: readonly WorkflowDefinitionSummary[],

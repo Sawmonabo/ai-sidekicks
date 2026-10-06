@@ -11,7 +11,7 @@ import { DraftStore } from "#renderer/store/draft-store.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../send/router.test-support.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
+  WORKFLOW_RUN_COMMAND_PREFILL,
 } from "../../command-list/workflow-command/grammar.js";
 import {
   fixtureWorkflowStartOperations,
@@ -193,12 +193,12 @@ describe("DraftLine — Send runs a line-reading command", () => {
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  it("starts the workflow a sent `/workflow start <name>` names, sending no message", async () => {
+  it("starts the workflow a sent `/workflow run <name>` names, sending no message", async () => {
     // Registered here as the palette entry would register it: the executor sends an unlisted
     // name as typed before any handler runs.
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
+      title: "Run a workflow",
       group: WORKFLOW_START_COMMAND_GROUP,
       run: () => undefined,
     });
@@ -218,7 +218,7 @@ describe("DraftLine — Send runs a line-reading command", () => {
     });
 
     fireEvent.change(line, {
-      target: { value: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review` },
+      target: { value: `${WORKFLOW_RUN_COMMAND_PREFILL}nightly-review` },
     });
     await act(async () => {
       pressSend(result.container);

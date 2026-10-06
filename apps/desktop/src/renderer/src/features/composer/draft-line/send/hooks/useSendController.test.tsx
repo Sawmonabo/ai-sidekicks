@@ -139,7 +139,7 @@ describe("useSendController — a line its command does not act on", () => {
   it("sends the line to the provider exactly as typed", async () => {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
+      title: "Run a workflow",
       group: "Workflow",
       run: () => undefined,
     });

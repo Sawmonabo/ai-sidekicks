@@ -8,12 +8,6 @@
   border-top: 1px solid var(--meridian-edge);
 }
 
-.meridian-workflow-start__candidates-lede {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
 .meridian-workflow-start__candidate-list {
   display: flex;
   flex-direction: column;

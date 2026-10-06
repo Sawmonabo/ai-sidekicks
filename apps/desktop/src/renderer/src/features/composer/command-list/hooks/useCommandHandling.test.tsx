@@ -15,7 +15,7 @@ import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowS
 import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 import {
   WORKFLOW_COMMAND_ROOT,
-  WORKFLOW_START_COMMAND_PREFILL,
+  WORKFLOW_RUN_COMMAND_PREFILL,
 } from "../workflow-command/grammar.js";
 import {
   fixtureWorkflowStartOperations,
@@ -51,7 +51,7 @@ function ComposerCommandZoneHarness(props: {
 
 const START_LINE = {
   commandName: WORKFLOW_COMMAND_ROOT,
-  text: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review`,
+  text: `${WORKFLOW_RUN_COMMAND_PREFILL}nightly-review`,
 } as const;
 
 describe("the composer command zone reads the committed render's handlers", () => {
@@ -62,7 +62,7 @@ describe("the composer command zone reads the committed render's handlers", () =
   function registerWorkflowRoot(): void {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
-      title: "Start a workflow",
+      title: "Run a workflow",
       group: WORKFLOW_START_COMMAND_GROUP,
       run: () => {},
     });
