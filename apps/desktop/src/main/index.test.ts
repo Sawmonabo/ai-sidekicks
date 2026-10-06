@@ -12,7 +12,7 @@
 // log) are best-effort and the exit is the contract: the handler is last on the chain, so a
 // rejection leaving it would be unhandled and the process would skip `app.exit`.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
 import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
@@ -131,6 +131,15 @@ async function startMain(platform: NodeJS.Platform = realPlatform): Promise<void
   electronMock.releaseReady();
   await drainMicrotasks();
 }
+
+// The first import transforms main's whole module graph, which under the full parallel suite takes
+// longer than one test's budget; it is paid once here, so each test times only the startup itself.
+beforeAll(async () => {
+  electronMock.armReady();
+  vi.stubEnv("HOME", "/sidekicks-main-startup-home");
+  await import("./index.js");
+  vi.unstubAllEnvs();
+}, 60_000);
 
 beforeEach(() => {
   electronMock.reset();
