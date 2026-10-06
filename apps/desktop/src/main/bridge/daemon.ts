@@ -7,12 +7,13 @@
 // subscription names, so any other name would reach a method `call()` refuses. Its params go to the
 // daemon, which checks them, except for the one main types itself, the machine's settings, which
 // is checked against its contract on both sides. Nothing main holds for its own connection crosses
-// back: a refusal carries only the wire
-// error's code, message and data, and any other failure only its message. The two calls that end
-// work, `daemon.stop` and `daemon.restart`, go only over a link that reads connected with a
-// compatible handshake; the daemon's own gate is the check that decides, and this one answers the
-// renderer in its terms. They go through the supervisor, which flushes first and ends a service
-// that keeps running after it took the request.
+// back: a refusal carries only the wire error's code, message and data, and any other failure only
+// its message. Over a refused handshake the console is read-only: no mutating call is sent, and
+// reads and subscriptions still go. The two calls that end work, `daemon.stop` and
+// `daemon.restart`, go only over a link that reads connected with a compatible handshake; the
+// daemon's own gate is the check that decides, and this one answers the renderer in its terms.
+// They go through the supervisor, which flushes first and ends a service that keeps running after
+// it took the request.
 //
 // `daemon.status` is main's own topic on the same channel: it delivers the link's state, the
 // current one first, while no service answers too, and ends only when the page closes it or goes.
@@ -24,7 +25,10 @@ import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jso
 import { NEGOTIATION_VERSION_MISMATCH_CODE } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
-import type { MethodDescriptor } from "@ai-sidekicks/contracts/method-descriptor";
+import type {
+  AnyMethodDescriptor,
+  MethodDescriptor,
+} from "@ai-sidekicks/contracts/method-descriptor";
 import { z, type ZodType } from "zod";
 
 import { daemonMethodBindingFor } from "#shared/daemon/method-bindings.js";
@@ -35,16 +39,19 @@ import {
 } from "#shared/bridge-channels.js";
 import type {
   DaemonCallOutcome,
+  DaemonCallRequest,
   DaemonSubscriptionEnd,
   DaemonSubscriptionOpening,
+  DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
 import { DAEMON_STATUS_TOPIC } from "#shared/daemon/status-topic.js";
-import type { DaemonLink } from "../services/daemon/link/status.js";
+import { NOT_CONNECTED_MESSAGE, type DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor, ServiceEndingMethod } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
-import { mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
+import { copiedFilePaths, mintTokensForPaths, swapTokensForPaths } from "./file-path/relay.js";
 import type { FilePathRefOwner, FilePathRefs } from "./file-path/refs.js";
+import type { PastedImages } from "./native/file-intake.js";
 import { pageSafeMessage } from "./page-safe-message.js";
 
 /**
@@ -59,18 +66,25 @@ export interface DaemonSubscriber {
 }
 
 /**
- * What the forwarding reads the daemon through, the file tokens main handed the pages, who carries
- * the person's `Stop` and `Restart`, and where a failed subscription is recorded.
+ * What the forwarding reads the daemon through, the file tokens main handed the pages, the pasted
+ * pictures removed once the service copied them, who carries the person's `Stop` and `Restart`,
+ * and where a failed subscription is recorded.
  */
 export interface DaemonForwardingOptions {
   readonly link: DaemonLink;
   readonly filePathRefs: FilePathRefs;
+  readonly pastedImages: Pick<PastedImages, "removeCopied">;
   readonly supervisor: Pick<DaemonSupervisor, "endService">;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  readonly now: () => Date;
 }
 
-const NOT_CONNECTED_MESSAGE = "The background service is not connected.";
+/**
+ * How a call main types itself ended: as `DaemonCallOutcome`, its served value read against the
+ * method's response contract.
+ */
+export type DescribedCallOutcome<Response> =
+  | { readonly outcome: "served"; readonly value: Response }
+  | Exclude<DaemonCallOutcome, { readonly outcome: "served" }>;
 
 /** The renderer's calls that end work on the machine. */
 const WORK_ENDING_METHODS: readonly ServiceEndingMethod[] = [
@@ -80,11 +94,14 @@ const WORK_ENDING_METHODS: readonly ServiceEndingMethod[] = [
 
 const methodNameSchema = z.string().regex(METHOD_NAME_FORMAT);
 
-const daemonCallRequestSchema = z.object({ method: methodNameSchema, params: z.unknown() });
+const daemonCallRequestSchema: z.ZodType<DaemonCallRequest> = z.object({
+  method: methodNameSchema,
+  params: z.unknown(),
+});
 
 const subscriptionIdSchema = z.uuid();
 
-const daemonSubscriptionRequestSchema = z.object({
+const daemonSubscriptionRequestSchema: z.ZodType<DaemonSubscriptionRequest> = z.object({
   subscriptionId: subscriptionIdSchema,
   event: methodNameSchema,
   params: z.unknown(),
@@ -96,15 +113,17 @@ const wireValueSchema = z.unknown();
 /** The status topic takes nothing. */
 const statusRequestSchema = z.strictObject({});
 
-/** The daemon subscriptions main checks against their contract in both directions. */
-const DESCRIBED_SUBSCRIPTIONS: ReadonlyMap<string, DescribedSubscription> = new Map([
-  [MACHINE_SETTINGS_STREAM, MACHINE_SETTINGS_METHOD_DESCRIPTORS[MACHINE_SETTINGS_STREAM]],
-]);
-
 /** A subscription's request and value schemas. */
 interface DescribedSubscription {
   readonly requestSchema: ZodType;
   readonly emissionSchema: ZodType;
+}
+
+/** The contract main checks `event` against in both directions, if it types that stream itself. */
+function describedSubscriptionOf(event: string): DescribedSubscription | undefined {
+  return event === MACHINE_SETTINGS_STREAM
+    ? MACHINE_SETTINGS_METHOD_DESCRIPTORS[MACHINE_SETTINGS_STREAM]
+    : undefined;
 }
 
 /** One subscription a page holds open: how main ends it, set once it has started. */
@@ -116,25 +135,25 @@ interface OpenSubscription {
 export class DaemonForwarding {
   readonly #link: DaemonLink;
   readonly #filePathRefs: FilePathRefs;
+  readonly #pastedImages: Pick<PastedImages, "removeCopied">;
   readonly #supervisor: Pick<DaemonSupervisor, "endService">;
   readonly #log: Pick<MainDiagnosticLog, "write">;
-  readonly #now: () => Date;
   /** Each page's open subscriptions, by the id its preload named them with. */
   readonly #subscriptionsByPage = new Map<number, Map<string, OpenSubscription>>();
 
   public constructor(options: DaemonForwardingOptions) {
     this.#link = options.link;
     this.#filePathRefs = options.filePathRefs;
+    this.#pastedImages = options.pastedImages;
     this.#supervisor = options.supervisor;
     this.#log = options.log;
-    this.#now = options.now;
   }
 
   /**
    * Forward one call from `page` and answer how it ended. A method the app does not call, params
    * off the method's contract and a value in a file member that is not a token `page` holds are
-   * answered as failed before anything is sent. Throws a `ZodError` for a request that is not a
-   * method name and its params.
+   * answered as failed before anything is sent, and a mutating call over a refused handshake as
+   * refused. Throws a `ZodError` for a request that is not a method name and its params.
    */
   public async call(page: FilePathRefOwner, request: unknown): Promise<DaemonCallOutcome> {
     const { method, params } = daemonCallRequestSchema.parse(request);
@@ -155,6 +174,10 @@ export class DaemonForwarding {
     if (binding === undefined) {
       return { outcome: "failed", message: `The app does not call ${method}.` };
     }
+    const versionRefusal = mutationRefusal(this.#link, binding);
+    if (versionRefusal !== undefined) {
+      return { outcome: "refused", refusal: versionRefusal };
+    }
     let sendable: unknown;
     try {
       sendable = swapTokensForPaths(this.#filePathRefs, page, method, params);
@@ -173,6 +196,7 @@ export class DaemonForwarding {
         binding.requestSchema,
         binding.responseSchema,
       );
+      this.#pastedImages.removeCopied(page, copiedFilePaths(method, sendable, value));
       const fileRefs = mintTokensForPaths(this.#filePathRefs, page, method, value);
       return Object.keys(fileRefs).length === 0
         ? { outcome: "served", value }
@@ -193,12 +217,17 @@ export class DaemonForwarding {
 
   /**
    * Forward one call main types itself. The client checks the request against the method's
-   * contract before anything is sent, answering a refused one as failed, and the reply after.
+   * contract before anything is sent, answering a refused one as failed, and the reply after; a
+   * mutating call over a refused handshake is answered as refused.
    */
   public async callDescribed<Request, Response>(
     contract: MethodDescriptor<string, Request, Response>,
     request: unknown,
-  ): Promise<DaemonCallOutcome> {
+  ): Promise<DescribedCallOutcome<Response>> {
+    const versionRefusal = mutationRefusal(this.#link, contract);
+    if (versionRefusal !== undefined) {
+      return { outcome: "refused", refusal: versionRefusal };
+    }
     const client = this.#link.client;
     if (client === undefined) {
       return { outcome: "failed", message: NOT_CONNECTED_MESSAGE };
@@ -244,7 +273,7 @@ export class DaemonForwarding {
     if (!isDaemonStream(event)) {
       return { outcome: "failed", message: `The app does not subscribe to ${event}.` };
     }
-    const described = DESCRIBED_SUBSCRIPTIONS.get(event);
+    const described = describedSubscriptionOf(event);
     if (described !== undefined && !described.requestSchema.safeParse(params).success) {
       return { outcome: "failed", message: `The ${event} request does not match its contract.` };
     }
@@ -344,7 +373,6 @@ export class DaemonForwarding {
       }
     } catch (failure) {
       this.#log.write({
-        at: this.#now().toISOString(),
         level: "error",
         source: "main/bridge/daemon",
         message: `The daemon subscription ${event} failed: ${describeFailure(failure)}`,
@@ -359,6 +387,25 @@ export class DaemonForwarding {
       page.send(DAEMON_SUBSCRIPTION_END_CHANNEL, subscriptionId, end);
     }
   }
+}
+
+/**
+ * Why a mutating call may not go over this link: a refused handshake is the daemon's own
+ * `protocol.version_mismatch`, as its gate would answer. `undefined` for a read, and for any call
+ * over a link that is not refused.
+ */
+function mutationRefusal(
+  link: DaemonLink,
+  contract: Pick<AnyMethodDescriptor, "mutating">,
+): JsonRpcError | undefined {
+  if (!contract.mutating || link.state.connection.kind !== "version-incompatible") {
+    return undefined;
+  }
+  return {
+    code: JsonRpcErrorCode.InvalidRequest,
+    message: "The background service refused this app's version, so nothing that changes is sent.",
+    data: { type: NEGOTIATION_VERSION_MISMATCH_CODE },
+  };
 }
 
 /**
@@ -390,7 +437,10 @@ function workEndingRefusal(link: DaemonLink): JsonRpcError | undefined {
  * A call to `method` that threw: the daemon's refusal, or a failure on main's side by a message
  * that names no path.
  */
-function unservedOutcomeOf(method: string, failure: unknown): DaemonCallOutcome {
+function unservedOutcomeOf(
+  method: string,
+  failure: unknown,
+): Exclude<DaemonCallOutcome, { readonly outcome: "served" }> {
   return failure instanceof JsonRpcRemoteError
     ? { outcome: "refused", refusal: wireErrorOf(failure) }
     : { outcome: "failed", message: pageSafeMessage(method, failure) };

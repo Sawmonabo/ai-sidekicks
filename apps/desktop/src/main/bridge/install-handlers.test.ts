@@ -31,19 +31,26 @@ beforeEach(async () => {
   const { DaemonForwarding } = await import("./daemon.js");
   const { DaemonLink } = await import("../services/daemon/link/status.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
+  const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
   const link = new DaemonLink();
   log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();
+  const pastedImages = new PastedImages({
+    folder: path.join(userData, PASTED_IMAGES_FOLDER_NAME),
+    filePathRefs,
+    log,
+  });
   installBridgeHandlers({
     userData,
     daemonForwarding: new DaemonForwarding({
       link,
       supervisor: { endService: vi.fn() },
       log,
-      now: () => new Date(),
       filePathRefs,
+      pastedImages,
     }),
     filePathRefs,
+    pastedImages,
     supervisor: { requestStart: vi.fn() },
     daemonLink: link,
     log,

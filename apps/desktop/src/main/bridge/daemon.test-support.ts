@@ -2,6 +2,8 @@
 // installed over that link with the page's preload bridge on top, for the suites that drive the
 // bridge from the page to the daemon. Each suite mocks `electron` itself.
 
+import path from "node:path";
+
 import type { ClientTransport } from "@ai-sidekicks/client-sdk";
 import {
   JSONRPC_VERSION,
@@ -134,18 +136,25 @@ export async function bridgeOverLink(
   const { installBridgeHandlers } = await import("./install-handlers.js");
   const { createPreloadApi } = await import("#preload/api.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
+  const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
 
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();
+  const pastedImages = new PastedImages({
+    folder: path.join(userData, PASTED_IMAGES_FOLDER_NAME),
+    filePathRefs,
+    log,
+  });
   installBridgeHandlers({
     userData,
     filePathRefs,
+    pastedImages,
     daemonForwarding: new DaemonForwarding({
       link,
       filePathRefs,
+      pastedImages,
       supervisor: { endService: vi.fn() },
       log,
-      now: () => new Date(),
     }),
     supervisor: { requestStart: vi.fn() },
     daemonLink: link,

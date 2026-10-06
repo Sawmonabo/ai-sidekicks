@@ -41,7 +41,7 @@ import {
 import { runProgram } from "./native/editors/program-runner.js";
 import { installedEditorsFor } from "./native/editors/system-installed-editors.js";
 import { machineSettingsAnswers } from "./machine-settings.js";
-import { PastedImages, refForDroppedFile } from "./native/file-intake.js";
+import { refForDroppedFile, type PastedImages } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
 import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
@@ -50,9 +50,6 @@ import { windowAnswers, type WindowHandlerContext } from "./window.js";
 /** One channel's answer, given the asking event and the one request it carried. */
 type ChannelAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
 
-/** Main's folder for pasted pictures, under the profile. */
-const PASTED_IMAGES_FOLDER_NAME = "pasted-images";
-
 /** What main's bridge answers are built over. */
 export interface BridgeHandlerServices {
   /** Main's own folder under the profile, `app.getPath("userData")`. */
@@ -60,6 +57,8 @@ export interface BridgeHandlerServices {
   readonly daemonForwarding: DaemonForwarding;
   /** Main's one table of the file tokens it handed the pages, the one the daemon relay reads. */
   readonly filePathRefs: FilePathRefs;
+  /** The pictures pasted into the composer, the ones the daemon relay removes once copied. */
+  readonly pastedImages: PastedImages;
   readonly supervisor: Pick<DaemonSupervisor, "requestStart">;
   readonly daemonLink: Pick<DaemonLink, "client">;
   readonly log: Pick<MainDiagnosticLog, "write">;
@@ -71,14 +70,16 @@ export interface BridgeHandlerServices {
  * it. Called once, after ready, before any window.
  */
 export function installBridgeHandlers(services: BridgeHandlerServices): void {
-  const { userData, daemonForwarding, filePathRefs, supervisor, daemonLink, log, windowContext } =
-    services;
-  const pastedImages = new PastedImages({
-    folder: path.join(userData, PASTED_IMAGES_FOLDER_NAME),
+  const {
+    userData,
+    daemonForwarding,
     filePathRefs,
+    pastedImages,
+    supervisor,
+    daemonLink,
     log,
-    now: () => new Date(),
-  });
+    windowContext,
+  } = services;
   const keyboardMapFile = new KeyboardMapFile({
     filePath: path.join(userData, KEYBOARD_MAP_FILE_NAME),
     now: () => new Date(),
@@ -219,7 +220,6 @@ function handleFromAppRenderer(
 
 function recordFailure(log: BridgeHandlerServices["log"], channel: string, failure: unknown): void {
   log.write({
-    at: new Date().toISOString(),
     level: "warning",
     source: "main/bridge",
     message: `${channel} failed: ${describeFailure(failure)}`,

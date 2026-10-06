@@ -13,6 +13,8 @@ import nodePath from "node:path";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 
+import { isPlainObject } from "../../services/plain-object.js";
+
 import type { FilePathPurpose, FilePathRefOwner, FilePathRefs } from "./refs.js";
 
 /** Where one path sits in a request or a reply: keys from the root, `*` for each list element. */
@@ -24,13 +26,18 @@ interface RequestPathMember {
   readonly purpose: FilePathPurpose;
 }
 
+/** The verb that stages files for the next message, which the service copies into its store. */
+const ATTACHMENT_ADD_METHOD = "session.attachmentAdd";
+
 /**
  * The request members that hold a file or folder the person picked, dropped or pasted, by verb.
- * The staging, import and export verbs join it as the app calls them.
+ * The import and export verbs join it as the app calls them.
  */
 const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = new Map([
   // A human form's `path` field, answered with a folder picked by the platform's chooser.
   ["workflow.humanFormSubmit", [{ location: ["paths", "*", "path"], purpose: "folder" }]],
+  // A staged file: picked, dropped or pasted into the composer.
+  [ATTACHMENT_ADD_METHOD, [{ location: ["items", "*", "path"], purpose: "attach" }]],
 ]);
 
 /** The reply members that hold a path the page offers to open, by verb. */
@@ -80,6 +87,30 @@ export function mintTokensForPaths(
   return Object.fromEntries(refsByPath);
 }
 
+/**
+ * The paths whose files a served `method` reply says the service copied into its store, read off
+ * the params `sent` with paths in place of tokens: for the staging verb, each file item the reply
+ * does not refuse. Empty for every other verb.
+ */
+export function copiedFilePaths(method: string, sent: unknown, value: unknown): readonly string[] {
+  if (method !== ATTACHMENT_ADD_METHOD) {
+    return [];
+  }
+  const refusedIds = new Set(valuesAt(value, ["refused", "*", "clientStagingId"]));
+  const copied: string[] = [];
+  for (const item of valuesAt(sent, ["items", "*"])) {
+    if (
+      isPlainObject(item) &&
+      item["kind"] === "file" &&
+      typeof item["path"] === "string" &&
+      !refusedIds.has(item["clientStagingId"])
+    ) {
+      copied.push(item["path"]);
+    }
+  }
+  return copied;
+}
+
 /** `value` with what sits at `location` replaced by `replace`'s answer; a copy where it changed. */
 function replaceAt(
   value: unknown,
@@ -94,7 +125,7 @@ function replaceAt(
     return Array.isArray(value) ? value.map((element) => replaceAt(element, rest, replace)) : value;
   }
   // An optional member left out, or sent as `undefined`, holds nothing to swap.
-  if (!isRecord(value) || value[key] === undefined) {
+  if (!isPlainObject(value) || value[key] === undefined) {
     return value;
   }
   return { ...value, [key]: replaceAt(value[key], rest, replace) };
@@ -115,7 +146,7 @@ function* valuesAt(value: unknown, location: PathLocation): Generator<unknown> {
     }
     return;
   }
-  if (isRecord(value) && Object.hasOwn(value, key)) {
+  if (isPlainObject(value) && Object.hasOwn(value, key)) {
     yield* valuesAt(value[key], rest);
   }
 }
@@ -123,8 +154,4 @@ function* valuesAt(value: unknown, location: PathLocation): Generator<unknown> {
 // The daemon answers with paths on its own machine, a POSIX one or, on Windows, a Windows one.
 function isAbsolutePath(path: string): boolean {
   return nodePath.posix.isAbsolute(path) || nodePath.win32.isAbsolute(path);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

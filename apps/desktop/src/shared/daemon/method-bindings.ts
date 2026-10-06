@@ -17,6 +17,7 @@ import { PRESENCE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/presence";
 import { QUESTION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/question";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
 import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
+import { SESSION_DRAFT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/draft";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 import { SESSION_INSPECTOR_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/inspector";
 import { TRANSCRIPT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/transcript/methods";
@@ -46,6 +47,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "session.create",
   "session.read",
   "session.memoryRead",
+  "session.attachmentAdd",
   "presence.read",
   "highlight.read",
   "question.resolve",
@@ -118,6 +120,7 @@ const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...TRANSCRIPT_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
   ...SESSION_DIRECTORY_METHOD_DESCRIPTORS,
+  ...SESSION_DRAFT_METHOD_DESCRIPTORS,
   ...SESSION_INSPECTOR_METHOD_DESCRIPTORS,
   ...PRESENCE_METHOD_DESCRIPTORS,
   ...HIGHLIGHT_METHOD_DESCRIPTORS,

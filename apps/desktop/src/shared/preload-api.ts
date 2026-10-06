@@ -383,7 +383,8 @@ export interface PreloadApi {
     getDroppedFileRef(file: File): Promise<FilePathRef>;
     /**
      * Write a pasted picture to a file only the person can read and answer its token. The file
-     * lasts until the page that pasted it goes; empty bytes are refused.
+     * lasts until `session.attachmentAdd` has copied it, or the page that pasted it goes; empty
+     * bytes are refused.
      */
     savePastedImage(bytes: ArrayBuffer): Promise<FilePathRef>;
     /** Open a web address in the system browser; refused unless it is `http:` or `https:`. */

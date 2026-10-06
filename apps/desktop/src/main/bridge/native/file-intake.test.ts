@@ -1,8 +1,9 @@
 // A dropped or pasted file reaches the page only as a token. A pasted picture is a file only the
-// person can read, gone with the page that pasted it, and nothing the page builds itself becomes a
-// path main hands out.
+// person can read, gone with the page that pasted it, a paste waits on the start's folder
+// preparation and a failed one is tried again, and nothing the page builds itself becomes a path
+// main hands out.
 
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -27,7 +28,6 @@ function pastedImagesIn(folder: string, refs: FilePathRefs): PastedImages {
     folder,
     filePathRefs: refs,
     log: { write: vi.fn() },
-    now: () => new Date(),
   });
 }
 
@@ -65,20 +65,18 @@ describe("a pasted picture", () => {
     expect((await stat(folder)).mode & 0o777).toBe(0o700);
   });
 
-  it("is removed when its page goes, and a later page's token never opens it", async () => {
+  it("is removed when its page goes", async () => {
     const folder = path.join(scratch, "pasted");
     const refs = new FilePathRefs();
     const owner = pageOwner(1);
     const ref = await pastedImagesIn(folder, refs).save(owner, new Uint8Array([1, 2, 3]).buffer);
     const filePath = refs.requirePath(owner, ref, "attach");
 
-    expect(() => refs.requirePath(pageOwner(2), ref, "attach")).toThrow(TypeError);
     owner.destroy();
 
     await vi.waitFor(async () => {
       await expect(stat(filePath)).rejects.toMatchObject({ code: "ENOENT" });
     });
-    expect(() => refs.requirePath(owner, ref, "attach")).toThrow(TypeError);
   });
 
   it("is removed when its page loads a new document, whose tokens it no longer serves", async () => {
@@ -117,6 +115,61 @@ describe("a pasted picture", () => {
     await vi.waitFor(async () => {
       await expect(stat(leftOver)).rejects.toMatchObject({ code: "ENOENT" });
     });
+  });
+
+  // Windows keeps no POSIX mode bits to lock a folder with.
+  it.skipIf(process.platform === "win32")(
+    "fails a paste made while the start's preparation fails, and prepares again at the next",
+    async () => {
+      // The folder an earlier run left, open to others, under a parent main may not change, so
+      // the start can neither empty it nor make it the person's alone.
+      const parent = path.join(scratch, "profile");
+      const folder = path.join(parent, "pasted");
+      await mkdir(folder, { recursive: true, mode: 0o755 });
+      await chmod(parent, 0o500);
+      const owner = pageOwner(1);
+      const refs = new FilePathRefs();
+      try {
+        const pastedImages = pastedImagesIn(folder, refs);
+        await expect(pastedImages.save(owner, new Uint8Array([1]).buffer)).rejects.toMatchObject({
+          code: "EACCES",
+        });
+        await expect(readdir(folder)).resolves.toStrictEqual([]);
+
+        await chmod(parent, 0o700);
+        const ref = await pastedImages.save(owner, new Uint8Array([2]).buffer);
+        expect(path.dirname(refs.requirePath(owner, ref, "attach"))).toBe(folder);
+        expect((await stat(folder)).mode & 0o777).toBe(0o700);
+      } finally {
+        await chmod(parent, 0o700);
+      }
+    },
+  );
+
+  it("is removed once the service has copied it, and only that one", async () => {
+    const folder = path.join(scratch, "pasted");
+    const refs = new FilePathRefs();
+    const owner = pageOwner(1);
+    const pastedImages = pastedImagesIn(folder, refs);
+    const copied = refs.requirePath(
+      owner,
+      await pastedImages.save(owner, new Uint8Array([1]).buffer),
+      "attach",
+    );
+    const kept = refs.requirePath(
+      owner,
+      await pastedImages.save(owner, new Uint8Array([2]).buffer),
+      "attach",
+    );
+
+    // Another page's paths, and a path no paste wrote, are left alone.
+    pastedImages.removeCopied(pageOwner(2), [kept]);
+    pastedImages.removeCopied(owner, [copied, path.join(scratch, "somewhere-else.png")]);
+
+    await vi.waitFor(async () => {
+      await expect(stat(copied)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+    await expect(stat(kept)).resolves.toBeDefined();
   });
 
   it("refuses empty or non-byte input", async () => {

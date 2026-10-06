@@ -2,10 +2,7 @@
 // main's own connection to the service, the file's one writer, and checked against the settings
 // contract on the way in and out. The feed rides the daemon's subscription channel.
 
-import {
-  MACHINE_SETTINGS_METHOD_DESCRIPTORS,
-  type MachineSettingsUpdateResponse,
-} from "@ai-sidekicks/contracts/machine-settings";
+import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import type { DaemonCallOutcome } from "#shared/daemon/forwarding.js";
@@ -38,7 +35,7 @@ export function machineSettingsAnswers(
         { change },
       );
       return outcome.outcome === "served"
-        ? { outcome: "served", value: (outcome.value as MachineSettingsUpdateResponse).settings }
+        ? { outcome: "served", value: outcome.value.settings }
         : outcome;
     },
   };

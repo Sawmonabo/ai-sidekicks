@@ -3,16 +3,24 @@
 // A page's subscriptions are canceled on the daemon when it loads a new document or goes, and one
 // that ends while the page holds it is told to the page. The status topic speaks with no service
 // linked. A call that ends work goes only over a link that reads connected with a compatible
-// handshake. A failure the operating system raised crosses by its code, with no path in it. A
-// picked folder's token is swapped for its path on the way out, and a raw path is refused.
+// handshake, and nothing mutating goes over a refused one. A failure the operating system raised
+// crosses by its code, with no path in it. A picked folder's token is swapped for its path on the
+// way out, and a raw path is refused. A pasted picture the service copied at staging is removed.
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
+import {
+  MACHINE_SETTINGS_DEFAULTS,
+  MACHINE_SETTINGS_METHOD_DESCRIPTORS,
+} from "@ai-sidekicks/contracts/machine-settings";
+import { SESSION_ATTACHMENT_REFUSED_CODE } from "@ai-sidekicks/contracts/session/draft";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -152,19 +160,19 @@ describe("the daemon's wire through main", () => {
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection),
       filePathRefs: new FilePathRefs(),
+      pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
       log: { write: vi.fn() },
-      now: () => new Date(),
     });
 
     await expect(
       forwarding.call(PAGE, { method: "presence.read", params: { deviceId: "everyone" } }),
     ).resolves.toMatchObject({ outcome: "failed" });
     await expect(
-      forwarding.call(PAGE, { method: "session.attachmentAdd", params: {} }),
+      forwarding.call(PAGE, { method: "session.attachmentRemove", params: {} }),
     ).resolves.toEqual({
       outcome: "failed",
-      message: "The app does not call session.attachmentAdd.",
+      message: "The app does not call session.attachmentRemove.",
     });
     expect(connection.requests).toEqual([]);
 
@@ -184,9 +192,9 @@ describe("the daemon's wire through main", () => {
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection),
       filePathRefs,
+      pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
       log: { write: vi.fn() },
-      now: () => new Date(),
     });
     const folder = "/Users/person/projects/app";
     const folderRef = filePathRefs.mint(PAGE, "folder", folder);
@@ -295,9 +303,9 @@ describe("the daemon's wire through main", () => {
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection),
       filePathRefs: new FilePathRefs(),
+      pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
       log,
-      now: () => new Date(),
     });
     const page = pageThatCanGo();
     const openFor = (): unknown =>
@@ -321,6 +329,106 @@ describe("the daemon's wire through main", () => {
     await setImmediate();
     expect(canceledOn(connection)).toEqual(daemonSubscriptionIds);
     expect(log.write).not.toHaveBeenCalled();
+  });
+});
+
+describe("a pasted picture staged for the next message", () => {
+  it("is removed once the service copied it, and kept when it refused it", async () => {
+    const userData = await mkdtemp(path.join(tmpdir(), "sidekicks-staging-test-"));
+    try {
+      const refusedStagingId = randomUUID();
+      const connection = scriptedConnection(() => ({
+        result: {
+          sessionId: SESSION_ID,
+          attachments: [],
+          refused: [
+            {
+              clientStagingId: refusedStagingId,
+              name: "second.png",
+              cause: { code: SESSION_ATTACHMENT_REFUSED_CODE, reason: "count_limit" },
+            },
+          ],
+        },
+      }));
+      const bridge = await bridgeOverLink(await linkOver(connection), userData);
+      const copiedRef = await bridge.native.savePastedImage(new Uint8Array([1]).buffer);
+      const refusedRef = await bridge.native.savePastedImage(new Uint8Array([2]).buffer);
+
+      await bridge.daemon.call("session.attachmentAdd", {
+        sessionId: SESSION_ID,
+        items: [
+          { kind: "file", clientStagingId: randomUUID(), path: copiedRef },
+          { kind: "file", clientStagingId: refusedStagingId, path: refusedRef },
+        ],
+      });
+
+      // The service was handed the files' paths, never the tokens.
+      const sent = connection.requests[0]?.params as {
+        readonly items: readonly { readonly path: string }[];
+      };
+      const [copiedPath, refusedPath] = sent.items.map((item) => item.path);
+      expect(path.dirname(copiedPath ?? "")).toBe(path.join(userData, "pasted-images"));
+      await vi.waitFor(async () => {
+        await expect(stat(copiedPath ?? "")).rejects.toMatchObject({ code: "ENOENT" });
+      });
+      await expect(stat(refusedPath ?? "")).resolves.toBeDefined();
+    } finally {
+      await rm(userData, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a refused handshake", () => {
+  it("sends no mutating call, and still forwards a read", async () => {
+    const { DaemonForwarding } = await import("./daemon.js");
+    const connection = scriptedConnection((request) =>
+      request.method === "presence.read"
+        ? { result: NO_DEVICES }
+        : { result: { settings: MACHINE_SETTINGS_DEFAULTS } },
+    );
+    const forwarding = new DaemonForwarding({
+      link: await linkOver(connection, { kind: "version-incompatible" }),
+      filePathRefs: new FilePathRefs(),
+      pastedImages: { removeCopied: vi.fn() },
+      supervisor: { endService: vi.fn() },
+      log: { write: vi.fn() },
+    });
+    const versionRefusal = {
+      outcome: "refused",
+      refusal: {
+        code: JsonRpcErrorCode.InvalidRequest,
+        data: { type: "protocol.version_mismatch" },
+      },
+    };
+
+    await expect(
+      forwarding.call(PAGE, {
+        method: "session.attachmentAdd",
+        params: { sessionId: SESSION_ID, items: [] },
+      }),
+    ).resolves.toMatchObject(versionRefusal);
+    await expect(
+      forwarding.callDescribed(
+        MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsUpdate"],
+        {
+          change: {},
+        },
+      ),
+    ).resolves.toMatchObject(versionRefusal);
+    await expect(forwarding.call(PAGE, { method: "presence.read", params: {} })).resolves.toEqual({
+      outcome: "served",
+      value: NO_DEVICES,
+    });
+    await expect(
+      forwarding.callDescribed(
+        MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsRead"],
+        {},
+      ),
+    ).resolves.toMatchObject({ outcome: "served" });
+    expect(connection.requests.map((request) => request.method)).toStrictEqual([
+      "presence.read",
+      "daemon.machineSettingsRead",
+    ]);
   });
 });
 
@@ -440,9 +548,9 @@ describe("the calls that end work", () => {
       const forwarding = new DaemonForwarding({
         link,
         filePathRefs: new FilePathRefs(),
+        pastedImages: { removeCopied: vi.fn() },
         supervisor: { endService: vi.fn() },
         log: { write: vi.fn() },
-        now: () => new Date(),
       });
       for (const method of ["daemon.stop", "daemon.restart"]) {
         await expect(forwarding.call(PAGE, { method, params: {} })).resolves.toStrictEqual({
@@ -464,9 +572,9 @@ describe("the calls that end work", () => {
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection, { kind: "version-incompatible" }),
       filePathRefs: new FilePathRefs(),
+      pastedImages: { removeCopied: vi.fn() },
       supervisor: { endService: vi.fn() },
       log: { write: vi.fn() },
-      now: () => new Date(),
     });
 
     await expect(
@@ -492,9 +600,9 @@ describe("the calls that end work", () => {
     const forwarding = new DaemonForwarding({
       link: await linkOver(connection),
       filePathRefs: new FilePathRefs(),
+      pastedImages: { removeCopied: vi.fn() },
       supervisor,
       log: { write: vi.fn() },
-      now: () => new Date(),
     });
 
     await expect(forwarding.call(PAGE, { method: "daemon.restart", params: {} })).resolves.toEqual({
