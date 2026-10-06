@@ -176,18 +176,25 @@ describe("the transcript feed — opened at a message", () => {
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
 
-  it("opens the finished run group holding the message, once", () => {
+  it("opens the finished run group holding the message, and lands on it once", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup(), undefined, RowIdBody, {
       messageAnchorCursor: transcriptFixtureStreamCursor(1),
     });
-    const disclosure = feed.querySelector(".meridian-run-group-header__disclosure");
+    const disclosure = feed.querySelector<HTMLElement>(".meridian-run-group-header__disclosure");
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(isMounted(feed, 1)).toBe(true);
+    expect(document.activeElement).toBe(scrollContainerOf(feed));
     // A reader who folds it again is not overruled.
+    disclosure?.focus();
     fireEvent.click(disclosure as Element);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
     expect(isMounted(feed, 1)).toBe(false);
+    // Opening it again brings the message back without landing on it again: focus stays on the
+    // disclosure the reader pressed.
+    fireEvent.click(disclosure as Element);
+    expect(isMounted(feed, 1)).toBe(true);
+    expect(document.activeElement).toBe(disclosure);
   });
 });
 

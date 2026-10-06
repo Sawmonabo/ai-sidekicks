@@ -7,8 +7,9 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
-import { selectTranscript } from "#renderer/store/session/selectors.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/entities.js";
 import { type SessionStore } from "#renderer/store/session/session-store.js";
+import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { readRunGroupKey, type RunGroup } from "../../run-groups/run-groups.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
@@ -36,15 +37,19 @@ export interface MessageAnchorRowKeyInputs {
  * it would with no link.
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): string | undefined {
-  const { messageAnchorCursor, unfurledWindow, transcriptWindow } = inputs;
-  const transcript = useSessionStore(inputs.sessionStore, selectTranscript);
-  // Only while a link is open, and it stops at the message, so a found one costs its own index.
+  const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow } = inputs;
+  // The log's oldest event moves when the log is first read, when a page lands and when the cap
+  // lets rows go: the only times an older message can arrive or leave. Keyed on it, the lookup
+  // runs then and not on every streamed append, and stops at the message.
+  const oldestEvent = useSessionStore(sessionStore, selectOldestEvent);
   const eventId = useMemo(
     () =>
-      messageAnchorCursor === undefined
+      messageAnchorCursor === undefined || oldestEvent === undefined
         ? undefined
-        : transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
-    [transcript, messageAnchorCursor],
+        : sessionStore.readable
+            .getState()
+            .transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
+    [sessionStore, messageAnchorCursor, oldestEvent],
   );
   usePageBackToMessage(messageAnchorCursor, eventId, inputs.earlierHistory);
   const foldedRunGroup = useMemo(
@@ -112,4 +117,8 @@ function runGroupFoldingAway(
   const row = unfurledWindow.rowsByKey.get(rowKey);
   const runId = row === undefined ? undefined : readRunGroupKey(row);
   return runId === undefined ? undefined : transcriptWindow.runGroupByHeaderKey.get(runId);
+}
+
+function selectOldestEvent(state: SessionStoreState): ProjectedSessionEvent | undefined {
+  return state.transcript[0];
 }

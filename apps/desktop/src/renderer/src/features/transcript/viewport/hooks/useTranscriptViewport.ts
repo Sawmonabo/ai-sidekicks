@@ -134,10 +134,19 @@ export function useTranscriptViewport(
 
   // A layout effect, so the landing's reading floor is set before the passive reconcile below
   // prunes: an over-cap log would otherwise lose a row far back on the very pass that brings it.
+  // Landed once per key and controller: the key goes `undefined` while its row is folded away or
+  // let go, and its return must not pull the reader back or take focus from where they are.
+  const landed = useRef<{ readonly controller: ViewportController; readonly rowKey: string }>(
+    undefined,
+  );
   useLayoutEffect(() => {
     if (controller.isDisposed || landingRowKey === undefined) {
       return;
     }
+    if (landed.current?.controller === controller && landed.current.rowKey === landingRowKey) {
+      return;
+    }
+    landed.current = { controller, rowKey: landingRowKey };
     controller.landOnRow(landingRowKey);
   }, [controller, landingRowKey]);
 
