@@ -840,76 +840,7 @@ The **seventeen** non-security invariants are exercised alongside: I-014-6 (SA-2
 
 **CI cadence.** Fuzzing runs nightly and the real-time integration weekly, with no time budget on either. Fuzz crashers are minimized, checked in under `corpus/<target>/regressions/`, and promoted to named `vitest` regression tests.
 
-### What each layer proves
-
-**Executor unit tests, one per node kind**, over an item fixture covering: the empty input, the single item, the many-item batch, the per-item expression re-evaluation, the item lineage the kind must emit, the failure path under each error disposition, and the redaction of any resolved secret. A branch kind additionally asserts the shape of its output array; the loop kind asserts its done-and-loop ordering and its run-index progression; the merge kind asserts each of its join modes. Every kind ships with its spec, its executor, a unit test over the executor with an item fixture, and a fixture scenario beat so the console's fixture bridge can render it.
-
-**Engine tests**: traversal order under fan-out with explicit sibling order, the fan-in buffer, loop re-entry, item lineage across a branch and a merge, retry under the engine's clamps, the optional run cap, cooperative cancel, a run ending failed or canceled canceling its running siblings with `workflow.step_canceled` and `First to arrive` canceling the losers, a chain waiting on its question at its count, the waiting-and-resume cycle, the crash sweep leaving a `waiting` run alone, and a partial run reusing clean step data. The memory gate carries its own: a machine with no room still admits one step, a second provider, bun or Python start waits out the 1.5 s between such starts while a quick step starts as soon as it fits, the step at the head of the line starts before any behind it, a step waiting on a person or parked on a spent provider account releases its reservation, the reservations of admitted steps come off the memory reading until each finishes, and a step's reservation moves from its kind's starting figure to the peak its workflow node reached on this machine.
-
-**Expression tests**: each binding, per-item evaluation, the evaluation yielding every 4 ms and stopping when its run is canceled, a regular expression running on `re2js` in time linear in its input and a backreference refused when the pattern compiles, redaction of resolved secrets, and the lineage failure modes with the exact guidance each gives.
-
-**Code node tests**: on the quick tier, each step on its own thread — the memory limit, the cancel flag and `terminate()` 250 ms after it, a thread out of heap failing only its step with `workflow.step_thread_failed`, no host access, and log capture into the step's log. On the full tier, the lock written when the version saves; the first run installing from that lock outside the sandbox into the version's code folder and a later run installing nothing; a lock that no longer matches its step stopping the install; the preload unpinning a versioned import and leaving any other string alone; the unpin preload and the daemon's own `bunfig.toml` on every bun step, so a worktree's `.env` and `bunfig.toml` never reach it; the step writing only its working folder (the worktree, a chat's own folder or a `None` run's own folder) and its own temporary folder inside both providers' sandboxes; `Clear Bun cache`, `Clear uv cache` and `Clear all caches` leaving every code folder and the managed Python and a later run fetching nothing; a custom `Cache limit` clearing only the cache past it and never a code folder or the managed Python, `Unlimited` never clearing, and a clear waiting for an install using its cache; an install the disk cannot hold failing its step with `workflow.code_install_failed` (`disk_space`) and clearing no cache; and a sandbox that cannot start refusing the step with `workflow.sandbox_unavailable` rather than running it unprotected.
-
-**Canvas tests on the browser tier**: the controlled round trip, where a change callback produces exactly the document mutation and nothing else; a refusal during the drag for each refused shape; a drop from the palette landing at the pointer; an edge-drop opening the filtered palette; undo and redo across a coalesced drag; copy and paste re-iding nodes; handle re-registration after a param write that changes the port set; and the announcer receiving one message per structural change. These run headless and never reveal a window.
-
-**Builder store tests**: the history cap, the dirty lattice per rule, the validation strip's contents, save-then-run against a dirty draft, and layout writes never touching the hashed body.
-
-**Round-trip tests**: export then import reproducing the same bytes and the same content hash; a document with no layout laying out identically twice; a copy-paste fragment parsing back into the same nodes.
-
-**Proportion**: a build proves the surface scales by stepping the console's text size — the reading matter and every box that carries it grow in one proportion, the icon strokes and the corner radii stay as drawn, and the canvas keeps its own coordinate space, where the node box, the handles, the edge geometry and the grid step are canvas units the zoom scales.
-
-**Surface sweeps**: every screen state below is reachable, every rule with a visible consequence is observable on the screen, and every node kind in the catalog is in the palette.
-
-### Two workflows every scenario is built from
-
-**Morning PR digest** — twelve nodes with one branch, one merge, one loop, one agent node carrying a capability edge, and one approval:
-
-1. `Every weekday 8:30 AM` — a schedule trigger, cron `0 30 8 * * 1-5`, timezone `America/New_York`.
-2. `List open PRs` — an HTTP request, one item per pull request.
-3. `Needs review?` — an If, true when the review decision is not approved.
-4. `For each PR` — a loop over items, batch 1, on the true branch; outputs done and loop.
-5. `Read the diff` — a repo diff on the loop branch, set to continue on its error output, so a diff it cannot read leaves by the error branch back into `For each PR` and the loop takes the next pull request.
-6. `Reviewer` — an `agent.run` node, the reviewer agent on a Codex account, its prompt referencing the item's title and diff.
-7. `Repo search` — an MCP tool wired by a capability edge into node 6's tool input.
-8. `Skipped PRs` — a set-variables node on the false branch.
-9. `Merge digest` — a merge in append mode, input 1 from the loop's done output and input 2 from node 8.
-10. `Approve the post` — an approval node, outputs approved and rejected.
-11. `Write summary` — a write-summary node on the approved branch.
-12. `Save as artifact` — a save-as-artifact node on the rejected branch.
-
-**Nightly tests** — five nodes, the failure example: `Every night 2:00 AM` (a schedule trigger) → `Run the suite` (a shell command running the test script) → `Passed?` (an If) → `Write summary` or `Stop with error`.
-
-### The screen states each build must reach
-
-1. **Builder, empty** — the trigger picker asking how the workflow starts, every trigger kind with one line, the palette docked and live beside it, the toolbar with an untitled name and Save unavailable. Placing a kind from the palette steps the picker aside, and the validation strip then reads "This workflow has no trigger. Every workflow has exactly one." and "Unsaved changes · never saved, 1 node to save."
-2. **Builder, Morning PR digest loaded** — all twelve nodes laid out left to right, the If's two labeled branches, the loop's done and loop outputs with the body wiring back, the merge's two inputs, `Read the diff`'s error branch returning to the loop head, the capability edge entering node 6 from below, the approval's two outputs, the schedule pill reading the next fire, the version readout reading `v7`, Save unavailable because the draft is clean.
-3. **Builder, a node selected, the inspector on the agent rows and Output** — node 6 selected with its toolbar visible; the inspector open with its chooser reading the agent the node runs, its list open on the search field with the cursor on the node's own row, and the four rows under it: Provider reading the provider that agent runs on, Model reading the model it runs, Effort reading the level it runs at and marked `you` with a reset beside it because the person set it themselves, and Account reading the identity the provider reports at sign-in with its plan chip, the default chip standing only on the account marked default, which this one is not. Output below shows the last run's items in the table view with the item count, the search box, the pin button and a draggable field.
-4. **Builder, during a run** — the run overlay: nodes 1 to 5 succeeded with item counts, node 6 running with its ring, node 7 rendering as an attached capability rather than a step state, nodes 8 to 12 idle, the edge into node 6 animated with its item count, and the toolbar's run control reading `Cancel`.
-5. **Workflows tab, eight rows** — a schedule-triggered workflow enabled with its last run succeeded, a second whose last run failed, a manual one, a file-watch one, a webhook one, a disabled schedule, a chat-started one, and one with no runs — with the filter chips above and one row's action menu open.
-6. **Runs list, sixteen rows** — one running with a live duration, two waiting on a person at the same approval, one parked on a provider limit with its resume instant, one parked with no instant armed reading `Awaiting resume — no instant is armed.`, one failed, one marked `Keep`, the rest succeeded; the started-by column showing a schedule, chat, an agent, the user and a webhook; the strip above the list reading `Next waiting (2)` at its left with the starting hold off at its right.
-7. **A run's page, failed step** — a Nightly tests run: the run graph with `Run the suite` red, the step panel open on Error showing the exit code, the last log lines and the failing item index, the retry-from-this-step action, and the header carrying the pinned version, the trigger and — because the run has finished — `Open in Review`.
-8. **A run's page, waiting on an approval** — a Morning PR digest run: the graph with every step up to `Merge digest` succeeded and `Approve the post` amber; the step panel showing the pending request and its two outcomes as `Reject` and `Approve` with `Open in Review` beside them, all three pressable there and the first two resolving the approval from the step that is blocking; the header saying waiting and carrying no `Open in Review` of its own because the run is still going, with Cancel available. Pressing `Approve` takes all three controls away and leaves one line in their place, `Approved at 2:14 PM`, with no way back, and the run's own Cancel and Resume are what act next.
-9. **The results row in the session that asked** — the flat transcript row a run leaves when it ends: workflow name, status, duration, a one-line summary, two attachments as file rows, a link to the run, no cost; above it the live run's progress row ticking its elapsed time in place with nothing pinned; the composer below showing `/workflow ` with all its verbs listed.
-10. **Builder, the Versions panel with an older version selected** — the panel open beside the canvas listing `v7`, `v6`, `v5` and `v4` newest first, each with when it was saved, who saved it and its one-line count from the structural diff; with `v5` selected the canvas carries the difference against `v7` — `Reviewer`, `Skipped PRs` and `Approve the post` marked as changed, the two added edges in the success color and the removed one dimmed — and node 6's inspector showing its `v5` and `v7` params side by side, with `Restore` and `Show runs` under the list.
-11. **Runs list, new runs held** — the starting hold on, a Run now pressed on a workflow row while it is on, so nothing new joins the list and the switch reads `Pause new runs · 1 waiting` with the quiet line beside it saying a run already going finishes; switching it off puts the held run at the top of the list, running.
-12. **Walking the runs that need a person** — `Next waiting (2)` pressed from the list opens the first of the two approvals, the one that has waited since 8:30 AM, with its step panel on the pending request, and the control, still in place above the run, now reads `Next waiting (1)`; once that run is dealt with, pressing it again opens the second, and with nothing behind that one the control stands where it was, disabled, reading `Nothing waiting`.
-13. **A run's page, an approval timed out** — before it times out, a waiting approval step with a `Timeout` names the instant it gives up in the run's live line, `waiting on your approval until 6:00 AM`, never a countdown. Once a Morning PR digest run's `Approve the post` reaches its `Timeout`: the step panel and the session's question card each carry the one-line receipt `Timed out at 6:00 AM` in place of their controls, with no way back; the header's first line reads `The approval step timed out`; the live line is gone; the step's error reads `Step timed out` and `Retry from this step` stays; and the `Waiting on you` banner and the bell's count for it are taken down.
-14. **The chain's question** — a chain held at its count: the first run's page and the session's question card read `<workflow> has started 100 runs from its <time> start. Keep going?` with `Keep going` and `Stop them all` and no Approve or Reject, the answer leaving the one-line receipt `Kept going at 100 runs` or `Stopped at 100 runs` in the question's place, the held `Execute workflow` step's live line reads `waiting on you · 100 runs from one start`, and a run that joined the chain carries `Started by <workflow> · <time>` in its header, linking to the chain's first run.
-15. **The webhook port in use** — the listener's port held at daemon start: Settings shows the port and "in use", and the webhook trigger's inspector shows, in place of its address and with no copy control, "Port <port> is in use, so the listener did not start and this workflow has no address. Change the port in Settings and the address comes back unchanged."
-
-### The done list, walked end to end before the screen is called finished
-
-1. Drag a node from the palette, wire it, click into it, edit every param type, delete it — with no reload and with undo.
-2. Save; reopen from the Workflows tab; positions, notes and params intact; export then import round-trips the bytes and the content hash.
-3. Run now; watch the nodes light up; open a step's input, output and logs; see the cost on the agent step.
-4. Branch with If, fan out with Switch, join with Merge, iterate with the loop, and read upstream values through both the current-item and the by-label bindings.
-5. A failing shell step with the error-output disposition routes to the error branch; a retry retries; the runs list shows the failure on the right node.
-6. Schedule every five minutes, quit and reopen the app, and the schedule fires; disabling stops it.
-7. From a session chat, the run verb then the results verb posts the results row, and the agent reads it and summarizes.
-8. In chat, "build me a workflow that …" produces a saved definition through the create tool, listed in the Workflows tab and openable in the builder, laid out.
-9. "Fix the nightly workflow, the shell step's working directory is wrong" produces a new version whose difference is visible in the version chain.
-10. An approval node parks the run and the approvals surface resolves it; a spent provider account parks and auto-resumes.
-11. Frame, memory, CPU and bundle budgets unmoved beyond the builder chunk's declared cost; accessibility checks clean; every affordance keyboard-reachable.
+What each layer proves, the two workflows every scenario is built from, the screen states each build must reach and the done list walked before the screen is called finished are in [Workflow Verification](../architecture/workflow-verification.md).
 
 ## Rollout Order
 
@@ -951,6 +882,7 @@ The five items map 1:1 onto `## Implementation Phase Sequence` Phases 1–5; the
 ## References
 
 - [Spec-015: Workflow Authoring And Execution](../specs/015-workflow-authoring-and-execution.md) — paired spec; canonical SA narrative
+- [Workflow Verification](../architecture/workflow-verification.md) — what each test layer proves, the two workflows, the screen states and the done list
 - [ADR-014: V1 Feature Scope Definition](../decisions/014-v1-feature-scope-definition.md) — the V1 feature set, which ships the whole workflow engine with the human step's `Timeout` and every data act, and defers one feature outside it; §Research Conducted (primary-source corpus)
 - [ADR-012: Cedar Approval Policy Engine](../decisions/012-cedar-approval-policy-engine.md) — the `human.approval` evaluation path (I-014-3)
 - [ADR-016: Shared Event-Sourcing Scope](../decisions/016-shared-event-sourcing-scope.md) — the locally-authoritative `session_events` log the `workflow.*` event types ride (I-014-5)
