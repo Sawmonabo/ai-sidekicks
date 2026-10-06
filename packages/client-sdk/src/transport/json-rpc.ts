@@ -1,4 +1,5 @@
-// Typed JSON-RPC client over a pluggable byte-frame transport: `call` and `subscribe` validate
+// Typed JSON-RPC client over a pluggable byte-frame transport, with the transport interface it
+// runs over and the subscription handle it returns: `call` and `subscribe` validate
 // every outbound payload with Zod before the wire write and every inbound payload before it
 // reaches the caller. Validation errors surface; they are never swallowed. A subscription holds
 // at most `maxQueuedValuesPerSubscription` unread values, so a stalled consumer cannot grow memory
@@ -15,6 +16,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
+  JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type {
   MethodDescriptor,
@@ -34,7 +36,89 @@ import {
 import { z } from "zod";
 import type { ZodType } from "zod";
 
-import type { ClientTransport, LocalSubscriptionConsumer } from "./contract.js";
+// The transport and the subscription handle
+
+/**
+ * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix
+ * socket, Windows named pipe, in-memory double), the framing (`FrameAccumulator` and `encodeFrame`
+ * from `@ai-sidekicks/contracts/content-length-framing`, which the daemon uses too), and
+ * backpressure on outbound writes. The client works on JSON-RPC envelopes above the framing and
+ * never sees bytes.
+ */
+export interface ClientTransport {
+  /**
+   * Send a JSON-RPC envelope to the daemon: JSON-encode it, frame it with the LSP
+   * `Content-Length: <bytes>\r\n\r\n<body>` header, and write the bytes.
+   *
+   * The return may be synchronous, a native promise (a socket write that awaits drain) or any
+   * thenable; callers wrap it in `Promise.resolve` because `PromiseLike` guarantees only `.then`.
+   */
+  send(envelope: JsonRpcRequest | JsonRpcNotification): void | PromiseLike<void>;
+
+  /**
+   * Register the inbound message dispatcher. The transport calls it exactly once per parsed
+   * envelope, either a response to an outbound request (told apart by `"id" in message`) or a
+   * notification such as `$/subscription/notify`. A single client owns the inbound stream, so an
+   * implementation should throw if this is called more than once.
+   */
+  onMessage(handler: (message: JsonRpcServerMessage) => void): void;
+
+  /**
+   * Register a close observer, called exactly once when the transport disconnects. `reason`
+   * carries the underlying error; a clean shutdown passes `undefined`. The client rejects every
+   * in-flight request with a transport-closed error.
+   */
+  onClose(handler: (reason?: Error) => void): void;
+
+  /**
+   * Shut the transport down; resolves once the connection is fully torn down. Afterward the
+   * `onClose` handler has fired, `send()` must throw, and the instance is single-use.
+   */
+  close(): Promise<void>;
+}
+
+/**
+ * The handle `JsonRpcClient.subscribe` returns synchronously; distinct from the daemon-side
+ * `LocalSubscriptionProducer<T>` in `@ai-sidekicks/contracts/jsonrpc/streaming`, which a handler
+ * emits values into. Each validated
+ * `$/subscription/notify` value lands in one bounded internal queue that `next()` and `for await`
+ * both drain; `cancel()` sends `$/subscription/cancel` and awaits the ack.
+ *
+ * The stream completes with `undefined` (after the queue drains) when the daemon ends it as
+ * `completed` or on a client `cancel()`. `next()` rejects with `JsonRpcRemoteError` when the
+ * daemon ends it as `refused`, with the transport's close reason when the transport drops, and
+ * with `JsonRpcSubscriptionOverflowError` when the consumer let the queue fill.
+ */
+export interface LocalSubscriptionConsumer<T> {
+  /**
+   * The daemon-issued subscription id: `""` until the initial response arrives, and populated
+   * before the first `next()` or iterator tick settles. Do not read it synchronously after
+   * `subscribe()` returns. A plain `string`; use `SubscriptionIdSchema` from
+   * `@ai-sidekicks/contracts/jsonrpc/streaming` to get the branded type.
+   */
+  readonly subscriptionId: string;
+
+  /**
+   * Pull the next value: resolves with it, with `undefined` once the stream completes, or rejects
+   * with the transport's reason when the transport closes abnormally. Do not mix `next()` with
+   * iterator consumption; both drain the same queue.
+   */
+  next(): Promise<T | undefined>;
+
+  /**
+   * Cancel on the daemon and await its ack, waiting first for the subscribe reply if it has not
+   * arrived. Never rejects: afterward `next()` drains any queued values and then returns
+   * `undefined`, or throws the cancel's failure. Frames that arrive after the call are dropped.
+   * Idempotent: a repeat call sends no second wire request.
+   */
+  cancel(): Promise<void>;
+
+  /**
+   * A fresh iterator over the same queue as `next()`, so `for await` and direct `next()` polling
+   * are mutually exclusive, as are repeated `for await` blocks on one subscription.
+   */
+  [Symbol.asyncIterator](): AsyncIterator<T>;
+}
 
 // Typed error classes
 
@@ -317,8 +401,8 @@ export class JsonRpcClient {
     this.#maxQueuedValuesPerSubscription = opts.maxQueuedValuesPerSubscription;
 
     // The transport allows one inbound handler; this is it.
-    transport.onMessage((msg) => {
-      this.#handleInbound(msg);
+    transport.onMessage((message) => {
+      this.#handleInbound(message);
     });
 
     // Closing rejects all in-flight requests and ends all subscriptions.
@@ -489,24 +573,26 @@ export class JsonRpcClient {
     return envelope;
   }
 
-  #handleInbound(msg: JsonRpcResponseEnvelope | JsonRpcNotification): void {
+  #handleInbound(message: JsonRpcServerMessage): void {
     // Only responses carry an `id`.
-    if ("id" in msg) {
-      this.#handleResponse(msg);
+    if ("id" in message) {
+      this.#handleResponse(message);
       return;
     }
-    this.#handleNotification(msg);
+    this.#handleNotification(message);
   }
 
-  #handleResponse(env: JsonRpcResponseEnvelope): void {
-    const pending = this.#pending.get(env.id);
+  #handleResponse(response: JsonRpcResponseEnvelope): void {
+    const pending = this.#pending.get(response.id);
     if (pending === undefined) {
       // Unknown id: drop it rather than crash on a misbehaving peer.
       return;
     }
-    this.#pending.delete(env.id);
-    if ("error" in env) {
-      pending.reject(new JsonRpcRemoteError(env.error.code, env.error.message, env.error.data));
+    this.#pending.delete(response.id);
+    if ("error" in response) {
+      pending.reject(
+        new JsonRpcRemoteError(response.error.code, response.error.message, response.error.data),
+      );
       return;
     }
 
@@ -516,7 +602,7 @@ export class JsonRpcClient {
     // schema as the resolve path keeps a malformed init from ever registering. Skipped when the
     // consumer already canceled; that cancel sends the wire cancel once the id is known.
     if (pending.subscriptionInitState !== undefined) {
-      const initParse = subscribeInitResultSchema.safeParse(env.result);
+      const initParse = subscribeInitResultSchema.safeParse(response.result);
       const state = pending.subscriptionInitState;
       if (initParse.success && state.cancelInFlight === undefined) {
         const sid = initParse.data.subscriptionId;
@@ -526,21 +612,21 @@ export class JsonRpcClient {
       }
     }
 
-    pending.resolve(env.result);
+    pending.resolve(response.result);
   }
 
-  #handleNotification(env: JsonRpcNotification): void {
-    if (env.method === SUBSCRIPTION_END_METHOD) {
-      this.#handleEnd(env.params);
+  #handleNotification(notification: JsonRpcNotification): void {
+    if (notification.method === SUBSCRIPTION_END_METHOD) {
+      this.#handleEnd(notification.params);
       return;
     }
-    if (env.method !== SUBSCRIPTION_NOTIFY_METHOD) {
+    if (notification.method !== SUBSCRIPTION_NOTIFY_METHOD) {
       // Only the subscription frames are understood; drop anything else.
       return;
     }
     // Route by `subscriptionId` first, then validate the whole frame against the schema of
     // the subscription it belongs to, so the value keeps its type `T`.
-    const params = env.params;
+    const params = notification.params;
     if (typeof params !== "object" || params === null) {
       return;
     }

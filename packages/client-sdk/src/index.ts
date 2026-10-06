@@ -18,10 +18,11 @@ export {
   JsonRpcSchemaError,
   JsonRpcSubscriptionOverflowError,
   JsonRpcTransportClosedError,
+  type ClientTransport,
   type JsonRpcClientOptions,
+  type LocalSubscriptionConsumer,
 } from "./transport/json-rpc.js";
 export {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
 } from "./transport/local-socket.js";
-export type { ClientTransport, Handler, LocalSubscriptionConsumer } from "./transport/contract.js";

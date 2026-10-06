@@ -326,6 +326,22 @@ describe("connectToDaemon", () => {
     expect(await closed).toBeInstanceOf(JsonRpcTransportPeerClosedError);
   });
 
+  it("refuses a call made while the connection is closing with the typed closed error", async () => {
+    await serveStandInDaemon((request, socket) => {
+      socket.write(
+        encodeFrame({ jsonrpc: JSONRPC_VERSION, id: request.id, result: COMPATIBLE_HELLO }),
+      );
+    });
+    const connection = await connectToDaemon({ runFolder, maxQueuedValuesPerSubscription: 8 });
+
+    // The socket's close event has not fired yet, so the client has not marked itself closed.
+    const closing = connection.close();
+    const late = connection.client.call("daemon.ping", {}, z.object({}), z.unknown());
+
+    await expect(late).rejects.toBeInstanceOf(JsonRpcTransportClosedError);
+    await closing;
+  });
+
   it("throws the refusal when the token file still holds the refused token", async () => {
     const daemon = await serveStandInDaemon((request, socket) => {
       socket.write(encodeFrame(tokenRefusal(request)));

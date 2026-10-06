@@ -203,7 +203,7 @@ The substrate Plan-005-partial ships at Phase 1-3 carries reciprocal obligations
 
 ### CP-005-1 — `session.*` namespace contract owed to [Plan-001](./001-session-core.md) Phase 5
 
-Plan-005-partial Phase 3 owns the typed handlers + SDK Zod wrapper for `SessionCreate` / `SessionRead` / `SessionSubscribe`; every other `session.*` method is its owning plan's, registered under CP-005-2. The contract surface includes (a) the canonical method-name strings per [api-payload-contracts.md §Plan-005-Partial — Local IPC Daemon Control](../architecture/contracts/api-payload-contracts.md#plan-005-partial--local-ipc-daemon-control) (`dotted-camelCase`: `session.create` / `session.read` / `session.subscribe`), (b) the request/response Zod schemas re-exported from `packages/contracts/src/session/methods.ts` (Plan-001 Phase 2 ownership; imported transitively), (c) the producer/consumer streaming primitive split: the producer-side shape `LocalSubscriptionProducer<T>` is canonical at `packages/contracts/src/jsonrpc/streaming.ts` (returned by `session.subscribe` as `LocalSubscriptionProducer<EventEnvelope>`); the consumer-side shape `LocalSubscriptionConsumer<T>` is re-declared independently at `packages/client-sdk/src/transport/contract.ts` (the SDK does NOT import the producer symbol — file-namespace separation is intentional; see the producer/consumer JSDoc in `packages/contracts/src/jsonrpc/streaming.ts#LocalSubscriptionProducer`), and (d) the re-entrant unsubscribe precondition — the SessionSubscribeDeps.subscribeToSession returned function MUST tolerate snapshot-during-emit / queued-removal because Plan-005 Phase 3's lifecycle-hook `onCancel` handlers fire from inside the upstream's `onEvent` call stack (canonical statement: `packages/runtime-daemon/src/ipc/handlers/session/subscribe.ts#SessionSubscribeDeps`, the subscribeToSession re-entrancy contract; load-bearing for §Invariants I-005-10).
+Plan-005-partial Phase 3 owns the typed handlers + SDK Zod wrapper for `SessionCreate` / `SessionRead` / `SessionSubscribe`; every other `session.*` method is its owning plan's, registered under CP-005-2. The contract surface includes (a) the canonical method-name strings per [api-payload-contracts.md §Plan-005-Partial — Local IPC Daemon Control](../architecture/contracts/api-payload-contracts.md#plan-005-partial--local-ipc-daemon-control) (`dotted-camelCase`: `session.create` / `session.read` / `session.subscribe`), (b) the request/response Zod schemas re-exported from `packages/contracts/src/session/methods.ts` (Plan-001 Phase 2 ownership; imported transitively), (c) the producer/consumer streaming primitive split: the producer-side shape `LocalSubscriptionProducer<T>` is canonical at `packages/contracts/src/jsonrpc/streaming.ts` (returned by `session.subscribe` as `LocalSubscriptionProducer<EventEnvelope>`); the consumer-side shape `LocalSubscriptionConsumer<T>` is re-declared independently at `packages/client-sdk/src/transport/json-rpc.ts` (the SDK does NOT import the producer symbol — file-namespace separation is intentional; see the producer/consumer JSDoc in `packages/contracts/src/jsonrpc/streaming.ts#LocalSubscriptionProducer`), and (d) the re-entrant unsubscribe precondition — the SessionSubscribeDeps.subscribeToSession returned function MUST tolerate snapshot-during-emit / queued-removal because Plan-005 Phase 3's lifecycle-hook `onCancel` handlers fire from inside the upstream's `onEvent` call stack (canonical statement: `packages/runtime-daemon/src/ipc/handlers/session/subscribe.ts#SessionSubscribeDeps`, the subscribeToSession re-entrancy contract; load-bearing for §Invariants I-005-10).
 
 **Why bidirectional.** [Plan-001 §Phase 5 — Client SDK And Daemon Wiring](./001-session-core.md#phase-5--client-sdk-and-daemon-wiring) names `packages/client-sdk/src/session.ts` as Phase-5-owned and cites Plan-005-partial as the substrate Phase 5 imports. Without CP-005-1 on the Plan-005 side, the obligation is one-directional — Plan-001 reviewers see the dep but Plan-005 reviewers must reverse-search to find it.
 
@@ -218,7 +218,7 @@ The remainder's namespace plans (`daemon.*` from Plan-005-remainder; `run.*` / `
 Plan-005-partial Phase 3 owns the transport-layer + Zod-wrapping primitive that every typed-JSON-RPC client surface (`sessionClient`, future `runClient` / `presenceClient` / etc.) consumes. The partial's file split is:
 
 - `packages/client-sdk/src/transport/json-rpc.ts` — Plan-005 CREATE (transport-layer + Zod wrapping)
-- `packages/client-sdk/src/transport/contract.ts` — Plan-005 CREATE (`LocalSubscriptionConsumer<T>` type + `Handler<Req, Res>` shape)
+- `packages/client-sdk/src/transport/json-rpc.ts` — Plan-005 CREATE (`JsonRpcClient`, the `ClientTransport` it runs over and the `LocalSubscriptionConsumer<T>` it returns)
 - `packages/client-sdk/src/session.ts` — Plan-001 Phase 5 CREATE (session-specific client, imports the transport)
 
 **Why bidirectional.** [Plan-001 §Phase 5 — Client SDK And Daemon Wiring](./001-session-core.md#phase-5--client-sdk-and-daemon-wiring) and Plan-005-partial Phase 3 both name `packages/client-sdk/` as their delivery surface. Without CP-005-3, the file boundary between them is undefined and the two plans risk landing the same files.
@@ -303,7 +303,6 @@ Plan-005-remainder owns the substrate's namespace registry, and the Preview pane
 ### Client SDK + CLI (`packages/client-sdk/`, `apps/cli/`)
 
 - `packages/client-sdk/src/transport/json-rpc.ts` (shipped)
-- `packages/client-sdk/src/transport/contract.ts` (shipped)
 - `packages/client-sdk/src/daemon-connection.ts` (shipped) — on macOS and Linux every client checks, after it connects and before it writes a byte, that the run folder is a real folder the user owns with no group or other permission bits (`assertPrivateRunFolder` in `packages/contracts/src/daemon/run-folder.ts`, the check the daemon makes before it binds), because a folder another account made first in a shared temporary folder could hold its own socket and token.
 - `packages/client-sdk/src/service-update/` — the service's update path with its atomic swap, which `sidekicks self-update` and the main process's `Update the background service` both run (NEW — T-005r-3-6, Phase 11)
 - `apps/cli/` workspace package (NEW — Phase R3 T-005r-3-1 scaffolds the entire workspace; `package.json` declares `name: "@ai-sidekicks/cli"`, `bin: { "sidekicks": "./dist/main.js" }`, CLI parser `clipanion@4.0.0-rc.4`, single-file ESM bundle via `tsup`)
@@ -445,7 +444,7 @@ router.register<SessionSubscribeRequest, SessionSubscribeResponse>(
 
 Subscribe handler returns `LocalSubscriptionProducer<EventEnvelope>` per the streaming primitive from T-005p-2-5; the EventEnvelope shape comes from Plan-001 Phase 2 (`packages/contracts/src/event/envelope.ts`). [Spec-006 §Acceptance Criteria](../specs/006-local-ipc-and-daemon-control.md#acceptance-criteria) carries the per-method ACs (AC-N1..N3). **Spec coverage:** Spec-006 §Interfaces And Contracts (session.\* handler namespace — CP-005-1 contract owed to Plan-001 Phase 5). **Verifies invariant:** I-005-6, I-005-7.
 
-- **T-005p-3-2** (Files: `packages/client-sdk/src/transport/json-rpc.ts` (CREATE) + `packages/client-sdk/src/transport/contract.ts` (CREATE)) — Implement the typed JSON-RPC transport-layer + Zod-wrapping primitive following the [MCP TypeScript SDK pattern](https://github.com/modelcontextprotocol/typescript-sdk). The transport file owns:
+- **T-005p-3-2** (Files: `packages/client-sdk/src/transport/json-rpc.ts` (CREATE)) — Implement the typed JSON-RPC transport-layer + Zod-wrapping primitive following the [MCP TypeScript SDK pattern](https://github.com/modelcontextprotocol/typescript-sdk). The transport file owns:
 
 ```typescript
 // packages/client-sdk/src/transport/json-rpc.ts
@@ -463,14 +462,12 @@ export class JsonRpcClient {
     valueSchema: ZodSchema<T>,
   ): LocalSubscriptionConsumer<T>;
 }
-// packages/client-sdk/src/transport/contract.ts
 export interface LocalSubscriptionConsumer<T> {
   subscriptionId: string;
   next: Promise<T | undefined>;
   cancel: Promise<void>;
   [Symbol.asyncIterator]: AsyncIterator<T>;
 }
-export type Handler<Req, Res> = (params: Req, ctx: HandlerContext) => Promise<Res>;
 ```
 
 This file is **Plan-005 CREATE**. Plan-001 Phase 5 EXTENDs by creating `packages/client-sdk/src/session.ts` (Plan-001 OWN per [Plan-001 §Phase 5 — Client SDK And Daemon Wiring](./001-session-core.md#phase-5--client-sdk-and-daemon-wiring)) which imports `JsonRpcClient` from this file. **Spec coverage:** Spec-006 §Wire Format (CP-005-3 typed transport owed to all client-SDK consumers). **Verifies invariant:** none (transport-layer SDK primitive — CP-005-3 cross-plan contract, no plan invariant).
@@ -813,11 +810,11 @@ None of these can run on a Mac; each runs on a Windows machine before the first 
 
 - All partial W-005p-1-T1..T4 + W-005p-2-T1..T10 + I-005-3-T1..T8 tests pass (Phase 1 W-005p-1 suite; Phase 2 W-005p-2 suite; Phase 3 I-005-3-T1..T8 suite)
 - Invariants I-005-1 through I-005-10 enforced and individually tested at partial scope (I-005-9 daemon-side covered by I-005-3-T6, I-005-9 SDK-side + I-005-10 covered by I-005-3-T7; daemon-side W-005p-2 framing + registry invariants ship with the Phase 2 wire substrate)
-- §Cross-Plan Obligations CP-005-1..4 surface ships verified (CP-005-1 `session.*` handlers + SDK shipped at Phase 3; CP-005-2 `router.register` registry shipped at Phase 2; CP-005-3 `transport/json-rpc.ts` + `transport/contract.ts` shipped at Phase 3)
+- §Cross-Plan Obligations CP-005-1..4 surface ships verified (CP-005-1 `session.*` handlers + SDK shipped at Phase 3; CP-005-2 `router.register` registry shipped at Phase 2; CP-005-3 `transport/json-rpc.ts` shipped at Phase 3)
 - JSON-RPC handshake `protocolVersion` type declared at [api-payload-contracts.md §Plan-005-Partial — Local IPC Daemon Control](../architecture/contracts/api-payload-contracts.md#plan-005-partial--local-ipc-daemon-control) — ISO 8601 `YYYY-MM-DD` date-string per MCP precedent; [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) matches; substrate narrowed at `packages/contracts/src/jsonrpc/message.ts` + `packages/contracts/src/jsonrpc/negotiation.ts` + `packages/runtime-daemon/src/ipc/protocol-negotiation.ts`. [`MethodRegistry` + `LocalSubscriptionProducer<T>` shapes — canonical sources: `packages/contracts/src/jsonrpc/registry.ts` + `packages/contracts/src/jsonrpc/streaming.ts`. Method-name format convention per [api-payload-contracts.md §Plan-005-Partial — Local IPC Daemon Control](../architecture/contracts/api-payload-contracts.md#plan-005-partial--local-ipc-daemon-control).]
 - [error-contracts.md §JSON-RPC Wire Mapping](../architecture/contracts/error-contracts.md#json-rpc-wire-mapping) declares the numeric ↔ dotted-namespace two-layer envelope (JSON-RPC 2.0 §5.1 `code` + `data.type` + `data.fields`) per RFC 7807 + LSP 3.17 ResponseError precedent; `unknown_setting`, `transport.unavailable`, `transport.message_too_large`, and `transport.invalid_protocol_version` domain identifiers shipped with structured `data.fields` shapes (the substrate-side `transport.invalid_protocol_version` envelope-level gate is registered distinct from registry-side `protocol.version_mismatch` NegotiationError to disambiguate [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format) wire-shape rejection from registry-level negotiation-incompatibility rejection).
 - The subscribe streaming-primitive shape is canonical in `packages/contracts/src/jsonrpc/streaming.ts`.
-- Plan-001 Phase 5's `session.ts` consumes the transport surface from CP-005-3 without modification (verified via T-005p-3-3; the Plan-005-owned `transport/json-rpc.ts` + `transport/contract.ts` contracts are unchanged by it)
+- Plan-001 Phase 5's `session.ts` consumes the transport surface from CP-005-3 without modification (verified via T-005p-3-3; the Plan-005-owned `transport/json-rpc.ts` contract is unchanged by it)
 
 ### Plan-005-Remainder
 

@@ -6,20 +6,17 @@ import * as net from "node:net";
 
 import { encodeFrame, FrameAccumulator } from "@ai-sidekicks/contracts/content-length-framing";
 import {
-  JSONRPC_VERSION,
   JsonRpcErrorCode,
-  JsonRpcErrorSchema,
+  JsonRpcServerMessageSchema,
   MAX_MESSAGE_BYTES,
   TRANSPORT_UNAVAILABLE_CODE,
   type JsonRpcErrorData,
-  type JsonRpcId,
   type JsonRpcNotification,
   type JsonRpcRequest,
-  type JsonRpcResponseEnvelope,
+  type JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { z } from "zod";
 
-import type { ClientTransport } from "./contract.js";
+import { JsonRpcTransportClosedError, type ClientTransport } from "./json-rpc.js";
 
 /**
  * Thrown when the daemon's socket cannot be reached: no daemon is listening, or the socket file is
@@ -70,32 +67,6 @@ export function connectLocalSocket(socketPath: string): Promise<ClientTransport>
   });
 }
 
-type InboundEnvelope = JsonRpcResponseEnvelope | JsonRpcNotification;
-
-// JSON can encode no `undefined`, so a member that reads `undefined` was absent.
-const presentValue = z.custom<unknown>((value) => value !== undefined, "required");
-const JsonRpcIdSchema: z.ZodType<JsonRpcId> = z.union([z.string(), z.number(), z.null()]);
-
-// What the daemon may send: a success, an error, or a notification, and nothing else. Optional
-// members are exact, as the envelope types declare them: present with a value, or absent.
-const InboundEnvelopeSchema: z.ZodType<InboundEnvelope> = z.union([
-  z.strictObject({
-    jsonrpc: z.literal(JSONRPC_VERSION),
-    id: JsonRpcIdSchema,
-    result: presentValue,
-  }),
-  z.strictObject({
-    jsonrpc: z.literal(JSONRPC_VERSION),
-    id: JsonRpcIdSchema,
-    error: JsonRpcErrorSchema,
-  }),
-  z.strictObject({
-    jsonrpc: z.literal(JSONRPC_VERSION),
-    method: z.string(),
-    params: z.unknown().exactOptional(),
-  }),
-]);
-
 // Decoding keeps no state between calls, so every connection shares one decoder.
 const UTF8_DECODER = new TextDecoder();
 
@@ -106,7 +77,7 @@ class LocalSocketTransport implements ClientTransport {
   readonly #socket: net.Socket;
   readonly #closed: Promise<void>;
   readonly #frames = new FrameAccumulator(MAX_MESSAGE_BYTES);
-  #messageHandler: ((message: InboundEnvelope) => void) | undefined;
+  #messageHandler: ((message: JsonRpcServerMessage) => void) | undefined;
   #closeHandler: ((reason?: Error) => void) | undefined;
   #failure: Error | undefined;
   #isClosing = false;
@@ -131,7 +102,7 @@ class LocalSocketTransport implements ClientTransport {
 
   public send(envelope: JsonRpcRequest | JsonRpcNotification): Promise<void> {
     if (this.#isClosing || this.#isClosed) {
-      throw new Error("The connection to the daemon is closed");
+      throw new JsonRpcTransportClosedError(this.#failure);
     }
     const frame = encodeFrame(envelope);
     // The callback fires once the frame has left the stream's buffer, so a caller awaiting each
@@ -147,7 +118,7 @@ class LocalSocketTransport implements ClientTransport {
     });
   }
 
-  public onMessage(handler: (message: InboundEnvelope) => void): void {
+  public onMessage(handler: (message: JsonRpcServerMessage) => void): void {
     if (this.#messageHandler !== undefined) {
       throw new Error("The connection already has its message handler");
     }
@@ -170,16 +141,18 @@ class LocalSocketTransport implements ClientTransport {
     return this.#closed;
   }
 
-  #receive(chunk: Buffer, handler: (message: InboundEnvelope) => void): void {
+  #receive(chunk: Buffer, handler: (message: JsonRpcServerMessage) => void): void {
     this.#frames.append(chunk);
     while (!this.#isClosing && !this.#isClosed) {
-      let envelope: InboundEnvelope;
+      let envelope: JsonRpcServerMessage;
       try {
         const frame = this.#frames.nextFrame();
         if (frame === null) {
           return;
         }
-        envelope = InboundEnvelopeSchema.parse(JSON.parse(UTF8_DECODER.decode(frame)) as unknown);
+        envelope = JsonRpcServerMessageSchema.parse(
+          JSON.parse(UTF8_DECODER.decode(frame)) as unknown,
+        );
       } catch (error) {
         // A framing, JSON or envelope failure: each throws an `Error`.
         this.#socket.destroy(error as Error);

@@ -7,7 +7,7 @@ import type {
   JsonRpcError,
   JsonRpcNotification,
   JsonRpcRequest,
-  JsonRpcResponseEnvelope,
+  JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
@@ -15,11 +15,7 @@ import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { JsonRpcClientOptions } from "../transport/json-rpc.js";
-import type { ClientTransport } from "../transport/contract.js";
-
-/** A frame the daemon writes to the client: a reply or a notification. */
-type InboundEnvelope = JsonRpcResponseEnvelope | JsonRpcNotification;
+import type { ClientTransport, JsonRpcClientOptions } from "../transport/json-rpc.js";
 
 /** The client options the tests use; the queue bound is far above any test's stream. */
 export const TEST_CLIENT_OPTIONS: JsonRpcClientOptions = {
@@ -37,7 +33,7 @@ export interface ScriptedDaemon extends ClientTransport {
   /** Envelopes the client sent, in send order. */
   readonly sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification>;
   /** Delivers a frame to the client synchronously, as one transport read would. */
-  deliverInbound(message: InboundEnvelope): void;
+  deliverInbound(message: JsonRpcServerMessage): void;
 }
 
 /**
@@ -48,10 +44,10 @@ export function createScriptedDaemon(
   answer: (request: JsonRpcRequest) => ScriptedAnswer | undefined = () => undefined,
 ): ScriptedDaemon {
   const sentEnvelopes: Array<JsonRpcRequest | JsonRpcNotification> = [];
-  let inboundHandler: ((message: InboundEnvelope) => void) | undefined;
+  let inboundHandler: ((message: JsonRpcServerMessage) => void) | undefined;
   let closeHandler: ((reason?: Error) => void) | undefined;
 
-  const deliverInbound = (message: InboundEnvelope): void => {
+  const deliverInbound = (message: JsonRpcServerMessage): void => {
     if (inboundHandler === undefined) {
       throw new Error("A frame was delivered before the client registered its handler");
     }

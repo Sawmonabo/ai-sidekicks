@@ -1,5 +1,6 @@
 // JSON-RPC 2.0 message types shared by the daemon and its clients. No Node imports, so any
-// runtime can use them; the daemon's gateway owns framing and transport.
+// runtime can use them; the framing is in `content-length-framing.ts`, and each side owns its own
+// transport.
 
 import { z } from "zod";
 
@@ -171,3 +172,32 @@ export type JsonRpcResponseEnvelope<R = unknown> = JsonRpcResponse<R> | JsonRpcE
 
 /** Any envelope the framing parser can produce from a frame body. */
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponseEnvelope;
+
+/** What a JSON-RPC server sends a client: a response to one of its requests, or a notification. */
+export type JsonRpcServerMessage = JsonRpcResponseEnvelope | JsonRpcNotification;
+
+// JSON can encode no `undefined`, so a member that reads `undefined` was absent.
+const PresentValueSchema = z.custom<unknown>((value) => value !== undefined, "required");
+const JsonRpcIdSchema: z.ZodType<JsonRpcId> = z.union([z.string(), z.number(), z.null()]);
+
+/**
+ * Parses a {@link JsonRpcServerMessage}: a success, an error or a notification, and nothing else.
+ * Optional members are exact, as the envelope types declare them: present with a value, or absent.
+ */
+export const JsonRpcServerMessageSchema: z.ZodType<JsonRpcServerMessage> = z.union([
+  z.strictObject({
+    jsonrpc: z.literal(JSONRPC_VERSION),
+    id: JsonRpcIdSchema,
+    result: PresentValueSchema,
+  }),
+  z.strictObject({
+    jsonrpc: z.literal(JSONRPC_VERSION),
+    id: JsonRpcIdSchema,
+    error: JsonRpcErrorSchema,
+  }),
+  z.strictObject({
+    jsonrpc: z.literal(JSONRPC_VERSION),
+    method: z.string(),
+    params: z.unknown().exactOptional(),
+  }),
+]);

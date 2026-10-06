@@ -41,7 +41,7 @@ import { DRIVER_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provide
 import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
 
 import { callMethod, subscribeMethod, type JsonRpcClient } from "./transport/json-rpc.js";
-import type { LocalSubscriptionConsumer } from "./transport/contract.js";
+import type { LocalSubscriptionConsumer } from "./transport/json-rpc.js";
 
 /** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});

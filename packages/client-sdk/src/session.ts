@@ -33,7 +33,7 @@ import {
   withCancelFailure,
   type JsonRpcClient,
 } from "./transport/json-rpc.js";
-import type { LocalSubscriptionConsumer } from "./transport/contract.js";
+import type { LocalSubscriptionConsumer } from "./transport/json-rpc.js";
 
 /**
  * One delivered session event with the cursor the consumer retains for an
