@@ -3,7 +3,7 @@
 // is on this path), links render as their text with no anchor, and math and diagrams wait for
 // `isSettled`.
 
-import "./markdown.css";
+import "./MarkdownNodes.css";
 
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
@@ -80,7 +80,7 @@ function renderNode(
       );
     case "heading":
       // A message's `#` is not a page title, so every level is one element carrying its depth;
-      // `markdown.css` gives the levels their weights.
+      // `MarkdownNodes.css` gives the levels their weights.
       return (
         <p
           className="meridian-markdown__heading"
@@ -235,7 +235,7 @@ function renderTableRow(
 
 /**
  * One cell, as a header or as data, carrying the column's declared alignment as `data-align` so
- * `markdown.css` owns how each looks. An undeclared alignment carries no attribute, since
+ * `MarkdownNodes.css` owns how each looks. An undeclared alignment carries no attribute, since
  * spelling the default would assert a declaration the author never made.
  */
 function renderTableCell(
