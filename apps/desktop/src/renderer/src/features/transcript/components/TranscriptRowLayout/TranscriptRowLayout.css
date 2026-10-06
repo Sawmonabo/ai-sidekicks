@@ -5,6 +5,13 @@
  * as a custom property.
  */
 .meridian-transcript-row-layout {
+  /* The reply's reading line, and the gap between rows derived from it: half that line, so it
+     moves with Text size. */
+  --meridian-transcript-reading-line-height: 1.55;
+  --meridian-transcript-row-gap: calc(
+    var(--meridian-text-md) * var(--meridian-transcript-reading-line-height) / 2
+  );
+
   display: grid;
   grid-template-areas:
     "edge gutter body"
@@ -62,7 +69,7 @@
   min-inline-size: 0;
   color: var(--meridian-text);
   font-size: var(--meridian-text-md);
-  line-height: 1.55;
+  line-height: var(--meridian-transcript-reading-line-height);
 }
 
 .meridian-transcript-row-layout__meta {
@@ -93,7 +100,8 @@
   grid-area: footer;
   align-items: center;
   gap: var(--meridian-space-2);
-  margin-block-start: var(--meridian-space-1);
+  /* A reply's foot, not a row of its own: half the gap between rows under the body. */
+  margin-block-start: calc(var(--meridian-transcript-row-gap) / 2);
 }
 
 /*
