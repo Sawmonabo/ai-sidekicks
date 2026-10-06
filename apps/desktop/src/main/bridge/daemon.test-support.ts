@@ -10,6 +10,10 @@ import {
   type JsonRpcRequest,
   type JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import {
+  SUBSCRIPTION_END_METHOD,
+  type SubscriptionEndParams,
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { vi } from "vitest";
 
 import { appFactsSwitches } from "#shared/app-facts.js";
@@ -26,6 +30,8 @@ export interface ScriptedConnection extends ClientTransport {
   closeWith(reason: Error): void;
   /** Push one value on a subscription the script acknowledged. */
   notify(subscriptionId: string, value: unknown): void;
+  /** End a subscription the script acknowledged, as the daemon's last frame for it does. */
+  end(end: SubscriptionEndParams): void;
 }
 
 /** How the script answers one request: a result, or a refusal. */
@@ -66,6 +72,9 @@ export function scriptedConnection(
         method: "$/subscription/notify",
         params: { subscriptionId, value },
       });
+    },
+    end(end): void {
+      deliver?.({ jsonrpc: JSONRPC_VERSION, method: SUBSCRIPTION_END_METHOD, params: end });
     },
     close(): Promise<void> {
       onClose?.(undefined);

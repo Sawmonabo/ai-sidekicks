@@ -10,6 +10,7 @@ import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts/machine-settings";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -310,6 +311,45 @@ describe("how a subscription ends, and the status topic", () => {
       { reason: "refused", refusal },
       { reason: "failed", message: "Transport closed: The daemon closed the connection." },
     ]);
+  });
+
+  it("ends the page's stream on the daemon's end frame, completed or refused as a call is", async () => {
+    const refusal = {
+      code: JsonRpcErrorCode.InvalidParams,
+      message: "That cursor is gone.",
+      data: { type: "event.cursor_unresolvable" },
+    };
+    const daemonIds = [randomUUID(), randomUUID()] as SubscriptionId[];
+    const acknowledged = [...daemonIds];
+    const connection = scriptedConnection(() => ({
+      result: { subscriptionId: acknowledged.shift() },
+    }));
+    const bridge = await bridgeOver(connection);
+    const values: unknown[] = [];
+    const ends: unknown[] = [];
+    for (let i = 0; i < 2; i++) {
+      bridge.daemon.subscribe(
+        "session.subscribe",
+        { sessionId: SESSION_ID } as never,
+        (value) => values.push(value),
+        (end) => ends.push(end),
+      );
+    }
+    await setImmediate();
+    const [completing, refusing] = daemonIds as [SubscriptionId, SubscriptionId];
+
+    connection.notify(completing, { sequence: 1 });
+    connection.end({ subscriptionId: completing, reason: "completed" });
+    await setImmediate();
+    // The value queued ahead of the end reaches the page first.
+    expect(values).toEqual([{ sequence: 1 }]);
+    expect(ends).toEqual([{ reason: "completed" }]);
+
+    connection.end({ subscriptionId: refusing, reason: "refused", error: refusal });
+    await setImmediate();
+    expect(ends).toEqual([{ reason: "completed" }, { reason: "refused", refusal }]);
+    // The page holds neither any longer, so closing them sends no cancel.
+    expect(canceledOn(connection)).toEqual([]);
   });
 
   it("delivers the link's state from before any service answers, the current one first", async () => {
