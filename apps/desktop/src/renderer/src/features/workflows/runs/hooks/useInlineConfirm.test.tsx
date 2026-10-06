@@ -34,7 +34,7 @@ describe("an inline confirm's Escape", () => {
           <DeleteOlderRuns bridge={bridge} />
           <RunsTable
             runs={[summaryOfRun(succeeded)]}
-            accountLabel={() => undefined}
+            payerOf={() => ({ kind: "unread" })}
             bridge={bridge}
             onOpenRun={() => undefined}
             onRunDeleted={() => undefined}

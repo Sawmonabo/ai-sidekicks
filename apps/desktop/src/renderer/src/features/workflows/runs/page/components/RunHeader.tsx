@@ -11,7 +11,7 @@ import { RunStatusChip } from "#renderer/features/workflows/components/RunStatus
 import { useRunTimesNow } from "#renderer/features/workflows/hooks/useRunTimesNow.js";
 import { useWorkflowCall } from "#renderer/features/workflows/hooks/useWorkflowCall.js";
 import { runDurationWords } from "../../duration.js";
-import { costWithPayer } from "../../cost.js";
+import { costWithPayer, type PayerReading } from "../../cost.js";
 import { TRIGGER_KIND_WORDS, startedByWords } from "#renderer/features/workflows/words.js";
 import { isGoing, runHeaderControlAvailability } from "../../controls.js";
 import { runHeaderLines, runLiveLine } from "../header-lines.js";
@@ -30,7 +30,7 @@ export interface RunHeaderProps {
   readonly nodeKind: (nodeId: string) => string | undefined;
   /** A step's node name in the pinned version. */
   readonly nodeName: (nodeId: string) => string;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenSession: (sessionId: string) => void;
@@ -117,7 +117,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
             </>
           ) : null}
         </Fact>
-        <Fact term="Cost">{costWithPayer(run.cost, props.accountLabel)}</Fact>
+        <Fact term="Cost">{costWithPayer(run.cost, props.payerOf)}</Fact>
       </dl>
       <div className="meridian-workflow-run__links">
         <HeaderLink

@@ -31,6 +31,7 @@ import { RunsTable } from "./components/RunsTable.js";
 import type { RunFiltersHold } from "./hooks/useRunFilters.js";
 import { useRunTimesNow } from "../hooks/useRunTimesNow.js";
 import { isGoing } from "./controls.js";
+import type { PayerReading } from "./cost.js";
 import { NO_RUN_FILTERS, hasRunFilters, noRunMatchSentence } from "./filters.js";
 import type { RunListAnswer, RunListAsk } from "./list-pages.js";
 import { runCountWords } from "../words.js";
@@ -51,7 +52,7 @@ export interface RunsTabProps {
   /** Why the saved workflows or the accounts the table names could not be read. */
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   /** How many runs a person answered since this screen opened. */
@@ -155,7 +156,7 @@ function RunsList(
       <div className="meridian-workflows-runs__list" aria-busy={isReplacing}>
         <RunsTable
           runs={response.runs}
-          accountLabel={props.accountLabel}
+          payerOf={props.payerOf}
           bridge={props.bridge}
           onOpenRun={props.onOpenRun}
           onRunDeleted={props.readListAgain}

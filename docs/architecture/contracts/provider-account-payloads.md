@@ -257,8 +257,10 @@ interface ProviderAccountRegisterRequest {
   billingMode: BillingMode;
   makeDefault?: boolean;
   // The name the person gives an account the provider names nowhere: REQUIRED with `nonInteractiveToken`
-  // on a new registration and on an API-key registration, absent on a sign-in one, and refused when it
-  // matches another of that provider's account names.
+  // on a new registration and on an API-key registration, absent on a sign-in one, OPTIONAL on a token
+  // re-supply (`accountId` with `nonInteractiveToken`), whose account already carries its name, and
+  // refused when it matches another of that provider's account names in the one comparison form,
+  // `comparableDisplayLabel`.
   displayLabel?: string;
   // RE-SUPPLY, not a second credential-accepting verb. Supplied, this means "replace the sealed
   // token on THIS account" and `provider` must match the stored row; omitted, this is an ordinary

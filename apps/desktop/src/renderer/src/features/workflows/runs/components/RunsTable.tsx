@@ -8,7 +8,7 @@ import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { RunStatusChip } from "../../components/RunStatusChip.js";
 import { useWorkflowCall, type WorkflowCallState } from "../../hooks/useWorkflowCall.js";
-import { costWithPayer } from "../cost.js";
+import { costWithPayer, type PayerReading } from "../cost.js";
 import { runDurationWords } from "../duration.js";
 import { RunControl } from "../../components/RunControl.js";
 import { isGoing } from "../controls.js";
@@ -21,7 +21,7 @@ import { ActionButton } from "../../components/ActionButton.js";
 /** What the runs table is drawn from and where a row leads. */
 export interface RunsTableProps {
   readonly runs: readonly WorkflowRunSummary[];
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly bridge: PlatformBridge;
   readonly onOpenRun: (workflowRunId: string) => void;
   /**
@@ -124,7 +124,7 @@ function RunRow(
       <td>
         {run.liveStep === undefined ? formatCount(run.stepCount) : liveStepWords(run.liveStep)}
       </td>
-      <td>{costWithPayer(run.cost, props.accountLabel)}</td>
+      <td>{costWithPayer(run.cost, props.payerOf)}</td>
       <td>
         {run.keep ? <Chip label="Keep" /> : null}
         {isConfirming ? (

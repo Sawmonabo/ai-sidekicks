@@ -16,6 +16,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
+import type { PayerReading } from "../runs/cost.js";
 import type { WorkflowNoticeFeedState } from "../notice-feed.js";
 import type { WorkflowRunComparison } from "../runs/comparison.js";
 import {
@@ -64,8 +65,8 @@ export interface WorkflowsScreenHold {
    */
   readonly namingRefusal: Refusal | undefined;
   readonly filters: RunFiltersHold;
-  /** What an account is named by, while the accounts are read and one names it. */
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  /** What the account registry says about the account a cost was paid from. */
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
   readonly nextWaiting: NextWaiting;
@@ -185,15 +186,17 @@ export function useWorkflowsScreen(
     [feed, countAnswered],
   );
 
-  const payerLabel = useCallback(
-    (providerAccountId: string) => {
+  const payerOf = useCallback(
+    (providerAccountId: string): PayerReading => {
       if (accountsState.kind !== "loaded") {
-        return undefined;
+        return { kind: "unread" };
       }
       const payer = accountsState.value.accounts.find(
         (account) => account.accountId === providerAccountId,
       );
-      return payer === undefined ? undefined : accountLabel(payer);
+      return payer === undefined
+        ? { kind: "removed" }
+        : { kind: "listed", label: accountLabel(payer) };
     },
     [accountsState],
   );
@@ -305,7 +308,7 @@ export function useWorkflowsScreen(
           ? accountsState.refusal
           : undefined,
     filters,
-    accountLabel: payerLabel,
+    payerOf,
     definitionNameFor,
     nextWaiting,
     pauseAct: pause.state,

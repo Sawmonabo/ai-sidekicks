@@ -67,7 +67,7 @@ function renderHeader(
       versionNumber={2}
       nodeKind={nodeKind}
       nodeName={(nodeId) => nodeId}
-      accountLabel={() => undefined}
+      payerOf={() => ({ kind: "unread" })}
       bridge={bridge}
       onOpenRun={(workflowRunId) => {
         openedRuns.push(workflowRunId);

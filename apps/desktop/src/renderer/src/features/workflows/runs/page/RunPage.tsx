@@ -25,6 +25,7 @@ import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
 import { findDocumentNode } from "./document-node.js";
 import { RunGraph } from "./graph/RunGraph.js";
+import type { PayerReading } from "../cost.js";
 
 /** What one run's page is drawn from, and where its links lead. */
 export interface RunPageProps {
@@ -32,7 +33,7 @@ export interface RunPageProps {
   readonly workflowRunId: string;
   /** A saved workflow's current name, while the saved workflows are read and list it. */
   readonly definitionNameFor: (definitionId: string) => string | undefined;
-  readonly accountLabel: (providerAccountId: string) => string | undefined;
+  readonly payerOf: (providerAccountId: string) => PayerReading;
   readonly onOpenRun: (workflowRunId: string) => void;
   readonly onOpenSession: (sessionId: string) => void;
   /** Open a session with the message a cursor names in view, or at its foot without one. */
@@ -116,7 +117,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         versionNumber={documentRead.kind === "read" ? documentRead.versionNumber : undefined}
         nodeKind={nodeKind}
         nodeName={nodeName}
-        accountLabel={props.accountLabel}
+        payerOf={props.payerOf}
         bridge={props.sources.bridge}
         onOpenRun={props.onOpenRun}
         onOpenSession={props.onOpenSession}
@@ -165,7 +166,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
             nodeId={page.selectedNodeId}
             nodeKind={nodeKind}
             nodeName={nodeName}
-            accountLabel={props.accountLabel}
+            payerOf={props.payerOf}
             bridge={props.sources.bridge}
             nowMs={dayNowMs}
             receipts={page.receipts}
