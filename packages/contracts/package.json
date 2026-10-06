@@ -34,6 +34,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "unicode-case-folding": "1.1.2",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -16,6 +16,7 @@
 //
 // This file imports nothing from the run contracts: they import the document's ids,
 // nodes and items from here.
+import { caseFold } from "unicode-case-folding";
 import { z } from "zod";
 
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/mcp.js";
@@ -416,6 +417,15 @@ export const WorkflowToolBindingSchema: z.ZodType<WorkflowToolBinding, WorkflowT
  * @consumedBy the handler that returns the `workflow.definition_refused` error
  */
 export const WORKFLOW_DEFINITION_REFUSED_CODE = "workflow.definition_refused" as const;
+
+/**
+ * A workflow name folded the one way the library compares names: Unicode's full case folding, the
+ * same on every machine whatever its language, so `Straße` and `STRASSE` are one name, and the
+ * Turkish dotless `ı` stays apart from `i`. The library holds a name once under this fold.
+ */
+export function foldWorkflowName(name: string): string {
+  return caseFold(name);
+}
 
 /**
  * The rules a refused document can break. Each finding names one, with the nodes it

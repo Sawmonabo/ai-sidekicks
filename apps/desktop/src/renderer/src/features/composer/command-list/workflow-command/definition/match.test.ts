@@ -15,4 +15,12 @@ describe("matchWorkflowDefinition", () => {
       status: "none",
     });
   });
+
+  it("matches a name under the library's case fold", () => {
+    const street = workflowDefinition({ name: "Straße sweep" });
+    expect(matchWorkflowDefinition([street], "STRASSE SWEEP")).toStrictEqual({
+      status: "matched",
+      definition: street,
+    });
+  });
 });

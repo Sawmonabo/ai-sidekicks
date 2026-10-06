@@ -1,10 +1,15 @@
 // The workflow document is written by the builder, by an agent through its tools and by an
 // imported file. These cases hold what its readers rely on: a failure disposition from the closed
-// three, a schema small enough to send to a model, and a tool binding that carries no policy.
+// three, a schema small enough to send to a model, a tool binding that carries no policy, and the
+// one case fold every machine compares workflow names by.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { WorkflowDocumentSchema, WorkflowToolBindingSchema } from "../definition.js";
+import {
+  foldWorkflowName,
+  WorkflowDocumentSchema,
+  WorkflowToolBindingSchema,
+} from "../definition.js";
 
 const TRIGGER = {
   id: "schedule",
@@ -106,5 +111,17 @@ describe("WorkflowToolBindingSchema", () => {
         binding: { ...BINDING.binding, enabled: true },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("foldWorkflowName", () => {
+  it("folds by Unicode's full case folding, never by the machine's language", () => {
+    // Full folding turns ß into ss, which lower-casing does not.
+    expect(foldWorkflowName("Straße")).toBe(foldWorkflowName("STRASSE"));
+    // The dotted capital İ folds to i and a combining dot, so it is not the plain i; the dotless ı
+    // has no folding and stays apart from i, and I folds to i as in every language but Turkish.
+    expect(foldWorkflowName("İ")).toBe("i\u0307");
+    expect(foldWorkflowName("ı")).toBe("ı");
+    expect(foldWorkflowName("I")).toBe("i");
   });
 });

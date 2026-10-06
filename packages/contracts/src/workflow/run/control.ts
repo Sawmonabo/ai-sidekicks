@@ -248,11 +248,15 @@ export const WorkflowRunRerunRequestSchema: z.ZodType<
 /**
  * The `workflow.nodeExecute` input: `Run this node` (`node`) or `Run from here`
  * (`fromHere`, the node and its ancestors) on a saved version, never unsaved bytes.
- * `dirtyNodeIds` is the builder's hint; the daemon decides what it runs and reuses.
+ * `projectId` is the project the builder's `Repository` panel names for a node run on a `chat` or
+ * `sub-workflow` trigger, which carries no `Repository` of its own; it is absent for `None` and on
+ * every other trigger, whose `Repository` the daemon reads. `dirtyNodeIds` is the builder's hint;
+ * the daemon decides what it runs and reuses.
  */
 export interface WorkflowNodeExecuteRequest {
   workflowVersionId: string;
   sessionId?: SessionId | undefined;
+  projectId?: ProjectId | undefined;
   nodeId: WorkflowNodeId;
   scope: "node" | "fromHere";
   dirtyNodeIds?: WorkflowNodeId[] | undefined;
@@ -265,6 +269,7 @@ export const WorkflowNodeExecuteRequestSchema: z.ZodType<
   .object({
     workflowVersionId: WorkflowVersionIdSchema,
     sessionId: SessionIdSchema.optional(),
+    projectId: ProjectIdSchema.optional(),
     nodeId: WorkflowNodeIdSchema,
     scope: z.enum(["node", "fromHere"]),
     dirtyNodeIds: z.array(WorkflowNodeIdSchema).optional(),
@@ -330,6 +335,25 @@ export const WORKFLOW_START_DENIED_CODE = "workflow.start_denied" as const;
  */
 export const WORKFLOW_PROJECT_ON_PROJECT_SESSION_CODE =
   "workflow.project_on_project_session" as const;
+
+/**
+ * A start or a node run that works in no project's repository, a `None` run or a chat's run that
+ * names none, of a version holding a Git, Read a repo diff or Run tests step. Nothing runs.
+ *
+ * @consumedBy the start and node-run handlers that refuse a run needing a repository
+ */
+export const WORKFLOW_REPOSITORY_REQUIRED_CODE = "workflow.repository_required" as const;
+/** The repository refusal's details: the nodes that need a repository. */
+export interface WorkflowRepositoryRequiredDetails {
+  nodeIds: WorkflowNodeId[];
+}
+/**
+ * Wire schema for {@link WorkflowRepositoryRequiredDetails}.
+ *
+ * @consumedBy the start and node-run handlers that refuse a run needing a repository
+ */
+export const WorkflowRepositoryRequiredDetailsSchema: z.ZodType<WorkflowRepositoryRequiredDetails> =
+  z.object({ nodeIds: z.array(WorkflowNodeIdSchema).min(1) }).strict();
 
 /**
  * A cancel on a run that has ended: there is nothing left to cancel. A failed run waiting on Resume
