@@ -3,7 +3,7 @@
 // replaced by each later `system/init` that reports one and reported once per run when the run's
 // own handshake arrives.
 
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider/driver/caps";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   ProviderCommandEntrySchema,

@@ -50,7 +50,7 @@ import {
   PlanHandedOffPayloadSchema,
   PlanProposedPayloadSchema,
 } from "../plan.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema } from "../run/id.js";
 import { PtyControlChangedPayloadSchema } from "../pty.js";
 import { QuestionAskedPayloadSchema } from "../question.js";

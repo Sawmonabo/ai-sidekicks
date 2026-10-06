@@ -11,7 +11,7 @@
 //   so malformed provider output never reaches the approval pipeline.
 
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/caps";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";

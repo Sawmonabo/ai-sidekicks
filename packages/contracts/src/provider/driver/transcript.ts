@@ -9,7 +9,7 @@ import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-} from "./caps.js";
+} from "./length-limits.js";
 import { type RunId } from "../../run/id.js";
 import { wireFreeFormString } from "../../free-form-string.js";
 

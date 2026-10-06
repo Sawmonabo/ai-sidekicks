@@ -6,7 +6,7 @@
 import { z } from "zod";
 
 import { EVENT_FIELD_MAX_LEN } from "../event/version.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema, type RunId } from "./id.js";
 import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/methods.js";
 import { wireFreeFormString } from "../free-form-string.js";

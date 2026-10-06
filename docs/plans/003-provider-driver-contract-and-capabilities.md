@@ -44,7 +44,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 Phase 1 (contracts):
 
 - `packages/runtime-daemon/src/provider/driver/contract.ts` — the driver interface module, imported by the daemon alone: typed `ProviderDriver` interface and its parameter types + `GetCapabilitiesResult` wrapper ({capabilities, tools}) + `DriverResumeResultSchema` (Zod discriminated union)
-- `packages/contracts/src/provider/driver/capabilities.ts`, `tools.ts` and `intervention.ts` — the wire half clients and the other contracts files read: `DriverCapabilityFlag` literal-union (widened by T1.7) + `DriverCapabilities` shape ({flags, contractVersion}) in `capabilities.ts`; `IdempotencyClass` enum + `ProviderToolMetadataSchema` with `ProviderToolMetadata` (ingress `z.input`) + `NormalizedProviderToolMetadata` (`z.output`) shapes in `tools.ts`; `ApplyInterventionParams` + `DriverInterventionResultSchema` (Zod) in `intervention.ts`
+- `packages/contracts/src/provider/driver/capabilities.ts`, `tools.ts`, `intervention.ts` and `length-limits.ts` — the wire half clients and the other contracts files read: `DriverCapabilityFlag` literal-union (widened by T1.7) + `DriverCapabilities` shape ({flags, contractVersion}) in `capabilities.ts`; `IdempotencyClass` enum + `ProviderToolMetadataSchema` with `ProviderToolMetadata` (ingress `z.input`) + `NormalizedProviderToolMetadata` (`z.output`) shapes in `tools.ts`; `ApplyInterventionParams` + `DriverInterventionResultSchema` (Zod) in `intervention.ts`; the `DRIVER_*_MAX_LEN` bounds on provider output in `length-limits.ts`
 
 Phase 2 (runtime persistence):
 

@@ -17,7 +17,7 @@ import {
 } from "../method-descriptor.js";
 import { type ExecutionPosture } from "../provider/driver/capabilities.js";
 import { InterventionTypeSchema, type InterventionType } from "../provider/driver/intervention.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
 import { RunIdSchema, type RunId } from "./id.js";
 import {

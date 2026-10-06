@@ -5,7 +5,7 @@ import { z } from "zod";
 import { wireFreeFormString } from "../../free-form-string.js";
 import type { ArtifactId } from "../../artifacts/id.js";
 import type { RunId } from "../../run/id.js";
-import { DRIVER_FALLBACK_ACTION_MAX_LEN } from "./caps.js";
+import { DRIVER_FALLBACK_ACTION_MAX_LEN } from "./length-limits.js";
 
 /** Asks a driver to interrupt one run, with an optional reason. */
 export interface InterruptRunParams {

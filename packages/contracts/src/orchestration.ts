@@ -22,7 +22,7 @@ import {
 } from "./agent/methods.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/caps.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider/driver/length-limits.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import {
   DRIVER_WIRE_REASON_MAX_LEN,

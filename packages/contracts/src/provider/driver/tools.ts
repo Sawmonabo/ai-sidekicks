@@ -4,7 +4,7 @@
 import { z } from "zod";
 
 import { wireFreeFormString } from "../../free-form-string.js";
-import { DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN } from "./caps.js";
+import { DRIVER_TOOL_DESCRIPTION_MAX_LEN, DRIVER_TOOL_NAME_MAX_LEN } from "./length-limits.js";
 
 const IDEMPOTENCY_CLASS_VALUES = ["idempotent", "compensable", "manual_reconcile_only"] as const;
 

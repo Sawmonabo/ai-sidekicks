@@ -6,7 +6,7 @@ import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
-} from "@ai-sidekicks/contracts/provider/driver/caps";
+} from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,

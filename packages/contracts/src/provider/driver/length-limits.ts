@@ -1,4 +1,4 @@
-// Length caps on provider output, applied through `wireFreeFormString`, which refuses an over-max
+// Length limits on provider output, applied through `wireFreeFormString`, which refuses an over-max
 // value and never truncates; they keep unbounded provider output out of the daemon's tables.
 
 /**

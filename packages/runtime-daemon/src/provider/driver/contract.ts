@@ -39,7 +39,7 @@ import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-} from "@ai-sidekicks/contracts/provider/driver/caps";
+} from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   RecoveryConditionSchema,

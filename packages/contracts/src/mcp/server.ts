@@ -19,7 +19,7 @@ import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-} from "../provider/driver/caps.js";
+} from "../provider/driver/length-limits.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";

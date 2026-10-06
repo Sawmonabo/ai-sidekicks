@@ -29,7 +29,7 @@ import {
   type DriverInterventionResult,
   type InterruptRunParams,
 } from "./intervention.js";
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "./caps.js";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "./length-limits.js";
 import { ArtifactIdSchema } from "../../artifacts/id.js";
 import { RunIdSchema, type RunId } from "../../run/id.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";

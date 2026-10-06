@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/caps";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../../../outbound-frame.js";
 import {
   CodexAppServerConnection,

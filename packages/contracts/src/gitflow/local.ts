@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { GitObjectIdSchema, type GitObjectId } from "../repo/git-reads.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";

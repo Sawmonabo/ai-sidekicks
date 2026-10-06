@@ -7,7 +7,7 @@ import { defineMethodDescriptors, type MethodDescriptor } from "./method-descrip
 import {
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
-} from "./provider/driver/caps.js";
+} from "./provider/driver/length-limits.js";
 import { wireFreeFormString } from "./free-form-string.js";
 
 /** `callbackTool.list` takes no members. */

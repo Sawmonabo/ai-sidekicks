@@ -20,7 +20,7 @@ import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../../metho
 import { defineMethodDescriptors } from "../../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
 import { MCP_SERVER_STATUS_SEVERITY_ORDER, type McpServerStatus } from "../../mcp/server.js";
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/caps.js";
+import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/length-limits.js";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,

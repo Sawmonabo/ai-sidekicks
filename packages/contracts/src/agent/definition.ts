@@ -20,7 +20,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "../internal/branded.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "../provider/account/record.js";
 import { PROVIDER_NAMES, ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
 import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";

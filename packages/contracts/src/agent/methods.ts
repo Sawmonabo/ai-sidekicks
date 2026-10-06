@@ -56,7 +56,7 @@ import {
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/caps.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
