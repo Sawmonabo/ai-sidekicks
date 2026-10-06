@@ -156,17 +156,6 @@ const parsePrepareRequest = (overrides: Record<string, unknown> = {}) =>
   ExecutionRootPrepareRequestSchema.safeParse({ workspaceId: WORKSPACE_ID, ...overrides });
 
 describe("ExecutionRootPrepare request (create or bind)", () => {
-  it("accepts the full explicit-reuse shape", () => {
-    expect(
-      parsePrepareRequest({
-        branchName: BRANCH_NAME,
-        baseRef: "main",
-        reuseWorktreeId: WORKTREE_ID,
-        acknowledgeDirtyCandidate: true,
-      }).success,
-    ).toBe(true);
-  });
-
   it("carries no wire runId, since the daemon supplies run provenance", () => {
     // The run-setup gate calls the service directly and supplies the run id. A wire `runId`
     // would let a caller forge provenance, so `.strict()` refuses the key.

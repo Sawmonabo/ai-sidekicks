@@ -4,7 +4,7 @@
 //
 //   * The main checkout is never mutated: git runs only `symbolic-ref --quiet --short HEAD`,
 //     `check-ref-format --branch`, `for-each-ref`, `worktree add -b`, `worktree prune` (the only
-//     thing that unregisters what `add` wrote) and `status --porcelain`.
+//     thing that unregisters what `add` wrote).
 //   * `cleanupPass` removes the directory, prunes, then stamps `cleaned_at`, so a crash between
 //     steps is retried and never recorded as a cleanup that did not happen.
 
@@ -22,7 +22,6 @@ import {
   WorktreeCreateFailedError,
   WorktreeNotFoundError,
   WorktreeRetireConflictError,
-  WorktreeReuseConflictError,
 } from "./errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
 import { mintUuidV7 } from "../../ids/uuid-v7.js";
@@ -116,35 +115,6 @@ export interface CreatedWorktree {
   readonly baseRef: string;
   /** Always `ready`: a create that did not reach `ready` throws instead. */
   readonly state: Extract<WorktreeState, "ready">;
-}
-
-/** Inputs for {@link WorktreeService.validateReuse}. */
-export interface ValidateWorktreeReuseInput {
-  /** The explicitly named candidate. */
-  readonly worktreeId: string;
-  /** The mount the caller expects; a candidate from another mount sits in another repository. */
-  readonly repoMountId: string;
-  /** The branch the caller intends to execute against. */
-  readonly branchName: string;
-  /** Explicit acknowledgement that a dirty candidate may still bind. */
-  readonly acknowledgeDirtyCandidate?: boolean;
-}
-
-/** A candidate that passed every compatibility check and may be bound. */
-export interface ReusableWorktreeCandidate {
-  readonly worktreeId: string;
-  readonly repoMountId: string;
-  readonly branchName: string;
-  readonly fsRoot: string;
-  readonly state: WorktreeState;
-  /** Provenance, preserved from creation. */
-  readonly createdBySessionId: string;
-  readonly createdByRunId: string | null;
-  /**
-   * `true` means the caller acknowledged it (an unacknowledged dirty candidate throws). Reported,
-   * not acted on: no `worktree.dirty` event is written.
-   */
-  readonly dirty: boolean;
 }
 
 /** Options for {@link WorktreeService.retire}. */
@@ -441,50 +411,6 @@ export class WorktreeService {
       fsRoot,
       baseRef,
       state: "ready",
-    };
-  }
-
-  /**
-   * Decides whether a named candidate may be bound as an execution root: returns it, or throws
-   * `WorktreeReuseConflictError` (never substituting a fresh worktree) or `WorktreeNotFoundError`.
-   * Cheapest check first, so no git process spawns for a doomed candidate; the dirty verdict is a
-   * sample, since the user's editor can change the tree at any moment.
-   */
-  async validateReuse(input: ValidateWorktreeReuseInput): Promise<ReusableWorktreeCandidate> {
-    const row = this.#selectWorktreeStmt.get({ worktree_id: input.worktreeId });
-    if (row === undefined) {
-      throw new WorktreeNotFoundError(input.worktreeId);
-    }
-
-    if (row.repo_mount_id !== input.repoMountId) {
-      throw new WorktreeReuseConflictError(input.worktreeId, "mount_mismatch");
-    }
-
-    // Parsed, not cast: an out-of-vocabulary value is reachable only through corruption.
-    const state = WorktreeStateSchema.parse(row.state);
-    if (state === "retired" || state === "failed") {
-      throw new WorktreeReuseConflictError(input.worktreeId, "not_live");
-    }
-
-    // Independent of the acknowledgement: an incompatible candidate is never bindable.
-    if (row.branch_name !== input.branchName) {
-      throw new WorktreeReuseConflictError(input.worktreeId, "branch_mismatch");
-    }
-
-    const dirty = await this.#isWorkingTreeDirty(input.worktreeId, row.fs_root);
-    if (dirty && input.acknowledgeDirtyCandidate !== true) {
-      throw new WorktreeReuseConflictError(input.worktreeId, "dirty_unacknowledged");
-    }
-
-    return {
-      worktreeId: row.id,
-      repoMountId: row.repo_mount_id,
-      branchName: row.branch_name,
-      fsRoot: row.fs_root,
-      state,
-      createdBySessionId: row.created_by_session_id,
-      createdByRunId: row.created_by_run_id,
-      dirty,
     };
   }
 
@@ -835,21 +761,6 @@ export class WorktreeService {
       // git's `stderr` rides only on `cause`: it is the value most likely to name a path.
       throw new WorktreeCreateFailedError("git_invocation_failed", gitFailure);
     }
-  }
-
-  /**
-   * Whether the checkout holds uncommitted work: any `--porcelain` output means dirty. A query that
-   * does not complete (including a stdout overflow) is refused, not guessed, since binding on an
-   * unknown verdict is a silent bind.
-   */
-  async #isWorkingTreeDirty(worktreeId: string, fsRoot: string): Promise<boolean> {
-    let result: GitInvocationResult;
-    try {
-      result = await this.#runGit(["-C", fsRoot, "status", "--porcelain"]);
-    } catch (gitFailure) {
-      throw new WorktreeReuseConflictError(worktreeId, "cleanliness_unresolved", gitFailure);
-    }
-    return result.stdout.toString("utf8").trim().length > 0;
   }
 }
 

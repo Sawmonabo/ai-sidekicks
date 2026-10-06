@@ -39,7 +39,6 @@ import {
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
   WorktreeRetireConflictError,
-  WorktreeReuseConflictError,
 } from "../errors.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import { WorktreeService } from "../worktree-service.js";
@@ -371,13 +370,8 @@ function readWorktreeRows(): readonly { readonly state: string; readonly fs_root
     .all();
 }
 
-function prepare(branchName: string, reuseWorktreeId?: string) {
-  return ctx.executionRoots.prepare({
-    workspaceId: WORKSPACE_ID,
-    branchName,
-    runId: RUN_ID,
-    ...(reuseWorktreeId === undefined ? {} : { reuseWorktreeId }),
-  });
+function prepare(branchName: string) {
+  return ctx.executionRoots.prepare({ workspaceId: WORKSPACE_ID, branchName, runId: RUN_ID });
 }
 
 async function prepareWorktree(branchName: string) {
@@ -449,13 +443,6 @@ describe("provisioned-worktree mode on real git", () => {
       insertWorkspace("provisioned-worktree");
       const prepared = await prepareWorktree("feature/login");
       writeFileSync(join(prepared.executionRoot, "scratch-notes.txt"), "work in progress\n");
-      const reuse = await ctx.worktrees.validateReuse({
-        worktreeId: prepared.worktreeId,
-        repoMountId: REPO_MOUNT_ID,
-        branchName: "feature/login",
-        acknowledgeDirtyCandidate: true,
-      });
-      expect(reuse.dirty).toBe(true);
 
       // Retiring a root a running run holds would pull it out from under the run.
       await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);
@@ -485,7 +472,6 @@ describe("provisioned-worktree mode on real git", () => {
       await ctx.repository.git(["branch", "release"]);
       await ctx.repository.git(["branch", "feature/taken"]);
       const live = await createWorktree("feature/live");
-      writeFileSync(join(live.fsRoot, "scratch-notes.txt"), "work in progress\n");
       insertWorkspace("provisioned-worktree");
       const before = await snapshotMainCheckout(ctx.repository);
 
@@ -498,26 +484,6 @@ describe("provisioned-worktree mode on real git", () => {
       const takenInGit = await captureRejection(() => createWorktree("feature/taken"));
       expect(takenInGit).toBeInstanceOf(WorktreeCreateFailedError);
       expect(takenInGit).toMatchObject({ reason: "git_invocation_failed" });
-      // A dirty candidate needs acknowledgement, and no acknowledgement covers another branch.
-      const dirty = await captureRejection(() =>
-        ctx.worktrees.validateReuse({
-          worktreeId: live.worktreeId,
-          repoMountId: REPO_MOUNT_ID,
-          branchName: "feature/live",
-        }),
-      );
-      expect(dirty).toBeInstanceOf(WorktreeReuseConflictError);
-      expect(dirty).toMatchObject({ reason: "dirty_unacknowledged" });
-      expect(
-        await captureRejection(() =>
-          ctx.worktrees.validateReuse({
-            worktreeId: live.worktreeId,
-            repoMountId: REPO_MOUNT_ID,
-            branchName: "feature/other",
-            acknowledgeDirtyCandidate: true,
-          }),
-        ),
-      ).toMatchObject({ reason: "branch_mismatch" });
       // A failed provision blocks the run and parks the workspace; it never falls back to a root.
       expect(await captureRejection(() => prepare("feature/taken"))).toBeInstanceOf(
         WorktreeCreateFailedError,
@@ -535,18 +501,11 @@ describe("provisioned-worktree mode on real git", () => {
     },
   );
 
-  it("reuses a worktree only when named, rebinding the same root and branch context", async () => {
+  it("refuses a second worktree on a branch a live worktree holds", async () => {
     insertWorkspace("provisioned-worktree");
     const first = await prepareWorktree("feature/login");
 
-    const second = await prepare("feature/login", first.worktreeId);
-
-    expect(second).toMatchObject({
-      worktreeId: first.worktreeId,
-      executionRoot: first.executionRoot,
-      branchContextId: first.branchContextId,
-    });
-    // Unnamed, the same branch collides: an implicit reuse would hand this run another run's tree.
+    // A reuse here would hand this run another run's tree.
     expect(await captureRejection(() => prepare("feature/login"))).toBeInstanceOf(
       WorktreeBranchCollisionError,
     );

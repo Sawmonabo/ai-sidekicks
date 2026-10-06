@@ -1,7 +1,6 @@
 // Proves ExecutionRootService prepares a root only on a writable workspace and the requested
-// branch, never rewrites another workspace's or an earlier run's branch context, refuses a busy
-// or retired reuse candidate, runs git with hooks neutralized, and retires a worktree it created
-// but could not hand over.
+// branch, never rewrites another workspace's or an earlier run's branch context, runs git with
+// hooks neutralized, and retires a worktree it created but could not hand over.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,14 +16,8 @@ import {
   WorkspaceBranchMismatchError,
   WorkspaceBranchNameRequiredError,
   WorktreeCreateFailedError,
-  WorktreeReuseConflictError,
 } from "../../git/worktree/errors.js";
-import type {
-  CreateWorktreeInput,
-  CreatedWorktree,
-  ReusableWorktreeCandidate,
-  ValidateWorktreeReuseInput,
-} from "../../git/worktree/worktree-service.js";
+import type { CreateWorktreeInput, CreatedWorktree } from "../../git/worktree/worktree-service.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { ExecutionRootService } from "../execution-root-service.js";
 import type { GitRunner } from "../../git/process.js";
@@ -35,7 +28,7 @@ import type {
 } from "../execution-root-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import type { FilesystemPathProbeFn } from "../row-guards.js";
-import { WorkspaceBusyError, WorkspaceStaleError } from "../service-errors.js";
+import { WorkspaceStaleError } from "../service-errors.js";
 import { WorkspaceService, type SessionExistenceReader } from "../workspace-service.js";
 
 import { requireWorkspaceRow } from "./workspace.test-support.js";
@@ -46,30 +39,20 @@ import { captureRejection } from "../../__fixtures__/capture-failure.js";
 const SESSION_ID: string = "0190fb10-1c2d-7e3f-8a4b-5c6d7e8f9a01";
 const REPO_MOUNT_ID: string = "0190fb11-2d3e-7f40-9b5c-6d7e8f9a0b12";
 const WORKSPACE_ID: string = "0190fb12-3e4f-7051-8c6d-7e8f9a0b1c23";
-const OTHER_WORKSPACE_ID: string = "0190fb13-4f50-7162-9d7e-8f9a0b1c2d34";
 const RUN_ID: string = "0190fb14-5061-7273-8e8f-9a0b1c2d3e45";
-const SEEDED_WORKTREE_ID: string = "0190fb15-6172-7384-9f90-0b1c2d3e4f56";
-const SEEDED_CONTEXT_ID: string = "0190fb16-7283-7495-8a01-1c2d3e4f5067";
 
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-mount";
 // A workspace's previous root, the one `beginRootPreparation` releases.
 const PRIOR_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-prior-root";
 const EXECUTION_ROOTS_DIRECTORY: string = "/tmp/ai-sidekicks-fixture-exec-roots";
-// Where the fake provisioner would have placed the seeded worktree.
-const SEEDED_WORKTREE_ROOT: string =
-  `${EXECUTION_ROOTS_DIRECTORY}/${REPO_MOUNT_ID}/worktrees/` + SEEDED_WORKTREE_ID;
 
 const MAIN_BRANCH: string = "main";
 const FEATURE_BRANCH: string = "sidekicks/0190fb10/fix-login";
-const SEEDED_BASE_BRANCH: string = "develop";
 // `sidekicks/<session-short-8>/run-<run-short-8>`: hyphens are stripped before slicing, so these
 // are the last eight hex digits of the UUIDs above.
 const DERIVED_RUN_BRANCH: string = "sidekicks/7e8f9a01/run-1c2d3e45";
 
 const EPOCH: string = "2026-08-07T00:00:00.000Z";
-// Earlier than the clock, so a seeded row's `created_at` surviving a refresh tells "preserved"
-// apart from "replaced by a new row with the same values".
-const SEEDED_CONTEXT_STAMP: string = "2026-01-01T00:00:00.000Z";
 
 let mintedIdCount = 0;
 
@@ -136,13 +119,11 @@ class RecordingFilesystem {
 }
 
 /**
- * Stands in for the worktree service and writes the `worktrees` row a real create would write.
- * `branch_contexts.worktree_id` references that row, and `validateReuse` answers out of it, so the
- * reuse cases read the same row the service's carry-over read does.
+ * Stands in for the worktree service and writes the `worktrees` row a real create would write,
+ * because `branch_contexts.worktree_id` references that row.
  */
 class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
   readonly createInputs: CreateWorktreeInput[] = [];
-  readonly reuseInputs: ValidateWorktreeReuseInput[] = [];
   /** The ids this fake minted, so compensation can be held to the one it created. */
   readonly createdWorktreeIds: string[] = [];
   /** Worktree ids compensation retired. */
@@ -168,21 +149,6 @@ class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
       fsRoot,
       baseRef: input.baseRef ?? MAIN_BRANCH,
       state: "ready",
-    });
-  }
-
-  validateReuse(input: ValidateWorktreeReuseInput): Promise<ReusableWorktreeCandidate> {
-    this.reuseInputs.push(input);
-    const row = readWorktreeRow(input.worktreeId);
-    return Promise.resolve({
-      worktreeId: row.id,
-      repoMountId: row.repo_mount_id,
-      branchName: row.branch_name,
-      fsRoot: row.fs_root,
-      state: "ready",
-      createdBySessionId: row.created_by_session_id,
-      createdByRunId: row.created_by_run_id,
-      dirty: false,
     });
   }
 
@@ -352,46 +318,9 @@ function insertWorktreeRow(options: {
     });
 }
 
-/** Seed a `branch_contexts` row the way an earlier prepare would have left it. */
-function insertBranchContext(options: {
-  readonly id: string;
-  readonly workspaceId: string;
-  readonly worktreeId: string | null;
-  readonly baseBranch: string;
-  readonly headBranch: string;
-}): void {
-  ctx.db
-    .prepare(
-      `INSERT INTO branch_contexts (
-         id, workspace_id, worktree_id,
-         base_branch, head_branch, created_at, updated_at
-       ) VALUES (@id, @workspace_id, @worktree_id, @base_branch, @head_branch, @now, @now)`,
-    )
-    .run({
-      id: options.id,
-      workspace_id: options.workspaceId,
-      worktree_id: options.worktreeId,
-      base_branch: options.baseBranch,
-      head_branch: options.headBranch,
-      now: SEEDED_CONTEXT_STAMP,
-    });
-}
-
-interface WorktreeTestRow {
-  readonly id: string;
-  readonly repo_mount_id: string;
-  readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
-}
-
-function readWorktreeRow(worktreeId: string): WorktreeTestRow {
+function readWorktreeRow(worktreeId: string): { readonly fs_root: string } {
   const row = ctx.db
-    .prepare<[string], WorktreeTestRow>(
-      `SELECT id, repo_mount_id, created_by_session_id, created_by_run_id, branch_name, fs_root
-         FROM worktrees WHERE id = ?`,
-    )
+    .prepare<[string], { fs_root: string }>(`SELECT fs_root FROM worktrees WHERE id = ?`)
     .get(worktreeId);
   if (row === undefined) {
     throw new Error(`expected a worktrees row for ${worktreeId}`);
@@ -563,185 +492,6 @@ describe("refusals before the workspace is committed", () => {
   });
 });
 
-describe("explicit worktree reuse", () => {
-  it("scopes a cross-workspace bind to a fresh row, leaving the candidate's alone", async () => {
-    insertWorktreeRow({
-      worktreeId: SEEDED_WORKTREE_ID,
-      branchName: FEATURE_BRANCH,
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    // The candidate's workspace and its context row: the provenance the reuse carries a base
-    // branch from.
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
-    insertBranchContext({
-      id: SEEDED_CONTEXT_ID,
-      workspaceId: WORKSPACE_ID,
-      worktreeId: SEEDED_WORKTREE_ID,
-      baseBranch: SEEDED_BASE_BRANCH,
-      headBranch: FEATURE_BRANCH,
-    });
-    const candidateRowBefore = readBranchContext(SEEDED_CONTEXT_ID);
-
-    insertWorkspace({
-      workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "provisioned-worktree",
-      state: "preparing",
-    });
-    const prepared = await makeService().prepare({
-      workspaceId: OTHER_WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-      reuseWorktreeId: SEEDED_WORKTREE_ID,
-    });
-
-    // The worktree service checks mount consistency, so it must receive the binding workspace's
-    // mount.
-    expect(ctx.worktrees.reuseInputs[0]?.repoMountId).toBe(REPO_MOUNT_ID);
-
-    const rows = readBranchContexts();
-    expect(rows).toHaveLength(2);
-
-    const boundRow = readBranchContext(prepared.branchContextId);
-    expect(boundRow.id).not.toBe(SEEDED_CONTEXT_ID);
-    expect(boundRow.workspace_id).toBe(OTHER_WORKSPACE_ID);
-    expect(boundRow.worktree_id).toBe(SEEDED_WORKTREE_ID);
-    // Carried over, not invented: the daemon cannot re-derive the branch the worktree was cut
-    // from.
-    expect(boundRow.base_branch).toBe(SEEDED_BASE_BRANCH);
-    expect(boundRow.head_branch).toBe(FEATURE_BRANCH);
-
-    // Untouched in every column, `updated_at` included; a bumped stamp would mean the write
-    // reached another workspace's row.
-    expect(readBranchContext(SEEDED_CONTEXT_ID)).toEqual(candidateRowBefore);
-  });
-
-  it("refuses a candidate whose directory a busy workspace holds, before the bracket", async () => {
-    // The candidate's own workspace is busy in that directory and a second workspace asks to
-    // bind the same working tree. The refusal must name the holder and fire before the bracket:
-    // routed through the materialization catch, it would stale the requester over someone else's
-    // live run.
-    insertWorktreeRow({
-      worktreeId: SEEDED_WORKTREE_ID,
-      branchName: FEATURE_BRANCH,
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    // The holder: the candidate's own workspace, busy in the candidate's root.
-    insertWorkspace({
-      executionMode: "provisioned-worktree",
-      state: "busy",
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    insertBranchContext({
-      id: SEEDED_CONTEXT_ID,
-      workspaceId: WORKSPACE_ID,
-      worktreeId: SEEDED_WORKTREE_ID,
-      baseBranch: SEEDED_BASE_BRANCH,
-      headBranch: FEATURE_BRANCH,
-    });
-    insertWorkspace({
-      workspaceId: OTHER_WORKSPACE_ID,
-      executionMode: "provisioned-worktree",
-      state: "preparing",
-    });
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({
-        workspaceId: OTHER_WORKSPACE_ID,
-        branchName: FEATURE_BRANCH,
-        reuseWorktreeId: SEEDED_WORKTREE_ID,
-      }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorkspaceBusyError);
-    // The holder's id, not the requester's: what the caller must wait on.
-    expect(rejection).toMatchObject({ workspaceId: WORKSPACE_ID });
-    // Before the bracket: `validateReuse` was never consulted, no second pair row landed, and
-    // the requester's row is unchanged.
-    expect(ctx.worktrees.reuseInputs).toHaveLength(0);
-    expect(readBranchContexts()).toHaveLength(1);
-    const requesterState = ctx.db
-      .prepare<[string], { state: string }>(`SELECT state FROM workspaces WHERE id = ?`)
-      .get(OTHER_WORKSPACE_ID);
-    expect(requesterState?.state).toBe("preparing");
-  });
-
-  it("refuses a candidate retired during validation, at the context write", async () => {
-    // `validateReuse` decides across an await (its cleanliness probe spawns git), so a
-    // retirement can commit between its verdict and the context write, leaving the bound
-    // execution root a directory the sweep may delete under the adopting workspace. The bind-time
-    // re-check runs in the same synchronous block as the upsert and refuses.
-    insertWorktreeRow({
-      worktreeId: SEEDED_WORKTREE_ID,
-      branchName: FEATURE_BRANCH,
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
-    insertBranchContext({
-      id: SEEDED_CONTEXT_ID,
-      workspaceId: WORKSPACE_ID,
-      worktreeId: SEEDED_WORKTREE_ID,
-      baseBranch: SEEDED_BASE_BRANCH,
-      headBranch: FEATURE_BRANCH,
-    });
-    // Makes the race deterministic: the retirement lands on the shared connection while the
-    // validation verdict is in flight.
-    class RetireInjectingProvisioner extends FakeWorktreeProvisioner {
-      override validateReuse(
-        input: ValidateWorktreeReuseInput,
-      ): Promise<ReusableWorktreeCandidate> {
-        const verdict = super.validateReuse(input);
-        ctx.db.prepare(`UPDATE worktrees SET state = 'retired' WHERE id = ?`).run(input.worktreeId);
-        return verdict;
-      }
-    }
-
-    const rejection = await captureRejection(() =>
-      makeService({ worktrees: new RetireInjectingProvisioner() }).prepare({
-        workspaceId: WORKSPACE_ID,
-        branchName: FEATURE_BRANCH,
-        reuseWorktreeId: SEEDED_WORKTREE_ID,
-      }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorktreeReuseConflictError);
-    expect(rejection).toMatchObject({ code: "worktree.reuse_conflict", reason: "not_live" });
-    // The refused bind landed nothing: only the seeded row, unchanged.
-    expect(readBranchContexts()).toHaveLength(1);
-    expect(readBranchContext(SEEDED_CONTEXT_ID).updated_at).toBe(SEEDED_CONTEXT_STAMP);
-    // After the bracket opened, so the workspace parks `stale` with the detail rather than
-    // adopting a doomed root.
-    expect(requireWorkspaceRow(ctx.db, WORKSPACE_ID).state).toBe("stale");
-  });
-
-  it("preserves a same-workspace candidate's existing row without duplication", async () => {
-    insertWorktreeRow({
-      worktreeId: SEEDED_WORKTREE_ID,
-      branchName: FEATURE_BRANCH,
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
-    insertBranchContext({
-      id: SEEDED_CONTEXT_ID,
-      workspaceId: WORKSPACE_ID,
-      worktreeId: SEEDED_WORKTREE_ID,
-      baseBranch: SEEDED_BASE_BRANCH,
-      headBranch: FEATURE_BRANCH,
-    });
-
-    const prepared = await makeService().prepare({
-      workspaceId: WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-      reuseWorktreeId: SEEDED_WORKTREE_ID,
-    });
-
-    const rows = readBranchContexts();
-    expect(rows).toHaveLength(1);
-    // Preserved (same identity, same provenance), not replaced by a new row with the same values.
-    expect(prepared.branchContextId).toBe(SEEDED_CONTEXT_ID);
-    expect(rows[0]?.base_branch).toBe(SEEDED_BASE_BRANCH);
-    expect(rows[0]?.created_at).toBe(SEEDED_CONTEXT_STAMP);
-  });
-});
-
 const HOOK_NEUTRALIZATION_DIRECTORY: string = join(
   EXECUTION_ROOTS_DIRECTORY,
   ".hook-neutralization",
@@ -836,35 +586,4 @@ describe("a failed preparation", () => {
       }
     },
   );
-
-  it("leaves a reused worktree and its existing row untouched", async () => {
-    // Other workspaces may be bound to a pre-existing worktree, so retiring it or deleting its
-    // row would destroy state this call never created.
-    insertWorktreeRow({
-      worktreeId: SEEDED_WORKTREE_ID,
-      branchName: FEATURE_BRANCH,
-      fsRoot: SEEDED_WORKTREE_ROOT,
-    });
-    insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
-    insertBranchContext({
-      id: SEEDED_CONTEXT_ID,
-      workspaceId: WORKSPACE_ID,
-      worktreeId: SEEDED_WORKTREE_ID,
-      baseBranch: SEEDED_BASE_BRANCH,
-      headBranch: FEATURE_BRANCH,
-    });
-    const failure = new Error("completeRootPreparation could not reach the database");
-
-    const rejection = await captureRejection(() =>
-      makeService({ workspaces: primitivesFailingCompletion(failure) }).prepare({
-        workspaceId: WORKSPACE_ID,
-        branchName: FEATURE_BRANCH,
-        reuseWorktreeId: SEEDED_WORKTREE_ID,
-      }),
-    );
-
-    expect(rejection).toBe(failure);
-    expect(ctx.worktrees.retiredWorktreeIds).toEqual([]);
-    expect(readBranchContext(SEEDED_CONTEXT_ID).base_branch).toBe(SEEDED_BASE_BRANCH);
-  });
 });

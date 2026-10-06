@@ -29,7 +29,6 @@ type WorktreeErrorCode =
   | "worktree.not_found"
   | "worktree.create_failed"
   | "worktree.branch_collision"
-  | "worktree.reuse_conflict"
   | WorktreeRetireConflictCode;
 
 /**
@@ -78,31 +77,6 @@ const WORKTREE_CREATE_FAILURE_MESSAGES: Record<
   branch_name_underivable:
     "worktree creation failed: no branch name could be derived, since neither a slugifiable " +
     "summary nor a run id was available",
-};
-
-/**
- * Why an explicitly named reuse candidate cannot bind, checked in `validateReuse`'s order. A
- * `not_live` row is retired or failed (one that never existed is {@link WorktreeNotFoundError});
- * `cleanliness_unresolved` fails closed, since the dirty-acknowledgement gate needs a verdict.
- */
-export type WorktreeReuseConflictReason =
-  | "mount_mismatch"
-  | "not_live"
-  | "branch_mismatch"
-  | "dirty_unacknowledged"
-  | "cleanliness_unresolved";
-
-const WORKTREE_REUSE_CONFLICT_MESSAGES: Record<WorktreeReuseConflictReason, string> = {
-  mount_mismatch: "worktree reuse refused: the candidate belongs to a different repo mount",
-  not_live: "worktree reuse refused: the candidate is no longer live",
-  branch_mismatch:
-    "worktree reuse refused: the candidate holds a different branch than the one requested, " +
-    "and an incompatible candidate never binds",
-  dirty_unacknowledged:
-    "worktree reuse refused: the candidate holds uncommitted changes and the caller did not " +
-    "acknowledge a dirty candidate",
-  cleanliness_unresolved:
-    "worktree reuse refused: the candidate's working-tree cleanliness could not be determined",
 };
 
 /**
@@ -175,28 +149,6 @@ export class WorktreeBranchCollisionError extends DaemonDomainError {
     );
     this.repoMountId = repoMountId;
     this.branchName = branchName;
-  }
-}
-
-/**
- * `worktree.reuse_conflict`: the explicit reuse candidate cannot bind. The closed reason tells a
- * refusal the user can clear (acknowledge a dirty candidate) from one they cannot. A `cause` stays
- * on the error for local logs and never reaches the wire.
- */
-export class WorktreeReuseConflictError extends DaemonDomainError {
-  readonly worktreeId: string;
-  readonly reason: WorktreeReuseConflictReason;
-
-  constructor(worktreeId: string, reason: WorktreeReuseConflictReason, cause?: unknown) {
-    super(WORKTREE_REUSE_CONFLICT_MESSAGES[reason], {
-      code: "worktree.reuse_conflict" satisfies WorktreeErrorCode,
-      detail: { worktreeId, reason },
-    });
-    this.worktreeId = worktreeId;
-    this.reason = reason;
-    if (cause !== undefined) {
-      this.cause = cause;
-    }
   }
 }
 

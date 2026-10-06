@@ -18,11 +18,7 @@ import { RepoMountNotFoundError } from "../../../workspace/repo/errors.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
 import type { EmitWorktreeEventInput } from "../worktree-event-emitter.js";
-import {
-  WorktreeCreateFailedError,
-  WorktreeRetireConflictError,
-  WorktreeReuseConflictError,
-} from "../errors.js";
+import { WorktreeCreateFailedError, WorktreeRetireConflictError } from "../errors.js";
 import type { WorktreeCreateFailureReason } from "../errors.js";
 import { WorktreeService } from "../worktree-service.js";
 import { deriveWorktreeBranchName } from "../branch-name.js";
@@ -73,8 +69,8 @@ function resolveGit(stdout: string): Promise<GitInvocationResult> {
 
 /**
  * Records every invocation and answers the verbs the service issues: `symbolic-ref`,
- * `check-ref-format` (every name valid), `for-each-ref` (no branch exists), `status`, and
- * `worktree` with `add` or `prune`.
+ * `check-ref-format` (every name valid), `for-each-ref` (no branch exists), and `worktree`
+ * with `add` or `prune`.
  *
  * `worktree add` creates the target directory, because the cleanup pass must be seen removing a
  * real root. An unrecognized verb or `worktree` subcommand rejects, so an unexpected git call
@@ -82,8 +78,6 @@ function resolveGit(stdout: string): Promise<GitInvocationResult> {
  */
 class FakeGit {
   readonly invocations: RecordedGitInvocation[] = [];
-  statusFails: boolean = false;
-  statusOutput: string = "";
 
   readonly run: GitRunner = (argv) => {
     this.invocations.push({ argv: [...argv] });
@@ -115,13 +109,6 @@ class FakeGit {
       return Promise.reject(
         new Error(`unexpected git worktree subcommand in fixture: ${String(subcommand)}`),
       );
-    }
-
-    if (verb === "status") {
-      if (this.statusFails) {
-        return Promise.reject(new Error("fatal: not a git repository"));
-      }
-      return resolveGit(this.statusOutput);
     }
 
     return Promise.reject(new Error(`unexpected git verb in fixture: ${String(verb)}`));
@@ -288,7 +275,7 @@ function readEventTypes(): readonly string[] {
   return statement.all(SESSION_ID).map((row) => row.type);
 }
 
-/** The happy path, reused by the reuse, retire and cleanup blocks; it uses the `refuse` policy. */
+/** The happy path, reused by the retire and cleanup blocks; it uses the `refuse` policy. */
 async function createReadyWorktree(service: WorktreeService): Promise<CreatedWorktree> {
   return service.create({
     repoMountId: REPO_MOUNT_ID,
@@ -480,105 +467,6 @@ describe("WorktreeService.create", () => {
     );
 
     expect(thrown).toBeInstanceOf(RepoMountNotFoundError);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// validateReuse
-// ----------------------------------------------------------------------------
-
-describe("WorktreeService.validateReuse", () => {
-  it("returns a clean, compatible candidate with its provenance", async () => {
-    const service = makeService();
-    const created = await createReadyWorktree(service);
-
-    const candidate = await service.validateReuse({
-      worktreeId: created.worktreeId,
-      repoMountId: REPO_MOUNT_ID,
-      branchName: "feature/login",
-    });
-
-    expect(candidate.dirty).toBe(false);
-    expect(candidate.state).toBe("ready");
-    expect(candidate.fsRoot).toBe(created.fsRoot);
-    expect(candidate.createdBySessionId).toBe(SESSION_ID);
-    expect(candidate.createdByRunId).toBe(RUN_ID);
-  });
-
-  it("refuses an incompatible candidate even WITH an acknowledgement", async () => {
-    const service = makeService();
-    const created = await createReadyWorktree(service);
-    ctx.git.statusOutput = " M src/index.ts\n";
-
-    const thrown = await captureRejection(() =>
-      service.validateReuse({
-        worktreeId: created.worktreeId,
-        repoMountId: REPO_MOUNT_ID,
-        branchName: "feature/other",
-        acknowledgeDirtyCandidate: true,
-      }),
-    );
-
-    expect(thrown).toBeInstanceOf(WorktreeReuseConflictError);
-    const conflict = thrown as WorktreeReuseConflictError;
-    expect(conflict.reason).toBe("branch_mismatch");
-  });
-
-  it("refuses a candidate that belongs to another mount", async () => {
-    insertMount({ repoMountId: OTHER_REPO_MOUNT_ID, canonicalRoot: OTHER_CANONICAL_ROOT });
-    const service = makeService();
-    const created = await createReadyWorktree(service);
-
-    const thrown = await captureRejection(() =>
-      service.validateReuse({
-        worktreeId: created.worktreeId,
-        repoMountId: OTHER_REPO_MOUNT_ID,
-        branchName: "feature/login",
-      }),
-    );
-
-    expect(thrown).toBeInstanceOf(WorktreeReuseConflictError);
-    const conflict = thrown as WorktreeReuseConflictError;
-    expect(conflict.reason).toBe("mount_mismatch");
-    // The mount check runs before any git call, so git was not spawned for it.
-    expect(ctx.git.verbs()).toEqual(["symbolic-ref", "check-ref-format", "worktree"]);
-  });
-
-  it("refuses a retired candidate as no longer live", async () => {
-    const service = makeService();
-    const created = await createReadyWorktree(service);
-    await service.retire(created.worktreeId);
-
-    const thrown = await captureRejection(() =>
-      service.validateReuse({
-        worktreeId: created.worktreeId,
-        repoMountId: REPO_MOUNT_ID,
-        branchName: "feature/login",
-      }),
-    );
-
-    expect(thrown).toBeInstanceOf(WorktreeReuseConflictError);
-    const conflict = thrown as WorktreeReuseConflictError;
-    expect(conflict.reason).toBe("not_live");
-  });
-
-  it("refuses when the cleanliness verdict cannot be computed", async () => {
-    const service = makeService();
-    const created = await createReadyWorktree(service);
-    ctx.git.statusFails = true;
-
-    const thrown = await captureRejection(() =>
-      service.validateReuse({
-        worktreeId: created.worktreeId,
-        repoMountId: REPO_MOUNT_ID,
-        branchName: "feature/login",
-        acknowledgeDirtyCandidate: true,
-      }),
-    );
-
-    expect(thrown).toBeInstanceOf(WorktreeReuseConflictError);
-    const conflict = thrown as WorktreeReuseConflictError;
-    expect(conflict.reason).toBe("cleanliness_unresolved");
   });
 });
 

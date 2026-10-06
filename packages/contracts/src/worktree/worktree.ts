@@ -87,16 +87,14 @@ export const WorktreeLifecyclePayloadSchema: z.ZodType<WorktreeLifecyclePayload>
 // and some depend on state a schema cannot see.
 
 /**
- * The `repo.executionRootPrepare` input: the workspace, its branch, and any worktree to reuse,
- * which makes the root for the workspace's execution mode before a run starts. It carries no
- * `runId`: the daemon supplies it, so a caller cannot forge run provenance.
+ * The `repo.executionRootPrepare` input: the workspace and its branch, which makes the root for
+ * the workspace's execution mode before a run starts. It carries no `runId`: the daemon supplies
+ * it, so a caller cannot forge run provenance.
  */
 export interface ExecutionRootPrepareRequest {
   workspaceId: WorkspaceId;
   branchName?: string | undefined;
   baseRef?: string | undefined;
-  reuseWorktreeId?: WorktreeId | undefined;
-  acknowledgeDirtyCandidate?: boolean | undefined;
   carryUncommitted?: boolean | undefined;
 }
 /** Wire schema for {@link ExecutionRootPrepareRequest}. */
@@ -112,12 +110,6 @@ export const ExecutionRootPrepareRequestSchema: z.ZodType<
     // Omitted means the mount's current HEAD branch; a detached HEAD with no base is refused.
     // Git reads a leading dash as an option, so the daemon refuses such a value before git.
     baseRef: wireUncappedFreeFormString("ExecutionRootPrepareRequest.baseRef").optional(),
-    // Reuse happens only by naming a candidate, which the daemon checks belongs to the mount
-    // behind `workspaceId`.
-    reuseWorktreeId: WorktreeIdSchema.optional(),
-    // Consent to bind a dirty candidate: without it a dirty candidate is refused with
-    // `worktree.reuse_conflict`; it never overrides incompatibility.
-    acknowledgeDirtyCandidate: z.boolean().optional(),
     // Carries the session's uncommitted work, untracked files included, onto
     // the new tree. The daemon refuses it unless the new base is the branch
     // the work sits on; absence means nothing is carried.
