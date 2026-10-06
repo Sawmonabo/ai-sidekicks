@@ -146,7 +146,7 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
 
       // subscribe() returns synchronously and the init request is already sent.
       const subscription = client.subscribe(
-        "test.subscribe",
+        "session.subscribe",
         { topic: "x" },
         TOPIC_PARAMS_SCHEMA,
         valueSchema,
@@ -159,7 +159,7 @@ describe("subscribe-init registers #subscriptions synchronously", () => {
         throw new Error("unreachable — subscribe init emits a request envelope");
       }
       const requestId = sentEnvelope.id;
-      expect(sentEnvelope.method).toBe("test.subscribe");
+      expect(sentEnvelope.method).toBe("session.subscribe");
 
       // Deliver response and notify back to back with no await between them, as one read would.
       // The id is a UUID because the notify wrapper schema is UUID-branded.
@@ -202,7 +202,7 @@ describe("malformed subscriptionId rejected at SDK boundary", () => {
       const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
       const subscription = client.subscribe(
-        "test.subscribe",
+        "session.subscribe",
         { topic: "x" },
         TOPIC_PARAMS_SCHEMA,
         valueSchema,
@@ -255,7 +255,7 @@ describe("cancel() idempotency", () => {
       const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
       const subscription = client.subscribe(
-        "test.subscribe",
+        "session.subscribe",
         { topic: "x" },
         TOPIC_PARAMS_SCHEMA,
         valueSchema,
@@ -324,7 +324,7 @@ describe("cancel() idempotency", () => {
       const valueSchema = z.object({ kind: z.literal("event"), seq: z.number() });
 
       const subscription = client.subscribe(
-        "test.subscribe",
+        "session.subscribe",
         { topic: "x" },
         TOPIC_PARAMS_SCHEMA,
         valueSchema,
@@ -433,7 +433,7 @@ describe("thenable transport.send rejection propagates", () => {
       const paramsSchema = z.object({ key: z.string() });
       const resultSchema = z.object({ ok: z.boolean() });
 
-      const promise = client.call("test.method", { key: "value" }, paramsSchema, resultSchema);
+      const promise = client.call("session.create", { key: "value" }, paramsSchema, resultSchema);
 
       // `Promise.resolve` absorbs the thenable; a direct `.catch` would have thrown synchronously.
       let caught: unknown = null;
@@ -468,7 +468,7 @@ describe("protocolVersion is sent as the caller gave it", () => {
     const paramsSchema = z.unknown();
     const resultSchema = z.unknown();
 
-    void client.call("test.method", undefined, paramsSchema, resultSchema);
+    void client.call("session.create", undefined, paramsSchema, resultSchema);
 
     expect(transport.sentEnvelopes.length).toBe(1);
     const envelope = transport.sentEnvelopes[0];
@@ -550,7 +550,7 @@ describe("subscription ends with an error instead of growing or vanishing", () =
       maxQueuedValuesPerSubscription: 2,
     });
     const subscription = client.subscribe(
-      "test.subscribe",
+      "session.subscribe",
       { topic: "x" },
       TOPIC_PARAMS_SCHEMA,
       valueSchema,
@@ -579,7 +579,7 @@ describe("subscription ends with an error instead of growing or vanishing", () =
     const transport = createScriptedDaemon();
     const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
     const subscription = client.subscribe(
-      "test.subscribe",
+      "session.subscribe",
       { topic: "x" },
       TOPIC_PARAMS_SCHEMA,
       valueSchema,
@@ -611,7 +611,7 @@ describe("subscription ends with an error instead of growing or vanishing", () =
       id: string,
     ): ReturnType<typeof client.subscribe<{ topic: string }, { seq: number }>> => {
       const subscription = client.subscribe(
-        "test.subscribe",
+        "session.subscribe",
         { topic: id },
         TOPIC_PARAMS_SCHEMA,
         valueSchema,
