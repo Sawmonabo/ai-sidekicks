@@ -200,7 +200,7 @@ describe("McpFixtureBody", () => {
       [ISSUE_TRACKER, "starting", "Codex", "Starting"],
       [FILESYSTEM, "needs-auth", "Claude Code", "Needs sign-in"],
       [ISSUE_TRACKER, "failed", "Codex", "Failed"],
-      [FILESYSTEM, "unknown", "Claude Code", "Not known yet"],
+      [FILESYSTEM, "unknown", "Claude Code", "Unknown"],
     ];
     const { container } = await renderSettledMcpPage(
       operationsServing(

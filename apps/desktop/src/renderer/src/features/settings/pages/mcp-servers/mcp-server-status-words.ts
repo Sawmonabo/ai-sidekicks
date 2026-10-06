@@ -9,5 +9,5 @@ export const MCP_SERVER_STATUS_WORDS: Readonly<Record<McpServerStatus, string>> 
   starting: "Starting",
   "needs-auth": "Needs sign-in",
   failed: "Failed",
-  unknown: "Not known yet",
+  unknown: "Unknown",
 };
