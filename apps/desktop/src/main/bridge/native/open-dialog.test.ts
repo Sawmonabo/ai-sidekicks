@@ -1,4 +1,4 @@
-// The page gets a token, never a path, and nothing it sends is acted on unchecked.
+// The page gets a token for each pick, never its path.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -71,13 +71,5 @@ describe("the open dialog", () => {
     await expect(
       showOpenDialog(canceled, refs, owner, { purpose: "pickFolder" }),
     ).resolves.toBeNull();
-  });
-
-  it("refuses a purpose it does not know before showing anything", async () => {
-    const host = dialogPicking([]);
-    await expect(
-      showOpenDialog(host, new FilePathRefs(), pageOwner(1), { purpose: "openFolder" }),
-    ).rejects.toThrow(TypeError);
-    expect(host.showOpenDialog).not.toHaveBeenCalled();
   });
 });

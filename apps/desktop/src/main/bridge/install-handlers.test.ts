@@ -14,6 +14,7 @@ import {
 } from "#shared/bridge-channels.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
+import { INDEX_URL } from "#test/helpers/electron/mock/readers.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 
 const electronMock = createElectronMock();
@@ -71,9 +72,6 @@ afterEach(async () => {
   await rm(userData, { recursive: true, force: true });
 });
 
-/** The app's own console document, which every channel answers. */
-const APP_DOCUMENT = "sidekicks-renderer://app/index.html";
-
 /** Call a registered channel as a frame at `frameUrl` would. */
 function invokeFrom(frameUrl: string | undefined, channel: string, request?: unknown): unknown {
   const handler = electronMock.ipcHandlers.get(channel) as
@@ -124,20 +122,9 @@ describe("the bridge's channels", () => {
   });
 
   it("negative control: answers the app's own document", async () => {
-    await expect(
-      invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.readKeyboardMap),
-    ).resolves.toStrictEqual({ map: {} });
-  });
-
-  it("refuses a map that is not one before writing it", async () => {
-    await expect(
-      invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.writeKeyboardMap, {
-        "frame.goToSessions": 7,
-      }),
-    ).rejects.toThrow();
-    await expect(
-      invokeFrom("sidekicks-renderer://app/index.html", BRIDGE_CHANNELS.readKeyboardMap),
-    ).resolves.toStrictEqual({ map: {} });
+    await expect(invokeFrom(INDEX_URL, BRIDGE_CHANNELS.readKeyboardMap)).resolves.toStrictEqual({
+      map: {},
+    });
   });
 
   it("answers a system failure by its code, with no path in it, and logs it whole", async () => {
@@ -145,11 +132,7 @@ describe("the bridge's channels", () => {
     await rm(userData, { recursive: true, force: true });
     await writeFile(userData, "");
 
-    const writing = invokeFrom(
-      APP_DOCUMENT,
-      BRIDGE_CHANNELS.writeKeyboardMap,
-      {},
-    ) as Promise<unknown>;
+    const writing = invokeFrom(INDEX_URL, BRIDGE_CHANNELS.writeKeyboardMap, {}) as Promise<unknown>;
 
     await expect(writing).rejects.toThrow(
       new RegExp(`^${BRIDGE_CHANNELS.writeKeyboardMap} failed \\(E[A-Z]+\\)\\.$`),
@@ -166,9 +149,17 @@ describe("the bridge's channels", () => {
       throw new Error(`nothing answers ${OPEN_DAEMON_SUBSCRIPTION_CHANNEL}`);
     }
     // A sender that cannot be sent to throws as the status topic delivers its first state.
+    const DISPOSED_FRAME = "Render frame was disposed before WebFrameMain could be accessed";
     const event = {
-      senderFrame: { url: APP_DOCUMENT },
-      sender: {},
+      senderFrame: { url: INDEX_URL },
+      sender: {
+        id: 1,
+        on: () => undefined,
+        once: () => undefined,
+        send: () => {
+          throw new Error(DISPOSED_FRAME);
+        },
+      },
       returnValue: undefined as unknown,
     };
     const request = {
@@ -178,7 +169,7 @@ describe("the bridge's channels", () => {
     };
     openSubscription(event as never, request as never);
 
-    expect(event.returnValue).toMatchObject({ outcome: "failed" });
+    expect(event.returnValue).toStrictEqual({ outcome: "failed", message: DISPOSED_FRAME });
     expect(log.write).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-// A copy reaches the clipboard as one write carrying every flavor, and a malformed one not at all.
+// A copy reaches the clipboard as one write carrying every flavor.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,15 +19,5 @@ describe("the clipboard copy", () => {
       [{ "text/plain": "**done**", "text/html": "<strong>done</strong>" }],
       [{ "text/plain": "a person's own line" }],
     ]);
-  });
-
-  it("refuses a bare string, a missing text and a non-string flavor without writing", async () => {
-    const clipboard = recordingClipboard();
-    const malformed = ["plain", { html: "<b>x</b>" }, { text: 3 }, { text: "x", html: 3 }, null];
-
-    for (const content of malformed) {
-      await expect(copyToClipboard(clipboard, content)).rejects.toThrow();
-    }
-    expect(clipboard.write).not.toHaveBeenCalled();
   });
 });

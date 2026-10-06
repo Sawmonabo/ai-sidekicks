@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
+import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile } from "./keyboard-map-file.js";
 
 const REPAIRED_AT = new Date("2026-09-30T12:00:00.000Z");
 
@@ -84,13 +84,4 @@ describe("writing the keyboard map", () => {
       await expect(readdir(userData)).resolves.toStrictEqual([KEYBOARD_MAP_FILE_NAME]);
     },
   );
-
-  it("refuses a map that is not one before anything is written", () => {
-    expect(() => parseKeyboardMap({ "frame.goToSessions": 7 })).toThrow();
-    expect(() => parseKeyboardMap(["$mod+9"])).toThrow();
-    expect(() => parseKeyboardMap({ "": "$mod+9" })).toThrow();
-    expect(parseKeyboardMap({ "frame.goToSessions": null })).toStrictEqual({
-      "frame.goToSessions": null,
-    });
-  });
 });

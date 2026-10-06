@@ -55,7 +55,7 @@ describe("the installed editors on macOS", () => {
   it("refuses a register answer that is not bundle ids mapped to app paths", async () => {
     const installedEditors = new MacInstalledEditors(() => Promise.resolve('{"dev.zed.Zed": 1}'));
 
-    await expect(listEditors(installedEditors)).rejects.toThrow();
+    await expect(listEditors(installedEditors)).rejects.toThrow('"code": "invalid_type"');
   });
 
   it.runIf(process.platform === "darwin")(

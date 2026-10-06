@@ -150,7 +150,9 @@ describe("the daemon's wire through main", () => {
     expect(electronMock.pathOpens).toEqual([memoryFile]);
 
     // Negative control: the path itself opens nothing.
-    await expect(bridge.native.openInEditor(memoryFile as FilePathRef)).rejects.toThrow();
+    await expect(bridge.native.openInEditor(memoryFile as FilePathRef)).rejects.toThrow(
+      "That file reference is not one this window was given",
+    );
     expect(electronMock.pathOpens).toEqual([memoryFile]);
   });
 

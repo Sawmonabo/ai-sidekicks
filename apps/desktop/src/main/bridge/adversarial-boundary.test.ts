@@ -40,6 +40,7 @@ import {
   scriptedConnection,
   type ScriptedConnection,
 } from "./daemon.test-support.js";
+import { PASTED_IMAGES_FOLDER_NAME } from "./native/file-intake.js";
 import type { WindowHandlerContext } from "./window.js";
 
 const electronMock = createElectronMock();
@@ -79,6 +80,9 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 /** The file a served `session.memoryRead` offers to open. */
 const MEMORY_FILE = "/Users/person/.claude/projects/app/CLAUDE.md";
 
+/** A refusal from a member's schema: a Zod issue list, never a runtime error from main's code. */
+const SCHEMA_REFUSAL = /"code": "[a-z_]+"/;
+
 /** The id the daemon acknowledges a `session.subscribe` under. */
 const DAEMON_SUBSCRIPTION_ID = randomUUID();
 
@@ -88,8 +92,8 @@ interface IntakeCase {
   /** The contract's schema, where one is written, which must refuse each refused payload too. */
   readonly contract?: ZodType;
   readonly refused: readonly unknown[];
-  /** What main answers each refused payload with, where it is one message. */
-  readonly refusal?: string;
+  /** What main refuses each refused payload with: its one message, or what its messages match. */
+  readonly refusal: string | RegExp;
   readonly accepted: unknown;
   send(payload: unknown): Promise<unknown>;
   /** How many times the member's act has run, or what it left behind. */
@@ -192,19 +196,24 @@ async function openToken(): Promise<string> {
   return served.fileRefs[MEMORY_FILE] ?? expect.fail("the read offered no token");
 }
 
-/** Whether main refused: the call rejected, or main answered it as failed. */
-async function isRefused(answer: Promise<unknown>): Promise<boolean> {
+/** Why main refused: the call's rejection, or the message main answered it as failed with. */
+async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> {
   try {
-    const value = await answer;
-    return (value as { outcome?: unknown } | undefined)?.outcome === "failed";
-  } catch {
-    return true;
+    const value = (await answer) as { outcome?: unknown; message?: unknown } | undefined;
+    return value?.outcome === "failed" ? String(value.message) : undefined;
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
-/** The pictures main has kept in its paste folder. */
+/** The pictures main has kept in its paste folder; none while the folder is not made yet. */
 async function pastedPictures(): Promise<string[]> {
-  return readdir(path.join(userData, "pasted-images")).catch(() => []);
+  return readdir(path.join(userData, PASTED_IMAGES_FOLDER_NAME)).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  });
 }
 
 /** The cases whose accepted payload is built in the case: a token, a real file. */
@@ -258,6 +267,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         "session.read",
         null,
       ],
+      refusal: /failed schema validation|The app does not call|"code": "invalid_type"/,
       accepted: { method: "presence.read", params: {} },
       send: (payload) => invoke(BRIDGE_CHANNELS.daemonCall, payload),
       acted: () => connection.requests.length,
@@ -265,6 +275,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.showOpenDialog",
       refused: [{ purpose: "exportFile" }, { purpose: 7 }, "attachFiles", {}, null],
+      refusal: "An open dialog is asked for one of its purposes",
       accepted: { purpose: "attachFiles" },
       send: (payload) => invoke(BRIDGE_CHANNELS.showOpenDialog, payload),
       acted: () => dialogOpens.length,
@@ -272,6 +283,8 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.getDroppedFileRef",
       refused: [7, "dropped.txt", "", userData, path.join(userData, "missing.txt"), null],
+      refusal:
+        /Only a file dropped from this computer|A dropped folder cannot be|failed \(ENOENT\)/,
       accepted: droppedFile,
       send: async (payload) => {
         droppedTokens.push(await invoke(BRIDGE_CHANNELS.getDroppedFileRef, payload));
@@ -281,6 +294,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.savePastedImage",
       refused: [new ArrayBuffer(0), new Uint8Array([137, 80]), [137, 80], "iVBORw0KGgo=", null],
+      refusal: "A pasted picture arrives as its bytes",
       accepted: new Uint8Array([137, 80, 78, 71]).buffer,
       send: (payload) => invoke(BRIDGE_CHANNELS.savePastedImage, payload),
       acted: pastedPictures,
@@ -288,6 +302,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.openExternal",
       refused: ["file:///etc/passwd", "javascript:alert(1)", "sidekicks-renderer://app/", 7, null],
+      refusal: /Refused to open an outside address|An outside address is a string/,
       accepted: "https://example.com/",
       send: (payload) => invoke(BRIDGE_CHANNELS.openExternal, payload),
       acted: () => electronMock.externalOpens.length,
@@ -301,6 +316,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         "the-token",
         null,
       ],
+      refusal: /not one this window was given|"code": "(invalid_type|too_small)"/,
       accepted: { ref: "the-token" },
       send: async (payload) => invoke(BRIDGE_CHANNELS.openInEditor, await withToken(payload)),
       acted: () => electronMock.pathOpens.length,
@@ -308,6 +324,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.copyToClipboard",
       refused: [{ text: 7 }, { html: "<b>a</b>" }, { text: "a", html: 7 }, "a", null],
+      refusal: SCHEMA_REFUSAL,
       accepted: { text: "a", html: "<b>a</b>" },
       send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboard, payload),
       acted: () => clipboardWrites.length,
@@ -315,6 +332,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.revealInFileExplorer",
       refused: [MEMORY_FILE, attachToken, randomUUID(), 7, null],
+      refusal: "That file reference is not one this window was given",
       accepted: "the-token",
       send: async (payload) =>
         invoke(BRIDGE_CHANNELS.revealInFileExplorer, await withToken(payload)),
@@ -322,7 +340,8 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     },
     {
       member: "keyboardMap.write",
-      refused: [{ "frame.goToSessions": 7 }, "Mod+1", [], null],
+      refused: [{ "frame.goToSessions": 7 }, { "": "Mod+1" }, "Mod+1", [], null],
+      refusal: SCHEMA_REFUSAL,
       accepted: { "frame.goToSessions": "Mod+1" },
       send: (payload) => invoke(BRIDGE_CHANNELS.writeKeyboardMap, payload),
       acted: async () => ((await bridge.keyboardMap.read()) as { map: object }).map,
@@ -332,11 +351,13 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refused: [
         { ...appearance, choice: { ...appearance.choice, theme: "neon" } },
         { ...appearance, choice: { ...appearance.choice, textSize: 17 } },
+        { ...appearance, choice: { ...appearance.choice, transcriptWidth: 35 } },
         { ...appearance, grounds: { light: "white", dark: MERIDIAN_GROUNDS.dark } },
         { ...appearance, extra: true },
         appearance.choice,
         null,
       ],
+      refusal: SCHEMA_REFUSAL,
       accepted: appearance,
       send: (payload) => invoke(BRIDGE_CHANNELS.setAppearance, payload),
       acted: () => appearanceChoices.length,
@@ -346,11 +367,13 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refused: [
         { windowId: "w-1", size: { width: 0, height: 400 } },
         { windowId: "w-1", size: { width: -1, height: 400 } },
+        { windowId: "w-1", size: { width: Number.NaN, height: 400 } },
         { windowId: "w-1", size: { width: "600", height: 400 } },
         { windowId: 7, size: { width: 600, height: 400 } },
         { windowId: "w-1", size: { width: 600, height: 400 }, extra: true },
         null,
       ],
+      refusal: SCHEMA_REFUSAL,
       accepted: { windowId: "w-1", size: { width: 600, height: 400 } },
       send: (payload) => invoke(BRIDGE_CHANNELS.setMinimumSize, payload),
       acted: () => minimumSizes.length,
@@ -364,6 +387,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         {},
         null,
       ],
+      refusal: SCHEMA_REFUSAL,
       accepted: { paneWidths: { sessions: 300 } },
       send: (payload) => invoke(BRIDGE_CHANNELS.setDefaultSizes, payload),
       acted: () => defaultSizes.length,
@@ -392,11 +416,7 @@ describe("intake parity", () => {
         if (intake.contract !== undefined) {
           expect(intake.contract.safeParse(payload).success, named).toBe(false);
         }
-        if (intake.refusal === undefined) {
-          expect(await isRefused(intake.send(payload)), named).toBe(true);
-        } else {
-          await expect(intake.send(payload), named).rejects.toThrow(intake.refusal);
-        }
+        expect(await refusalOf(intake.send(payload)), named).toMatch(intake.refusal);
         expect(await intake.acted(), named).toStrictEqual(before);
       }
       // Minting a token reads the memory file's reply; nothing a refused payload carried is sent.
@@ -406,7 +426,7 @@ describe("intake parity", () => {
       expect(sentByRefused, intake.member).toEqual([]);
 
       // Negative control: a payload inside the contract is taken and acted on.
-      expect(await isRefused(intake.send(intake.accepted)), intake.member).toBe(false);
+      expect(await refusalOf(intake.send(intake.accepted)), intake.member).toBeUndefined();
       await setImmediate();
       expect(await intake.acted(), intake.member).not.toStrictEqual(before);
     }
@@ -454,7 +474,9 @@ describe("intake parity", () => {
     expect(connection.requests.map((request) => request.method)).toEqual(["session.subscribe"]);
 
     for (const refusedId of [7, "not-an-id", null]) {
-      await expect(invoke(BRIDGE_CHANNELS.closeDaemonSubscription, refusedId)).rejects.toThrow();
+      await expect(invoke(BRIDGE_CHANNELS.closeDaemonSubscription, refusedId)).rejects.toThrow(
+        SCHEMA_REFUSAL,
+      );
     }
     await invoke(BRIDGE_CHANNELS.closeDaemonSubscription, subscriptionId);
     await setImmediate();
