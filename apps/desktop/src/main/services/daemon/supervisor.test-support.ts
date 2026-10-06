@@ -88,6 +88,8 @@ export class ScriptedService {
   public stopAnswer: CallAnswer = "answered";
   /** How a link answers `daemon.status.read`. */
   public statusReadAnswer: CallAnswer = "answered";
+  /** The abort signal each connect was handed, in order. */
+  public readonly connectSignals: AbortSignal[] = [];
   /** Failures the next connects meet, in order, before `connectAnswer` applies. */
   public readonly connectFailures: Error[] = [];
   public connectAnswer: ConnectAnswer = { kind: "absent" };
@@ -98,8 +100,12 @@ export class ScriptedService {
     answersPing: true,
   };
 
-  public connect = (observer: DaemonConnectionObserver): Promise<DaemonClientConnection> => {
+  public connect = (
+    observer: DaemonConnectionObserver,
+    signal: AbortSignal,
+  ): Promise<DaemonClientConnection> => {
     this.connectTimes.push(Date.now());
+    this.connectSignals.push(signal);
     const failure = this.connectFailures.shift();
     if (failure !== undefined) {
       return Promise.reject(failure);

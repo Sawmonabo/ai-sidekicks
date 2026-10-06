@@ -77,13 +77,15 @@ describe("starting the service", () => {
     expect(link.state.startedByApp).toBe(false);
   });
 
-  it("waits 10 seconds for the handshake, then counts the start failed and tries again", async () => {
+  it("waits 10 seconds for the handshake, closes the unanswered socket, and tries again", async () => {
     service.connectAnswer = { kind: "silent" };
     supervisor.start();
 
     await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS - 1);
     expect(service.connectTimes).toStrictEqual([0]);
+    expect(service.connectSignals[0]?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
+    expect(service.connectSignals[0]?.aborted).toBe(true);
     // The start after a failed one waits the backoff's first 100 ms.
     await vi.advanceTimersByTimeAsync(100);
     expect(service.connectTimes).toStrictEqual([0, SERVICE_HELLO_WAIT_MS + 100]);

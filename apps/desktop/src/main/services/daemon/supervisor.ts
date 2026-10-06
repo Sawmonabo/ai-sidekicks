@@ -84,8 +84,14 @@ const LINKED_SERVICE_SCHEMA: z.ZodType<{ processIdentity: ProcessIdentity }> = z
 export interface DaemonSupervisorOptions {
   /** Where the supervisor publishes the service's state and the connected client. */
   readonly link: DaemonLink;
-  /** Opens one connection, handshake included, reporting its frames and close to `observer`. */
-  readonly connect: (observer: DaemonConnectionObserver) => Promise<DaemonClientConnection>;
+  /**
+   * Opens one connection, handshake included, reporting its frames and close to `observer`; an
+   * abort of `signal` closes its socket and rejects.
+   */
+  readonly connect: (
+    observer: DaemonConnectionObserver,
+    signal: AbortSignal,
+  ) => Promise<DaemonClientConnection>;
   /** Starts the service detached; rejects when it cannot start. */
   readonly startService: () => Promise<ServiceProcess>;
   /** The service process with `identity`, for a service main found running rather than started. */
@@ -95,14 +101,16 @@ export interface DaemonSupervisorOptions {
 
 /**
  * Connect main to this account's service over its socket, the handshake presenting the session
- * token read from its file at this connect.
+ * token read from its file at this connect. An abort of `signal` closes the socket and rejects.
  */
 export function connectMainToDaemon(
   observer: DaemonConnectionObserver,
+  signal: AbortSignal,
 ): Promise<DaemonClientConnection> {
   return connectToDaemon({
     maxQueuedValuesPerSubscription: MAIN_SUBSCRIPTION_QUEUE_LIMIT,
     observer,
+    signal,
   });
 }
 
@@ -131,7 +139,7 @@ interface CurrentLink {
 /** Main's supervisor of the background service. */
 export class DaemonSupervisor {
   readonly #link: DaemonLink;
-  readonly #connect: (observer: DaemonConnectionObserver) => Promise<DaemonClientConnection>;
+  readonly #connect: DaemonSupervisorOptions["connect"];
   readonly #startService: () => Promise<ServiceProcess>;
   readonly #attachServiceProcess: (identity: ProcessIdentity) => ServiceProcess;
   readonly #log: Pick<MainDiagnosticLog, "write">;
@@ -474,11 +482,12 @@ export class DaemonSupervisor {
     // An exit after the link is up is the link's loss, which its watch reports.
     exitedFirst.catch(() => undefined);
     let connecting: Promise<DaemonClientConnection> | undefined;
+    const handshakeAbort = new AbortController();
     let isLinked = false;
     try {
       let pauseMs = SOCKET_WAIT_FIRST_PAUSE_MS;
       for (;;) {
-        connecting = this.#connect(lifetime);
+        connecting = this.#connect(lifetime, handshakeAbort.signal);
         try {
           const opened = await Promise.race([connecting, deadline, exitedFirst]);
           isLinked = true;
@@ -502,6 +511,8 @@ export class DaemonSupervisor {
     } finally {
       clearTimeout(deadlineTimer);
       if (!isLinked) {
+        // A service that took the socket and never answered would keep it open past the wait.
+        handshakeAbort.abort(new Error("The wait for the background service's handshake ended."));
         // A handshake that answers after the wait ended without it has lost, to the deadline or
         // to the service's exit: its connection is closed unused. Its failure was the race's.
         void connecting?.then(
