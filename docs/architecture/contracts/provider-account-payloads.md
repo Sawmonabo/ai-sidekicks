@@ -295,9 +295,11 @@ interface ProviderAccountRegisterRequest {
   //
   // Kept as its own item in the operating system's credential store, verified by
   // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
-  // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service answers,
-  // and on a Mac whose service runs while the person is logged out, the daemon keeps its items in
-  // one file in its own data folder, readable by this account alone (mode `0600`).
+  // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service
+  // answers, and on a Mac from the approved logged-out service's takeover until `sidekicks daemon
+  // uninstall` moves them back, including after that service is turned off in Login Items &
+  // Extensions, and never while it waits for approval, the daemon keeps its items in one file in
+  // its own data folder, readable by this account alone (mode `0600`).
   // Where the store cannot take it, registration refuses with `provideraccount.credential_seal_refused`
   // carrying `cause: "locked" | "unavailable"` and nothing is stored anywhere. Where the registration-time
   // status observation reports no signed-in mode for it, registration refuses with
