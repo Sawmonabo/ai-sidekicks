@@ -1,11 +1,11 @@
-// The steer form: a body typed against one run, sent as a steer intervention.
+// A child's steer box: a body typed against one run, sent as a steer intervention.
 //
 // All form state sits in one subject-scoped holder keyed by run id, so it re-seeds during the
 // render that first sees a new run and a submit never sends text written for another run. The
 // form reads only the settlement recorded under its own dispatch token, and closes only on one
 // that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
 
-import { useCallback, useEffect, useId, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -26,13 +26,18 @@ import type { RunControlDispatchState } from "../../run/controls/hooks/useRunCon
 
 import "./SteerBox.css";
 
-/** What the steer form is given: the run it addresses and the dispatch state it goes through. */
+/**
+ * What the steer box is given: the run it addresses, the agent it is named for, and the dispatch
+ * state it goes through.
+ */
 export interface SteerBoxProps {
   /** The transport this form's state is scoped to; a replacement retires that state. */
   readonly bridge: PlatformBridge;
   readonly run: RunControlCommandRun;
+  /** The agent the box steers, as the transcript names it: `Steer <name>`. */
+  readonly agentName: string;
   readonly dispatchState: RunControlDispatchState;
-  /** Close the composer. Raised on cancel, and on a settlement that landed. */
+  /** Close the box. Raised on a settlement that landed. */
   readonly onDismiss: () => void;
 }
 
@@ -67,10 +72,9 @@ const EMPTY_FORM: ComposedForm = Object.freeze({
   hasAskedToClose: false,
 });
 
-/** The form that sends a steer to one run. */
+/** The box that sends a steer to one run. */
 export function SteerBox(props: SteerBoxProps): React.JSX.Element {
-  const { bridge, run, dispatchState, onDismiss } = props;
-  const bodyId = useId();
+  const { bridge, run, agentName, dispatchState, onDismiss } = props;
   const comparand = dispatchState.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = run.runId;
   const { value: form, publish: publishForm } = useSubjectScopedState<ComposedForm>(
@@ -161,13 +165,10 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
 
   return (
     <form className="meridian-run-composer" onSubmit={onSubmit}>
-      <h4 className="meridian-run-composer__title">Steer this run</h4>
-      <label className="meridian-visually-hidden" htmlFor={bodyId}>
-        What should it do differently
-      </label>
       <textarea
-        id={bodyId}
         className="meridian-run-composer__body meridian-form__input"
+        aria-label={`Steer ${agentName}`}
+        placeholder={`Steer ${agentName}…`}
         value={body}
         rows={3}
         onChange={(event) => {
@@ -190,17 +191,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           disabled={isConfirmLatched}
           aria-busy={isSending}
         >
-          Send steer
-        </button>
-        <button
-          type="button"
-          className={
-            "meridian-action-button meridian-action-button--small " +
-            "meridian-action-button--raised"
-          }
-          onClick={onDismiss}
-        >
-          Cancel
+          Send
         </button>
       </div>
     </form>

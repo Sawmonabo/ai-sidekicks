@@ -2,7 +2,7 @@
 // stub calls.
 
 import { useState } from "react";
-import { act, render } from "@testing-library/react";
+import { act, render, within } from "@testing-library/react";
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
@@ -12,6 +12,9 @@ import type { RunControlCommandRun } from "../../run/controls/contributions/comm
 import type { RunControlCalls } from "../../run/controls/services/dispatch.js";
 import { RUN_ID } from "../../run/controls/commands.test-support.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
+
+/** The agent every mounted box steers. */
+export const STEERED_AGENT_NAME = "builder";
 
 /** What the stub answers one intervention with. */
 export type ScriptedAnswer = () => unknown;
@@ -68,6 +71,7 @@ export function SteerBoxHarness(props: {
     <SteerBox
       bridge={bridge}
       run={runAt("paused")}
+      agentName={STEERED_AGENT_NAME}
       dispatchState={dispatchState}
       onDismiss={props.onDismiss}
     />
@@ -94,9 +98,14 @@ export function renderSteerBox(answer: ScriptedAnswer = APPLIED_STEER): {
   return { container, calls, dismissCount: () => dismissals };
 }
 
-/** The steer form's body text; throws if the form drew no body field. */
+/** The box's text field, found by the name it is drawn under. */
+export function steerField(container: HTMLElement): HTMLElement {
+  return within(container).getByRole("textbox", { name: `Steer ${STEERED_AGENT_NAME}` });
+}
+
+/** The steer box's body text; throws if the box drew no body field. */
 export function bodyValue(container: HTMLElement): string {
-  const body = container.querySelector(".meridian-run-composer__body");
+  const body = steerField(container);
   if (!(body instanceof HTMLTextAreaElement)) {
     throw new Error("the composer drew no body field");
   }
@@ -125,10 +134,7 @@ export function typeInto(element: Element | null, value: string): void {
  * returns; an unawaited act() would leave that update outside React's boundary.
  */
 export async function submit(container: HTMLElement): Promise<void> {
-  const confirm = container.querySelector(".meridian-run-composer__confirm");
-  if (!(confirm instanceof HTMLButtonElement)) {
-    throw new Error("the composer drew no confirm");
-  }
+  const confirm = within(container).getByRole("button", { name: "Send" });
   await act(async () => {
     confirm.click();
   });

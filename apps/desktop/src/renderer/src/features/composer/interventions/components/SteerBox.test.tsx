@@ -13,6 +13,8 @@ import {
   interventionCalls,
   renderSteerBox,
   runAt,
+  STEERED_AGENT_NAME,
+  steerField,
   submit,
   type ScriptedAnswer,
   typeInto,
@@ -65,6 +67,7 @@ describe("the form is keyed by what it is composing against", () => {
           key={props.keyed ? props.runId : "fixed"}
           bridge={bridge}
           run={runAt("paused", 8, props.runId)}
+          agentName={STEERED_AGENT_NAME}
           dispatchState={dispatchState}
           onDismiss={() => undefined}
         />
@@ -106,7 +109,7 @@ describe("the form is keyed by what it is composing against", () => {
         onCommit={(reading) => committed.push(reading)}
       />,
     );
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
+    typeInto(steerField(container), "stop and re-read the diff");
     await submit(container);
     // The old target's dispatch is parked, so its confirm is latched; that makes the reading
     // after the switch decisive.
@@ -132,7 +135,7 @@ describe("the form is keyed by what it is composing against", () => {
   it("negative control: a re-render at the same target keeps what was typed", () => {
     // Without this the cases above would pass over a form that cleared itself every render.
     const { container, retarget } = renderSwitchable(false);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
+    typeInto(steerField(container), "stop and re-read the diff");
     retarget(RUN_ID);
     expect(bodyValue(container)).toBe("stop and re-read the diff");
   });
@@ -170,6 +173,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
         key={props.formKey}
         bridge={bridge}
         run={runAt("paused")}
+        agentName={STEERED_AGENT_NAME}
         dispatchState={dispatchState}
         onDismiss={props.onDismiss}
       />
@@ -188,9 +192,9 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
         }}
       />,
     );
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the first body");
+    typeInto(steerField(container), "the first body");
     await submit(container);
-    // Canceled and reopened while the first request is still in flight.
+    // Closed and reopened while the first request is still in flight.
     act(() => {
       rerender(
         <ReopenableHarness
@@ -202,7 +206,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
         />,
       );
     });
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
+    typeInto(steerField(container), "the second body");
     await submit(container);
     expect(container.textContent).toContain("still settling");
     expect(bodyValue(container)).toBe("the second body");
@@ -221,7 +225,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
         }}
       />,
     );
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the first body");
+    typeInto(steerField(container), "the first body");
     await submit(container);
     act(() => {
       rerender(
@@ -234,7 +238,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
         />,
       );
     });
-    typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
+    typeInto(steerField(container), "the second body");
     await submit(container);
     // The first request lands, applied; it is not this form's settlement.
     await act(async () => {
@@ -253,7 +257,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
   it("negative control: an admitted dispatch settles and closes the form", async () => {
     // Without this the two cases above would pass over a form that never read a settlement.
     const { container, calls, dismissCount } = renderSteerBox();
-    typeInto(container.querySelector(".meridian-run-composer__body"), "keep going");
+    typeInto(steerField(container), "keep going");
     await submit(container);
     expect(calls).toHaveLength(1);
     expect(dismissCount()).toBe(1);
@@ -271,7 +275,7 @@ describe("the composer outlives its dispatch", () => {
 
   it("keeps the text and says it was not applied when the intervention is rejected", async () => {
     const { container, dismissCount } = renderSteerBox(REJECTED_STEER);
-    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
+    typeInto(steerField(container), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
@@ -285,7 +289,7 @@ describe("what reaches the wire", () => {
     // pasting it.
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
     const { container, calls } = renderSteerBox();
-    typeInto(container.querySelector(".meridian-run-composer__body"), indented);
+    typeInto(steerField(container), indented);
     await submit(container);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.method).toBe("run.intervene");
