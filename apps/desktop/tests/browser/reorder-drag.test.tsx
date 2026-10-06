@@ -180,14 +180,16 @@ async function mountTabs(options: {
   installMeridianTokens(document);
   const mount = await renderSettled(
     <RealTimeWindow>
-      <div style={{ inlineSize: options.stripWidth ?? "auto" }}>
-        <ReorderingTabStrip
-          pages={options.pages ?? FOUR_PAGES}
-          refuses={options.refuses ?? false}
-          onReorder={options.onReorder ?? vi.fn()}
-          onSelect={options.onSelect ?? vi.fn()}
-        />
-      </div>
+      <LiveAnnouncerProvider>
+        <div style={{ inlineSize: options.stripWidth ?? "auto" }}>
+          <ReorderingTabStrip
+            pages={options.pages ?? FOUR_PAGES}
+            refuses={options.refuses ?? false}
+            onReorder={options.onReorder ?? vi.fn()}
+            onSelect={options.onSelect ?? vi.fn()}
+          />
+        </div>
+      </LiveAnnouncerProvider>
     </RealTimeWindow>,
   );
   // Measured against the tabs' own font, not the fallback drawn before it loads.
@@ -433,6 +435,112 @@ describe("browser — dragging a tab to reorder", () => {
     expect(settledTabs.map((tab) => tab.style.transform)).toStrictEqual(["", "", "", ""]);
     const settledLefts = lefts(settledTabs);
     expect(settledLefts).toStrictEqual(settledLefts.toSorted((left, right) => left - right));
+  });
+});
+
+describe("browser — moving a tab from its menu", () => {
+  /** The tab whose page is `pageId`, by its label. */
+  function tabOf(tabs: readonly HTMLElement[], pageId: string): HTMLElement {
+    const tab = tabs.find((candidate) => candidate.textContent.includes(`Title ${pageId}`));
+    if (tab === undefined) {
+      throw new Error(`the strip drew no tab for page ${pageId}`);
+    }
+    return tab;
+  }
+
+  /** The open menu's row reading `label`. */
+  function menuRow(label: string): HTMLElement {
+    const row = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (candidate) => candidate.textContent === label,
+    );
+    if (row === undefined) {
+      throw new Error(`no open menu holds a "${label}" row`);
+    }
+    return row;
+  }
+
+  function pageOrder(tabs: readonly HTMLElement[]): string[] {
+    return tabs.map((tab) => tab.textContent.replace(/^.*Title (\w).*$/su, "$1"));
+  }
+
+  /**
+   * Waits for the polite lane to say `sentence`. Inside `act`, since the announcer publishes a
+   * queued sentence and clears a held one on its own timer.
+   */
+  async function heard(container: HTMLElement, sentence: string): Promise<void> {
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(politeText(container)).toBe(sentence);
+      });
+    });
+  }
+
+  async function chooseRow(label: string): Promise<void> {
+    await act(async () => {
+      await userEvent.click(menuRow(label));
+    });
+  }
+
+  it("opens on Shift+F10 and a right-click, moves the tab to each place and says where", async () => {
+    const onReorder = vi.fn();
+    const { container, tabs } = await mountTabs({ onReorder });
+
+    // Shift+F10 on a focused tab opens its menu; the strip mints no chord of its own.
+    const face = tabOf(tabs(), "b").querySelector("button");
+    face?.focus();
+    await act(async () => {
+      await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    });
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await chooseRow("Move right");
+    expect(onReorder).toHaveBeenLastCalledWith("b", 2);
+    await vi.waitFor(() => {
+      expect(pageOrder(tabs())).toStrictEqual(["a", "c", "b", "d"]);
+    });
+    await heard(container, "Moved Title b to position 3 of 4.");
+
+    const openMenuOn = async (pageId: string): Promise<void> => {
+      await act(async () => {
+        await userEvent.click(tabOf(tabs(), pageId), { button: "right" });
+      });
+    };
+    await openMenuOn("b");
+    await chooseRow("Move to start");
+    await vi.waitFor(() => {
+      expect(pageOrder(tabs())).toStrictEqual(["b", "a", "c", "d"]);
+    });
+    await heard(container, "Moved Title b to position 1 of 4.");
+
+    // The first tab has nowhere to go left: both rows are disabled and pressing one moves nothing.
+    await openMenuOn("b");
+    expect(menuRow("Move left").getAttribute("aria-disabled")).toBe("true");
+    expect(menuRow("Move to start").getAttribute("aria-disabled")).toBe("true");
+    const callsBefore = onReorder.mock.calls.length;
+    await act(async () => {
+      menuRow("Move left").click();
+    });
+    expect(onReorder).toHaveBeenCalledTimes(callsBefore);
+    expect(pageOrder(tabs())).toStrictEqual(["b", "a", "c", "d"]);
+    await chooseRow("Move to end");
+    await vi.waitFor(() => {
+      expect(pageOrder(tabs())).toStrictEqual(["a", "c", "d", "b"]);
+    });
+    await heard(container, "Moved Title b to position 4 of 4.");
+
+    await openMenuOn("b");
+    expect(menuRow("Move right").getAttribute("aria-disabled")).toBe("true");
+    expect(menuRow("Move to end").getAttribute("aria-disabled")).toBe("true");
+    await chooseRow("Move left");
+    await vi.waitFor(() => {
+      expect(pageOrder(tabs())).toStrictEqual(["a", "c", "b", "d"]);
+    });
+    await heard(container, "Moved Title b to position 3 of 4.");
+    expect(onReorder.mock.calls).toStrictEqual([
+      ["b", 2],
+      ["b", 0],
+      ["b", 3],
+      ["b", 2],
+    ]);
   });
 });
 

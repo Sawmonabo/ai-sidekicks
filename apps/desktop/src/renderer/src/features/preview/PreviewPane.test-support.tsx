@@ -10,6 +10,7 @@ import {
   type FixtureBridge,
 } from "#renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { frozenClockOf } from "#test/helpers/scheduled-read.js";
 import { RecordingPageHost } from "./geometry/publisher.test-support.js";
@@ -84,7 +85,10 @@ export function recordingActs(navigations: string[] = []): PreviewChromeActs {
   };
 }
 
-/** The chrome with no reported location or pages, over the given acts and page host. */
+/**
+ * The chrome with no reported location or pages, over the given acts and page host, under the
+ * window's live announcer as the frame mounts it.
+ */
 export function chromeFor(
   subject: PreviewPaneSubject,
   acts: PreviewChromeActs,
@@ -92,13 +96,15 @@ export function chromeFor(
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={subject.fixture}>
-      <PreviewPaneContent
-        {...subject.context}
-        navigation={{ kind: "reading" }}
-        pages={{ kind: "reading" }}
-        acts={acts}
-        pageHost={pageHost}
-      />
+      <LiveAnnouncerProvider>
+        <PreviewPaneContent
+          {...subject.context}
+          navigation={{ kind: "reading" }}
+          pages={{ kind: "reading" }}
+          acts={acts}
+          pageHost={pageHost}
+        />
+      </LiveAnnouncerProvider>
     </FixtureBridgeProvider>
   );
 }

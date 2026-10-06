@@ -136,9 +136,6 @@
         // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
         // pane's diff read lands.
         "fixtures/data/repos-diff-patches.ts",
-        // The menu that registers its airspace over the Preview page, for a session row's More
-        // menu and the right-click that draws from the same list.
-        "src/renderer/src/components/OverlayPopups/OverlayMenuPopup.tsx",
         // The anchored popover that registers its airspace over the Preview page, for the worktree
         // popover and the context ring's compaction popover.
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",

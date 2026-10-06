@@ -2,20 +2,24 @@
 // title arrives) and a close control. It draws a reading and shows only at two or more pages.
 // Not `role="tablist"`: there is no `tabpanel`, since a native view paints the page over the
 // pane's rectangle, so the strip is a list of controls and the current one is `aria-current`.
-// A middle-click on a tab closes it exactly as its close control does, and nothing says so.
+// A middle-click on a tab closes it exactly as its close control does, and nothing says so. A
+// tab's menu, at a right-click, the menu key or Shift+F10, moves it as a drag does and says
+// where it landed; the strip mints no chord of its own.
 
 import "./PageTabStrip.css";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import type { PreviewPage, PreviewPageId } from "@ai-sidekicks/contracts/preview/preview";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
 import { type Refusal } from "#renderer/lib/refusal/refusal.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { PageTabIcon } from "./PageTabIcon.js";
+import { PageTabMenu, type PageTabMenuTarget } from "./PageTabMenu.js";
 import { activePageOf, pagesOf, type PageListReading } from "../../page-list-reading.js";
 
 /** The page reading a strip draws and the acts its controls dispatch. */
@@ -24,20 +28,26 @@ export interface PageTabStripProps {
   readonly onSelect: (pageId: PreviewPageId) => void;
   readonly onClose: (pageId: PreviewPageId) => void;
   /**
-   * Moves a page to `toIndex` in the list without it; called once per drag, on release. Answers
-   * the refusal when the move was refused, and the dragged tab glides back to where it was; a
-   * served move leaves the tab drawn in its new place until the reading's page order changes.
+   * Moves a page to `toIndex` in the list without it; called once per drag, on release, and once
+   * per move from a tab's menu. Answers the refusal when the move was refused, and a dragged tab
+   * glides back to where it was; a served move leaves the tab drawn in its new place until the
+   * reading's page order changes.
    */
   readonly onReorder: (pageId: PreviewPageId, toIndex: number) => Promise<Refusal | undefined>;
 }
 
-/** One tab per open page, reordered by dragging a tab; draws nothing below two pages. */
+/**
+ * One tab per open page, reordered by dragging a tab or from its menu; draws nothing below two
+ * pages. Mounted under the window's live announcer, which a menu move speaks through.
+ */
 export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
   const pages = pagesOf(reading);
   const activePageId = activePageOf(reading)?.pageId;
   const pageIds = useMemo(() => pages.map((page) => page.pageId), [pages]);
   const clock = useClock();
+  const announce = useAnnounce();
+  const [menuTarget, setMenuTarget] = useState<PageTabMenuTarget | undefined>(undefined);
   const tabDrag = useReorderDrag(
     "horizontal",
     pageIds,
@@ -62,6 +72,22 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
     return null;
   }
 
+  // The menu's move is the drag's own commit, and the live region names where the tab landed.
+  const moveFromMenu = (pageId: PreviewPageId, toIndex: number): void => {
+    const page = pages.find((candidate) => candidate.pageId === pageId);
+    void onReorder(pageId, toIndex).then((refusal) => {
+      if (refusal !== undefined) {
+        announce(refusal.detail, "assertive");
+        return;
+      }
+      announce(
+        `Moved ${page === undefined ? "the tab" : tabLabel(page)} to position ` +
+          `${String(toIndex + 1)} of ${String(pages.length)}.`,
+        "polite",
+      );
+    });
+  };
+
   return (
     <div className="meridian-preview-tabs">
       <ul className="meridian-preview-tabs__list">
@@ -84,6 +110,26 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
               if (event.button === MIDDLE_BUTTON) {
                 event.preventDefault();
                 onClose(page.pageId);
+              }
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              // A right-click opens the menu at the pointer; a keyboard's opens it at the tab.
+              const tab = event.currentTarget;
+              const pointX = event.clientX;
+              const pointY = event.clientY;
+              setMenuTarget({
+                pageId: page.pageId,
+                anchor:
+                  event.button === SECONDARY_BUTTON
+                    ? { getBoundingClientRect: () => DOMRect.fromRect({ x: pointX, y: pointY }) }
+                    : tab,
+              });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+                event.preventDefault();
+                setMenuTarget({ pageId: page.pageId, anchor: event.currentTarget });
               }
             }}
           >
@@ -111,12 +157,23 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
           </li>
         ))}
       </ul>
+      <PageTabMenu
+        target={menuTarget}
+        pageIds={pageIds}
+        onMove={moveFromMenu}
+        onDismiss={() => {
+          setMenuTarget(undefined);
+        }}
+      />
     </div>
   );
 }
 
 /** The middle button's number in `MouseEvent.button`. */
 const MIDDLE_BUTTON = 1;
+
+/** The secondary button's number in `MouseEvent.button`: a right-click. */
+const SECONDARY_BUTTON = 2;
 
 /** What a tab shows: the page's own title, then its host until the title arrives. */
 function tabLabel(page: PreviewPage): string {

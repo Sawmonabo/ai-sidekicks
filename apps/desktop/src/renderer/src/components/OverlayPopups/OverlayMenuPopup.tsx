@@ -1,5 +1,6 @@
 // A menu's portal, positioner and popup, registered in the window's airspace. `Menu.Root`, the
-// trigger, the items and the offset stay with the caller.
+// trigger, the items and the offset stay with the caller; a menu opened with no trigger, as a
+// right-click's is, names its anchor.
 
 import { Menu } from "@base-ui/react/menu";
 
@@ -14,6 +15,8 @@ export interface OverlayMenuPopupProps {
   readonly positionerClassName: string;
   /** Distance from the anchor, in pixels, as the positioner takes it. */
   readonly sideOffset?: number | undefined;
+  /** What the popup is placed against; absent, the menu's own trigger. */
+  readonly anchor?: Menu.Positioner.Props["anchor"];
   readonly className: string;
   readonly children: React.ReactNode;
 }
@@ -27,6 +30,7 @@ export function OverlayMenuPopup(props: OverlayMenuPopupProps): React.JSX.Elemen
       <Menu.Positioner
         className={overlayClassName(props.positionerClassName)}
         sideOffset={props.sideOffset}
+        anchor={props.anchor}
       >
         <Menu.Popup ref={airspaceRef} className={overlayClassName(props.className)}>
           {props.children}

@@ -4,12 +4,22 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { previewPage as page } from "../../page-list-reading.test-support.js";
 import { fixturePreviewBridge } from "../../PreviewPane.test-support.js";
 import { PageTabStrip } from "./PageTabStrip.js";
 
-const wrapper = bridgeWrapper(fixturePreviewBridge().bridge);
+const BridgeWindow = bridgeWrapper(fixturePreviewBridge().bridge);
+
+/** The window the strip is mounted in: the bridge and the frame's live announcer. */
+function wrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
+  return (
+    <BridgeWindow>
+      <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
+    </BridgeWindow>
+  );
+}
 
 describe("the tab strip", () => {
   it("draws nothing for one page, and a strip for two", () => {

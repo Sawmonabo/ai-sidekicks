@@ -83,3 +83,31 @@
 .meridian-preview-tab__close:hover {
   color: var(--meridian-text);
 }
+
+/* A tab's menu: its four move rows on the raised ground, a space step clear of the tab. */
+.meridian-preview-tab-menu {
+  display: flex;
+  flex-direction: column;
+  margin-block: var(--meridian-space-1);
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-preview-tab-menu__row {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text);
+  cursor: default;
+}
+
+.meridian-preview-tab-menu__row[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+/* A row with nowhere to move the tab. */
+.meridian-preview-tab-menu__row[data-disabled] {
+  color: var(--meridian-text-faint);
+}
