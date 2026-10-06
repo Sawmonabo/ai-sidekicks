@@ -118,6 +118,10 @@ interface SessionRestorePreviewResponse {
   // the ignored folders an ordinary undo never puts back, by name, and whether a command ran at all.
   ignoredFolders: string[];
   commandsRanAfterPoint: boolean;
+  // The commands after the point that ran uncovered, because their capture failed or the service did
+  // not acknowledge `starting` in time, by their command text; the dry run names each one `ran while
+  // the service could not capture it`. Empty when every command was captured.
+  uncoveredCommands: string[];
   // Paths another session working in the same folder also changed since the point, left as they are
   // unless the restore includes them.
   alsoChangedBy: Array<{ sessionId: SessionId; paths: string[] }>;
