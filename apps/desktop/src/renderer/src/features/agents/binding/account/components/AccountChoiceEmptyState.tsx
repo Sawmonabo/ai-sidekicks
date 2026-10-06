@@ -5,7 +5,10 @@
 
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { ACCOUNT_PLANE_REMEDY_SENTENCES } from "#renderer/lib/account-plane-sentences.js";
+import {
+  ACCOUNT_LIST_READ_WORDS,
+  ACCOUNT_PLANE_REMEDY_SENTENCES,
+} from "#renderer/lib/account-plane-sentences.js";
 import type { AccountAxisReading } from "../axis.js";
 
 /** What the empty state shows, and how it asks for a fresh read. */
@@ -31,13 +34,13 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
     );
   }
   if (reading.kind === "reading") {
-    return <Nothing kind="not-loaded" title="Reading the account list…" />;
+    return <Nothing kind="not-loaded" title={ACCOUNT_LIST_READ_WORDS.reading} />;
   }
   if (reading.kind === "refused") {
     return (
       <Nothing
         kind="error"
-        title="The account list could not be read."
+        title={ACCOUNT_LIST_READ_WORDS.refused}
         action={<TryAgainButton onPress={onReopen} />}
       />
     );

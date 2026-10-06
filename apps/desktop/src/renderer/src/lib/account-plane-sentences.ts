@@ -1,4 +1,5 @@
-// What an account's state and its one remedy read as on screen, in the Providers page's words.
+// What an account's state, its one remedy and the account list's read read as on screen, in the
+// Providers page's words.
 //
 // One entry per readiness state and per remedy and no other: the vocabularies are the
 // contract's, so a new upstream arm is a compile error here. Each is a fixed string, never
@@ -27,6 +28,15 @@ export const PROVIDER_READINESS_STATE_WORDS: Readonly<
   no_account: (provider) => noAccountsSentence(provider),
   no_default: (provider) => noDefaultSentence(provider),
 };
+
+/**
+ * What the account list reads before its read lands and after one is refused, on the Providers
+ * page and on every account picker, which lists accounts as that page does.
+ */
+export const ACCOUNT_LIST_READ_WORDS = {
+  reading: "Reading the account list…",
+  refused: "The account list could not be read.",
+} as const;
 
 /** What each billing mode reads as on an account's billing chip. */
 export const BILLING_MODE_WORDS: Readonly<Record<BillingMode, string>> = {

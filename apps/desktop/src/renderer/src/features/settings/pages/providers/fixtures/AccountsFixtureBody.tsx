@@ -25,6 +25,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { ACCOUNT_LIST_READ_WORDS } from "#renderer/lib/account-plane-sentences.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";
 import { AccountRow } from "./components/Account/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";
@@ -124,7 +125,7 @@ export function AccountsFixtureBody(props: {
   );
 
   if (registry.phase === "reading") {
-    return <Nothing kind="not-loaded" placement="block" title="Reading the account registry." />;
+    return <Nothing kind="not-loaded" placement="block" title={ACCOUNT_LIST_READ_WORDS.reading} />;
   }
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
