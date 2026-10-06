@@ -6826,6 +6826,14 @@ type WorkflowStartedBy =
   | { kind: "fileEvent" }
   | { kind: "parentWorkflow"; parentWorkflowRunId: WorkflowRunId };
 
+// A spent provider account as a wait names it: its id, its provider and the one label every
+// surface names an account by, so no account id reaches the screen.
+interface WorkflowSpentAccount {
+  providerAccountId: ProviderAccountId;
+  provider: "claude" | "codex";
+  label: string;
+}
+
 // What a step or a run cost, in whole micro-dollars, and the account that paid. Present only where a
 // provider was billed; a step that spent nothing carries none, and reads `$0.00` with no account.
 interface WorkflowCost {
@@ -6860,14 +6868,9 @@ interface WorkflowStep {
   // Present exactly on a `waiting` step: what it waits on. The status list is not widened for a wait: a
   // step parked on a spent provider account reads `waiting` with cause `account`.
   waitCause?: WorkflowWaitCause;
-  // Present exactly on a step waiting on `account`: the spent account, with its provider and the one
-  // label every surface names an account by, so the run header reads `The Codex account <label> is
-  // spent…` and no account id reaches the screen.
-  waitAccount?: {
-    providerAccountId: ProviderAccountId;
-    provider: "claude" | "codex";
-    label: string;
-  };
+  // Present exactly on a step waiting on `account`: the spent account, which the run header names,
+  // `The Claude Code account <label> is spent…`.
+  waitAccount?: WorkflowSpentAccount;
   // Only on a `waiting` step, and only where the wait armed one: the instant it resumes itself. Where
   // none is armed, no instant is invented.
   resumeAt?: string; // RFC 3339 UTC
@@ -7939,7 +7942,7 @@ type WorkflowRunAttentionEntry =
     }
   | {
       kind: "account";
-      providerAccountId: ProviderAccountId; // the spent account the entry groups by
+      account: WorkflowSpentAccount; // the spent account the entry groups by, named as the steps waiting on it name it
       affectedRunCount: number; // at least 1
       waitingSince: string; // the oldest of its runs
       resumeAt?: string; // where the wait armed one
