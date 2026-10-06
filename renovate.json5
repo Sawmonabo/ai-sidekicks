@@ -47,7 +47,8 @@
       automerge: false,
       labels: ["dependencies", "major"],
     },
-    // Release-tooling actions: never automerge majors.
+    // A major bump of a CI or secret-scan action is labeled for review; the rule above already
+    // keeps every major from automerging.
     {
       matchPackageNames: [
         "actions/checkout",
@@ -56,8 +57,7 @@
         "gitleaks/gitleaks-action",
       ],
       matchUpdateTypes: ["major"],
-      automerge: false,
-      labels: ["release-tooling", "review-required"],
+      labels: ["ci-actions", "review-required"],
     },
   ],
   // Lockfile maintenance keeps pnpm-lock.yaml fresh against transitive shifts.
