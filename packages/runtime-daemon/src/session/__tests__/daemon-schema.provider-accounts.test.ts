@@ -2,10 +2,11 @@
 // provider, billing-mode and health-state unions is stored and a value outside each is refused, a
 // generation below the floor is refused, a provider holds one default account at most, a
 // credential home belongs to one account, a typed name is optional, unique per provider by its
-// fold and renamed only where one is carried, INSERT OR REPLACE included, a quota reading is keyed
-// by account and limit alone, and a memory-import outcome whose count and time disagree with it is
-// refused. The member lists are `Record<Union, true>` maps, so a member added to the contract is a
-// type error here until its case exists, and that case then fails until the CHECK admits it.
+// fold and renamed only where one is carried, each of those rules holds under INSERT OR REPLACE
+// too, a quota reading is keyed by account and limit alone, and a memory-import outcome whose
+// count and time disagree with it is refused. The member lists are `Record<Union, true>` maps, so
+// a member added to the contract is a type error here until its case exists, and that case then
+// fails until the CHECK admits it.
 
 import {
   CREDENTIAL_GENERATION_MIN,
@@ -82,11 +83,11 @@ describe("provider-account schema", () => {
   // Each account gets its own id and, unless a case names one, its own home path, and none is a
   // default unless a case says so, so the unique indexes never refuse a row for a reason other
   // than the column under test. A health state is stored with the time it was observed, as the
-  // schema requires of the pair, and a typed name with its fold, as the store writes it. `replace`
-  // writes over the account with that id.
+  // schema requires of the pair, and a typed name with its fold, as the store writes it.
+  // `replace` writes with INSERT OR REPLACE, under the id it names or a new one.
   function insertAccount(
     overrides: Partial<AccountColumns>,
-    replace?: { readonly accountId: string },
+    replace?: { readonly accountId?: string },
   ): string {
     const account = { ...VALID_ACCOUNT, ...overrides };
     nextAccountNumber += 1;
@@ -116,6 +117,13 @@ describe("provider-account schema", () => {
       TIMESTAMP,
     );
     return accountId;
+  }
+
+  function accountIds(): readonly string[] {
+    return db
+      .prepare<[], { account_id: string }>("SELECT account_id FROM provider_accounts")
+      .all()
+      .map((row) => row.account_id);
   }
 
   function insertUsageWindow(accountId: string, limitId: string, windowMins: number): void {
@@ -162,17 +170,25 @@ describe("provider-account schema", () => {
   it("allows each provider one default account and refuses a second", () => {
     insertAccount({ provider: "claude", isDefault: 1 });
     expect(() => insertAccount({ provider: "codex", isDefault: 1 })).not.toThrow();
-    expect(() => insertAccount({ provider: "claude", isDefault: 0 })).not.toThrow();
-    expect(() => insertAccount({ provider: "claude", isDefault: 1 })).toThrow(
-      /UNIQUE constraint failed/,
-    );
+    const other = insertAccount({ provider: "claude", isDefault: 0 });
+    expect(() => insertAccount({ provider: "claude", isDefault: 1 })).toThrow(/is the default/);
+    expect(() =>
+      db.prepare("UPDATE provider_accounts SET is_default = 1 WHERE account_id = ?").run(other),
+    ).toThrow(/UNIQUE constraint failed/);
   });
 
   it("refuses a second account on a credential home, whatever its provider", () => {
-    insertAccount({ provider: "claude", credentialHomePath: "/homes/shared" });
+    const shared = insertAccount({ provider: "claude", credentialHomePath: "/homes/shared" });
     expect(() => insertAccount({ provider: "codex", credentialHomePath: "/homes/shared" })).toThrow(
-      /UNIQUE constraint failed/,
+      /holds that credential_home_path/,
     );
+    const other = insertAccount({ provider: "codex" });
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET credential_home_path = ? WHERE account_id = ?")
+        .run("/homes/shared", other),
+    ).toThrow(/UNIQUE constraint failed/);
+    expect(accountIds()).toContain(shared);
   });
 
   it("stores an account with no typed name and reads it back as none", () => {
@@ -226,24 +242,33 @@ describe("provider-account schema", () => {
     );
   });
 
-  it("holds the name rules against INSERT OR REPLACE, which no update trigger sees", () => {
-    const named = insertAccount({ displayLabel: "Work" });
-    const unnamed = insertAccount({ displayLabel: null });
-    expect(() => insertAccount({ displayLabel: "Office" }, { accountId: unnamed })).toThrow(
-      /renamed only on an account/,
-    );
+  it("holds every rule against INSERT OR REPLACE, which deletes what it collides with", () => {
+    const named = insertAccount({ provider: "claude", displayLabel: "Work", isDefault: 1 });
+    insertUsageWindow(named, "five_hour", 300);
+    const homed = insertAccount({ provider: "codex", credentialHomePath: "/homes/kept" });
+    // Written over, the account would lose its name rule and its quota readings to the cascade.
     expect(() => insertAccount({ displayLabel: null }, { accountId: named })).toThrow(
-      /renamed only on an account/,
+      /never written over/,
     );
-    // REPLACE answers a taken name by deleting the account that holds it; the account stays.
-    const other = insertAccount({ displayLabel: "Office" });
-    expect(() => insertAccount({ displayLabel: "WORK" }, { accountId: other })).toThrow(
-      /holds that display_label/,
+    expect(() => insertAccount({ displayLabel: "Work" }, { accountId: named })).toThrow(
+      /never written over/,
     );
+    // A new account that takes another's name, default mark or home would delete that account.
+    expect(() => insertAccount({ displayLabel: "WORK" }, {})).toThrow(/holds that display_label/);
+    expect(() => insertAccount({ provider: "claude", isDefault: 1 }, {})).toThrow(/is the default/);
+    expect(() => insertAccount({ credentialHomePath: "/homes/kept" }, {})).toThrow(
+      /holds that credential_home_path/,
+    );
+    expect(accountIds()).toEqual([named, homed]);
     expect(
-      db.prepare("SELECT display_label FROM provider_accounts WHERE account_id = ?").get(named),
-    ).toEqual({ display_label: "Work" });
-    expect(() => insertAccount({ displayLabel: "Office 2" }, { accountId: other })).not.toThrow();
+      db
+        .prepare(
+          "SELECT count(*) AS readings FROM provider_account_usage_windows WHERE account_id = ?",
+        )
+        .get(named),
+    ).toEqual({ readings: 1 });
+    // A replacement that collides with nothing is an ordinary insert.
+    expect(() => insertAccount({ provider: "codex", displayLabel: "Work" }, {})).not.toThrow();
   });
 
   it("keys a quota reading on (account_id, limit_id), with window_mins an attribute", () => {

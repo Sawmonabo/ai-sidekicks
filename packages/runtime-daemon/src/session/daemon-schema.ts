@@ -524,20 +524,19 @@ BEGIN
   SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
 END;
 
--- The same rule and the name index against INSERT OR REPLACE, which deletes the
--- rows it collides with instead of updating them, so no UPDATE trigger sees it
--- (sqlite.org/lang_conflict.html). Refused: a replacement that gives or takes
--- away an account's typed name, and one whose name another account of the
--- provider holds, which REPLACE would answer by deleting that account.
-CREATE TRIGGER trg_provider_accounts_display_label_kept_on_replace
+-- The table's rules against INSERT OR REPLACE, which deletes every row it
+-- collides with instead of refusing, fires no UPDATE trigger and cascades the
+-- delete to the account's quota readings (sqlite.org/lang_conflict.html).
+-- Refused before the insert: one that names an account already held, which is
+-- changed by UPDATE so the rules above see it, and one that collides with
+-- another account on a unique index (its default mark, its credential home or
+-- its typed name), which REPLACE would answer by deleting that account. A plain
+-- INSERT meets the same refusal; an UPDATE still meets the indexes.
+CREATE TRIGGER trg_provider_accounts_never_written_over
   BEFORE INSERT ON provider_accounts
-  WHEN EXISTS (
-    SELECT 1 FROM provider_accounts AS held
-    WHERE held.account_id = NEW.account_id
-      AND (held.display_label IS NULL) != (NEW.display_label IS NULL)
-  )
+  WHEN EXISTS (SELECT 1 FROM provider_accounts AS held WHERE held.account_id = NEW.account_id)
 BEGIN
-  SELECT RAISE(ABORT, 'display_label is renamed only on an account that carries one');
+  SELECT RAISE(ABORT, 'an account is changed by UPDATE, never written over');
 END;
 
 CREATE TRIGGER trg_provider_accounts_display_label_unique_on_replace
@@ -550,6 +549,29 @@ CREATE TRIGGER trg_provider_accounts_display_label_unique_on_replace
   )
 BEGIN
   SELECT RAISE(ABORT, 'another account of this provider holds that display_label');
+END;
+
+CREATE TRIGGER trg_provider_accounts_one_default_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN NEW.is_default = 1 AND EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.provider = NEW.provider
+      AND held.is_default = 1
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account of this provider is the default');
+END;
+
+CREATE TRIGGER trg_provider_accounts_credential_home_on_replace
+  BEFORE INSERT ON provider_accounts
+  WHEN EXISTS (
+    SELECT 1 FROM provider_accounts AS held
+    WHERE held.credential_home_path = NEW.credential_home_path
+      AND held.account_id != NEW.account_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'another account holds that credential_home_path');
 END;
 
 -- The newest quota reading per account and limit. Keyed by limit, not window
