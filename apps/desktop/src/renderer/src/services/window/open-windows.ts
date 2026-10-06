@@ -80,7 +80,8 @@ export class OpenWindows {
   /**
    * Open the window `windowId` names on `address`, a route hash written before anyone hears the
    * window opened, or bring it forward, on the address it shows, when it is open. Throws
-   * {@link WindowNotOpenedError} when the platform opened none.
+   * {@link WindowNotOpenedError} when the platform opened none, and throws when an open window is
+   * opened again before {@link bringForwardThrough} registered how to bring it forward.
    */
   public open(windowId: string, address?: string): OpenWindow {
     const held = this.#held.get(windowId);

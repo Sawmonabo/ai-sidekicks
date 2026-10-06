@@ -40,6 +40,7 @@ import {
   scriptedConnection,
   type ScriptedConnection,
 } from "./daemon.test-support.js";
+import { describeFailure } from "../services/failure-message.js";
 import { PASTED_IMAGES_FOLDER_NAME } from "./native/file-intake.js";
 import type { WindowHandlerContext } from "./window.js";
 
@@ -202,7 +203,7 @@ async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> 
     const value = (await answer) as { outcome?: unknown; message?: unknown } | undefined;
     return value?.outcome === "failed" ? String(value.message) : undefined;
   } catch (error: unknown) {
-    return error instanceof Error ? error.message : String(error);
+    return describeFailure(error);
   }
 }
 
