@@ -72,11 +72,19 @@ export type DaemonConnection =
   | { readonly kind: "stopped" };
 
 /**
- * On Windows, whether the service keeps running while the person is signed out: `on`,
- * `off`, `passwordOutOfDate` when the signed-out task last failed on a changed password, and
- * `notOffered` where Windows allows no service with no one signed in.
+ * Whether the service keeps running while the person is signed out of Windows or logged out of
+ * the Mac: `on`, `off`, `passwordOutOfDate` when the Windows task last failed on a changed
+ * password, `notOffered` where the machine allows no such service, and on macOS alone
+ * `waitingForApproval` before an administrator approves it and `turnedOffInLoginItems` after one
+ * turns it off.
  */
-export type WhileSignedOut = "on" | "off" | "passwordOutOfDate" | "notOffered";
+export type WhileSignedOut =
+  | "on"
+  | "off"
+  | "passwordOutOfDate"
+  | "notOffered"
+  | "waitingForApproval"
+  | "turnedOffInLoginItems";
 
 /**
  * On Windows, why the service cannot start, as the service's Windows half wrote it down: WSL
