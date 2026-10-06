@@ -69,7 +69,7 @@ export function spawnFixtureGit(
         }
         const reportedCode: number | string | null | undefined = error.code;
         if (typeof reportedCode !== "number") {
-          reject(new Error(`fixture git ${argv.join(" ")} did not run: ${String(error.message)}`));
+          reject(new Error(`fixture git ${argv.join(" ")} did not run: ${error.message}`));
           return;
         }
         resolve({ exitCode: reportedCode, stdout, stderr });
@@ -77,9 +77,8 @@ export function spawnFixtureGit(
     ).on("error", reject);
     const childStdin = child.stdin;
     if (childStdin !== null) {
-      childStdin.on("error", () => {
-        /* the invocation's failure already travels on the exit status */
-      });
+      // EPIPE when git exits before reading its input: that failure travels on the exit status.
+      childStdin.on("error", () => undefined);
       if (stdin !== undefined) {
         childStdin.write(stdin);
       }

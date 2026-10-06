@@ -161,7 +161,7 @@ export class TurnSnapshotService {
     this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
     this.#runGit = createHookNeutralizedGitCommand({
       git: deps.git ?? runGitWithExecFile,
-      createDirectory: (path) => this.#filesystem.createDirectory(path),
+      filesystem: this.#filesystem,
       executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });

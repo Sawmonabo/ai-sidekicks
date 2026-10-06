@@ -11,7 +11,7 @@ import type {
   WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
 
-import { openDatabase } from "../../session/migration-runner.js";
+import { openDatabase } from "../migration-runner.js";
 
 const FIXTURE_TIMESTAMP: string = "2026-08-04T00:00:00.000Z";
 const FIXTURE_CANONICAL_ROOT: string = "/repos/acme-payments";

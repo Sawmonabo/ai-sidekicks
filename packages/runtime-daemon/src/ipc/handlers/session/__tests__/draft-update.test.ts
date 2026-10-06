@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../../../session/migration-runner.js";
 import { SessionDraftStore } from "../../../../session/draft-store.js";
-import { insertStoredEvent } from "../../../../session/__tests__/stored-event.test-support.js";
+import { insertStoredEvent } from "../../../../session/__fixtures__/stored-event.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";
 import { registerSessionDraftUpdate } from "../draft-update.js";

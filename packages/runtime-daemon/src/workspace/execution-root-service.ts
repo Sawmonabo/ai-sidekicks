@@ -26,11 +26,12 @@ import {
 } from "../git/worktree/errors.js";
 import { deriveWorktreeBranchName } from "../git/worktree/branch-name.js";
 import { type CreateWorktreeInput, type CreatedWorktree } from "../git/worktree/service.js";
-import type { GitFilesystem } from "../git/filesystem.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../git/filesystem.js";
 import {
   createHookNeutralizedGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   readGitExitStatus,
+  runGitWithExecFile,
   type GitCommand,
   type GitInvocationResult,
   type GitRunner,
@@ -41,6 +42,7 @@ import { RepoMountNotFoundError } from "./repo/errors.js";
 import { HOLDING_RUN_ID_METADATA_PATH } from "./row-guards.js";
 import { WorkspaceBusyError, WorkspaceNotFoundError } from "./errors.js";
 import { mintUuidV7 } from "../uuid-v7.js";
+import { withCleanupFailures } from "../cleanup-failures.js";
 
 /** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
 const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
@@ -89,10 +91,10 @@ export interface ExecutionRootServiceDeps {
    * the one the worktree services resolve.
    */
   readonly executionRootsDirectory: string;
-  /** Git process seam; required, so the composition root names the runner. */
-  readonly git: GitRunner;
-  /** The git seam's directory verb, for the hook-neutralizing folder. Required, like `git`. */
-  readonly filesystem: Pick<GitFilesystem, "createDirectory">;
+  /** Git process seam; defaults to `execFile` against `git`. */
+  readonly git?: GitRunner;
+  /** Filesystem seam, for the hook-neutralizing folder; defaults to `node:fs/promises`. */
+  readonly filesystem?: Pick<GitFilesystem, "createDirectory">;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at`. Injectable for tests. */
@@ -253,8 +255,8 @@ export class ExecutionRootService {
     // `-c core.fsmonitor=false` is inert here (`symbolic-ref` never reaches the fsmonitor hook);
     // the shared entry point keeps every service's argv the same.
     this.#runGit = createHookNeutralizedGitCommand({
-      git: deps.git,
-      createDirectory: (path) => deps.filesystem.createDirectory(path),
+      git: deps.git ?? runGitWithExecFile,
+      filesystem: deps.filesystem ?? DEFAULT_GIT_FILESYSTEM,
       executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
@@ -388,7 +390,7 @@ export class ExecutionRootService {
       cleanupFailures.push(...(await this.#failRootPreparation(workspace.id, preparationFailure)));
       // Rethrow the cause itself where it can carry the cleanup failures: the run-setup gate wraps
       // by code.
-      throw withCleanupFailures(preparationFailure, cleanupFailures);
+      throw withCleanupFailures(preparationFailure, cleanupFailures, "execution root preparation");
     }
 
     try {
@@ -397,6 +399,7 @@ export class ExecutionRootService {
       throw withCleanupFailures(
         completionFailure,
         await this.#compensateOrphanedRoot(materialized, branchContextId),
+        "execution root preparation",
       );
     }
 
@@ -672,28 +675,6 @@ export class ExecutionRootService {
       );
     }
   }
-}
-
-/**
- * The error to throw for `original` once cleanup after it failed too: `original` itself carrying
- * the cleanup failures as its `cause` when that is free, so its code still reaches the caller, or
- * every failure in one `AggregateError` when it is not.
- */
-function withCleanupFailures(original: unknown, cleanupFailures: readonly unknown[]): unknown {
-  if (cleanupFailures.length === 0) {
-    return original;
-  }
-  if (original instanceof Error && original.cause === undefined) {
-    original.cause =
-      cleanupFailures.length === 1
-        ? cleanupFailures[0]
-        : new AggregateError(cleanupFailures, "execution root cleanup failed");
-    return original;
-  }
-  return new AggregateError(
-    [original, ...cleanupFailures],
-    "execution root preparation failed, and cleaning up after it failed too",
-  );
 }
 
 /** Whether a rejected git invocation printed nothing on stdout. */

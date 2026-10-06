@@ -442,7 +442,6 @@ describe("provisioned-worktree mode on real git", () => {
       await proveSentinelsAreArmed(ctx.repository);
       insertWorkspace("provisioned-worktree");
       const prepared = await prepareWorktree("feature/login");
-      writeFileSync(join(prepared.executionRoot, "scratch-notes.txt"), "work in progress\n");
 
       // Retiring a root a running run holds would pull it out from under the run.
       await ctx.workspaces.markBusy(WORKSPACE_ID, RUN_ID);

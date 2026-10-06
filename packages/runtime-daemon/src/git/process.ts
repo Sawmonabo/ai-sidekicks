@@ -7,6 +7,8 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 
+import type { GitFilesystem } from "./filesystem.js";
+
 /**
  * The bare name `git`, found by the platform's search. On Windows libuv looks in the daemon's
  * current directory before `PATH`, so a Windows deployment should name an absolute path.
@@ -199,7 +201,8 @@ export function readGitExitStatus(rejection: unknown): number | null {
 /** What {@link createHookNeutralizedGitCommand} needs from its service. */
 export interface HookNeutralizedGitDependencies {
   readonly git: GitRunner;
-  readonly createDirectory: (path: string) => Promise<void>;
+  /** Creates the empty hooks folder before every call. */
+  readonly filesystem: Pick<GitFilesystem, "createDirectory">;
   readonly executionRootsDirectory: string;
   readonly timeoutMs: number;
 }
@@ -223,7 +226,7 @@ export function createHookNeutralizedGitCommand(
     HOOK_NEUTRALIZATION_SEGMENT,
   );
   return async (argv, options = {}) => {
-    await dependencies.createDirectory(hookNeutralizationDirectory);
+    await dependencies.filesystem.createDirectory(hookNeutralizationDirectory);
     return dependencies.git(
       [
         "-c",

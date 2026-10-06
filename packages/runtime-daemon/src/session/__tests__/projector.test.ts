@@ -11,7 +11,7 @@ import {
   OCCURRED_AT,
   OWNER_ACTOR_ID,
   SESSION_ID,
-} from "./stored-event.test-support.js";
+} from "../__fixtures__/stored-event.js";
 
 describe("session-projector — bootstrap projection", () => {
   it("records the owner from a single session.created event", () => {

@@ -4,12 +4,7 @@
  */
 
 import { stat } from "node:fs/promises";
-
-/**
- * A SHA-1 or SHA-256 id, checked before it enters an argv. With `show-ref --verify` and the
- * runner's exit check it stops a bare `rev-parse` echo from passing as `already-captured`.
- */
-export const OBJECT_ID_PATTERN: RegExp = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+import { GitObjectIdSchema } from "@ai-sidekicks/contracts/repo/git-reads";
 
 interface SnapshotRefListingEntry {
   readonly objectId: string;
@@ -33,7 +28,7 @@ export function parseSnapshotRefListing(
     }
     const objectId: string = line.slice(0, separatorIndex);
     const ref: string = line.slice(separatorIndex + 1);
-    if (!OBJECT_ID_PATTERN.test(objectId) || !ref.startsWith(expectedPrefix)) {
+    if (!GitObjectIdSchema.safeParse(objectId).success || !ref.startsWith(expectedPrefix)) {
       continue;
     }
     entries.push({ objectId, ref });

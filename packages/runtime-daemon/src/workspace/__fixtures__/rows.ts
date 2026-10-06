@@ -4,7 +4,7 @@ import type { Database } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { insertStoredEvent } from "../../session/__tests__/stored-event.test-support.js";
+import { insertStoredEvent } from "../../session/__fixtures__/stored-event.js";
 
 /** Seeds a session's log so `SessionService.rebuildSession` returns a snapshot for it. */
 export function seedSession(database: Database, sessionId: SessionId): void {

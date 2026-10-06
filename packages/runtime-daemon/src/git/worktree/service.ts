@@ -45,10 +45,11 @@ import {
   type WorktreeIdRow,
   type WorktreeLookupParams,
   type WorktreeRootRow,
-  type WorktreeRow,
+  type WorktreeRetirementRow,
   type WorktreeTransitionParams,
 } from "./rows.js";
 import { hasSqliteErrorCode } from "../../session/sqlite-error-code.js";
+import { withCleanupFailures } from "../../cleanup-failures.js";
 
 /** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
@@ -195,10 +196,10 @@ export class WorktreeService {
   readonly #newWorktreeId: () => string;
 
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
-  readonly #selectWorktreeStmt: Statement<WorktreeLookupParams, WorktreeRow>;
+  readonly #selectWorktreeStmt: Statement<WorktreeLookupParams, WorktreeRetirementRow>;
   readonly #selectLiveWorktreeOnBranchStmt: Statement<BranchLookupParams, WorktreeIdRow>;
   readonly #selectBusyHolderStmt: Statement<WorktreeLookupParams, HoldingWorkspaceRow>;
-  readonly #selectSweepableStmt: Statement<[], WorktreeRow>;
+  readonly #selectSweepableStmt: Statement<[], WorktreeRetirementRow>;
   readonly #selectUncleanedRetiredStmt: Statement<[], WorktreeRootRow>;
   readonly #insertWorktreeStmt: Statement<InsertWorktreeParams>;
   readonly #markReadyStmt: Statement<WorktreeTransitionParams>;
@@ -212,7 +213,7 @@ export class WorktreeService {
     this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
     this.#runGit = createHookNeutralizedGitCommand({
       git: deps.git ?? runGitWithExecFile,
-      createDirectory: (path) => this.#filesystem.createDirectory(path),
+      filesystem: this.#filesystem,
       executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
@@ -228,9 +229,8 @@ export class WorktreeService {
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
 
-    this.#selectWorktreeStmt = database.prepare<WorktreeLookupParams, WorktreeRow>(
-      `SELECT id, repo_mount_id, created_by_session_id, created_by_run_id,
-              branch_name, fs_root, state, cleaned_at
+    this.#selectWorktreeStmt = database.prepare<WorktreeLookupParams, WorktreeRetirementRow>(
+      `SELECT id, repo_mount_id, created_by_session_id, state
          FROM worktrees
         WHERE id = @worktree_id`,
     );
@@ -259,10 +259,9 @@ export class WorktreeService {
 
     // Live worktrees on a mount no longer `attached`. They retire through `#emitRetirement`, so the
     // busy probe applies; a conflict means the tables disagree and propagates fail-closed.
-    this.#selectSweepableStmt = database.prepare<[], WorktreeRow>(
+    this.#selectSweepableStmt = database.prepare<[], WorktreeRetirementRow>(
       `SELECT worktrees.id, worktrees.repo_mount_id, worktrees.created_by_session_id,
-              worktrees.created_by_run_id, worktrees.branch_name, worktrees.fs_root,
-              worktrees.state, worktrees.cleaned_at
+              worktrees.state
          FROM worktrees
          JOIN repo_mounts ON repo_mounts.id = worktrees.repo_mount_id
         WHERE repo_mounts.state <> 'attached'
@@ -369,12 +368,15 @@ export class WorktreeService {
         baseRef,
       });
     } catch (materializationFailure) {
-      await this.#recordCreateFailure({
-        worktreeId,
-        fsRoot,
-        canonicalRoot: mount.canonical_root,
-      });
-      throw materializationFailure;
+      throw withCleanupFailures(
+        materializationFailure,
+        await this.#recordCreateFailure({
+          worktreeId,
+          fsRoot,
+          canonicalRoot: mount.canonical_root,
+        }),
+        "worktree creation",
+      );
     }
 
     try {
@@ -396,12 +398,15 @@ export class WorktreeService {
       // Same recovery as materialization: a `creating` row is live under the unique index and
       // unreachable by any sweep, so a bare throw would wedge (mount, branch). A rejected append
       // commits nothing, so `#markFailedStmt`'s `creating` predicate matches.
-      await this.#recordCreateFailure({
-        worktreeId,
-        fsRoot,
-        canonicalRoot: mount.canonical_root,
-      });
-      throw readyEmissionFailure;
+      throw withCleanupFailures(
+        readyEmissionFailure,
+        await this.#recordCreateFailure({
+          worktreeId,
+          fsRoot,
+          canonicalRoot: mount.canonical_root,
+        }),
+        "worktree creation",
+      );
     }
 
     return {
@@ -585,22 +590,24 @@ export class WorktreeService {
   }
 
   /**
-   * Marks a `creating` row `failed` and best-effort removes what the attempt left: a half-written
-   * checkout, or (after a failed ready emission) a real directory and administrative entry. The
-   * removal is scoped to a path this call just minted, so it only reaches its own debris.
+   * Marks a `creating` row `failed` and removes what the attempt left: a half-written checkout, or
+   * (after a failed ready emission) a real directory and administrative entry. The removal is
+   * scoped to a path this call just minted, so it only reaches its own debris. Answers the removal
+   * failure, if any, for the caller to carry on the creation failure it throws.
    */
-  async #recordCreateFailure(recovery: CreateFailureRecovery): Promise<void> {
+  async #recordCreateFailure(recovery: CreateFailureRecovery): Promise<unknown[]> {
     // Zero rows changed is tolerated, not asserted: an assert would replace the creation failure
     // the caller re-raises.
     this.#markFailedStmt.run({ worktree_id: recovery.worktreeId, now: this.#now() });
     try {
       await this.#filesystem.removePath(recovery.fsRoot);
-      await this.#pruneWorktreeAdministrativeEntries(recovery.canonicalRoot);
-    } catch {
-      // Swallowed only here: the caller is already throwing the creation failure. A `failed` row is
-      // reached by no sweep step, so a directory whose cleanup failed stays until
+    } catch (cleanupFailure: unknown) {
+      // A `failed` row is reached by no sweep step, so the directory stays until
       // `repo.worktreeRetire` moves the row (bounded to one root per double failure).
+      return [cleanupFailure];
     }
+    await this.#pruneWorktreeAdministrativeEntries(recovery.canonicalRoot);
+    return [];
   }
 
   /**
@@ -608,7 +615,7 @@ export class WorktreeService {
    * transaction: an already-`retired` row aborts with the sentinel, a `busy` holder refuses before
    * the INSERT so nothing persists, and the compare-and-swap keeps the plain assert.
    */
-  async #emitRetirement(row: WorktreeRow, options: RetireWorktreeOptions): Promise<void> {
+  async #emitRetirement(row: WorktreeRetirementRow, options: RetireWorktreeOptions): Promise<void> {
     await this.#events.emitWorktreeRetired({
       // The row's own session: the event belongs to the creator, and the sweep has no caller.
       sessionId: row.created_by_session_id,
@@ -653,8 +660,12 @@ export class WorktreeService {
     }
     try {
       await this.#runGit(["-C", canonicalRoot, "worktree", "prune"]);
-    } catch {
-      // Best-effort; never at the expense of the `cleaned_at` stamp the caller writes next.
+    } catch (pruneFailure: unknown) {
+      // Logged, not thrown: never at the expense of the `cleaned_at` stamp the caller writes next.
+      console.warn(
+        `WorktreeService: \`git worktree prune\` in ${canonicalRoot} failed.`,
+        pruneFailure,
+      );
     }
   }
 

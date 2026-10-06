@@ -4,16 +4,12 @@
  * query and shape drift a type error, not a cast.
  */
 
-/** A full `worktrees` row as the service selects it. */
-export interface WorktreeRow {
+/** The `worktrees` columns a retirement reads: the row, its mount, its creator and its state. */
+export interface WorktreeRetirementRow {
   readonly id: string;
   readonly repo_mount_id: string;
   readonly created_by_session_id: string;
-  readonly created_by_run_id: string | null;
-  readonly branch_name: string;
-  readonly fs_root: string;
   readonly state: string;
-  readonly cleaned_at: string | null;
 }
 
 /** An `attached` repo mount, the only kind a worktree is provisioned from. */

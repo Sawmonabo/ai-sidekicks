@@ -18,7 +18,7 @@ import {
   makeCreatedEvent,
   OWNER_ACTOR_ID,
   SESSION_ID,
-} from "./stored-event.test-support.js";
+} from "../__fixtures__/stored-event.js";
 import type { StoredEvent } from "../records.js";
 
 // ----------------------------------------------------------------------------

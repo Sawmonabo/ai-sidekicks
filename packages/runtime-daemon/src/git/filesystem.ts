@@ -1,4 +1,5 @@
-// The filesystem seam the git services mutate through, and the real filesystem behind it.
+// The filesystem seam the git services create and remove folders through, and the real filesystem
+// behind it. A snapshot's scratch-index lock and copy go to `node:fs/promises` directly.
 
 import { mkdir, rm } from "node:fs/promises";
 

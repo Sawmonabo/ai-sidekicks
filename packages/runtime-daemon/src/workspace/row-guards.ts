@@ -146,16 +146,11 @@ export function assertSingleRowChanged(
 }
 
 /**
- * Read one string key from a row's `metadata` blob; a non-string value or an unparseable blob
- * reads as `null`.
+ * Read one string key from a row's `metadata` blob; a missing or non-string value reads as `null`.
+ * An unparseable blob throws: only SQLite's JSON functions write it, so it is a corrupt row.
  */
 function readMetadataString(row: WorkspaceRow, key: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.metadata);
-  } catch {
-    return null;
-  }
+  const parsed: unknown = JSON.parse(row.metadata);
   if (typeof parsed !== "object" || parsed === null) {
     return null;
   }

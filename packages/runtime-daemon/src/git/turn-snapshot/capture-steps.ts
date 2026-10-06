@@ -17,8 +17,8 @@ import type { FileHandle } from "node:fs/promises";
 import { copyFile, open, rm } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { GitObjectIdSchema } from "@ai-sidekicks/contracts/repo/git-reads";
 import { readGitExitStatus, type GitCommand } from "../process.js";
-import { OBJECT_ID_PATTERN } from "./retention.js";
 import { describeRejection } from "./diagnostics.js";
 import { USE_REPLACE_REFS_PIN } from "./refs.js";
 import {
@@ -49,10 +49,13 @@ export interface TurnSnapshotCaptureStepsDependencies {
   readonly now: () => string;
 }
 
-/** See {@link OBJECT_ID_PATTERN}. Throws into the funnel on anything else. */
+/**
+ * Git's answer as a SHA-1 or SHA-256 id, checked before it enters an argv or a result, so an echo
+ * that is not an id never passes as `already-captured`. Throws into the funnel on anything else.
+ */
 export function requireObjectId(stdout: Buffer): string {
   const candidate: string = stdout.toString("utf8").trim();
-  if (!OBJECT_ID_PATTERN.test(candidate)) {
+  if (!GitObjectIdSchema.safeParse(candidate).success) {
     throw new Error("git did not report an object id");
   }
   return candidate;
@@ -391,7 +394,19 @@ export class TurnSnapshotCaptureSteps {
     } catch (reason: unknown) {
       // The probe reads the ref, not git's stderr, and runs only after the swap refuses, so a
       // concurrent loser reads the winner's id.
-      const recorded: string | null = await this.#readRefIfPresent(executionRoot, ref);
+      let recorded: string | null;
+      try {
+        recorded = await this.#readRefIfPresent(executionRoot, ref);
+      } catch (probeFailure: unknown) {
+        // Both failures travel on: the swap's refusal is the step's, the probe's says why no
+        // recorded id could be read instead.
+        throw new AggregateError(
+          [reason, probeFailure],
+          `${describeRejection(reason)}; reading the ref back failed: ` +
+            describeRejection(probeFailure),
+          { cause: probeFailure },
+        );
+      }
       if (recorded !== null) {
         return recorded;
       }
@@ -400,23 +415,24 @@ export class TurnSnapshotCaptureSteps {
   }
 
   /**
-   * The recorded OID, or `null` when the ref does not resolve. A failed read also gives `null`: the
-   * only caller then rethrows the swap's own refusal, so no failure is lost.
+   * The recorded OID, or `null` when the ref does not exist. A failed read throws: `for-each-ref`
+   * exits zero on a miss, so a rejection is a fault, never an absence.
    */
   async #readRefIfPresent(executionRoot: string, ref: string): Promise<string | null> {
-    try {
-      // `--verify` on a fully-qualified ref: no abbreviation, no search path, no echo on a miss.
-      const result = await this.#runGit([
-        "-C",
-        executionRoot,
-        "show-ref",
-        "--verify",
-        "--hash",
-        ref,
-      ]);
-      return requireObjectId(result.stdout);
-    } catch {
-      return null;
+    // The pattern also matches refs below `ref/`, so the exact name is picked from the listing.
+    const result = await this.#runGit([
+      "-C",
+      executionRoot,
+      "for-each-ref",
+      "--format=%(objectname) %(refname)",
+      ref,
+    ]);
+    for (const listed of result.stdout.toString("utf8").split("\n")) {
+      const [objectId = "", refName] = listed.split(" ");
+      if (refName === ref) {
+        return requireObjectId(Buffer.from(objectId));
+      }
     }
+    return null;
   }
 }
