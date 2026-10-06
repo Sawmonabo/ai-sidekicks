@@ -38,7 +38,7 @@ export interface PageTabStripProps {
 
 /**
  * One tab per open page, reordered by dragging a tab or from its menu; draws nothing below two
- * pages. Mounted under the window's live announcer, which a menu move speaks through.
+ * pages. Mounted under the window's live announcer, which every committed move speaks through.
  */
 export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
@@ -48,12 +48,31 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
   const clock = useClock();
   const announce = useAnnounce();
   const [menuTarget, setMenuTarget] = useState<PageTabMenuTarget | undefined>(undefined);
+  // The one commit a drop and a menu row make: the live region names where the tab landed, or
+  // reads the refusal's own sentence. A canceled drag commits nothing, so it says nothing.
+  const commitMove = async (
+    pageId: PreviewPageId,
+    toIndex: number,
+  ): Promise<Refusal | undefined> => {
+    const page = pages.find((candidate) => candidate.pageId === pageId);
+    const refusal = await onReorder(pageId, toIndex);
+    if (refusal !== undefined) {
+      announce(refusal.detail, "assertive");
+      return refusal;
+    }
+    announce(
+      `Moved ${page === undefined ? "the tab" : tabLabel(page)} to position ` +
+        `${String(toIndex + 1)} of ${String(pages.length)}.`,
+      "polite",
+    );
+    return undefined;
+  };
   const tabDrag = useReorderDrag(
     "horizontal",
     pageIds,
     (pageId, toIndex) => {
       // A refused move brings no new order to settle on, so the tabs are put back here.
-      void onReorder(pageId, toIndex).then(
+      void commitMove(pageId, toIndex).then(
         (refusal) => {
           if (refusal !== undefined) {
             tabDrag.settle();
@@ -71,22 +90,6 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
   if (pages.length < 2) {
     return null;
   }
-
-  // The menu's move is the drag's own commit, and the live region names where the tab landed.
-  const moveFromMenu = (pageId: PreviewPageId, toIndex: number): void => {
-    const page = pages.find((candidate) => candidate.pageId === pageId);
-    void onReorder(pageId, toIndex).then((refusal) => {
-      if (refusal !== undefined) {
-        announce(refusal.detail, "assertive");
-        return;
-      }
-      announce(
-        `Moved ${page === undefined ? "the tab" : tabLabel(page)} to position ` +
-          `${String(toIndex + 1)} of ${String(pages.length)}.`,
-        "polite",
-      );
-    });
-  };
 
   return (
     <div className="meridian-preview-tabs">
@@ -160,7 +163,9 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
       <PageTabMenu
         target={menuTarget}
         pageIds={pageIds}
-        onMove={moveFromMenu}
+        onMove={(pageId, toIndex) => {
+          void commitMove(pageId, toIndex);
+        }}
         onDismiss={() => {
           setMenuTarget(undefined);
         }}

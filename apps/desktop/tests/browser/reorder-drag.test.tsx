@@ -16,11 +16,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { renderSettled } from "../helpers/app/harness.js";
 import { bridgeWrapper, FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
-import { politeText } from "../helpers/live-region.js";
+import { liveRegionText, politeText } from "../helpers/live-region.js";
 import type { PreviewPage } from "@ai-sidekicks/contracts/preview/preview";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { type AnnouncementPoliteness } from "#renderer/components/LiveAnnouncer/live-announcer.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { PageTabStrip } from "#renderer/features/preview/components/PageTab/PageTabStrip.js";
 import { previewPage } from "#renderer/features/preview/page-list-reading.test-support.js";
@@ -167,6 +168,22 @@ const EIGHT_PAGES = ["a", "b", "c", "d", "e", "f", "g", "h"].map((pageId) =>
 /** A refusal the strip's move answers with, as the daemon's would be. */
 const REFUSED_MOVE: Refusal = { code: "refused", detail: "The move was refused.", origin: "test" };
 
+/**
+ * Waits for one lane of the live region to say `sentence`. Inside `act`, since the announcer
+ * publishes a queued sentence and clears a held one on its own timer.
+ */
+async function heard(
+  container: HTMLElement,
+  sentence: string,
+  politeness: AnnouncementPoliteness = "polite",
+): Promise<void> {
+  await act(async () => {
+    await vi.waitFor(() => {
+      expect(liveRegionText(container, politeness)).toBe(sentence);
+    });
+  });
+}
+
 /** The strip's window, on real time, so the edge scroll's frames run as a window's would. */
 const RealTimeWindow = bridgeWrapper(createFixtureBridge({ scenario: FIRST_RUN_SCENARIO }).bridge);
 
@@ -273,8 +290,11 @@ describe("browser — dragging a tab to reorder", () => {
     expect(settledTabs.map((tab) => tab.style.transform)).toStrictEqual(["", "", "", ""]);
     const settledLefts = lefts(settledTabs);
     expect(settledLefts).toStrictEqual(settledLefts.toSorted((left, right) => left - right));
+    // The live region names where the dropped tab landed, then lets the sentence go.
+    await heard(strip.container, "Moved Title a to position 3 of 4.");
+    await heard(strip.container, "");
 
-    // Lift again and press Escape mid-drag: no commit, and the tab glides home.
+    // Lift again and press Escape mid-drag: no commit, no sentence, and the tab glides home.
     const pressAgain = centerOf(tabAt(settledTabs, 0));
     const away = { x: pressAgain.x + 120, y: pressAgain.y };
     await mouse.press(pressAgain);
@@ -286,6 +306,8 @@ describe("browser — dragging a tab to reorder", () => {
     expect(onReorder).toHaveBeenCalledTimes(1);
     expect(settledTabs.map((tab) => tab.style.transform)).toStrictEqual(["", "", "", ""]);
     expect(lefts(settledTabs)).toStrictEqual(settledLefts);
+    expect(politeText(strip.container)).toBe("");
+    expect(liveRegionText(strip.container, "assertive")).toBe("");
   });
 
   it("commits nothing for a drop on the tab's own place, and a canceled pointer puts it back", async () => {
@@ -357,6 +379,9 @@ describe("browser — dragging a tab to reorder", () => {
       "Title c",
       "Title d",
     ]);
+    // The refusal's own sentence is read, and no move is named.
+    await heard(strip.container, REFUSED_MOVE.detail, "assertive");
+    expect(politeText(strip.container)).toBe("");
   });
 
   it("scrolls a strip held at its edge and drops the tab past what was in view", async () => {
@@ -461,18 +486,6 @@ describe("browser — moving a tab from its menu", () => {
 
   function pageOrder(tabs: readonly HTMLElement[]): string[] {
     return tabs.map((tab) => tab.textContent.replace(/^.*Title (\w).*$/su, "$1"));
-  }
-
-  /**
-   * Waits for the polite lane to say `sentence`. Inside `act`, since the announcer publishes a
-   * queued sentence and clears a held one on its own timer.
-   */
-  async function heard(container: HTMLElement, sentence: string): Promise<void> {
-    await act(async () => {
-      await vi.waitFor(() => {
-        expect(politeText(container)).toBe(sentence);
-      });
-    });
   }
 
   async function chooseRow(label: string): Promise<void> {
