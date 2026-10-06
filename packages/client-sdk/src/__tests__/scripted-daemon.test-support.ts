@@ -15,7 +15,7 @@ import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { JsonRpcClientOptions } from "../transport/json-rpc-client.js";
+import type { JsonRpcClientOptions } from "../transport/json-rpc.js";
 import type { ClientTransport } from "../transport/contract.js";
 
 /** A frame the daemon writes to the client: a reply or a notification. */

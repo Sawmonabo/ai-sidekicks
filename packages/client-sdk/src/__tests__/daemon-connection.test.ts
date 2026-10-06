@@ -31,7 +31,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { connectToDaemon } from "../daemon-connection.js";
-import { JsonRpcRemoteError, JsonRpcTransportClosedError } from "../transport/json-rpc-client.js";
+import { JsonRpcRemoteError, JsonRpcTransportClosedError } from "../transport/json-rpc.js";
 import {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,

@@ -4,14 +4,14 @@ export {
   type DaemonConnectionObserver,
   type DaemonConnectionOptions,
 } from "./daemon-connection.js";
-export { createDaemonProviderClient, type DriverClient } from "./provider-client.js";
+export { createDaemonProviderClient, type DriverClient } from "./provider.js";
 export {
   createDaemonSessionClient,
   SessionStreamDroppedError,
   type SessionClient,
   type SessionEventEnvelope,
   type SessionSubscribeOptions,
-} from "./session-client.js";
+} from "./session.js";
 export {
   JsonRpcClient,
   JsonRpcRemoteError,
@@ -19,7 +19,7 @@ export {
   JsonRpcSubscriptionOverflowError,
   JsonRpcTransportClosedError,
   type JsonRpcClientOptions,
-} from "./transport/json-rpc-client.js";
+} from "./transport/json-rpc.js";
 export {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,

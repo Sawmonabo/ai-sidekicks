@@ -74,7 +74,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 ## Target Areas
 
 - `packages/contracts/src/session/id.ts` and `packages/contracts/src/session/methods.ts`
-- `packages/client-sdk/src/session-client.ts`
+- `packages/client-sdk/src/session.ts`
 - `packages/runtime-daemon/src/session/session-service.ts`
 - `packages/runtime-daemon/src/session/projector.ts`
 
@@ -307,21 +307,21 @@ Plan-001 implementation lands as a sequence of small PRs. Each PR exercises one 
 
 **Precondition:** Phase 5 ships in three lanes with per-task gating, not as a single monolithic gate. Each lane unblocks when its named upstream substrate has merged. The per-task `Files:` rows at T5.1, T5.2 and T5.3 below define the per-lane boundaries.
 
-- **Lane A** (T5.1 — `session-client.ts`): consumes the [Plan-005 partial sequence](./005-local-ipc-and-daemon-control.md#partial-pr-sequence) (SecureDefaults Bootstrap, Wire Substrate, `session.*` Handlers + SDK Layer).
+- **Lane A** (T5.1 — `session.ts`): consumes the [Plan-005 partial sequence](./005-local-ipc-and-daemon-control.md#partial-pr-sequence) (SecureDefaults Bootstrap, Wire Substrate, `session.*` Handlers + SDK Layer).
 - **Lane B** (T5.3 — `spawn-cwd-translator.ts`): unblocks once [Plan-021 T-021-2-1](./021-rust-pty-sidecar.md) ships the `PtyHostContract` interface at `packages/runtime-daemon/src/pty/host/pty-host.ts`.
 - **Lane D** (T5.2 — the drain at the service's stop): unblocks once [Plan-021 Phase 3](./021-rust-pty-sidecar.md) ships — it supplies the `PtyHost.close(sessionId)` + `KillRequest` primitives the drain consumes.
 
 Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies only bind at Phase 5.
 
-- `packages/client-sdk/src/session-client.ts` — `create`, `read`, `subscribe` methods over the daemon transport (local IPC): consumes the Plan-005 partial-deliverable substrate — JSON-RPC 2.0 + LSP-style Content-Length framing, the `session.*` JSON-RPC method namespace, and the SDK Zod layer (per [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format)). `subscribe` rides the JSON-RPC 2.0 streaming primitive (Plan-005 partial substrate's `LocalSubscriptionProducer<T>` shape).
+- `packages/client-sdk/src/session.ts` — `create`, `read`, `subscribe` methods over the daemon transport (local IPC): consumes the Plan-005 partial-deliverable substrate — JSON-RPC 2.0 + LSP-style Content-Length framing, the `session.*` JSON-RPC method namespace, and the SDK Zod layer (per [Spec-006 §Wire Format](../specs/006-local-ipc-and-daemon-control.md#wire-format)). `subscribe` rides the JSON-RPC 2.0 streaming primitive (Plan-005 partial substrate's `LocalSubscriptionProducer<T>` shape).
 - The daemon's stop sequence — drains the sidecar per §Cross-Plan Obligations CP-001-1 before the daemon exits, whenever the service stops (Runtime `Stop` or `Restart`, or the operating system's service manager); the app's quit never reaches it. Delegates to the polymorphic `PtyHost.shutdown({ perSessionTimeoutMs: 2000, hostTimeoutMs: 2000 })` (defined on the `PtyHost` interface at `packages/runtime-daemon/src/pty/host/pty-host.ts`), which runs per-session SIGTERM→SIGKILL escalation (2 s per-session bounded timeout) AND sidecar-process stdin-close → child-exit await → `taskkill /T /F /PID` escalation (2 s host bounded timeout). The stop sequence never touches a backend-specific surface ([ADR-018 §Decision](../decisions/018-windows-v1-tier-and-pty-sidecar.md#decision): "Consumers never see the backend choice").
 - `packages/runtime-daemon/src/session/spawn-cwd-translator.ts` — daemon-layer `PtyHost.spawn(spec)` wrapper per §Cross-Plan Obligations CP-001-2; substitutes a stable parent dir for `SpawnRequest.cwd` and prepends a `cd <worktree-path> && ` shell prefix (or sets `CWD=<worktree-path>` env per agent CLI conventions). Wraps both `RustSidecarPtyHost` and `NodePtyHost` because the constraint is OS-level. The per-driver dispatch is named per target in the implementing change, on the working assumption that shell sessions use the cd-prefix and agent CLIs that read `CWD` from the environment (`claude-driver`, `codex-driver`) use the env strategy. The cd-prefix strategy mutates the command string; CWD-env mutates the process environment.
 
 #### Tasks
 
-##### T5.1 — `session-client.ts` daemon transport
+##### T5.1 — `session.ts` daemon transport
 
-**Files:** `packages/client-sdk/src/session-client.ts`, `packages/client-sdk/src/__tests__/session-client.integration.test.ts` **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I3 and I4 run over the daemon transport)
+**Files:** `packages/client-sdk/src/session.ts`, `packages/client-sdk/src/__tests__/session.integration.test.ts` **Spec coverage:** Spec-001 AC1, AC3, AC6 **Verifies invariant:** none (integration-layer wrapper; I1, I3 and I4 run over the daemon transport)
 
 ##### T5.2 — The sidecar drain at the service's stop via polymorphic `PtyHost.shutdown()`
 

@@ -22,7 +22,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import { JsonRpcClient, JsonRpcRemoteError } from "./transport/json-rpc-client.js";
+import { JsonRpcClient, JsonRpcRemoteError } from "./transport/json-rpc.js";
 import { connectLocalSocket } from "./transport/local-socket.js";
 import type { ClientTransport } from "./transport/contract.js";
 

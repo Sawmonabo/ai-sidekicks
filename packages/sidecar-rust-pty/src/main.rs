@@ -36,7 +36,7 @@ use sidecar_rust_pty::framing::{read_frame, write_frame, FrameReadOutcome};
 use sidecar_rust_pty::protocol::{
     Envelope, KillResponse, PingResponse, ResizeResponse, SpawnResponse, WriteResponse,
 };
-use sidecar_rust_pty::pty_session::{PtySessionError, PtySessionRegistry};
+use sidecar_rust_pty::session::{PtySessionError, PtySessionRegistry};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

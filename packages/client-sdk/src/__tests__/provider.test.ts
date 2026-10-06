@@ -16,13 +16,9 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session-event";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import type { DriverClient } from "../provider-client.js";
-import { createDaemonProviderClient } from "../provider-client.js";
-import {
-  JsonRpcClient,
-  JsonRpcRemoteError,
-  JsonRpcSchemaError,
-} from "../transport/json-rpc-client.js";
+import type { DriverClient } from "../provider.js";
+import { createDaemonProviderClient } from "../provider.js";
+import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../transport/json-rpc.js";
 import {
   answerByMethod,
   buildSessionCreatedEvent,

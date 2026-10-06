@@ -1,6 +1,6 @@
 //! Windows spawn smoke test: spawn `cmd.exe /c "echo hello"`, then assert that stdout is delivered
 //! and the exit code propagates. The unix registry behavior (spawn, sequence numbers, kill, write,
-//! drop) is covered in `tests/pty_session.rs`.
+//! drop) is covered in `tests/session.rs`.
 //!
 //! `PtySessionRegistry::spawn` clears the child environment, so `PATH` is empty and bare command
 //! names do not resolve. The test passes an absolute binary (`C:\Windows\System32\cmd.exe`) and an
@@ -11,7 +11,7 @@
 mod common;
 
 use sidecar_rust_pty::protocol::SpawnRequest;
-use sidecar_rust_pty::pty_session::PtySessionRegistry;
+use sidecar_rust_pty::session::PtySessionRegistry;
 
 use common::{assert_hello_then_clean_exit, drain_until_exit, empty_env};
 

@@ -30,7 +30,7 @@ const SHARED_COVERAGE_EXCLUDES: readonly string[] = [
   "**/out/**",
   "**/node_modules/**",
   "src/session/daemon-schema.ts",
-  "src/database/control-plane-schema.ts",
+  "src/database/schema.ts",
 ];
 
 interface TestTimeouts {

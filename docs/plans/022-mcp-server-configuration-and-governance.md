@@ -486,7 +486,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - Typed client methods for every `mcp.*` operation and every `session.mcp*` operation over the `JsonRpcClient` transport, including the `mcp.subscribe` and `session.mcpServerList` stream consumers.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (transport surface)
-  - **Consumes:** `JsonRpcClient` ← Plan-005-partial `transport/json-rpc-client.ts` (shipped, CP-005-3).
+  - **Consumes:** `JsonRpcClient` ← Plan-005-partial `transport/json-rpc.ts` (shipped, CP-005-3).
 
 - **T28.5.6 — CLI `sidekicks mcp` command group.**
   - Files: `apps/cli/src/commands/mcp-list.ts`, `mcp-add.ts`, `mcp-remove.ts`, `mcp-override.ts`, `mcp-login.ts`, `mcp-watch.ts` (all CREATE) + `apps/cli/src/main.ts` (EXTEND — six `.register()` calls)

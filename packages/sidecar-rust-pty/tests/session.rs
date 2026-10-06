@@ -12,7 +12,7 @@ mod common;
 use std::time::Duration;
 
 use sidecar_rust_pty::protocol::{Envelope, KillRequest, PtySignal, SpawnRequest, WriteRequest};
-use sidecar_rust_pty::pty_session::PtySessionRegistry;
+use sidecar_rust_pty::session::PtySessionRegistry;
 use tokio::time::timeout;
 
 use common::{assert_hello_then_clean_exit, drain_until_exit, empty_env};

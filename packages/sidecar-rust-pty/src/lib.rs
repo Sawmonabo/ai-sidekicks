@@ -3,7 +3,7 @@
 
 pub mod framing;
 pub mod protocol;
-pub mod pty_session;
+pub mod session;
 
 // Windows-only modules, each also gated by a module-level `#![cfg(target_os = "windows")]`.
 #[cfg(target_os = "windows")]

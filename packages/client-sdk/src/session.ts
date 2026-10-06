@@ -32,7 +32,7 @@ import {
   subscribeMethod,
   withCancelFailure,
   type JsonRpcClient,
-} from "./transport/json-rpc-client.js";
+} from "./transport/json-rpc.js";
 import type { LocalSubscriptionConsumer } from "./transport/contract.js";
 
 /**

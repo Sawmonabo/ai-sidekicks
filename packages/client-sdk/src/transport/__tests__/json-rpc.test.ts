@@ -27,7 +27,7 @@ import {
   JsonRpcRemoteError,
   JsonRpcSchemaError,
   JsonRpcSubscriptionOverflowError,
-} from "../json-rpc-client.js";
+} from "../json-rpc.js";
 
 /** The params every test subscription sends. */
 const TOPIC_PARAMS_SCHEMA = z.object({ topic: z.string() });

@@ -450,7 +450,7 @@ impl Drop for PtySessionRegistry {
                 // ESRCH on an already-reaped child is expected; skip the escalation because the
                 // child is gone.
                 eprintln!(
-                    "pty_session registry drop ({session_id:?}): soft kill on child failed: {err}"
+                    "session registry drop ({session_id:?}): soft kill on child failed: {err}"
                 );
                 continue;
             }
@@ -462,7 +462,7 @@ impl Drop for PtySessionRegistry {
             if let Some(pid) = _pid {
                 let Ok(pid) = libc::pid_t::try_from(pid) else {
                     eprintln!(
-                        "pty_session registry drop ({session_id:?}): pid {pid} does not fit \
+                        "session registry drop ({session_id:?}): pid {pid} does not fit \
                          pid_t; SIGKILL escalation skipped"
                     );
                     continue;
@@ -481,7 +481,7 @@ impl Drop for PtySessionRegistry {
                             if rc != 0 {
                                 // ESRCH between the check and the kill is a tiny race; log it only.
                                 eprintln!(
-                                    "pty_session registry drop ({session_id_for_thread:?}): \
+                                    "session registry drop ({session_id_for_thread:?}): \
                                      SIGKILL escalation returned errno {} (likely ESRCH \
                                      from a between-check-and-kill race; child is gone)",
                                     std::io::Error::last_os_error()
@@ -491,7 +491,7 @@ impl Drop for PtySessionRegistry {
                     });
                 if let Err(err) = spawned {
                     eprintln!(
-                        "pty_session registry drop ({session_id:?}): could not start the SIGKILL \
+                        "session registry drop ({session_id:?}): could not start the SIGKILL \
                          escalation thread: {err}"
                     );
                 }
@@ -609,11 +609,11 @@ fn spawn_waiter_task(
         let exit_code = match join_result {
             Ok(Ok(status)) => status.exit_code() as i32,
             Ok(Err(io_err)) => {
-                eprintln!("pty_session waiter ({session_id:?}): Child::wait() failed: {io_err}");
+                eprintln!("session waiter ({session_id:?}): Child::wait() failed: {io_err}");
                 1
             }
             Err(join_err) => {
-                eprintln!("pty_session waiter ({session_id:?}): wait thread panicked: {join_err}");
+                eprintln!("session waiter ({session_id:?}): wait thread panicked: {join_err}");
                 1
             }
         };
@@ -629,7 +629,7 @@ fn spawn_waiter_task(
         // so log it and still clean up.
         if let Err(send_err) = outbound.send(Envelope::ExitCodeNotification(notification)) {
             eprintln!(
-                "pty_session waiter ({session_id:?}): outbound channel closed (writer dead); \
+                "session waiter ({session_id:?}): outbound channel closed (writer dead); \
                  lost exit notification: {send_err}"
             );
         }

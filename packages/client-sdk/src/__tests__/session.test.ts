@@ -8,8 +8,8 @@ import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id"
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import { SessionStreamDroppedError, createDaemonSessionClient } from "../session-client.js";
-import { JsonRpcClient } from "../transport/json-rpc-client.js";
+import { SessionStreamDroppedError, createDaemonSessionClient } from "../session.js";
+import { JsonRpcClient } from "../transport/json-rpc.js";
 import {
   answerByMethod,
   buildSessionCreatedEvent,

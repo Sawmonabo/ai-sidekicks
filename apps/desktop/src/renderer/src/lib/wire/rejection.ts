@@ -11,7 +11,7 @@
 // `UNREPRESENTABLE_VALUE_TEXT`; a structure is never stringified.
 //
 // The JSON-RPC arm comes first among the wire arms. `JsonRpcRemoteError`
-// (`packages/client-sdk/src/transport/json-rpc-client.ts`) carries a numeric JSON-RPC `code`,
+// (`packages/client-sdk/src/transport/json-rpc.ts`) carries a numeric JSON-RPC `code`,
 // while the project's dotted code rides at `data.type`, which the contracts say callers must
 // discriminate on. A top-level string `code` is the already-flattened form.
 

@@ -7,8 +7,8 @@ import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { describe, expect, it, vi } from "vitest";
 
-import { createDaemonSessionClient } from "../session-client.js";
-import { JsonRpcClient } from "../transport/json-rpc-client.js";
+import { createDaemonSessionClient } from "../session.js";
+import { JsonRpcClient } from "../transport/json-rpc.js";
 import {
   answerByMethod,
   buildSessionCreatedEvent,

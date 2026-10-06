@@ -307,7 +307,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-009-13
 - **Consumes:** `JsonRpcClient` transport ← Plan-005-partial SDK substrate (shipped); schemas ← T1.2; strings ← D-009-5
 - **T3.7 — SDK integration tests.**
-- **Files:** `packages/client-sdk/src/__tests__/approval-client.integration.test.ts` (CREATE — per the `session-client.integration.test.ts` location convention)
+- **Files:** `packages/client-sdk/src/__tests__/approval-client.integration.test.ts` (CREATE — per the `session.integration.test.ts` location convention)
 - In-process daemon registry + real transport: one happy-path round-trip per method with branded-type preservation; `projectionRead` returns historical rows whose answering device's id + `decision` + `effectiveScope` + `rememberedScope` equal the daemon payload verbatim (AC-3 wire-observable); the `state` filter round-trips; every call the client makes goes out over the `JsonRpcClient` it was built with; outbound frames carry the declared strings; schema-invalid daemon responses throw the SDK validation error; a repeated `projectionRead` sends a second request and returns the daemon's second answer, not a cached one.
 - **Tests:** the file IS the tests.
 - **Spec coverage:** Spec-010 AC3 (visibility half), Spec-010 §Interfaces And Contracts (pending + historical in one surface), Spec-010 AC2 (the client reaches only the local daemon)
