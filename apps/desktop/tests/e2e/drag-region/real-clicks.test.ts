@@ -7,11 +7,10 @@
 //
 // It runs only on macOS and only when `SIDEKICKS_RUN_REAL_CLICKS=1` is set: it takes the pointer
 // and focus from the person at the machine, and it needs the app running the test granted
-// Accessibility to post events. CI never sets it. Turbo hands a task only the variables its
-// config names, so a run through it passes the rest on:
+// Accessibility to post events. CI never sets it. A run of this file alone:
 //
 //   SIDEKICKS_RUN_REAL_CLICKS=1 pnpm turbo run test:e2e --filter=@ai-sidekicks/desktop \
-//     --concurrency=1 --env-mode=loose -- tests/e2e/drag-region/real-clicks.test.ts
+//     --concurrency=1 -- tests/e2e/drag-region/real-clicks.test.ts
 
 import { spawnSync } from "node:child_process";
 import path from "node:path";

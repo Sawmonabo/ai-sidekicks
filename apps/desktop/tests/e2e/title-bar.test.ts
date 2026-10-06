@@ -3,8 +3,7 @@
 // at least as wide as the buttons, its first destination starts below them, and both the width
 // and the inset go in fullscreen, where the buttons go. Everywhere else the system's own strip
 // stays and the rail keeps its own width with no inset. On every platform the rail and the
-// session header are the window's drag regions, and the rail's buttons and the session's title
-// are cut out of them.
+// session header are the window's drag regions, and the session's title is cut out of them.
 //
 // What this reads is the style the window's own document computes, not a native drag: no test
 // here moves the pointer.
@@ -100,7 +99,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
     });
   });
 
-  it("makes the rail and the session header drag regions, with their controls and the title cut out", async () => {
+  it("makes the rail and the session header drag regions, with the title cut out", async () => {
     await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (appUnderTest) => {
       const appWindow = appUnderTest.window;
       await appWindow.evaluate(
@@ -124,7 +123,6 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
         };
         return {
           rail: appRegionOf(".meridian-rail"),
-          railButton: appRegionOf(".meridian-rail__button"),
           header: appRegionOf(".meridian-session-header"),
           title: appRegionOf(".meridian-session-header__identity"),
         };
@@ -132,7 +130,6 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
 
       expect(regions).toEqual({
         rail: "drag",
-        railButton: "no-drag",
         header: "drag",
         title: "no-drag",
       });

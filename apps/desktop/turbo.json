@@ -285,8 +285,10 @@
       // against the fixture implementations, which the release define folds out. The edge makes
       // that bundle present by construction, so the tier's skip-with-a-message path stays a
       // developer convenience rather than something CI can silently fall into. A launch playing no
-      // scenario starts a background service of its own from the service's build.
+      // scenario starts a background service of its own from the service's build. The real-click
+      // test's opt-in variable is handed through, since Turbo passes a task only what it names.
       "dependsOn": ["build:fixtures", "@ai-sidekicks/runtime-daemon#build"],
+      "passThroughEnv": ["SIDEKICKS_RUN_REAL_CLICKS"],
       "inputs": [
         "src/renderer/src/**",
         "src/main/**",
