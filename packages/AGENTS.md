@@ -6,3 +6,7 @@ Binding for every change under `packages/`, on top of the [root `AGENTS.md`](../
 
 - **The direction:** `contracts`, `crypto-paseto` and `search-ranking` depend on no other workspace package; `client-sdk`, `runtime-daemon` and `control-plane` depend on `contracts` alone; only `apps/` depend on `client-sdk`. The client library and the daemon never import each other, so each changes without the other.
 - **A package uses another only by listing it in its `package.json` and importing its exported entry points,** never a file across the boundary through `../`; a public module's import path follows its folder (`@ai-sidekicks/contracts/daemon/lifecycle`). pnpm makes an unlisted package unreachable, so a new workspace dependency is a line in the diff, and it follows the direction above.
+
+## Contracts
+
+- **A contract is a hand-written type plus its Zod schema annotated with it** (`export const SessionIdSchema: z.ZodType<SessionId, SessionId> = …`), because `isolatedDeclarations` refuses an exported schema whose type is inferred. The annotation checks only that the schema's output fits the type, so the type must say exactly what the schema accepts and produces, never looser: a branded id where the schema brands, the exact literal where the schema pins one, `Record<string, never>` where the schema is a strict empty object.

@@ -86,8 +86,7 @@ export const RepoMountListEntrySchema: z.ZodType<RepoMountListEntry> = z
   .strict();
 
 /** `repo.mountList` takes nothing: it lists every folder the service can reach. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface RepoMountListRequest {}
+export type RepoMountListRequest = Record<string, never>;
 /** Wire schema for {@link RepoMountListRequest}. */
 export const RepoMountListRequestSchema: z.ZodType<RepoMountListRequest, RepoMountListRequest> = z
   .object({})

@@ -7,12 +7,16 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import { LiveAnnouncer } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { AttentionSummary, type AttentionReading } from "#renderer/store/attention/summary.js";
 import { useAttentionSettlementAnnouncement } from "./useAttentionSettlementAnnouncement.js";
+
+/** The session the items here belong to. */
+const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";
 
@@ -21,7 +25,7 @@ function itemNeeding(id: string): AttentionItem {
   return {
     id,
     momentId: "moment-1",
-    sessionId: "session-a",
+    sessionId: SESSION_A,
     trigger: "pending_approval",
     severity: "actionable",
     displayName: "Fix the login flow",

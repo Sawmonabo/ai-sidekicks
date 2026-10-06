@@ -57,23 +57,20 @@ export const DaemonHelloSchema: z.ZodType<DaemonHello> = z
     sessionToken: NegotiationFreeFormString.optional(),
     capabilities: z.array(NegotiationFreeFormString).max(SUPPORTED_PROTOCOLS_MAX_LEN).optional(),
   })
-  .strict() as unknown as z.ZodType<DaemonHello>;
+  .strict();
 
-/**
- * The `DaemonHello` request payload. Declared by hand, with the schema cast to it, because zod's
- * inferred type does not match this `readonly` shape under `exactOptionalPropertyTypes`.
- */
+/** The `DaemonHello` request payload. */
 export interface DaemonHello {
   readonly protocolVersion: string;
-  readonly supportedProtocols?: ReadonlyArray<string>;
-  readonly clientId?: string;
+  readonly supportedProtocols?: ReadonlyArray<string> | undefined;
+  readonly clientId?: string | undefined;
   /**
    * The session token the daemon wrote to its token file at this start. Optional in the shape so
    * the daemon answers its absence with `auth.token_invalid`, as it does a wrong one; it serves
    * nothing on a connection whose hello lacks the right token.
    */
-  readonly sessionToken?: string;
-  readonly capabilities?: ReadonlyArray<string>;
+  readonly sessionToken?: string | undefined;
+  readonly capabilities?: ReadonlyArray<string> | undefined;
 }
 
 /**
@@ -132,13 +129,13 @@ export const DaemonHelloAckSchema: z.ZodType<DaemonHelloAck> = z
       .max(SUPPORTED_PROTOCOLS_MAX_LEN)
       .optional(),
   })
-  .strict() as unknown as z.ZodType<DaemonHelloAck>;
+  .strict();
 
 /** The `DaemonHelloAck` result payload. */
 export interface DaemonHelloAck {
   readonly compatible: boolean;
   readonly protocolVersion: string;
-  readonly reason?: NegotiationIncompatibleReason;
-  readonly serverCapabilities?: ReadonlyArray<string>;
-  readonly daemonSupportedProtocols?: ReadonlyArray<string>;
+  readonly reason?: NegotiationIncompatibleReason | undefined;
+  readonly serverCapabilities?: ReadonlyArray<string> | undefined;
+  readonly daemonSupportedProtocols?: ReadonlyArray<string> | undefined;
 }

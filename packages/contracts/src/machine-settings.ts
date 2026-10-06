@@ -538,8 +538,7 @@ export const MachineSettingsReadingSchema: z.ZodType<MachineSettingsReading> = z
   .strict();
 
 /** `daemon.machineSettingsRead` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface MachineSettingsReadRequest {}
+export type MachineSettingsReadRequest = Record<string, never>;
 /** Parses a {@link MachineSettingsReadRequest}. */
 export const MachineSettingsReadRequestSchema: z.ZodType<
   MachineSettingsReadRequest,
@@ -547,8 +546,7 @@ export const MachineSettingsReadRequestSchema: z.ZodType<
 > = z.object({}).strict();
 
 /** `daemon.machineSettingsSubscribe` takes nothing: there is one file per machine. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface MachineSettingsSubscribeRequest {}
+export type MachineSettingsSubscribeRequest = Record<string, never>;
 /** Parses a {@link MachineSettingsSubscribeRequest}. */
 export const MachineSettingsSubscribeRequestSchema: z.ZodType<
   MachineSettingsSubscribeRequest,

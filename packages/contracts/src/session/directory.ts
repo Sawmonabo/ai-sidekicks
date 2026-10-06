@@ -185,8 +185,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
 ]);
 
 /** `session.list` takes no members: the list is every session on this machine. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface SessionListRequest {}
+export type SessionListRequest = Record<string, never>;
 /** Parses a {@link SessionListRequest}. */
 export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionListRequest> = z
   .object({})

@@ -87,7 +87,7 @@ export interface AttentionItem {
    * banner in place; a Notify step's moment also names its node and execution.
    */
   readonly momentId: string;
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   /** Present on a run-scoped item; absent on the session-scoped aggregate. */
   readonly runId?: string | undefined;
   readonly trigger: AttentionTrigger;

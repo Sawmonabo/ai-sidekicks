@@ -179,7 +179,7 @@ A skeptical staff engineer would argue:
 - Strong type-aware lint coverage from day one (typescript-eslint full 61-rule set vs Biome's ~10).
 - BLOB ergonomics: `Buffer` end-to-end without per-read wrapping.
 - One Node line across the workspace, with security support through 2028-04 (Node 24) rather than 2027-04 (Node 22), and a memory reading on macOS that counts the pages the machine can reclaim.
-- `isolatedDeclarations: true` keeps every package's declarations emittable file by file, which is what lets TypeScript 7 emit them in parallel.
+- `isolatedDeclarations: true` keeps every package's declarations emittable file by file, which is what lets TypeScript 7 emit them in parallel. It refuses an exported value whose type must be inferred, so every exported Zod schema is typed first, as a hand-written type the schema is annotated with (`z.ZodType<Type>`): Zod has no lighter form for the setting ([`colinhacks/zod#3751`](https://github.com/colinhacks/zod/issues/3751), closed as not planned), and the [TypeScript 5.5 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-5.html#isolated-declarations) state the setting's annotation rule.
 
 ### Negative (accepted trade-offs)
 
@@ -243,6 +243,8 @@ Each of the following events triggers a re-evaluation of the named primitive:
 | `microsoft/typescript-go` repo | Repository status | Emit and project references "done"; watch mode still "prototype" with no incremental rechecking | <https://github.com/microsoft/typescript-go> |
 | esbuild content-types | Documentation | Confirms esbuild does NOT emit `.d.ts` files; tsc remains the type-emit tool | <https://esbuild.github.io/content-types/> |
 | `microsoft/TypeScript#47947` | Proposal | `isolatedDeclarations` flag (TS 5.5+) constrains exports to type-checker-independent shapes — prep for swc/esbuild/tsgo native `.d.ts` emit | <https://github.com/microsoft/TypeScript/issues/47947> |
+| TypeScript 5.5 release notes | Documentation | `isolatedDeclarations` reports an error on a file whose exports are not annotated enough to emit declarations without the type checker | <https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-5.html#isolated-declarations> |
+| `colinhacks/zod#3751` | Issue tracker | A request for lighter Zod type annotations under `isolatedDeclarations`, closed as not planned: an exported schema keeps an explicit type annotation | <https://github.com/colinhacks/zod/issues/3751> |
 | Vitest 4.0 announcement | Vendor announcement | Browser Mode stabilized 2025-10-22 (Playwright/WebDriverIO providers); v8 coverage with Istanbul-grade accuracy | <https://vitest.dev/blog/vitest-4> |
 | Vitest projects guide | Documentation | `projects` configuration (replaced `workspace` in 3.2) — single Vitest invocation across multi-package monorepo with merged coverage | <https://vitest.dev/guide/projects> |
 | Jest 30 release | Vendor announcement | 37% faster, 77% lower memory in one large TS app; JSDOM 26; native `.mts`/`.cts`; minimum TS 5.4 | <https://jestjs.io/blog/2025/06/04/jest-30/> |

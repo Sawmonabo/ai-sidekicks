@@ -37,8 +37,7 @@ export interface DaemonRetentionPurgePreview {
 }
 
 /** `daemon.retentionRead` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface DaemonRetentionReadRequest {}
+export type DaemonRetentionReadRequest = Record<string, never>;
 /** Parses a {@link DaemonRetentionReadRequest}. */
 export const DaemonRetentionReadRequestSchema: z.ZodType<
   DaemonRetentionReadRequest,

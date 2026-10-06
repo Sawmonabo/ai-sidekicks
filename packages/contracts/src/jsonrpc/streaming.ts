@@ -127,8 +127,8 @@ export const STREAM_FRAME_MAX_CHANGES = 50;
  */
 export interface StreamFrame<Change, Cursor> {
   readonly changes: readonly Change[];
-  readonly dropped?: true;
-  readonly cursor?: Cursor;
+  readonly dropped?: true | undefined;
+  readonly cursor?: Cursor | undefined;
 }
 
 /**
@@ -158,7 +158,7 @@ export function StreamFrameSchema<Change, Cursor>(
           "A frame carries changes and no frame cursor, or no " +
           "changes with the drop mark and the newest cursor.",
       },
-    ) as unknown as z.ZodType<StreamFrame<Change, Cursor>>;
+    );
 }
 
 /**

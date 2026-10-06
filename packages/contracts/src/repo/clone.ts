@@ -216,8 +216,7 @@ export const RepoCloneAnswerRequestSchema: z.ZodType<
   .strict();
 
 /** `repo.cloneFolderRead` takes nothing. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface RepoCloneFolderReadRequest {}
+export type RepoCloneFolderReadRequest = Record<string, never>;
 /** Wire schema for {@link RepoCloneFolderReadRequest}. */
 export const RepoCloneFolderReadRequestSchema: z.ZodType<
   RepoCloneFolderReadRequest,

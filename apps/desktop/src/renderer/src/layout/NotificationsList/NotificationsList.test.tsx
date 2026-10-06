@@ -4,6 +4,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { ManualClock } from "#renderer/lib/clock.js";
@@ -16,11 +17,14 @@ import {
   type AttentionProjectionReadCall,
 } from "#renderer/store/attention/hooks/useAttentionProjection.js";
 
+/** The session the items here belong to. */
+const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+
 function item(): AttentionItem {
   return {
     id: "attention-1",
     momentId: "moment-1",
-    sessionId: "session-a",
+    sessionId: SESSION_A,
     trigger: "pending_approval",
     severity: "actionable",
     displayName: "Fix the login flow",
@@ -43,8 +47,8 @@ describe("what makes the attention read run again", () => {
 
   /** Open one session whose store has a base state, so a settled event projects. */
   function openInitializedSession(registry: SessionStoreRegistry): string {
-    registry.open("session-a").initialize({ cursor: 0, entities: [] });
-    return "session-a";
+    registry.open(SESSION_A).initialize({ cursor: 0, entities: [] });
+    return SESSION_A;
   }
 
   /** Settle one event into an open session's store, which is what moves its projection. */
@@ -94,7 +98,7 @@ describe("what makes the attention read run again", () => {
         items: served.items,
         droppedCount: 0,
         refusedSessions: [],
-        addressedSessionIds: ["session-a"],
+        addressedSessionIds: [SESSION_A],
       }),
     );
   }

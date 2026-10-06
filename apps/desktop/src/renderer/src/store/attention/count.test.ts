@@ -3,12 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { AttentionSummary } from "./summary.js";
 import { attentionCountOf } from "./count.js";
 
+/** The two sessions the items here belong to. */
+const SESSION_A = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a01");
+const SESSION_B = SessionIdSchema.parse("019b7892-1a00-7c31-8110-cca0117a0a02");
+
 function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string }): AttentionItem {
   return {
-    sessionId: "session-a",
+    sessionId: SESSION_A,
     trigger: "pending_approval",
     severity: "actionable",
     summary: "waiting",
@@ -19,14 +24,14 @@ function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string
 }
 
 /** The sessions the fan-out asked about. The rail counts the answer, not the ask. */
-const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
+const ADDRESSED_SESSION_IDS: readonly string[] = [SESSION_A, SESSION_B];
 
 describe("attentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
     const summary = new AttentionSummary([
-      attentionItem({ id: "1", sessionId: "session-a" }),
-      attentionItem({ id: "2", sessionId: "session-a" }),
-      attentionItem({ id: "3", sessionId: "session-b" }),
+      attentionItem({ id: "1", sessionId: SESSION_A }),
+      attentionItem({ id: "2", sessionId: SESSION_A }),
+      attentionItem({ id: "3", sessionId: SESSION_B }),
     ]);
     expect(
       attentionCountOf({
@@ -41,8 +46,8 @@ describe("attentionCountOf", () => {
 
   it("does not count a session whose attention is informational only", () => {
     const summary = new AttentionSummary([
-      attentionItem({ id: "1", sessionId: "session-a" }),
-      attentionItem({ id: "2", sessionId: "session-b", severity: "informational" }),
+      attentionItem({ id: "1", sessionId: SESSION_A }),
+      attentionItem({ id: "2", sessionId: SESSION_B, severity: "informational" }),
     ]);
     expect(
       attentionCountOf({

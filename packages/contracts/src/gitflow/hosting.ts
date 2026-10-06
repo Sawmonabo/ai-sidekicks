@@ -147,8 +147,7 @@ const GitHostSchema: z.ZodType<GitHost> = z
   .strict();
 
 /** The `gitflow.hostList` input: the machine's hosts, so nothing names a session. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface GitflowHostListRequest {}
+export type GitflowHostListRequest = Record<string, never>;
 /** Wire schema for {@link GitflowHostListRequest}. */
 export const GitflowHostListRequestSchema: z.ZodType<
   GitflowHostListRequest,
