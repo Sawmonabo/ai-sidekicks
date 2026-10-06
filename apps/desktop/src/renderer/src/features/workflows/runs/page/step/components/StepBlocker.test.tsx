@@ -162,7 +162,10 @@ describe("a step's blocker", () => {
       ],
     ]);
 
-    expect(commandTargets.answerThisRun.press(document)).toBeUndefined();
+    expect(commandTargets.answerThisRun.unavailable(document)).toBeUndefined();
+    act(() => {
+      commandTargets.answerThisRun.press(document);
+    });
     await waitFor(() => {
       expect(calls).toStrictEqual([
         {
@@ -192,14 +195,17 @@ describe("a step's blocker", () => {
     expect(reviews).toStrictEqual([]);
   });
 
-  it("answers a reply through its question, refusing Answer this run while empty", async () => {
+  it("answers a reply through its question, saying why Answer this run cannot while empty", async () => {
     const { calls, receipts, advance, commandTargets } = renderBlocker(
       WORKFLOW_RUN_IDS.waitingReply,
       "ask",
     );
     const field = screen.getByLabelText(WORKFLOW_REPLY_QUESTION.prompt);
 
-    expect(commandTargets.answerThisRun.press(document)?.code).toBe("workflows.reply_empty");
+    expect(commandTargets.answerThisRun.unavailable(document)).toBe(
+      "This step waits for a reply. Type one, then answer.",
+    );
+    commandTargets.answerThisRun.press(document);
     // The reply's one control is `Answer`: a reply wait has no `Skip`.
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toStrictEqual([
       "Answer",

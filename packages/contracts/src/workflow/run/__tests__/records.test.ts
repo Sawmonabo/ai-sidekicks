@@ -1,7 +1,7 @@
 // The run page, the runs table, the runs-needing-you section and the live stream read run
 // records. These tests hold the rules those readers depend on: the run read's chain and capture
-// facts, Review only on a finished run, a live step only on a going one, the chain's question only
-// on its first run, the runs table's filters, a row whose duration, live step and wait cause agree
+// facts, Review only on a finished run, a live step only on a going one, a waiting run carrying
+// the step that waits, the chain's question only on its first run, the runs table's filters, a row whose duration, live step and wait cause agree
 // with its status, a page that never outnumbers its total, account lines standing above the runs
 // that need a person, counted apart from them, and a removal that names its runs.
 import { describe, expect, it } from "vitest";
@@ -98,6 +98,30 @@ describe("workflow.runRead", () => {
     const goingWithEnd = { ...run, state: "waiting", review: undefined };
     expect(WorkflowRunReadResponseSchema.safeParse(goingWithEnd).success).toBe(false);
   });
+
+  it("refuses a waiting run that carries no step that waits", () => {
+    const { endedAt: _ended, review: _review, ...unended } = run;
+    const waitingStep = {
+      workflowRunId: RUN_ID,
+      nodeId: "approve",
+      attempt: 1,
+      executionIndex: 0,
+      source: [],
+      status: "waiting",
+      waitCause: "approval",
+      startedAt: "2026-09-29T06:01:00Z",
+      inputRef: { kind: "inline", items: [] },
+      outputRef: { kind: "inline", items: [] },
+      logRef: { kind: "inline", items: [] },
+    };
+    const waiting = { ...unended, state: "waiting", steps: [waitingStep] };
+    expect(WorkflowRunReadResponseSchema.safeParse(waiting).success).toBe(true);
+    const noStepWaits = {
+      ...waiting,
+      steps: [{ ...waitingStep, status: "succeeded", waitCause: undefined }],
+    };
+    expect(WorkflowRunReadResponseSchema.safeParse(noStepWaits).success).toBe(false);
+  });
 });
 
 describe("workflow.runList", () => {
@@ -163,6 +187,7 @@ describe("workflow.runAttentionList", () => {
     workflowRunId: WAITING_RUN_ID,
     workflowName: "Nightly release",
     waitCause: "approval",
+    waitingStepName: "Approve the release",
     waitingSince: "2026-09-29T06:10:00Z",
   };
 

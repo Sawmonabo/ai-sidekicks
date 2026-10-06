@@ -47,6 +47,7 @@ const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
         workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4002",
         workflowName: "Release",
         waitCause: "approval",
+        waitingStepName: "Approve the release",
         waitingSince: NEWER_WAIT,
       },
       {
@@ -54,6 +55,7 @@ const DAEMON_GROUPING: WorkflowRunAttentionListResponse =
         workflowRunId: "019b7a10-0280-75e5-8510-ada11a5a4003",
         workflowName: "Weekly notes",
         waitCause: "form",
+        waitingStepName: "Write the notes",
         waitingSince: OLDER_WAIT,
       },
     ],
@@ -83,8 +85,8 @@ describe("the attention list", () => {
         "Awaiting resume — no instant is armed.",
       "3 runs are parked on the Codex account Work is spent — one entry, 3 affected runs. " +
         `Resumes ${formatDayClock(RESUME_AT, NOW_MS)}.`,
-      `Release · waiting on your approval · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
-      "Weekly notes · waiting on your answer to a form · since 8:30 AM",
+      `Release · waiting on Approve the release · since ${formatDayClock(NEWER_WAIT, NOW_MS)}`,
+      "Weekly notes · waiting on Write the notes · since 8:30 AM",
     ]);
   });
 

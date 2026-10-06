@@ -62,6 +62,13 @@ export const WORKFLOW_CHAT_SESSION = "019b7a00-0280-75e5-8510-ada11a5a3003" as S
 /** The account that pays for the agent steps and is spent in the waiting run. */
 export const WORKFLOW_PAYING_ACCOUNT = "pa-0001" as ProviderAccountId;
 
+/** The paying account as a step parked on it names it, by the label the account registry lists. */
+const SPENT_ACCOUNT: NonNullable<WorkflowStep["waitAccount"]> = {
+  providerAccountId: WORKFLOW_PAYING_ACCOUNT,
+  provider: "claude",
+  label: "Claude — work",
+};
+
 /** One run as the fixture daemon holds it: its read and its definition's name. */
 export interface WorkflowRunRecord {
   readonly read: WorkflowRunReadResponse;
@@ -310,6 +317,7 @@ function steps(runId: WorkflowRunId, seeds: readonly StepSeed[]): WorkflowStep[]
             ],
       status: seed.status,
       ...(seed.waitCause === undefined ? {} : { waitCause: seed.waitCause }),
+      ...(seed.waitCause === "account" ? { waitAccount: SPENT_ACCOUNT } : {}),
       ...(seed.resumeAt === undefined ? {} : { resumeAt: seed.resumeAt }),
       ...(seed.waitDeadlineAt === undefined ? {} : { waitDeadlineAt: seed.waitDeadlineAt }),
       startedAt: minutesAgo(seed.startedMinutesAgo),
@@ -506,7 +514,7 @@ const FIXTURE_NOW_MINUTE = 14 * 60 + 20;
 
 /**
  * The morning digest's finished daily runs before today, one a day, so the runs table holds more
- * than one page and `Load earlier` has older runs to reach.
+ * than one page and `Load older runs` has older runs to reach.
  */
 const DIGEST_HISTORY: readonly WorkflowRunRecord[] = Array.from(
   { length: DIGEST_HISTORY_DAYS },

@@ -1,6 +1,7 @@
 // A run's steps cross from the daemon to the run page, the runs table and the live
 // stream. These tests hold the step record's own rules: only a waiting step names its
-// cause and its instants, only a reply wait holds a question and only an answered step its
+// cause and its instants, only an account wait names its spent account, only a reply wait holds
+// a question and only an answered step its
 // answer, an inline payload stays under its cap, and a failure's details never travel without
 // its code, and only a failed step says how its process exited.
 import { describe, expect, it } from "vitest";
@@ -24,6 +25,7 @@ const STEP = {
   outputRef: EMPTY,
   logRef: EMPTY,
 };
+const SPENT_ACCOUNT = { providerAccountId: "acct-1", provider: "codex", label: "Work" };
 
 describe("WorkflowStepSchema", () => {
   it("accepts a waiting step with its deadline, and one parked with the instant it resumes", () => {
@@ -38,9 +40,19 @@ describe("WorkflowStepSchema", () => {
       ...STEP,
       status: "waiting",
       waitCause: "account",
+      waitAccount: SPENT_ACCOUNT,
       resumeAt: "2026-09-29T19:00:00Z",
     };
     expect(WorkflowStepSchema.safeParse(parked).success).toBe(true);
+  });
+
+  it("names the spent account on an account wait, and on no other step", () => {
+    const parked = { ...STEP, status: "waiting", waitCause: "account" };
+    expect(WorkflowStepSchema.safeParse(parked).success).toBe(false);
+    const approving = { ...STEP, status: "waiting", waitCause: "approval" };
+    expect(WorkflowStepSchema.safeParse({ ...approving, waitAccount: SPENT_ACCOUNT }).success).toBe(
+      false,
+    );
   });
 
   it("refuses a waiting step with no cause", () => {

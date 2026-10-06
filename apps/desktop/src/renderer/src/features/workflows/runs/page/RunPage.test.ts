@@ -1,6 +1,7 @@
 // A run's page under the window's route: a failed run opens on its failed step's error, Escape
 // closes the step panel before it leaves for the list and leaves a text field's Escape alone,
-// `Answer this run` refuses on a run that waits on no one here, and a reply wait answered on this
+// `Answer this run` says why it cannot on a run that waits on no one here and a press of it does
+// nothing, and a reply wait answered on this
 // page or through its session's card gives way to its receipt, since both answer one question.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
@@ -64,7 +65,7 @@ describe("a run's page", () => {
     expect(openRunId(mounted)).toBeUndefined();
   });
 
-  it("leaves Escape to a text field, and `Answer this run` refuses where no one here is waited on", async () => {
+  it("leaves Escape to a text field, and `Answer this run` cannot act where no one here is waited on", async () => {
     const mounted = await mountWorkflowsScreen({
       route: workflowRunsRoute(WORKFLOW_RUN_IDS.waitingForm),
       answer: async (call, passThrough) => {
@@ -89,8 +90,12 @@ describe("a run's page", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByRole("heading", { level: 2 })).toBeDefined();
     });
-    expect(mounted.commandTargets.answerThisRun.press(document)).toMatchObject({
-      code: "workflows.nothing_to_answer",
+    expect(mounted.commandTargets.answerThisRun.unavailable(document)).toBe(
+      "This run is not waiting on you.",
+    );
+    await act(async () => {
+      mounted.commandTargets.answerThisRun.press(document);
+      await crossMacrotaskBoundary();
     });
     expect(stepPanel()).toBeNull();
 
@@ -99,9 +104,9 @@ describe("a run's page", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getByText(/holding its next run behind the chain's question/u)).toBeDefined();
     });
-    expect(mounted.commandTargets.answerThisRun.press(document)).toMatchObject({
-      code: "workflows.nothing_to_answer",
-    });
+    expect(mounted.commandTargets.answerThisRun.unavailable(document)).toBe(
+      "This run is not waiting on you.",
+    );
     mounted.unmount();
   });
 

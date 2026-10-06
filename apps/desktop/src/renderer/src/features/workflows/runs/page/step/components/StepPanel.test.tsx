@@ -2,9 +2,10 @@
 // and a retry stays in the pass it retried; the output reads the step's advisories above it, the
 // error reads its code in words with its reason, then its process's exit code and last lines,
 // and the cost and the error read as stored in the JSON view; `Pin this output as builder test
-// data` sends the output as stored, read from its artifact where it was kept as one, and refuses
-// output that carries a file or a node with more than one main output; the acts keep their place
-// on a node that has not run; a refused Keep says so in the daemon's words; and
+// data` sends the output as stored, read from its artifact where it was kept as one, announces the
+// pin and keeps its label, and refuses output that carries a file or a node with more than one
+// main output; a node the run never reached reads `Not reached` and its acts keep their place,
+// each refusing in its own words; a refused Keep says so in the daemon's words; and
 // `Fix in a fresh session` opens the run's fix session again once there is one.
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -217,6 +218,14 @@ describe("the step panel", () => {
         },
       ]);
     });
+    await waitFor(() => {
+      expect(document.querySelector('[data-live-region="polite"]')?.textContent).toBe(
+        "summary output pinned onto the builder",
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "Pin this output as builder test data" }),
+    ).toBeDefined();
     cleanup();
 
     const fileItems: WorkflowItem[] = [
@@ -256,7 +265,7 @@ describe("the step panel", () => {
     expect(screen.getByText("Only a step with one main output can be pinned.")).toBeDefined();
   });
 
-  it("keeps the step's acts on a node that has not run, refusing in words", () => {
+  it("reads Not reached on a node the run never reached, keeping its acts refused in words", () => {
     const failed = fixtureRun(WORKFLOW_RUN_IDS.failed);
     renderPanel({ ...failed, steps: failed.steps.filter((step) => step.nodeId !== "summary") });
 
@@ -268,8 +277,9 @@ describe("the step panel", () => {
       screen.getByRole("button", { name: "Pin this output as builder test data" }),
     ).toHaveProperty("disabled", true);
     expect(screen.getByRole("checkbox", { name: "Keep" })).toBeDefined();
-    // The note and both refused acts say why.
-    expect(screen.getAllByText("This step has not run.")).toHaveLength(3);
+    expect(screen.getByText("Not reached")).toBeDefined();
+    expect(screen.getByText("Retry · this step was not reached")).toBeDefined();
+    expect(screen.getByText("Pin · this step was not reached")).toBeDefined();
   });
 
   it("says in the daemon's words when it refuses the Keep mark", async () => {

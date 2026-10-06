@@ -1,5 +1,6 @@
 import type { WorkflowRunsPauseState } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Switch } from "#renderer/components/Switch/Switch.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
@@ -45,7 +46,7 @@ export function RunsStrip(props: {
         <InlineRefusal
           code={nextWaiting.refusal.code}
           detail={nextWaiting.refusal.detail}
-          action={<ActionButton onClick={props.readAttentionAgain}>Try again</ActionButton>}
+          action={<TryAgainButton onPress={props.readAttentionAgain} />}
         />
       ) : null}
       {pause?.paused === true ? (

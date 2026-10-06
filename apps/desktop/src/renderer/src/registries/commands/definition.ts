@@ -27,10 +27,11 @@ export interface CommandDefinition {
    */
   readonly preload?: () => void;
   /**
-   * Why this row cannot run now, in the owning feature's words; absent where it can. The
-   * palette still lists it and shows the reason beside it and in the refusal a press earns; the
+   * Why this row cannot run now, in the owning feature's words; `undefined` where it can, and a
+   * getter where the reason moves with what is on screen. The palette still lists it and shows the
+   * reason beside it and in the refusal a press earns; a chord pressed on it does nothing; the
    * composer's command list leaves it out, and typed there the word is sent to the provider as
    * typed. Use `when` for an act that does not exist in this scope.
    */
-  readonly unavailable?: string;
+  readonly unavailable?: string | undefined;
 }

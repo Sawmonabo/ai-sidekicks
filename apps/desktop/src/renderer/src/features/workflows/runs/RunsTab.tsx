@@ -2,10 +2,10 @@
 // while the workflow stream is open, `Delete runs older than…` and the runs table. A filter set
 // matching nothing is not an empty list: the table gives way to a note in the filters' own words,
 // with `Clear filters` where the filters differ from the ones the tab opens on, and `No runs yet`
-// stands only when there is no run at all. The table reads a page at a time, `Load earlier` at
+// stands only when there is no run at all. The table reads a page at a time, `Load older runs` at
 // its foot reading the next, and a change of filters keeps the rows drawn until the new answer
-// replaces them. A page `Load earlier` could not read keeps the rows above it, with its error and
-// `Try again` below them.
+// replaces them. A page `Load older runs` could not read keeps the rows above it, with its error
+// and `Try again` below them.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts/workflow/definition/methods";
 import type {
@@ -14,6 +14,7 @@ import type {
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
@@ -142,7 +143,7 @@ function RunsList(
         placement="block"
         title="Could not load the runs"
         detail={listState.refusal.detail}
-        action={<ActionButton onClick={props.readListAgain}>Try again</ActionButton>}
+        action={<TryAgainButton onPress={props.readListAgain} />}
       />
     );
   }
@@ -166,16 +167,16 @@ function RunsList(
         {listState.value.earlierRefusal === undefined ? (
           response.nextCursor === undefined ? null : (
             <ActionButton disabled={isLoadingEarlier} onClick={props.onLoadEarlier}>
-              Load earlier
+              Load older runs
             </ActionButton>
           )
         ) : (
           <Nothing
             kind="error"
             placement="block"
-            title="Could not load earlier runs"
+            title="Could not load older runs"
             detail={listState.value.earlierRefusal.detail}
-            action={<ActionButton onClick={props.readListAgain}>Try again</ActionButton>}
+            action={<TryAgainButton onPress={props.readListAgain} />}
           />
         )}
       </div>

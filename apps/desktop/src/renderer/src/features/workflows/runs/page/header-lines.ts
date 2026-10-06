@@ -3,6 +3,7 @@
 // run's status and its blocking or failing step, so every kind of stop is written the same way
 // and none is kept by hand. A waiting run's cause is read in the first line and nowhere else.
 
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { type WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 import { WORKFLOW_STEP_TIMED_OUT_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
@@ -43,6 +44,12 @@ const FIX_AND_RESUME = "Fix it and press Resume, or cancel the run.";
 /** What a run that has nothing left to do needs. */
 const NOTHING_FINISHED = "Nothing — this run is finished.";
 
+/** How the spent-account line names an account's provider: `The Codex account Work is spent.` */
+const SPENT_ACCOUNT_PROVIDER_WORDS: Readonly<Record<ProviderName, string>> = {
+  claude: "Claude",
+  codex: "Codex",
+};
+
 /**
  * The two lines a run's header opens with, such as `The run tests step failed twice.` over
  * `Fix it and press Resume, or cancel the run.` A stopped step is named by its node's kind; the
@@ -63,7 +70,7 @@ export function runHeaderLines(
     case "running":
       return { happened: `${runName} is running.`, needs: "Nothing — it is still going." };
     case "waiting":
-      return waitingLines(run, latestStepWith(run.steps, "waiting"), names, runName);
+      return waitingLines(run, names, runName);
     case "failed":
       return failedLines(run, latestStepWith(run.steps, "failed"), names);
     case "succeeded":
@@ -109,20 +116,35 @@ export function runLiveLine(
   return parts;
 }
 
+/**
+ * The lines of a waiting run, read from the step that waits. The run read refuses a waiting run
+ * with no waiting step, and a step parked on an account without that account, so either missing
+ * here is a broken contract and throws.
+ */
 function waitingLines(
   run: WorkflowRunReadResponse,
-  step: WorkflowStep | undefined,
   names: RunHeaderNames,
   runName: string,
 ): RunHeaderLines {
-  switch (step?.waitCause) {
-    case undefined:
-      return { happened: `${runName} is waiting.`, needs: "Nothing until it resumes." };
-    case "account":
+  const step = latestStepWith(run.steps, "waiting");
+  if (step?.waitCause === undefined) {
+    throw new Error(`The waiting run ${run.workflowRunId} carries no step that waits.`);
+  }
+  switch (step.waitCause) {
+    case "account": {
+      const account = step.waitAccount;
+      if (account === undefined) {
+        throw new Error(`The step ${step.nodeId} parked on an account does not name it.`);
+      }
+      // The window's reset is named only where the wait armed the instant it resumes.
+      const until = step.resumeAt === undefined ? "" : " until the window resets";
       return {
-        happened: `${stepSubject(names.nodeKind(step.nodeId))} is waiting on a spent account.`,
+        happened:
+          `The ${SPENT_ACCOUNT_PROVIDER_WORDS[account.provider]} account ${account.label} ` +
+          `is spent${until}.`,
         needs: "Nothing until the account can run again.",
       };
+    }
     case "approval": {
       // The approval asks about what the step before it did, so that step is named.
       const feeder = step.source.find((source) => source !== null);
@@ -154,8 +176,8 @@ function waitingLines(
         happened: `${subject} is waiting on ${WAIT_CAUSE_WORDS[step.waitCause]}.`,
         needs:
           step.waitCause === "form"
-            ? "Answer its form in the step panel."
-            : "Reply in the step panel or in its session.",
+            ? "Fill in its form in the step that is waiting."
+            : "Answer it in the step that is waiting, or on its question in the session.",
       };
     }
   }

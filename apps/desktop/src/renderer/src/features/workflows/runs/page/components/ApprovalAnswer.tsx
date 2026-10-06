@@ -35,11 +35,13 @@ export function ApprovalAnswer(props: {
   );
   const isSending = answer.state.kind === "sending";
   const commandTargets = useWorkflowCommandTargets();
-  useWorkflowCommandTarget(commandTargets.answerThisRun, () => {
-    if (!isSending) {
-      answer.take("approved");
-    }
-    return undefined;
+  useWorkflowCommandTarget(commandTargets.answerThisRun, {
+    unavailable: () => undefined,
+    take: () => {
+      if (!isSending) {
+        answer.take("approved");
+      }
+    },
   });
   return (
     <div className="meridian-workflow-step__answer" role="group" aria-label="Answer this approval">

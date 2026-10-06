@@ -1,13 +1,12 @@
 // The workflows screen's two keyed acts for the command registry, `Next waiting` and `Answer
 // this run`. They are contributed at composition so they and their chords exist from the first
-// frame, and each presses whatever on screen offers it at that moment; a press nothing offers
-// states its refusal on the frame's banner.
+// frame, and each presses whatever on screen offers it at that moment. Where nothing on screen can
+// take the act, the palette row stays listed with the reason, and the chord does nothing.
 
 import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
-import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
-import type { WorkflowCommandTarget, WorkflowCommandTargets } from "../command-target.js";
+import type { WorkflowCommandTargets } from "../command-target.js";
 import { WHEN_ON_WORKFLOWS, WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
@@ -25,8 +24,11 @@ export function createWorkflowCommands(
       group: WORKFLOWS_COMMAND_GROUP,
       when: WHEN_ON_WORKFLOWS,
       keywords: ["run", "approval", "blocked"],
+      get unavailable() {
+        return commandTargets.nextWaiting.unavailable(readCommandWindow());
+      },
       run: () => {
-        pressAct(commandTargets.nextWaiting);
+        commandTargets.nextWaiting.press(readCommandWindow());
       },
     },
     {
@@ -35,8 +37,11 @@ export function createWorkflowCommands(
       group: WORKFLOWS_COMMAND_GROUP,
       when: WHEN_ON_WORKFLOWS,
       keywords: ["approve", "submit", "keep going"],
+      get unavailable() {
+        return commandTargets.answerThisRun.unavailable(readCommandWindow());
+      },
       run: () => {
-        pressAct(commandTargets.answerThisRun);
+        commandTargets.answerThisRun.press(readCommandWindow());
       },
     },
   ];
@@ -56,11 +61,4 @@ export function registerWorkflowCommands(
     commands: createWorkflowCommands(commandTargets),
     keyBindings: WORKFLOW_KEY_BINDINGS,
   });
-}
-
-function pressAct(act: WorkflowCommandTarget): void {
-  const refusal = act.press(readCommandWindow());
-  if (refusal !== undefined) {
-    raiseCommandRefusal(refusal);
-  }
 }

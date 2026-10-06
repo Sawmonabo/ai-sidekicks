@@ -11,6 +11,7 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { isTextEntryTarget } from "#renderer/lib/editable-target.js";
@@ -24,7 +25,6 @@ import { StepPanel } from "./step/components/StepPanel.js";
 import { useRunPage } from "./hooks/useRunPage.js";
 import { findDocumentNode } from "./document-node.js";
 import { RunGraph } from "./graph/RunGraph.js";
-import { ActionButton } from "../../components/ActionButton.js";
 
 /** What one run's page is drawn from, and where its links lead. */
 export interface RunPageProps {
@@ -82,7 +82,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
         placement="block"
         title="Could not load this run"
         detail={runState.refusal.detail}
-        action={<TryAgain onPress={page.readRunAgain} />}
+        action={<TryAgainButton onPress={page.readRunAgain} />}
       />
     );
   }
@@ -145,7 +145,7 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
               placement="block"
               title="Could not load this workflow"
               detail={documentRead.refusal.detail}
-              action={<TryAgain onPress={page.document.readAgain} />}
+              action={<TryAgainButton onPress={page.document.readAgain} />}
             />
           ) : (
             <RunGraph
@@ -181,10 +181,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
       </div>
     </div>
   );
-}
-
-function TryAgain(props: { readonly onPress: () => void }): React.JSX.Element {
-  return <ActionButton onClick={props.onPress}>Try again</ActionButton>;
 }
 
 /**

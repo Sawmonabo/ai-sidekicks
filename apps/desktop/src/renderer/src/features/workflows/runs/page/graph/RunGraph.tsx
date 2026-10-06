@@ -2,12 +2,12 @@
 // in the box until it lands. The drawing is `RunGraphCanvas.tsx`'s, behind an `import()`, so the
 // graph and layout libraries stay out of the page's own bundle.
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 import type { RunGraphCanvasProps } from "./RunGraphCanvas.js";
 import { runGraphLoader, type RunGraphModule } from "./loader.js";
 
@@ -53,9 +53,6 @@ function renderUnloadedCanvas(
   return graphModule.status === "loading" ? (
     <LoadingNotice clock={clock} placement="block" title="Loading the run graph…" />
   ) : (
-    <RefusalBanner
-      {...graphModule.refusal}
-      action={<ActionButton onClick={retryChunk}>Try loading the graph again</ActionButton>}
-    />
+    <RefusalBanner {...graphModule.refusal} action={<TryAgainButton onPress={retryChunk} />} />
   );
 }

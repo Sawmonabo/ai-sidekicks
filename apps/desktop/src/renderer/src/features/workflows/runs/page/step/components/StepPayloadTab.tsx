@@ -1,13 +1,13 @@
 import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowStepPayloadKind } from "@ai-sidekicks/contracts/workflow/run/step";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useStepPayloadRead } from "../hooks/useStepPayloadRead.js";
 import { StepPayload, type StepPayloadView } from "./StepPayload.js";
-import { ActionButton } from "#renderer/features/workflows/components/ActionButton.js";
 
 /**
  * One of a step's input, output and log tabs: the payload read through `workflow.stepRead`, in
@@ -35,7 +35,7 @@ export function StepPayloadTab(props: {
           placement="block"
           title="Could not load this step's data"
           detail={read.refusal.detail}
-          action={<ActionButton onClick={readAgain}>Try again</ActionButton>}
+          action={<TryAgainButton onPress={readAgain} />}
         />
       );
     case "read":

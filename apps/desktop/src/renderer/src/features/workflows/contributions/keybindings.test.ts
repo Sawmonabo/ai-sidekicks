@@ -2,7 +2,8 @@
 // its chord pressed inside a text field is the field's own and answers nothing, and the same chord
 // pressed anywhere else, with the step panel closed, opens the waiting step and approves it once
 // its answer is offered. On a run waiting on a form, a press made while the form is still being
-// read submits it once it has been read.
+// read submits it once it has been read. Where an act cannot be taken its command says why and
+// its chord does nothing, leaving the key unclaimed and raising no refusal.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
@@ -14,41 +15,45 @@ import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { parseChord } from "#renderer/registries/keybindings/chord.js";
 import { KeybindingTable } from "#renderer/registries/keybindings/table.js";
 import { workflowRunsRoute } from "#renderer/routing/readers.js";
-import type { WorkflowCommandTargets } from "../command-target.js";
+import { createWorkflowCommandTargets, type WorkflowCommandTargets } from "../command-target.js";
 import { mountWorkflowsScreen } from "../WorkflowsScreen.test-support.js";
 import { createWorkflowCommands } from "./commands.js";
 import { WORKFLOW_KEY_BINDINGS } from "./keybindings.js";
 import { publishCommandWindow } from "#renderer/registries/commands/command-window.js";
 
-/** Press `commandId`'s chord on `target`, with the modifiers the chord names on this platform. */
-async function pressChordOf(commandId: string, target: EventTarget): Promise<void> {
+/**
+ * Press `commandId`'s chord on `target`, with the modifiers the chord names on this platform, and
+ * hand back the key press, which says whether a command claimed it.
+ */
+async function pressChordOf(commandId: string, target: EventTarget): Promise<KeyboardEvent> {
   const binding = WORKFLOW_KEY_BINDINGS.find((candidate) => candidate.commandId === commandId);
   const parsed = binding === undefined ? undefined : parseChord(binding.chord);
   if (parsed === undefined || !parsed.ok || typeof parsed.press[2] !== "string") {
     throw new Error(`the workflows screen binds no chord to ${commandId}`);
   }
   const [modifiers, , code] = parsed.press;
+  const keyPress = new KeyboardEvent("keydown", {
+    code,
+    key: code,
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: modifiers.includes("Control"),
+    metaKey: modifiers.includes("Meta"),
+    altKey: modifiers.includes("Alt"),
+    shiftKey: modifiers.includes("Shift"),
+  });
   await act(async () => {
-    target.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        code,
-        key: code,
-        bubbles: true,
-        ctrlKey: modifiers.includes("Control"),
-        metaKey: modifiers.includes("Meta"),
-        altKey: modifiers.includes("Alt"),
-        shiftKey: modifiers.includes("Shift"),
-      }),
-    );
+    target.dispatchEvent(keyPress);
     await crossMacrotaskBoundary();
   });
+  return keyPress;
 }
 
 /**
  * Register the workflows screen's commands under its real chords on `document`, pressing the acts
  * the mounted screen offers, until the test finishes, whether it passed or not.
  */
-function installWorkflowChords(commandTargets: WorkflowCommandTargets): void {
+function installWorkflowChords(commandTargets: WorkflowCommandTargets): CommandRegistry {
   const registry = new CommandRegistry();
   for (const command of createWorkflowCommands(commandTargets)) {
     registry.register(command);
@@ -56,6 +61,7 @@ function installWorkflowChords(commandTargets: WorkflowCommandTargets): void {
   const table = new KeybindingTable({ registry, readContext: () => ({ onWorkflows: true }) });
   table.setBindings(WORKFLOW_KEY_BINDINGS);
   onTestFinished(table.install(document));
+  return registry;
 }
 
 afterEach(cleanup);
@@ -112,5 +118,35 @@ describe("the workflows screen's chords", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(screen.getAllByText("Fill in this field.").length).toBeGreaterThan(0);
     });
+  });
+
+  it("says why an act cannot be taken, and leaves its chord unclaimed with no refusal", async () => {
+    const registry = installWorkflowChords(createWorkflowCommandTargets());
+    expect(registry.get("workflows.nextWaiting")?.unavailable).toBe("Workflows is not open.");
+    expect(registry.get("workflows.answerThisRun")?.unavailable).toBe(
+      "No run waiting on you is open.",
+    );
+    // No refusal sink is published, so a press that raised one would throw here.
+    expect((await pressChordOf("workflows.nextWaiting", document.body)).defaultPrevented).toBe(
+      false,
+    );
+    expect((await pressChordOf("workflows.answerThisRun", document.body)).defaultPrevented).toBe(
+      false,
+    );
+
+    const mounted = await mountWorkflowsScreen({
+      route: workflowRunsRoute(WORKFLOW_RUN_IDS.succeeded),
+    });
+    onTestFinished(mounted.unmount);
+    const onScreen = installWorkflowChords(mounted.commandTargets);
+    await advanceScenarioUntil(mounted.engine, () => {
+      expect(screen.getByRole("heading", { level: 2 })).toBeDefined();
+    });
+    expect(onScreen.get("workflows.answerThisRun")?.unavailable).toBe(
+      "This run is not waiting on you.",
+    );
+    expect((await pressChordOf("workflows.answerThisRun", document.body)).defaultPrevented).toBe(
+      false,
+    );
   });
 });

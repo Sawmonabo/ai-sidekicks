@@ -2,6 +2,7 @@ import { useId } from "react";
 
 import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
@@ -32,10 +33,7 @@ export function StepForm(props: {
   const commandTargets = useWorkflowCommandTargets();
   useWorkflowCommandTarget(
     commandTargets.answerThisRun,
-    () => {
-      form.submit();
-      return undefined;
-    },
+    { unavailable: () => undefined, take: form.submit },
     "control",
     read.kind === "read",
   );
@@ -49,7 +47,7 @@ export function StepForm(props: {
         placement="block"
         title="Could not load the form"
         detail={read.refusal.detail}
-        action={<ActionButton onClick={form.readAgain}>Try again</ActionButton>}
+        action={<TryAgainButton onPress={form.readAgain} />}
       />
     );
   }

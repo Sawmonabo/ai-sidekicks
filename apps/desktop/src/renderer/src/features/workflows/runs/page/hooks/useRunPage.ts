@@ -8,7 +8,6 @@ import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/fa
 import { type WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { refuse } from "#renderer/lib/refusal/contract.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useWorkflowCommandTarget } from "#renderer/features/workflows/hooks/useWorkflowCommandTarget.js";
 import { useWorkflowRead } from "#renderer/features/workflows/hooks/useWorkflowRead.js";
@@ -17,13 +16,6 @@ import { createRunRead, type WorkflowReadSources } from "#renderer/features/work
 import { isPersonWaitCause, latestStepWith } from "../../steps.js";
 import { stepKeyText } from "../step/key-text.js";
 import { useRunDocument, type RunDocumentHold } from "./useRunDocument.js";
-
-/** What `Answer this run` says on a run that is not waiting on a person. */
-const NOTHING_TO_ANSWER_REFUSAL = refuse(
-  "workflows",
-  "workflows.nothing_to_answer",
-  "This run is not waiting on you.",
-);
 
 /** The two members that name a step inside its run. */
 export type StepAddress = Pick<WorkflowStep, "nodeId" | "executionIndex">;
@@ -91,16 +83,22 @@ export function useRunPage(options: {
   // `Answer this run` with no answer on screen opens the panel on the step waiting on a person,
   // and the press goes on to that step's answer once it is offered.
   const commandTargets = useWorkflowCommandTargets();
+  // A chain wait is answered on the chain's question, which offers its own answer.
+  const answerNode = personWaitNode(run);
   useWorkflowCommandTarget(
     commandTargets.answerThisRun,
-    () => {
-      const waitingNode = personWaitNode(run);
-      // A chain wait is answered on the chain's question, which offers its own answer.
-      if (waitingNode === undefined || waitingNode.cause === "chain") {
-        return NOTHING_TO_ANSWER_REFUSAL;
-      }
-      setPicked({ nodeId: waitingNode.nodeId });
-      return undefined;
+    {
+      unavailable: () =>
+        run === undefined
+          ? "Still reading what is waiting."
+          : answerNode === undefined || answerNode.cause === "chain"
+            ? "This run is not waiting on you."
+            : undefined,
+      take: () => {
+        if (answerNode !== undefined) {
+          setPicked({ nodeId: answerNode.nodeId });
+        }
+      },
     },
     "fallback",
   );

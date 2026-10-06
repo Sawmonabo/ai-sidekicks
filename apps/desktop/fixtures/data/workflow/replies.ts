@@ -375,11 +375,26 @@ function answerAttention(playback: WorkflowPlayback): WorkflowRunAttentionListRe
             workflowRunId: entry.run.read.workflowRunId,
             workflowName: entry.run.definitionName,
             waitCause: entry.cause,
+            waitingStepName: nodeNameOf(entry.run, entry.step.nodeId),
             waitingSince: entry.step.startedAt,
           },
         ],
   );
   return { entries: [...accountLines, ...runLines], waitingOnPersonCount: runLines.length };
+}
+
+/** The name the run's pinned version gives a node; a node it lacks is a broken fixture. */
+function nodeNameOf(run: WorkflowRunRecord, nodeId: string): string {
+  const document = WORKFLOW_DEFINITION_RECORDS.find(
+    (definition) => definition.summary.id === run.read.definitionId,
+  )?.versions.find((version) => version.versionId === run.read.workflowVersionId)?.document;
+  const node = [document?.trigger, ...(document?.nodes ?? [])].find(
+    (candidate) => candidate?.id === nodeId,
+  );
+  if (node === undefined) {
+    throw new Error(`${run.read.workflowVersionId} has no node ${nodeId}`);
+  }
+  return node.name;
 }
 
 function answerStepRead(request: unknown, playback: WorkflowPlayback): WorkflowStepReadResponse {

@@ -52,7 +52,7 @@ export function createRunCountRead(sources: WorkflowReadSources): PushDrivenRead
 
 /**
  * The runs table under the person's filters, read again whenever any run moves. A read for new
- * filters asks for one page. `Load earlier` reads only the page after the rows drawn, from the
+ * filters asks for one page. `Load older runs` reads only the page after the rows drawn, from the
  * cursor the last answer ended on. Any other read asks once for as many runs as are drawn, and
  * reads on only while runs that arrived above have pushed rows it already drew past that answer,
  * so a refresh costs one call however many pages are open and no drawn run leaves the table.
@@ -191,7 +191,7 @@ export function createRunRead(
 }
 
 /**
- * `Load earlier`: the page after the drawn rows, from the cursor their answer ended on, joined
+ * `Load older runs`: the page after the drawn rows, from the cursor their answer ended on, joined
  * below them. A refused page keeps the rows, with why the page could not be read.
  */
 async function readEarlierPage(

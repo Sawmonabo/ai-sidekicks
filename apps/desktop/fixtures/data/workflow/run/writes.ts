@@ -178,10 +178,11 @@ function answerQuestion(run: WorkflowRunRecord, answer: unknown): WorkflowRunRec
   return replyStep === undefined ? run : settleWait(run, replyStep.nodeId, "answered");
 }
 
-/** A step with its wait taken off: no cause, instants or question. */
+/** A step with its wait taken off: no cause, spent account, instants or question. */
 function withoutWait(step: WorkflowStep): WorkflowStep {
   const {
     waitCause: _cause,
+    waitAccount: _account,
     resumeAt: _resume,
     waitDeadlineAt: _deadline,
     question: _question,

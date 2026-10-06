@@ -17,7 +17,12 @@ import { QuestionIdSchema, type QuestionId } from "../../question.js";
 import { ProcessExitSchema, type ProcessExit } from "../../run/control.js";
 import { UsdMicrosSchema } from "../../session/cost.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
-import { ProviderAccountIdSchema, type ProviderAccountId } from "../../provider/account/record.js";
+import {
+  PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
+  ProviderAccountIdSchema,
+  type ProviderAccountId,
+} from "../../provider/account/record.js";
+import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/intervention.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
@@ -188,6 +193,13 @@ export interface WorkflowStep {
   source: (WorkflowStepSource | null)[];
   status: WorkflowStepStatus;
   waitCause?: WorkflowWaitCause | undefined;
+  /**
+   * Present exactly on a step waiting on `account`: the spent account, its provider and the one
+   * label every surface names it by, so no account id reaches the screen.
+   */
+  waitAccount?:
+    | { providerAccountId: ProviderAccountId; provider: ProviderName; label: string }
+    | undefined;
   resumeAt?: string | undefined;
   waitDeadlineAt?: string | undefined;
   startedAt: string;
@@ -232,6 +244,17 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     ),
     status: WorkflowStepStatusSchema,
     waitCause: WorkflowWaitCauseSchema.optional(),
+    waitAccount: z
+      .object({
+        providerAccountId: ProviderAccountIdSchema,
+        provider: ProviderNameSchema,
+        label: wireFreeFormString(
+          PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
+          "WorkflowStep.waitAccount.label",
+        ),
+      })
+      .strict()
+      .optional(),
     resumeAt: isoDateTimeSchema.optional(),
     waitDeadlineAt: isoDateTimeSchema.optional(),
     startedAt: isoDateTimeSchema,
@@ -258,6 +281,12 @@ export const WorkflowStepSchema: z.ZodType<WorkflowStep> = z
     path: ["waitCause"],
     message: "A waiting step names its cause, and no other step carries one.",
   })
+  .refine(
+    (step) =>
+      (step.waitAccount !== undefined) ===
+      (step.status === "waiting" && step.waitCause === "account"),
+    { path: ["waitAccount"], message: "A step waiting on a spent account names that account." },
+  )
   .refine(
     (step) =>
       step.status === "waiting" ||

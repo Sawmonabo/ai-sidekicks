@@ -83,11 +83,13 @@ function OpenChainQuestion(props: {
     },
   );
   const commandTargets = useWorkflowCommandTargets();
-  useWorkflowCommandTarget(commandTargets.answerThisRun, () => {
-    if (answer.state.kind === "idle" || answer.state.kind === "refused") {
-      answer.take("approved");
-    }
-    return undefined;
+  useWorkflowCommandTarget(commandTargets.answerThisRun, {
+    unavailable: () => undefined,
+    take: () => {
+      if (answer.state.kind === "idle" || answer.state.kind === "refused") {
+        answer.take("approved");
+      }
+    },
   });
   if (answered !== undefined) {
     // The receipt stands at once; the run reading back answered then draws the same line.

@@ -1,8 +1,8 @@
-// The runs table reads a page at a time: `Load earlier` asks for the page after the one drawn with
-// that page's own cursor, so a run arriving between two pages neither drops a loaded run nor draws
-// one twice, and the notice for it puts it on top with every loaded run kept. A deleted run costs
-// one read, however many pages are open. A page `Load earlier` could not read keeps the rows above
-// it, with its error and `Try again` below them.
+// The runs table reads a page at a time: `Load older runs` asks for the page after the one drawn
+// with that page's own cursor, so a run arriving between two pages neither drops a loaded run nor
+// draws one twice, and the notice for it puts it on top with every loaded run kept. A deleted run
+// costs one read, however many pages are open. A page `Load older runs` could not read keeps the
+// rows above it, with its error and `Try again` below them.
 
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -65,7 +65,7 @@ describe("the runs table's pages", () => {
       definitionName: mintedRunId(1),
     };
     daemon.arrive(arrived, { isNotified: false });
-    await press("Load earlier");
+    await press("Load older runs");
     await advanceScenarioUntil(mounted.engine, () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded));
     });
@@ -73,7 +73,7 @@ describe("the runs table's pages", () => {
       .filter(isRunsTableRead)
       .map((call) => (call.params as { readonly cursor?: string }).cursor);
     expect(pageReads.at(-1)).toBe(loaded[RUNS_PAGE_SIZE - 1]?.workflowRunId);
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load older runs" })).toBeNull();
 
     // Its notice lands: it stands on top, and every run already loaded stays below it.
     await act(async () => {
@@ -121,7 +121,7 @@ describe("the runs table's pages", () => {
     expect(pageReads().length - readsBefore).toBe(1);
   });
 
-  it("keeps the rows drawn when Load earlier fails, with the error and Try again below", async () => {
+  it("keeps the rows drawn when Load older runs fails, with the error and Try again below", async () => {
     const daemon = new RunListDaemon(runsNamedById());
     const loaded = daemon.rows;
     let isPageRefused = true;
@@ -143,14 +143,14 @@ describe("the runs table's pages", () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded.slice(0, RUNS_PAGE_SIZE)));
     });
 
-    await press("Load earlier");
+    await press("Load older runs");
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getByText("Could not load earlier runs")).toBeDefined();
+      expect(screen.getByText("Could not load older runs")).toBeDefined();
     });
     // A rejection with no code of its own reads as the service not answering.
     expect(screen.getByText("The background service is not answering.")).toBeDefined();
     expect(drawnRunIds()).toStrictEqual(idsOf(loaded.slice(0, RUNS_PAGE_SIZE)));
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load older runs" })).toBeNull();
 
     isPageRefused = false;
     await act(async () => {
@@ -160,6 +160,6 @@ describe("the runs table's pages", () => {
     await advanceScenarioUntil(mounted.engine, () => {
       expect(drawnRunIds()).toStrictEqual(idsOf(loaded));
     });
-    expect(screen.queryByText("Could not load earlier runs")).toBeNull();
+    expect(screen.queryByText("Could not load older runs")).toBeNull();
   });
 });

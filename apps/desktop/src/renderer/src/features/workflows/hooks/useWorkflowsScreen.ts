@@ -7,7 +7,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
-import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
+import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
 import { openSessionPane } from "#renderer/store/window/open-session-pane.js";
@@ -114,7 +114,7 @@ export function useWorkflowsScreen(
   const { feed, state: feedState } = useWorkflowNoticeFeed(bridge, clock, isOnRunsTab);
   const sources = useMemo(() => ({ bridge, clock, feed }), [bridge, clock, feed]);
   const filters = useRunFilters(uiStateStore);
-  // How many pages `Load earlier` asked for, under the filters it was pressed on: a change of
+  // How many pages `Load older runs` asked for, under the filters it was pressed on: a change of
   // filters, the person's or the kept record arriving, starts the table again at one page.
   const [pagesAsked, setPagesAsked] = useState({ filters: filters.filters, pageCount: 1 });
   const pageCount = pagesAsked.filters === filters.filters ? pagesAsked.pageCount : 1;
@@ -281,22 +281,13 @@ export function useWorkflowsScreen(
   );
 
   const nextWaiting = nextWaitingOf(attentionState, openRunId);
-  useWorkflowCommandTarget(nextWaitingAct, () => {
-    if (!isOnRunsTab) {
-      return RUNS_TAB_NOT_OPEN_REFUSAL;
-    }
-    switch (nextWaiting.kind) {
-      case "not-loaded":
-        return ATTENTION_NOT_LOADED_REFUSAL;
-      case "failed":
-        return nextWaiting.refusal;
-      case "loaded":
-        if (nextWaiting.workflowRunId === undefined) {
-          return NOTHING_WAITING_REFUSAL;
-        }
+  useWorkflowCommandTarget(nextWaitingAct, {
+    unavailable: () => nextWaitingUnavailable(isOnRunsTab, nextWaiting),
+    take: () => {
+      if (nextWaiting.kind === "loaded" && nextWaiting.workflowRunId !== undefined) {
         openRun(nextWaiting.workflowRunId);
-        return undefined;
-    }
+      }
+    },
   });
   return {
     sources,
@@ -345,22 +336,26 @@ export function useWorkflowsScreen(
 /** The key the reads only the Runs tab draws are held under while it is open. */
 const RUNS_TAB_KEY = "runs-tab";
 
-/** What `Next waiting` says when no run waits on a person. */
-const NOTHING_WAITING_REFUSAL = refuse("workflows", "workflows.nothing_waiting", "Nothing waiting");
-
-/** What `Next waiting` says away from the Runs tab, where what is waiting is not read. */
-const RUNS_TAB_NOT_OPEN_REFUSAL = refuse(
-  "workflows",
-  "workflows.runs_not_open",
-  "The Runs tab is not open. Open it and try again.",
-);
-
-/** What `Next waiting` says while what is waiting is still being read. */
-const ATTENTION_NOT_LOADED_REFUSAL = refuse(
-  "workflows",
-  "workflows.attention_not_loaded",
-  "What is waiting on you is still loading. Try again in a moment.",
-);
+/**
+ * Why `Next waiting` cannot open a run: away from the Runs tab, where what is waiting is not
+ * read; while it is read; where it could not be read; or with no run waiting on a person.
+ */
+function nextWaitingUnavailable(
+  isOnRunsTab: boolean,
+  nextWaiting: NextWaiting,
+): string | undefined {
+  if (!isOnRunsTab) {
+    return "The Runs tab is not open.";
+  }
+  switch (nextWaiting.kind) {
+    case "not-loaded":
+      return "Still reading what is waiting.";
+    case "failed":
+      return nextWaiting.refusal.detail;
+    case "loaded":
+      return nextWaiting.workflowRunId === undefined ? "Nothing waiting" : undefined;
+  }
+}
 
 /** The runs waiting on a person, top of the attention list down, less the one already open. */
 function nextWaitingOf(

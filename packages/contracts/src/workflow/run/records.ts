@@ -168,7 +168,7 @@ const WorkflowRunReviewSchema: z.ZodType<WorkflowRunReview> = z.discriminatedUni
  * from the steps' stored amounts; a going run carries its `liveStep`; `edgeItemCounts` names
  * every edge items went through; a finished run whose checkout was captured carries `review`,
  * the snapshots `Open in Review` compares; and the chain's first run carries the chain's question
- * once one has been asked.
+ * once one has been asked. A `waiting` run always carries the step that waits.
  */
 export interface WorkflowRunReadResponse {
   workflowRunId: WorkflowRunId;
@@ -222,6 +222,10 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
   .refine((run) => GOING_RUN_STATUSES.includes(run.state) || run.liveStep === undefined, {
     path: ["liveStep"],
     message: "Only a going run has a live step.",
+  })
+  .refine((run) => run.state !== "waiting" || run.steps.some((step) => step.status === "waiting"), {
+    path: ["steps"],
+    message: "A waiting run carries the step that waits.",
   })
   .refine(
     (run) =>
@@ -457,7 +461,7 @@ export const WorkflowRunAttentionListRequestSchema: z.ZodType<
 
 /**
  * One line of the runs-needing-you section. A run waiting on a person is its own line:
- * the workflow's name, what it waits on, and since when. Runs held by one spent provider
+ * the workflow's name, what it waits on, the name of the step that waits, and since when. Runs held by one spent provider
  * account fold into one line keyed by that account, with how many runs it holds, since
  * when the oldest waits, and the instant it resumes itself where one is armed.
  */
@@ -467,6 +471,7 @@ export type WorkflowRunAttentionEntry =
       workflowRunId: WorkflowRunId;
       workflowName: string;
       waitCause: Exclude<WorkflowWaitCause, "account">;
+      waitingStepName: string;
       waitingSince: string;
     }
   | {
@@ -485,6 +490,7 @@ export const WorkflowRunAttentionEntrySchema: z.ZodType<WorkflowRunAttentionEntr
         workflowRunId: WorkflowRunIdSchema,
         workflowName: z.string().min(1),
         waitCause: z.enum(WORKFLOW_WAIT_CAUSES).exclude(["account"]),
+        waitingStepName: z.string().min(1),
         waitingSince: isoDateTimeSchema,
       })
       .strict(),

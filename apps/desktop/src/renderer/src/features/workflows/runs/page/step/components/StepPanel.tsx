@@ -7,6 +7,7 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/step";
 import type { WorkflowRunReadResponse } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
+import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useReadScope } from "#renderer/hooks/useReadScope.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
@@ -82,8 +83,8 @@ export interface StepPanelProps {
  * where it called one, its input, output, logs, cost and error, each in a Table and a JSON view,
  * and the acts on it: `Retry from this step`, the run's Keep mark,
  * `Pin this output as builder test data` and, on a failed step, `Fix in a fresh session`. It opens
- * on Output, or on Error where the step failed. The acts keep their place on a node that has not
- * run, refusing in words.
+ * on Output, or on Error where the step failed. A node the run never reached reads `Not reached`
+ * on its chip, and its acts keep their place, refusing in words.
  */
 export function StepPanel(props: StepPanelProps): React.JSX.Element {
   const { run, nodeId } = props;
@@ -97,7 +98,7 @@ export function StepPanel(props: StepPanelProps): React.JSX.Element {
     <aside className="meridian-workflow-step" aria-label="Step panel">
       <header className="meridian-workflow-step__head">
         <h3 className="meridian-workflow-step__name">{name}</h3>
-        {step === undefined ? null : <StepStateChip step={step} />}
+        {step === undefined ? <Chip label="Not reached" /> : <StepStateChip step={step} />}
         {passes.length > 1 && picked !== undefined ? (
           <select
             className="meridian-workflow-step__execution"
@@ -123,10 +124,7 @@ export function StepPanel(props: StepPanelProps): React.JSX.Element {
         </ActionButton>
       </header>
       {step === undefined ? (
-        <>
-          <p className="meridian-workflow-step__note">This step has not run.</p>
-          <StepActs {...props} step={undefined} />
-        </>
+        <StepActs {...props} step={undefined} />
       ) : (
         <StepBody {...props} step={step} key={stepKeyText(step)} />
       )}
@@ -227,8 +225,9 @@ function StepBody(props: StepPanelProps & { readonly step: WorkflowStep }): Reac
  * The acts on a node's step, standing whatever the run's state and whether the node ran:
  * `Retry from this step`, the run's Keep mark, `Pin this output as builder test data` and, on a
  * failed step, `Fix in a fresh session`. Each one the state does not allow refuses in words, and a
- * press the daemon refuses shows its words in place. A pin still reading its artifact when the
- * panel closes stops there and sends nothing.
+ * press the daemon refuses shows its words in place. A pin that lands is announced, and its label
+ * stays, since a pin can be repeated. A pin still reading its artifact when the panel closes stops
+ * there and sends nothing.
  */
 function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefined }) {
   const { run, step, bridge } = props;
@@ -256,16 +255,20 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
   const keep = useWorkflowCall((next: boolean) =>
     callDaemon(bridge, "workflow.runKeepSet", { workflowRunId: run.workflowRunId, keep: next }),
   );
+  const announce = useAnnounce();
   const pinScope = useReadScope(bridge, `${run.workflowRunId}/${props.nodeId}/pin`);
-  const pin = useWorkflowCall((ran: WorkflowStep) =>
-    pinOutput(bridge, run, ran, pinScope.openRound().signal),
+  const pin = useWorkflowCall(
+    (ran: WorkflowStep) => pinOutput(bridge, run, ran, pinScope.openRound().signal),
+    () => {
+      announce(`${props.nodeName(props.nodeId)} output pinned onto the builder`);
+    },
   );
   const fixSessionId = run.fixSessionId;
   return (
     <div className="meridian-workflow-step__acts">
       <RunControl
         label="Retry from this step"
-        availability={step === undefined ? NOT_RUN : retryAvailability(run, step)}
+        availability={step === undefined ? RETRY_NOT_REACHED : retryAvailability(run, step)}
         act={retry.state}
         onPress={() => {
           if (step !== undefined) {
@@ -290,10 +293,8 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
         ) : null}
       </span>
       <RunControl
-        label={
-          pin.state.kind === "done" ? "Pinned as test data" : "Pin this output as builder test data"
-        }
-        availability={step === undefined ? NOT_RUN : pinAvailability(props.document, step)}
+        label="Pin this output as builder test data"
+        availability={step === undefined ? PIN_NOT_REACHED : pinAvailability(props.document, step)}
         act={pin.state}
         onPress={() => {
           if (step !== undefined) {
@@ -320,8 +321,15 @@ function StepActs(props: StepPanelProps & { readonly step: WorkflowStep | undefi
   );
 }
 
-/** What the step's acts refuse with on a node that has not run. */
-const NOT_RUN: RunControlAvailability = { kind: "refused", reason: "This step has not run." };
+/** What the step's acts refuse with on a node the run never reached. */
+const RETRY_NOT_REACHED: RunControlAvailability = {
+  kind: "refused",
+  reason: "Retry · this step was not reached",
+};
+const PIN_NOT_REACHED: RunControlAvailability = {
+  kind: "refused",
+  reason: "Pin · this step was not reached",
+};
 
 function ViewToggle(props: {
   readonly view: StepPayloadView;

@@ -1,5 +1,6 @@
 // A run's header over contract-shaped runs from the fixture daemon: a waiting run says what it
-// waits on and when it resumes from its own step, or that no instant is armed; a stopped step is
+// waits on and when it resumes from its own step, or that no instant is armed, naming a spent
+// account by its label and its window's reset only where one is armed; a stopped step is
 // named by its node's kind; a going run reads its time so far, moving each second, and a finished
 // one how long it took; a run that joined a chain keeps who started it beside the link to the
 // chain's first run; a control the run's state does not allow stands refused with its reason and
@@ -109,7 +110,7 @@ describe("a run's header", () => {
     renderHeader(run, [], [], undefined, new ManualClock(dayBeforeMs));
 
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
-      "The run step is waiting on a spent account.",
+      "The Claude account Claude — work is spent until the window resets.",
     );
     expect(screen.getByText("Nothing until the account can run again.")).toBeDefined();
     const resumes = formatDayClock(waiting.resumeAt, dayBeforeMs);
@@ -123,6 +124,9 @@ describe("a run's header", () => {
       steps: run.steps.map((step) => (step === waiting ? unarmed : step)),
     });
     expect(screen.getByText("awaiting resume — no instant is armed")).toBeDefined();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+      "The Claude account Claude — work is spent.",
+    );
     cleanup();
 
     // A wait on a person with a time limit names the instant it gives up, with its day.

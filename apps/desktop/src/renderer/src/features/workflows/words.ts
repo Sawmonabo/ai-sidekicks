@@ -43,10 +43,10 @@ export const STEP_STATUS_WORDS: Readonly<Record<WorkflowStepStatus, string>> = {
   canceled: "Canceled",
 };
 
-/** What a waiting run or step is waiting on, as the attention line and the live line read it. */
+/** What a waiting run or step waits on, as the header, the live line and a node's ring read it. */
 export const WAIT_CAUSE_WORDS: Readonly<Record<WorkflowWaitCause, string>> = {
   approval: "your approval",
-  form: "your answer to a form",
+  form: "your answer",
   reply: "your reply",
   account: "the account that is spent",
   chain: "you",
