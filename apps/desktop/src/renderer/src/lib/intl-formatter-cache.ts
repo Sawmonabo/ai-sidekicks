@@ -83,6 +83,7 @@ const relativeTimeFormatters = new LocaleKeyedFormatters(
 /** One named number style. */
 export type NumberStyle =
   | "count"
+  | "compactCount"
   | "percent"
   | "wholeNumber"
   | "oneDecimal"
@@ -102,6 +103,7 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
  */
 const NUMBER_STYLES: Readonly<Record<NumberStyle, Intl.NumberFormatOptions>> = {
   count: {},
+  compactCount: { notation: "compact" },
   percent: { style: "percent", maximumFractionDigits: 0 },
   wholeNumber: { minimumFractionDigits: 0, maximumFractionDigits: 0 },
   oneDecimal: { minimumFractionDigits: 1, maximumFractionDigits: 1 },

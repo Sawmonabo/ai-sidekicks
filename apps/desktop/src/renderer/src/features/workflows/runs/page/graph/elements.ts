@@ -3,6 +3,7 @@
 // each edge joins two nodes left to right. This module imports the library for values, so only
 // the lazy canvas chunk reaches it.
 
+import { createElement } from "react";
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 
 import type {
@@ -16,7 +17,8 @@ import {
   deriveNodeBoxSize,
   type NodeBoxSize,
 } from "#renderer/features/workflows/canvas/node-box.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
+import { formatCompactCount } from "#renderer/lib/wire/figures.js";
+import { itemCountWords } from "#renderer/features/workflows/words.js";
 import { EDGE_LABEL_PADDING } from "#renderer/features/workflows/canvas/column-gap.js";
 import type { RunGraphNodeView } from "./model.js";
 
@@ -43,9 +45,6 @@ export const NO_HANDLES: NodeHandleIds = { inputs: [], outputs: [] };
 
 /** The one node kind this graph draws; the string is the `nodeTypes` key. */
 export const RUN_GRAPH_NODE_TYPE = "run-node" as const;
-
-/** An edge in the library's own shape, labeled with its item count figure. */
-export type RunGraphFlowEdge = Edge & { readonly label: string };
 
 /** A placed node in the library's own shape. */
 export type RunGraphFlowNode = Node<RunGraphNodeData, typeof RUN_GRAPH_NODE_TYPE>;
@@ -162,15 +161,16 @@ export function runGraphNodeCenter(node: RunGraphFlowNode): CanvasPoint {
 
 /**
  * The library's edges for one run. Each joins the two handles the document names and carries
- * the count of items that went through it, summed over every pass, as a mono figure; an edge
- * nothing has gone through yet carries `0`. An edge a run is flowing through is animated, and an
- * edge into or out of a disabled node is drawn struck through, as the node is grayed.
+ * the count of items that went through it, summed over every pass, as a short mono figure whose
+ * title is the whole count; an edge nothing has gone through yet carries `0`. An edge a run is
+ * flowing through is animated, and an edge into or out of a disabled node is drawn struck
+ * through, as the node is grayed.
  */
 export function toRunGraphFlowEdges(
   document: WorkflowDocument,
   itemCounts: readonly WorkflowEdgeItemCount[],
   flowingEdgeIds: ReadonlySet<string>,
-): RunGraphFlowEdge[] {
+): Edge[] {
   const countByEdge = new Map(itemCounts.map((entry) => [entry.edgeId, entry.itemCount]));
   const disabledNodeIds = new Set(
     [document.trigger, ...document.nodes]
@@ -187,7 +187,7 @@ export function toRunGraphFlowEdges(
       sourceHandle: edge.sourceHandle,
       target: edge.target,
       targetHandle: edge.targetHandle,
-      label: formatCount(countByEdge.get(edge.id) ?? 0),
+      label: edgeCountLabel(countByEdge.get(edge.id) ?? 0),
       labelBgPadding: [EDGE_LABEL_PADDING[0], EDGE_LABEL_PADDING[1]],
       markerEnd: { type: MarkerType.ArrowClosed },
       animated: isFlowing,
@@ -207,4 +207,15 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
     return "meridian-run-graph__edge--flowing";
   }
   return isDisabled ? "meridian-run-graph__edge--disabled" : undefined;
+}
+
+// The short count on the edge, with the whole count as its title, which a pointer shows and a
+// screen reader names the label by.
+function edgeCountLabel(count: number): React.ReactNode {
+  return createElement(
+    "tspan",
+    null,
+    createElement("title", null, itemCountWords(count)),
+    formatCompactCount(count),
+  );
 }

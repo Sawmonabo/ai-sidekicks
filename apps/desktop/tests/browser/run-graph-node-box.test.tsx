@@ -117,16 +117,21 @@ describe("a run graph node at the largest text size", () => {
 });
 
 describe("an edge's item count at the largest text size", () => {
-  // Every edge carries a count fifteen characters wide, past any count the fixtures hold. The
-  // release review's document carries no places of its own, so the page lays it out itself; a
-  // document the builder placed keeps the places its author gave.
+  // Every edge carries a count fifteen characters wide in full, drawn short. The release
+  // review's document carries no places of its own, so the page lays it out itself; a document
+  // the builder placed keeps the places its author gave.
   it("stands clear of both nodes, however long", async () => {
     const { run, workflowDocument } = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
     const longCounts = workflowDocument.edges.map((edge) => ({
       edgeId: edge.id,
       itemCount: 123_456_789_012,
     }));
+    const shortCounts = longCounts.map((count) => ({ ...count, itemCount: 9 }));
+    const shortGraph = await mountRunGraph(workflowDocument, run.steps, shortCounts);
+    const shortWidths = nodeWidths(shortGraph);
     const container = await mountRunGraph(workflowDocument, run.steps, longCounts);
+    // A count's length never moves a node: every box is sized for the widest short form.
+    expect(nodeWidths(container)).toEqual(shortWidths);
 
     // The library draws a label once it has measured its text, so the wait is on that state.
     const labels = await waitFor(() => {
@@ -136,7 +141,12 @@ describe("an edge's item count at the largest text size", () => {
       expect(drawn).toHaveLength(workflowDocument.edges.length);
       return drawn;
     });
-    expect(labels.map((label) => label.textContent)).toContain("123,456,789,012");
+    // The count is drawn short, the whole count is its title.
+    for (const label of labels) {
+      const text = label.querySelector(".react-flow__edge-text");
+      expect(text?.querySelector("title")?.textContent).toBe("123,456,789,012 items");
+      expect(text?.querySelector("tspan")?.lastChild?.textContent).toBe("123B");
+    }
     const nodeBoxes = [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map(
       (node) => ({ id: node.dataset["id"], box: node.getBoundingClientRect() }),
     );
@@ -149,6 +159,15 @@ describe("an edge's item count at the largest text size", () => {
     expect(overlaps).toEqual([]);
   });
 });
+
+function nodeWidths(container: HTMLElement): Record<string, number> {
+  return Object.fromEntries(
+    [...container.querySelectorAll<HTMLElement>(".react-flow__node")].map((node) => [
+      node.dataset["id"] ?? "",
+      node.offsetWidth,
+    ]),
+  );
+}
 
 function isOverlapping(first: DOMRect, second: DOMRect): boolean {
   return (

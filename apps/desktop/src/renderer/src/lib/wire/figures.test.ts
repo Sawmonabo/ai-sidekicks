@@ -1,11 +1,19 @@
 // A dollar figure reads to four decimals at or below $0.50, so a spend of a fraction of a cent
 // never reads as nothing spent; a finished duration reads in units, never as a raw millisecond
 // figure for a span of minutes; and a clock figure carries its day in front unless it is today,
-// counted on the machine's own calendar.
+// counted on the machine's own calendar. A compact count is shortened by the platform's own
+// notation, and its widest form is what the platform prints at a rounding edge.
 
 import { describe, expect, it } from "vitest";
 
-import { dayClockChangesAt, formatDayClock, formatMoney, formatUnitDuration } from "./figures.js";
+import {
+  dayClockChangesAt,
+  formatCompactCount,
+  formatDayClock,
+  formatMoney,
+  formatUnitDuration,
+  widestCompactCount,
+} from "./figures.js";
 
 describe("formatMoney", () => {
   it("reads four decimals at or below $0.50 and two above, and nothing spent as $0.00", () => {
@@ -16,6 +24,16 @@ describe("formatMoney", () => {
     expect(formatMoney(11.6)).toBe("$11.60");
     expect(formatMoney(1204.5)).toBe("$1,204.50");
     expect(formatMoney(0)).toBe("$0.00");
+  });
+});
+
+describe("formatCompactCount", () => {
+  it("shortens a count in compact notation, and its widest form is the platform's own", () => {
+    expect(formatCompactCount(9, "en-US")).toBe("9");
+    expect(formatCompactCount(1_250, "en-US")).toBe("1.3K");
+    expect(formatCompactCount(3_400_000, "en-US")).toBe("3.4M");
+    expect(formatCompactCount(123_456_789_012, "en-US")).toBe("123B");
+    expect(widestCompactCount("en-US")).toBe("1000T");
   });
 });
 

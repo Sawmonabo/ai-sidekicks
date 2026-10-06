@@ -1,11 +1,14 @@
-// One node of the run, as a box on the canvas: its name and its first output's item count, its
-// kind, which its box is sized to hold whole, and a ring and a line saying what its latest step is doing and which attempt it is. The
-// library supplies position, focus and handle geometry; every color is drawn from design tokens
-// through the data attributes the sheet reads.
+// One node of the run, as a box on the canvas: its name and its first output's item count, short
+// on the box and whole in its title; its kind, which the box is sized to hold whole; and a ring
+// and a line saying what its latest step is doing and which attempt it is. The library supplies
+// position, focus and handle geometry; every color is drawn from design tokens through the data
+// attributes the sheet reads.
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { formatCompactCount } from "#renderer/lib/wire/figures.js";
+import { itemCountWords } from "#renderer/features/workflows/words.js";
 import { handleOffset, type RunGraphFlowNode } from "./elements.js";
 
 /**
@@ -36,9 +39,12 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
       ))}
       <span className="meridian-run-graph-node__head">
         <span className="meridian-run-graph-node__name">{view.node.name}</span>
-        {view.outputCountFigure === undefined ? null : (
+        {view.outputCount === undefined ? null : (
           <span className="meridian-run-graph-node__count">
-            <WireFigure value={view.outputCountFigure} />
+            <WireFigure
+              value={formatCompactCount(view.outputCount)}
+              title={itemCountWords(view.outputCount)}
+            />
           </span>
         )}
       </span>

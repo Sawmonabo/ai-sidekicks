@@ -114,6 +114,47 @@ export function formatCount(value: number, locale?: string): string {
 }
 
 /**
+ * A count shortened for a figure that must stay narrow, in the locale's compact notation (`1.2K`,
+ * `3.4M`). The full count, `formatCount`, belongs in its title. Non-finite is an em dash.
+ */
+export function formatCompactCount(value: number, locale?: string): string {
+  if (!Number.isFinite(value)) {
+    return UNREADABLE_FIGURE;
+  }
+  return numberFormatFor("compactCount", locale).format(value);
+}
+
+/**
+ * The longest form `formatCompactCount` prints for any whole count up to the largest safe
+ * integer, so a box sized for it holds every count without growing: `1000T` in `en-US`. Read from
+ * the formatter itself, at each rounding edge of every power of ten.
+ */
+export function widestCompactCount(locale?: string): string {
+  let widest = formatCompactCount(0, locale);
+  for (let exponent = 0; exponent <= MAX_SAFE_EXPONENT; exponent += 1) {
+    for (const mantissa of COMPACT_ROUNDING_EDGES) {
+      const value = Math.min(Math.round(mantissa * 10 ** exponent), Number.MAX_SAFE_INTEGER);
+      const figure = formatCompactCount(value, locale);
+      if ([...figure].length > [...widest].length) {
+        widest = figure;
+      }
+    }
+  }
+  return widest;
+}
+
+/** The highest power of ten at or under the largest safe integer. */
+const MAX_SAFE_EXPONENT = Math.floor(Math.log10(Number.MAX_SAFE_INTEGER));
+
+/**
+ * Mantissas on either side of where compact notation rounds a figure up a digit or a unit, and the
+ * largest safe integer's own, so the widest figure of each power of ten is among them.
+ */
+const COMPACT_ROUNDING_EDGES: readonly number[] = [
+  1, 1.25, 9.49, 9.5, 9.94, 9.95, 99.4, 99.5, 999.4, 999.5, 9.007199254740991,
+];
+
+/**
  * A duration in milliseconds: digital (`1:05`, `1:02:03`) at one minute and above, `1.2 s` below
  * it, and milliseconds under a second, since 340 ms is not "0.3 s" to anyone debugging. Every
  * numeral passes through `Intl`; only the `:` separators are ours.

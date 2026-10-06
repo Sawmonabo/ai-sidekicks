@@ -36,8 +36,8 @@ export interface RunGraphNodeView {
   readonly isDisabled: boolean;
   /** `Attempt 2` on a node whose latest step is a retry; absent on a first attempt. */
   readonly attemptWords: string | undefined;
-  /** How many items left the node's first output, `3`, once its latest step ran through. */
-  readonly outputCountFigure: string | undefined;
+  /** How many items left the node's first output, once its latest step ran through. */
+  readonly outputCount: number | undefined;
   /**
    * The failure's first line, verbatim, after the failing item where the error names one
    * (`Item 2 · The summary came back empty`); present only on a failed node that carries either.
@@ -197,7 +197,7 @@ function nodeView(
     isWaitingOnPerson: isPersonWaitCause(waitCause),
     isDisabled,
     attemptWords,
-    outputCountFigure: outputCount === undefined ? undefined : formatCount(outputCount),
+    outputCount,
     errorLine,
     resumeLine,
     stateWords,
