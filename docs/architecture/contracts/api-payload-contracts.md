@@ -9302,10 +9302,12 @@ interface AgentDefinition {
   // agent file's `hooks` key holds, one entry per event, each a list of `{ matcher?, hooks: [handler] }`.
   // null = none. The console's own pause hooks are the daemon's and never appear here.
   hooks: AgentHooks | null;
-  // The agent's one memory: "user" = everywhere, in the daemon's own agent-memory folder, which every
-  // Claude Code config home links to; "project" = this project, saved with the repository; "local" =
-  // this project, on this machine only; null = none. Claude Code reads it natively and the daemon reads
-  // it for a Codex run, so either provider running the agent reads and writes the same folder.
+  // The agent's one memory, read on screen as `All projects`, `This project · in the repo`,
+  // `This project · not in the repo` or `None`: "user" = every project, in the daemon's own
+  // agent-memory folder, which every Claude Code config home links to; "project" = this project, kept
+  // in the repository; "local" = this project, kept outside the repository; null = none. Claude Code
+  // reads it natively and the daemon reads it for a Codex run, so either provider running the agent
+  // reads and writes the same folder.
   memoryScope: "user" | "project" | "local" | null;
   createdAt: string; // ISO-8601
   updatedAt: string;
