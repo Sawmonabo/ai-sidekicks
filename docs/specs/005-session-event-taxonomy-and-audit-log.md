@@ -230,7 +230,7 @@ The fourth set of `interactive_request` events: an agent stops mid-turn to ask t
 
 | Type | Description |
 | --- | --- |
-| `question.asked` | An agent asked the person one or more questions mid-turn, and the record the screen renders was created. Payload `{questionId, sessionId, runId?, waitId?, isAgentWaiting, pageCount, questions[]}`: `questions[]` is the agent's free text and the options it offers. |
+| `question.asked` | An agent asked the person one or more questions mid-turn, and the record the screen renders was created. Payload `{questionId, sessionId, runId?, waitId?, isAgentWaiting, questions[]}`: `questions[]` is the agent's free text and the options it offers, one question per page. |
 
 > See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed payload definitions.
 

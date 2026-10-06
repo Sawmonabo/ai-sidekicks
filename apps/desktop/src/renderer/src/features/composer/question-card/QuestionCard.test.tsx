@@ -17,7 +17,6 @@ import { QuestionCard } from "./QuestionCard.js";
 const OPEN_QUESTION: QuestionReading = {
   questionId: "019b793b-7b60-7a21-9f14-6b0c2a7d0e11",
   runId: undefined,
-  pageCount: 2,
 };
 
 const BRANCH_QUESTION: QuestionPrompt = {

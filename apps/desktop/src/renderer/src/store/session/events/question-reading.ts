@@ -1,8 +1,8 @@
 // An agent's question, read off a `question.asked` row's open payload with the typed readers of
 // `wire-payload.ts`; an absent or wrongly-typed member reads as `undefined`.
 //
-// This reads which question it is, the run holding it, and its page count; the card takes the
-// questions' text and options as a prop. A question has no deadline on either provider and no
+// This reads which question it is and the run holding it; the card takes the questions' text and
+// options as a prop. A question has no deadline on either provider and no
 // terminal event: the answer lands as the person's own turn and the card closes when the
 // question's attention entry resolves.
 
@@ -10,7 +10,7 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-import { projectedPayload, readWireCount } from "./wire-payload.js";
+import { projectedPayload } from "./wire-payload.js";
 
 /** One question record, as much of it as the row's payload carries. */
 export interface QuestionReading {
@@ -18,8 +18,6 @@ export interface QuestionReading {
   readonly questionId: string;
   /** The run the question blocks, off the row's own arm; `undefined` on a non-run row. */
   readonly runId: RunId | undefined;
-  /** How many questions the record carries, one page each. */
-  readonly pageCount: number;
 }
 
 /**
@@ -38,8 +36,7 @@ export type AnswerDelivery =
 export const UNSENT_ANSWER_DELIVERY: AnswerDelivery = Object.freeze({ status: "unsent" });
 
 /**
- * Read one row as a question, or `undefined` for a row of another type or one missing its id
- * or page count.
+ * Read one row as a question, or `undefined` for a row of another type or one missing its id.
  *
  * @consumedBy the question card, once the composer reads it off the session's question rows
  */
@@ -49,10 +46,9 @@ export function readQuestion(row: TranscriptEventRow): QuestionReading | undefin
   }
   const payload = projectedPayload(row);
   const questionId = readWireString(payload["questionId"]);
-  const pageCount = readWireCount(payload, "pageCount");
-  if (questionId === undefined || pageCount === undefined) {
+  if (questionId === undefined) {
     return undefined;
   }
   // Only the `run` arm carries an attribution, so narrow on `kind` rather than the payload.
-  return { questionId, runId: row.kind === "run" ? row.runId : undefined, pageCount };
+  return { questionId, runId: row.kind === "run" ? row.runId : undefined };
 }

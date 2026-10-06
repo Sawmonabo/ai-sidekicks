@@ -422,7 +422,6 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
       sessionId: SESSION_ID,
       runId: RUN_ARCHITECT,
       isAgentWaiting: true,
-      pageCount: 1,
       questions: [
         {
           text: "Keep the old session store behind a flag while the lanes move over?",

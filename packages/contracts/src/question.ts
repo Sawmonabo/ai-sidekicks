@@ -80,8 +80,7 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
 /**
  * The `question.asked` payload. Exactly one of `runId` (an agent's or a tool server's question)
  * and `waitId` (a workflow step's) names what is waiting. `questions` holds every question of the
- * record, one per page in order, so a rebuilt card pages through them with no further read;
- * `pageCount` is its length.
+ * record, one per page in order, so a rebuilt card pages through them with no further read.
  */
 export type QuestionAskedPayload = {
   questionId: QuestionId;
@@ -93,7 +92,6 @@ export type QuestionAskedPayload = {
    * own is raised, and the `user.message` naming it as `answersQuestionId` marks it answered.
    */
   isAgentWaiting: boolean;
-  pageCount: number;
   questions: QuestionPrompt[];
 };
 /** Parses a {@link QuestionAskedPayload}. */
@@ -104,7 +102,6 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
     runId: RunIdSchema.optional(),
     waitId: uuidTextFormSchema.optional(),
     isAgentWaiting: z.boolean(),
-    pageCount: z.number().int().positive(),
     questions: z.array(QuestionPromptSchema).min(1),
   })
   .strict()
@@ -114,13 +111,6 @@ export const QuestionAskedPayloadSchema: z.ZodType<QuestionAskedPayload> = z
         code: "custom",
         path: ["waitId"],
         message: "a question names either the run or the workflow wait it holds, not both",
-      });
-    }
-    if (payload.pageCount !== payload.questions.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["pageCount"],
-        message: "a question record has one page per question",
       });
     }
   });

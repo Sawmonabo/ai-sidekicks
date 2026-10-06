@@ -5431,12 +5431,9 @@ interface QuestionAskedPayload {
   // False only on a question the agent does not wait for (Codex's `agentMessage` item carrying
   // `questions` with `delivery: "async"`): the run keeps running and no card of its own is raised.
   isAgentWaiting: boolean;
-  // Several questions page one at a time; `pageCount` is how many there are, the length of
-  // `questions`.
-  pageCount: number;
   // The questions an agent, a tool server or a workflow wrote, stored as plain text like every
   // other column. They are all here, one per page in order, so paging needs no further read and
-  // typed text survives paging both ways. At least one.
+  // typed text survives paging both ways; their count is the page count. At least one.
   questions: Array<{
     // The short chip beside the eyebrow: the agent's own header, a tool server's name, or a workflow's
     // name; absent where there is none.
