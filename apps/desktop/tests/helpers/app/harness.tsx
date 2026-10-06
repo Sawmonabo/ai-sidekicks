@@ -1,9 +1,8 @@
-// Shared mounting for the browser and accessibility tiers.
+// The one app mount, for the renderer, browser and accessibility tiers.
 //
 // Every mount settles first: `AppProviders` upgrades the store to the durable adapter after mount,
 // so asserting straight after `render` hits a half-settled tree.
 
-import { cdp } from "vitest/browser";
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { onTestFinished } from "vitest";
@@ -16,7 +15,6 @@ import { FrameWindows } from "../frame-windows.js";
 import { crossMacrotaskBoundary } from "../macrotask-boundary.js";
 import { paneRegistry } from "#renderer/registries/panes/registry.js";
 import { screenRegistry } from "#renderer/registries/screens/registry.js";
-import { type ColorScheme } from "#renderer/styles/tokens.js";
 
 /**
  * Loads every deferred body the process-wide pane and screen registries hold.
@@ -26,10 +24,10 @@ import { type ColorScheme } from "#renderer/styles/tokens.js";
  * deferred address would read or audit the reserved region. A feature mount builds its own
  * registry and resolves one body through `accessibility/feature-mounts/pane-body-resolution.ts`.
  *
- * It walks every registered key, not the unloaded ones (as `mount-app.tsx` does for screens):
- * mounting is itself an ask, so a tier mounting at a lazy address has React call that loader
- * during the initial render and the key has already left `unloadedKeys()`. `preload` settles at
- * once for a body in hand and joins the in-flight promise for one still arriving.
+ * It walks every registered key, not the unloaded ones: mounting is itself an ask, so a tier
+ * mounting at a lazy address has React call that loader during the initial render and the key has
+ * already left `unloadedKeys()`. `preload` settles at once for a body in hand and joins the
+ * in-flight promise for one still arriving.
  */
 async function loadRegisteredBodies(): Promise<void> {
   await Promise.all([
@@ -38,20 +36,6 @@ async function loadRegisteredBodies(): Promise<void> {
       .registeredScreenNames()
       .map(async (screenName) => screenRegistry.preload(screenName)),
   ]);
-}
-
-/**
- * Puts the page in a scheme the way a person's operating system does.
- *
- * Not by stamping the scheme attribute: `AppProviders` writes its own store's preference into it
- * in a layout effect, so a value set before mounting is overwritten with the default `"system"`
- * on first paint. Emulating `prefers-color-scheme` drives the layer a default install uses.
- * Chromium-only, through CDP; the browser-mode tiers pin Chromium.
- */
-export async function emulateSystemScheme(scheme: ColorScheme): Promise<void> {
-  await cdp().send("Emulation.setEmulatedMedia", {
-    features: [{ name: "prefers-color-scheme", value: scheme }],
-  });
 }
 
 /**

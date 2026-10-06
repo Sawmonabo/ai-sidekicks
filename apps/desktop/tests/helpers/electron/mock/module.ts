@@ -12,13 +12,13 @@
 //
 //     const electronMock = createElectronMock({ recordOrder: true });
 //     vi.mock("electron", () => electronMock.moduleExports);
-//     // …then, inside a test: await import("./window.js")
+//     // …then, inside a test: await import("./factory.js")
 //
 // A suite that statically imports the module under test cannot use this shape: the static import
 // evaluates before the `const` initializes, so the factory would read a binding in its temporal
 // dead zone. Such a suite keeps a local factory (`src/main/services/renderer/protocol.test.ts`).
 //
-// The reading helpers the window suites share live in `../../window-harness.ts`.
+// The reading helpers the window suites share live in `readers.ts`.
 
 import { vi } from "vitest";
 
@@ -31,6 +31,7 @@ import {
   type MockWebContentsView,
   type MockWebContentsViewOptions,
 } from "./window.js";
+import { INDEX_URL } from "./readers.js";
 
 /**
  * One entry of a `Menu.buildFromTemplate` template, as a test reads it.
@@ -57,9 +58,6 @@ const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
 
 /** The work area of the one display the mocked `screen` reports until a test sets others. */
 const MOCK_PRIMARY_WORK_AREA: MockRectangle = { x: 0, y: 25, width: 1440, height: 875 };
-
-/** The document the mocked `ipcRenderer` asks from: one of the app's own. */
-const MOCK_RENDERER_DOCUMENT_URL = "sidekicks-renderer://app/index.html";
 
 /** What an `ipcMain.on` listener is handed: the asking frame, its page, and the sync answer. */
 interface MockIpcMainEvent {
@@ -336,7 +334,7 @@ class ElectronMockImpl implements ElectronMock {
       on: vi.fn(),
     };
     const rendererEvent = (): MockIpcMainEvent => ({
-      senderFrame: { url: MOCK_RENDERER_DOCUMENT_URL },
+      senderFrame: { url: INDEX_URL },
       sender: rendererPage,
       returnValue: undefined,
     });

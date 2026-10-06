@@ -1,8 +1,8 @@
 // Reading and building helpers shared by the window suites. Each suite owns its
 // `createElectronMock` instance and `vi.mock("electron", …)`, because the instance must be a
-// file-local `const` for the hoisted factory to close over (see
-// `./electron/mock/module.ts`). Only the reading is shared: the casts back to the mock, the
-// listener accessors, a window's frame and the URL literals.
+// file-local `const` for the hoisted factory to close over (see `module.ts`). Only the reading is
+// shared: the casts back to the mock, the listener accessors, a window's frame and the URL
+// literals.
 
 import { expect, vi, type Mock } from "vitest";
 
@@ -10,11 +10,7 @@ import type { MainDiagnosticLog } from "#main/services/diagnostic-log.js";
 import type { WindowFrame } from "#main/windows/factory.js";
 import { MERIDIAN_GROUNDS } from "#shared/appearance.js";
 
-import {
-  createMockWebContents,
-  type MockBaseWindow,
-  type MockWebContents,
-} from "./electron/mock/window.js";
+import { createMockWebContents, type MockBaseWindow, type MockWebContents } from "./window.js";
 
 /** The dev-server origin `ELECTRON_RENDERER_URL` carries under `electron-vite dev`. */
 export const DEV_SERVER_URL = "http://localhost:5173";
@@ -25,24 +21,11 @@ export const DEV_SERVER_URL = "http://localhost:5173";
  */
 export const INDEX_URL = "sidekicks-renderer://app/index.html";
 
-/**
- * What every locked window's document carries, in the order `constructLockedWindow` installs it:
- * the navigation policy, then the close pairing and the title mirror. Named once
- * so the ordering cases read as these, then the caller's hook, then the load, and a new seam fails
- * all of them at once.
- */
-export const LOCKED_WINDOW_OPERATIONS: readonly string[] = [
-  "webContents.on:will-navigate",
-  "webContents.on:will-redirect",
-  "webContents.setWindowOpenHandler",
-  "webContents.once:destroyed",
-  "webContents.on:page-title-updated",
-];
-
 /** Main's log as a window case reads it: every entry written, and a drain that settles at once. */
-export interface RecordingWindowLog {
+interface RecordingWindowLog {
   readonly write: Mock<MainDiagnosticLog["write"]>;
   readonly drain: Mock<MainDiagnosticLog["drain"]>;
+  readonly lastWriteFailure: string | null;
 }
 
 /** A window frame at a fixed rectangle, answering no `window.open`, over a log of its own. */
@@ -55,6 +38,7 @@ export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindow
     log: {
       write: vi.fn<MainDiagnosticLog["write"]>(),
       drain: vi.fn<MainDiagnosticLog["drain"]>(() => Promise.resolve()),
+      lastWriteFailure: null,
     },
   };
 }
@@ -65,7 +49,7 @@ export function loggedMessages(log: RecordingWindowLog): string[] {
 }
 
 /** One window the factories hand back, as the mock built it. */
-export interface MockRendererWindow {
+interface MockRendererWindow {
   readonly baseWindow: MockBaseWindow;
   readonly document: MockWebContents;
 }
@@ -97,7 +81,10 @@ export function handedDocument(): MockWebContents {
   });
 }
 
-/** Ids for handed documents, counted from far past any the Electron mock mints in one suite. */
+/**
+ * Ids for handed documents, counted from far past any the Electron mock mints in one suite. One
+ * count serves the whole file on purpose: an id only has to differ from every other, never restart.
+ */
 class HandedDocumentIds {
   #nextId = 10_000;
 
@@ -108,9 +95,6 @@ class HandedDocumentIds {
 
 const handedDocumentIds = new HandedDocumentIds();
 
-/** A navigation listener as a case invokes it. */
-export type NavigationListener = (event: { preventDefault: () => void }, url: string) => void;
-
 /** The handler `setWindowOpenHandler` received for a window's document. */
 export function windowOpenHandlerOf(
   rendererWindow: unknown,
@@ -118,17 +102,4 @@ export function windowOpenHandlerOf(
   const handler = asMockWindow(rendererWindow).document.windowOpenHandler;
   expect(handler).toBeDefined();
   return handler as (details: { url: string; frameName: string }) => unknown;
-}
-
-/**
- * The listener registered for one navigation event on a window's document. It takes the event
- * because `will-navigate` and `will-redirect` share one classification.
- */
-export function navigationListenerOf(
-  rendererWindow: unknown,
-  eventName: "will-navigate" | "will-redirect",
-): NavigationListener {
-  const listeners = asMockWindow(rendererWindow).document.listenersOf(eventName);
-  expect(listeners).toHaveLength(1);
-  return listeners[0] as unknown as NavigationListener;
 }

@@ -3,7 +3,7 @@
 // Per-phase allowances would add up past the tier timeout, and a test vitest kills mid-phase never
 // runs `close()`, leaving a live Electron and its profile behind. So one `LaunchDeadline` is split
 // into three slices: the readiness ladder, the frame paint probe, and cleanup (two phases wide,
-// because the SIGKILL in `bounded-cleanup.ts` is the second). Readiness waits draw what is left
+// because the SIGKILL in `cleanup/bounded.ts` is the second). Readiness waits draw what is left
 // after the later two are held back. `tierTimeoutFor()` derives the tier timeout from the sum.
 
 import { CLEANUP_BUDGET_MS, FRAME_PAINT_PROBE_TIMEOUT_MS, READINESS_BUDGET_MS } from "./budgets.js";
@@ -11,7 +11,7 @@ import { CLEANUP_BUDGET_MS, FRAME_PAINT_PROBE_TIMEOUT_MS, READINESS_BUDGET_MS } 
 /**
  * How many times one cleanup can spend `CLEANUP_BUDGET_MS`.
  *
- * Two phases, not a retry of one. `bounded-cleanup.ts` races `application.close()` against the
+ * Two phases, not a retry of one. `cleanup/bounded.ts` races `application.close()` against the
  * figure, and a close it had to abandon is followed by a termination loop that restarts the same
  * figure at its own first attempt; the loop cannot draw on what the close left, since on the path
  * it exists for the close left nothing. Reserving the figure once would let a hung close followed
@@ -129,7 +129,7 @@ export class LaunchDeadline {
    *
    * It matches by identity, not by message or a bare `instanceof`: an inner deadline is a
    * different subject with a more specific phase, and its expiry must reach the caller as the
-   * work's own failure. `bounded-cleanup.ts`'s race takes the same shape, deciding the winner
+   * work's own failure. `cleanup/bounded.ts`'s race takes the same shape, deciding the winner
    * from the race itself and using the clock only to report duration.
    */
   raisedExpiry(error: unknown): boolean {

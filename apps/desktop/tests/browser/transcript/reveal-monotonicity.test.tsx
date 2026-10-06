@@ -5,14 +5,14 @@
 //
 // The shipped path runs end to end: `useReveal` mints the `RevealEngine`, `RowRevealProvider`
 // publishes its channel, and the row body reads its lane through `useRowReveal`. This file
-// supplies only the probe body and the deltas, as a producer does. The recorder lives in
-// `visible-text-monotonicity.ts` because any view that reveals text incrementally wants it.
+// supplies only the probe body and the deltas, as a producer does; `visible-text.ts` holds the
+// recorder.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { renderSettled } from "../../helpers/app/harness.js";
-import { VisibleTextMonotonicityRecorder } from "../visible-text-monotonicity.js";
+import { VisibleTextMonotonicityRecorder } from "./visible-text.js";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { RowRevealProvider } from "#renderer/features/transcript/reveal/components/RowRevealProvider.js";

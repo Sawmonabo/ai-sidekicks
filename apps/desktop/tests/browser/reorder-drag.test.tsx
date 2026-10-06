@@ -15,7 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { renderSettled } from "../helpers/app/harness.js";
+import { clearMediaEmulation, emulateReducedMotion } from "../helpers/media-emulation.js";
 import { bridgeWrapper, FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
+import { layoutPaneContext } from "../helpers/pane-context.js";
 import { liveRegionText, politeText } from "../helpers/live-region.js";
 import type { PreviewPage } from "@ai-sidekicks/contracts/preview/methods";
 
@@ -27,12 +29,10 @@ import { PageTabStrip } from "#renderer/features/preview/components/PageTab/Page
 import { previewPage } from "#renderer/features/preview/page-list-reading.test-support.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import type { SessionPane } from "#renderer/features/sessions/pane-layout/state.js";
 import {
   PANE_LAYOUT_RESTORED_PANE_CAP,
   PaneLayoutStore,
 } from "#renderer/features/sessions/pane-layout/store.js";
-import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
@@ -238,7 +238,7 @@ function tabAt(tabs: readonly HTMLElement[], index: number): HTMLElement {
 
 describe("browser — dragging a tab to reorder", () => {
   afterEach(async () => {
-    await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+    await clearMediaEmulation();
   });
 
   it("carries a tab on the pointer, parts its neighbors, commits once, and Escape commits nothing", async () => {
@@ -416,9 +416,7 @@ describe("browser — dragging a tab to reorder", () => {
   });
 
   it("moves without gliding where reduced motion is asked for, and a short press still selects", async () => {
-    await cdp().send("Emulation.setEmulatedMedia", {
-      features: [{ name: "prefers-reduced-motion", value: "reduce" }],
-    });
+    await emulateReducedMotion();
     const onReorder = vi.fn();
     const onSelect = vi.fn();
     const strip = await mountTabs({ onReorder, onSelect });
@@ -567,14 +565,17 @@ describe("browser — dragging a pane to reorder", () => {
     const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
     const firstPane = layout.open({ kind: "transcript" });
     const secondPane = layout.open({ kind: "terminal" });
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const mount = await renderSettled(
-      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+      <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
           {createPortal(
             <SessionPaneLayout
               layout={layout}
               registry={registryWithFrames()}
-              paneContextFor={paneContextFor}
+              paneContextFor={(pane) =>
+                layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
+              }
             />,
             secondWindow.document.body,
           )}
@@ -671,9 +672,4 @@ function registryWithFrames(): PaneRegistry {
     });
   }
   return registry;
-}
-
-/** The pane context, cast: the bodies above read only the pane id. */
-function paneContextFor(pane: SessionPane): PaneContext {
-  return { kind: pane.kind, entity: pane.entity, paneId: pane.paneId } as unknown as PaneContext;
 }

@@ -29,7 +29,7 @@ export interface MockWebContentsViewOptions {
 }
 
 /** What a window-open handler is handed. */
-export interface MockWindowOpenDetails {
+interface MockWindowOpenDetails {
   readonly url: string;
   readonly frameName: string;
 }
@@ -119,7 +119,7 @@ export interface MockBaseWindow {
  * What a window, view or document needs from the mock that owns it. A narrow view rather than the
  * mock's own type, so a window cannot reach the menu log or the `ipcMain` registry.
  */
-export interface MockWindowOwner {
+interface MockWindowOwner {
   record(operation: string): void;
   recordConstruction(baseWindow: MockBaseWindow): void;
   recordView(view: MockWebContentsView): void;
@@ -132,7 +132,7 @@ export interface MockWindowOwner {
  * The listeners of one emitter, by event name. Every listener on an event runs, in the order it was
  * added, and one added with `once` is removed before it runs, as Node's `EventEmitter` does.
  */
-export class MockEventListeners {
+class MockEventListeners {
   readonly #listeners = new Map<string, ((...args: never[]) => unknown)[]>();
 
   /** Adds `listener` for every later `eventName`. */

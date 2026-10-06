@@ -100,7 +100,7 @@ export const INTERVAL_AGREEMENT_LOWER_FACTOR: number = 0.5;
  *
  * One pane's own figure: three came and went, so a per-instance retention would show three times
  * over. The claim is deliberately the weaker one; this row owns the pane-shaped teardown, and
- * the adapter's churn accounting is `tests/endurance/xterm-adapter.test.ts`'s. Scaled by
+ * the adapter's churn accounting is `tests/endurance/terminal/adapter.test.ts`'s. Scaled by
  * {@link TerminalInstanceSeries.perInstanceBytes} and never by the first delta alone, so one
  * under-read cannot tighten this bound in the same run that fails the slope.
  */

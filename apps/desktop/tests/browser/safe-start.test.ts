@@ -3,7 +3,7 @@
 // and says so in one line; `Restore windows` reopens every kept window and tells main the safe
 // start ended. The negative control is an ordinary load over the same kept layout, which opens the
 // kept windows on their kept addresses, brings the window used last back to its own, and shows no
-// line. Main's ask to reopen a window, once none is open, opens it.
+// line. Main's ask to reopen a window opens the one it names.
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

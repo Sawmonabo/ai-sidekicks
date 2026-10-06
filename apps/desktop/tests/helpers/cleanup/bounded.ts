@@ -10,12 +10,12 @@
 // carries. A profile that could not be removed travels on the outcome too;
 // `cleanup/disposition.ts` decides what a caller is told.
 
-import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "./electron/child/managed-child.js";
-import { type CleanupOutcome, type ClosableApplication } from "./cleanup/contract.js";
-import { CLEANUP_BUDGET_MS } from "./launch/budgets.js";
-import { type LaunchProfile, removeLaunchProfile } from "./launch/profile.js";
-import { processHasTerminated } from "./process-tree/liveness.js";
-import { terminateProcessTree } from "./process-tree/termination.js";
+import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "../electron/child/managed.js";
+import { type CleanupOutcome, type ClosableApplication } from "./contract.js";
+import { CLEANUP_BUDGET_MS } from "../launch/budgets.js";
+import { type LaunchProfile, removeLaunchProfile } from "../launch/profile.js";
+import { processHasTerminated } from "../process-tree/liveness.js";
+import { terminateProcessTree } from "../process-tree/termination.js";
 
 /** Closes an application within the registered cleanup ceiling, or kills its process tree. */
 export class BoundedCleanup {

@@ -2,6 +2,8 @@
 // unfinished tail is carried into the next chunk; use one scanner per stream, since sharing one
 // would splice the tail of stdout onto the head of stderr.
 
+import { describeFailure } from "#main/services/failure-message.js";
+
 /** Returns the text after `tag` on every line a chunk completes. */
 export class TaggedLineScanner {
   readonly #tag: string;
@@ -50,8 +52,7 @@ export class TaggedJsonReadingScanner<Reading> {
       try {
         this.#reading = JSON.parse(payload) as Reading;
       } catch (parseFailure: unknown) {
-        const reason = parseFailure instanceof Error ? parseFailure.message : String(parseFailure);
-        this.#malformedLines.push(`${payload} (${reason})`);
+        this.#malformedLines.push(`${payload} (${describeFailure(parseFailure)})`);
       }
     }
   }

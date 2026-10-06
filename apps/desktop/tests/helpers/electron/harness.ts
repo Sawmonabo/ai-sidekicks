@@ -1,8 +1,10 @@
-// The one Electron launcher, shared by the end-to-end and endurance tiers.
+// The one Playwright launch of Electron, shared by the end-to-end and endurance tiers and the
+// smoke tier's refused launch.
 //
-// Both tiers need a real main process, a real renderer and the fixture bridge serving the
-// app, built the same way so the endurance tier measures the application the end-to-end tier
-// proved.
+// Each needs a real main process and a real renderer, built the same way so the endurance tier
+// measures the application the end-to-end tier proved. A launch either plays a scenario, which the
+// fixture bridge serves, or plays none and runs main's supervisor against a background service of
+// the test's own.
 //
 // Playwright's `_electron` runs under Vitest rather than `@playwright/test`: `_electron` is the
 // only part these tiers need (attaching to a real Electron process and driving its window), and a
@@ -16,7 +18,7 @@
 //
 // Headless Linux needs an X server. `_electron.launch` takes an executable path, not a shell
 // command, so a per-spawn `xvfb-run` wrapper is not available; the CI job stands one Xvfb up for
-// the whole run and exports `$DISPLAY`, which both tiers inherit through `process.env`. A hosted
+// the whole run and exports `$DISPLAY`, which every launch inherits through `process.env`. A hosted
 // runner has no GPU, so the software graphics switches are in `launch/args.ts`.
 
 import process from "node:process";
@@ -26,7 +28,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { onTestFinished } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
-import { BoundedCleanup } from "../bounded-cleanup.js";
+import { BoundedCleanup } from "../cleanup/bounded.js";
 import { type CleanupOutcome, type ClosableApplication } from "../cleanup/contract.js";
 import {
   cleanupFailure,
@@ -129,7 +131,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
   // Minted before the first phase, including the profile directory, so everything waited on is
   // inside the budget. It carries the whole allowance (readiness, the paint probe, cleanup); each
   // readiness wait reserves the two later slices off it. Cleanup takes its slice as a ceiling, so
-  // it is not handed this clock (`bounded-cleanup.ts`).
+  // it is not handed this clock (`cleanup/bounded.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
   // A launch that plays no scenario runs main's supervisor, which looks for the service; it
   // finds the test's own and starts none on the person's account. A scenario launch reaches no

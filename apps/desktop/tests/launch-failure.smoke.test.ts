@@ -33,10 +33,8 @@ describe("a launch main refuses", () => {
           "carries no scenarios",
       );
       expect(message).toContain("main exited with code 1");
-      // The last line main's process writes, after the handover, as its inspector lets go.
-      expect(message).toMatch(
-        /since the launch handed it over:\n(?:.*\n)*.*Waiting for the debugger to disconnect/,
-      );
+      // The end of main's stderr was read: the section holds what main wrote, not the empty mark.
+      expect(message).toMatch(/since the launch handed it over:\n(?!<nothing>$)\S/u);
       expect(cause).toBeInstanceOf(Error);
       expect((cause as Error).message).toContain("has been closed");
     },

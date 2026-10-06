@@ -12,7 +12,7 @@ import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
 import { terminateProcessTree } from "../../process-tree/termination.js";
-import { SpawnedTreeRecord } from "../../spawned-tree-record.js";
+import { SpawnedTreeRecord } from "../../process-tree/record.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it. The shim forwards
@@ -25,7 +25,7 @@ export const TERMINATION_GRACE_MS = 2_000;
  * How many times a refused disposal asks again before it gives the child up. The first call is
  * the ordinary one, the second exists for a tree that refused one kill and takes the next, and
  * past that the tree is unkillable by this process. It lives beside `disposeUntilKillDelivered`,
- * which spends it; `bounded-cleanup.ts` and `electron/child/teardown.ts` import it so no second
+ * which spends it; `cleanup/bounded.ts` and `electron/child/teardown.ts` import it so no second
  * copy of the bound exists.
  */
 export const DISPOSAL_ATTEMPTS = 3;
@@ -51,9 +51,9 @@ export type ManagedChildProcess = ChildProcessByStdio<null, Readable, Readable>;
  * makes, not part of construction, because it is a blocking `spawnSync` that would otherwise sit
  * between the spawn and the settle-time registration. The descendant set is recorded through
  * `captureTreeDescendants` while the child is up, since an Electron has no children at spawn and
- * by disposal the root is gone; the root's `exit` may only narrow it (`spawned-tree-record.ts`).
+ * by disposal the root is gone; the root's `exit` may only narrow it (`process-tree/record.ts`).
  */
-export class ManagedElectronChild {
+export class ManagedChild {
   readonly #child: ManagedChildProcess;
   readonly #abortController: AbortController;
   readonly #treeRecord: SpawnedTreeRecord = new SpawnedTreeRecord();
@@ -93,7 +93,7 @@ export class ManagedElectronChild {
    * Record the tree below this root, once, while this child is still running.
    *
    * The owner calls it because it learns the child is up by hearing from it, the one moment the
-   * descendant set both exists and is safely readable (`spawned-tree-record.ts`). It costs one
+   * descendant set both exists and is safely readable (`process-tree/record.ts`). It costs one
    * blocking host listing per child, so every enclosing per-test budget reserves it. A child that
    * already reported an exit records nothing rather than whatever now holds its number.
    */

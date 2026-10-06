@@ -5,11 +5,7 @@
 // that child, and the resource must come off disk after the last attempt, not between two of them.
 // That needs exactly one teardown per spawned child, registered by the spawner and nothing else.
 
-import {
-  DISPOSAL_ATTEMPTS,
-  TERMINATION_GRACE_MS,
-  type ManagedElectronChild,
-} from "./managed-child.js";
+import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS, type ManagedChild } from "./managed.js";
 
 /** What a spawn releases once its child is gone: the resource that child held. */
 export type ChildRelease = () => void;
@@ -30,11 +26,11 @@ export type ChildRelease = () => void;
  * `hasClosed` keeps an ordinary teardown one call long.
  */
 export class OrderedChildTeardown {
-  readonly #managed: ManagedElectronChild;
+  readonly #managed: ManagedChild;
   readonly #release: ChildRelease | undefined;
   #settled = false;
 
-  constructor(managed: ManagedElectronChild, release: ChildRelease | undefined) {
+  constructor(managed: ManagedChild, release: ChildRelease | undefined) {
     this.#managed = managed;
     this.#release = release;
   }

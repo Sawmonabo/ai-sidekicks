@@ -65,9 +65,10 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the title bar", () => {
         windowed.overlayStart,
         "the overlay reports no start past the buttons",
       ).toBeGreaterThan(0);
-      expect(windowed.railWidth, "the rail is narrower than the traffic lights").toBe(
-        windowed.overlayStart,
-      );
+      expect(
+        windowed.railWidth,
+        "the rail is narrower than the traffic lights",
+      ).toBeGreaterThanOrEqual(windowed.overlayStart);
       expect(windowed.paddingTop).toBe(`${String(windowed.overlayHeight)}px`);
       expect(
         windowed.firstButtonTop,

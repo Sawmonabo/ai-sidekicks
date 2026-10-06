@@ -54,8 +54,24 @@ async function keepMoreWindows(
       message: "the console kept no window layout",
     })
     .toBeDefined();
-  await appUnderTest.consolePage.evaluate(
-    async ({ address, added }) => {
+  await editKeptLayout(appUnderTest, windowIds);
+}
+
+/** The window layout the console kept, or `undefined` before it has kept one. */
+async function readKeptLayout(appUnderTest: AppUnderTest): Promise<unknown> {
+  return await editKeptLayout(appUnderTest, []);
+}
+
+/**
+ * The window layout the console kept, or `undefined` before it has kept one, read in the console
+ * page; `added` windows are written after the kept ones, each shaped as the first kept entry.
+ */
+async function editKeptLayout(
+  appUnderTest: AppUnderTest,
+  added: readonly string[],
+): Promise<unknown> {
+  return await appUnderTest.consolePage.evaluate(
+    async ({ address, windowIds }) => {
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open(address.databaseName);
         request.onsuccess = () => {
@@ -67,20 +83,25 @@ async function keepMoreWindows(
       });
       try {
         const store = database
-          .transaction(address.storeName, "readwrite")
+          .transaction(address.storeName, windowIds.length > 0 ? "readwrite" : "readonly")
           .objectStore(address.storeName);
-        const record = await new Promise<{ value: Record<string, object> }>((resolve, reject) => {
-          const read = store.get(address.key);
-          read.onsuccess = () => {
-            resolve(read.result as { value: Record<string, object> });
-          };
-          read.onerror = () => {
-            reject(read.error ?? new Error("the kept layout did not read"));
-          };
-        });
+        const record = await new Promise<{ value: Record<string, object> } | undefined>(
+          (resolve, reject) => {
+            const read = store.get(address.key);
+            read.onsuccess = () => {
+              resolve(read.result as { value: Record<string, object> } | undefined);
+            };
+            read.onerror = () => {
+              reject(read.error ?? new Error("the kept layout did not read"));
+            };
+          },
+        );
+        if (record === undefined || windowIds.length === 0) {
+          return record?.value;
+        }
         const kept = Object.values(record.value);
         const value = { ...record.value };
-        added.forEach((windowId, index) => {
+        windowIds.forEach((windowId, index) => {
           value[windowId] = { ...kept[0], order: kept.length + index };
         });
         await new Promise<void>((resolve, reject) => {
@@ -92,40 +113,12 @@ async function keepMoreWindows(
             reject(write.error ?? new Error("the kept layout did not write"));
           };
         });
+        return record.value;
       } finally {
         database.close();
       }
     },
-    { address: KEPT_LAYOUT_ADDRESS, added: windowIds },
-  );
-}
-
-/** The window layout the console kept, or `undefined` before it has kept one. */
-async function readKeptLayout(appUnderTest: AppUnderTest): Promise<unknown> {
-  return await appUnderTest.consolePage.evaluate(
-    async (address) =>
-      await new Promise<unknown>((resolve, reject) => {
-        const request = indexedDB.open(address.databaseName);
-        request.onerror = () => {
-          reject(request.error ?? new Error("the UI-state database did not open"));
-        };
-        request.onsuccess = () => {
-          const database = request.result;
-          const read = database
-            .transaction(address.storeName)
-            .objectStore(address.storeName)
-            .get(address.key);
-          read.onsuccess = () => {
-            database.close();
-            resolve((read.result as { value?: unknown } | undefined)?.value);
-          };
-          read.onerror = () => {
-            database.close();
-            reject(read.error ?? new Error("the kept layout did not read"));
-          };
-        };
-      }),
-    KEPT_LAYOUT_ADDRESS,
+    { address: KEPT_LAYOUT_ADDRESS, windowIds: added },
   );
 }
 
@@ -224,17 +217,20 @@ async function stepWindowInMain(
           ),
         );
       const target = byName();
+      if (target === undefined) {
+        throw new Error(`no window shows a document named ${frameName}`);
+      }
       return await new Promise<WindowStepReading>((resolve) => {
         const read = (): void => {
           const current = byName();
           resolve({ isOpen: current !== undefined, isMinimized: current?.isMinimized() ?? false });
         };
         if (windowStep === "close") {
-          target?.once("closed", read);
-          target?.close();
+          target.once("closed", read);
+          target.close();
         } else {
-          target?.once("minimize", read);
-          target?.minimize();
+          target.once("minimize", read);
+          target.minimize();
         }
         setTimeout(read, stepDeadlineMs);
       });

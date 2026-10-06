@@ -1,6 +1,6 @@
 // The allowance the caller's test body runs inside, and what happens when it ends.
 //
-// `deadline.ts` bounds the launch and `bounded-cleanup.ts` bounds the close; this bounds
+// `deadline.ts` bounds the launch and `cleanup/bounded.ts` bounds the close; this bounds
 // the body between them. An unbounded body can be killed by vitest mid-poll, so the poll's own
 // message never prints, cleanup never runs and the Electron survives into later launches. The
 // body gets a bound of its own, worded to name which allowance expired, and the tier's timeout is
@@ -82,15 +82,12 @@ export class BodyAllowance {
       return error;
     }
     return new Error(
-      `${TEST_BODY_PHASE} did not settle within the ` +
-        `${String(this.#allowanceMs)} ms allowance the ` +
-        "harness reserves for it — the tier's own " +
-        "timeout is that allowance plus the launch budget " +
-        "and a settlement residual, so this sentence " +
-        "and the close that follows it both reach you " +
-        "rather than vitest killing the test mid-body " +
-        "and leaving an Electron alive; a tier whose " +
-        "body needs longer states its own allowance (tests/helpers/launch/budgets.ts)",
+      `${TEST_BODY_PHASE} did not settle within the ${String(this.#allowanceMs)} ms allowance ` +
+        "the harness reserves for it — the tier's own timeout is that allowance plus the " +
+        "launch budget and a settlement residual, so this sentence and the close that follows " +
+        "it both reach you rather than vitest killing the test mid-body and leaving an " +
+        "Electron alive; a tier whose body needs longer states its own allowance " +
+        "(tests/helpers/launch/budgets.ts)",
       { cause: error },
     );
   }

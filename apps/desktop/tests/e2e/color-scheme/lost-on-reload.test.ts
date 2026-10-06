@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { APPEARANCE_FILE_NAME } from "#main/appearance/record-file.js";
 import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
-import { clickViewMenuScheme, readPageScheme } from "./access.js";
+import { clickViewMenuScheme, readMenuTicks, readPageScheme } from "./access.js";
 import { openPalette } from "../../helpers/palette-interaction.js";
 import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
@@ -25,15 +25,6 @@ async function readKeptScheme(appUnderTest: AppUnderTest): Promise<unknown> {
   const userData = await appUnderTest.application.evaluate(({ app }) => app.getPath("userData"));
   const recordText = await readFile(path.join(userData, APPEARANCE_FILE_NAME), "utf8");
   return (JSON.parse(recordText) as { readonly scheme?: unknown }).scheme;
-}
-
-/** The View menu's scheme rows, label and tick, as main installed them. */
-async function readMenuTicks(appUnderTest: AppUnderTest): Promise<Record<string, boolean>> {
-  return await appUnderTest.application.evaluate(({ Menu }) => {
-    const view = Menu.getApplicationMenu()?.items.find((item) => item.label === "View");
-    const rows = (view?.submenu?.items ?? []).filter((item) => item.type === "radio");
-    return Object.fromEntries(rows.map((row) => [row.label, row.checked]));
-  });
 }
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the color scheme is main's record", () => {

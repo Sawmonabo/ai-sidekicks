@@ -1,4 +1,4 @@
-// The visible-text monotonicity recorder: one role, for every streaming view.
+// The visible-text monotonicity recorder, for the transcript's reveal suite.
 //
 // The reveal engine's contract is that published text never regresses. Reading the final string
 // cannot check that: a lane that showed "hello wor", then "hello", then "hello world" ends
@@ -10,9 +10,8 @@
 // published text and announces a diagnostic, is not excused here; a caller that expects one
 // asserts the diagnostic and reads `regressions` for the retraction it names.
 //
-// It is one shared module because any view that reveals text incrementally (a row body, a tool
-// result, a reasoning tail) wants the same watcher, and it is used from the browser tier because
-// under a DOM shim the records come from a simulated tree, not the engine that paints.
+// It runs in the browser tier because under a DOM shim the records come from a simulated tree, not
+// the engine that paints.
 
 /** One place the visible text went backwards, with the record that carried it. */
 export interface VisibleTextRegression {

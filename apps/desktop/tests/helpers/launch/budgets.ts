@@ -38,7 +38,7 @@ export const FRAME_PAINT_PROBE_TIMEOUT_MS: number = BUDGETS.requireCanonicalValu
 /**
  * How long `application.close()` gets before the process tree is SIGKILLed.
  *
- * `bounded-cleanup.ts` races the close against it, so what matters is that some finite bound is
+ * `cleanup/bounded.ts` races the close against it, so what matters is that some finite bound is
  * enforced against a wedged Electron, not that it is tight. It applies unchanged on the
  * failed-launch and success paths. Crossing it costs a kill and a breadcrumb, never a red check:
  * `terminated` records and passes, while `unterminable` and `closed-after-rejection` fail.

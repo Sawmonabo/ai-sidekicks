@@ -1,10 +1,12 @@
 // What a caller is told when a close did not go cleanly, and whose failure wins.
 //
-// `bounded-cleanup.ts` owns the race; this owns the disposition of its verdict: which outcomes a
-// caller must be shown, how they are worded, and what happens when the test body failed too.
+// `bounded.ts` owns the race; this owns the disposition of its verdict: which outcomes a caller
+// must be shown, how they are worded, and what happens when the test body failed too.
 //
 // Outcomes a later launch can feel raise; a tree that was SIGKILLed and is therefore gone is only
 // a breadcrumb. `cleanupFailure` draws that line once.
+
+import { describeFailure } from "#main/services/failure-message.js";
 
 import { type CleanupOutcome, type ClosableApplication } from "./contract.js";
 import { type ProfileRemovalFailure } from "../launch/profile.js";
@@ -83,7 +85,7 @@ function closeRejectionReason(closeRejection: unknown): string | undefined {
   if (closeRejection === undefined) {
     return undefined;
   }
-  return closeRejection instanceof Error ? closeRejection.message : String(closeRejection);
+  return describeFailure(closeRejection);
 }
 
 /** How the close itself is worded to a caller carrying its own failure. */
@@ -94,25 +96,23 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
   const rejectionReason = closeRejectionReason(outcome.closeRejection);
   if (outcome.settlement === "closed-after-rejection") {
     return (
-      `closing the launched Electron failed` +
-      `${rejectionReason === undefined ? "" : ` (close rejected: ${rejectionReason})`}` +
-      ` — though the ` +
-      `process did exit, so nothing was left running`
+      "closing the launched Electron failed" +
+      (rejectionReason === undefined ? "" : ` (close rejected: ${rejectionReason})`) +
+      " — though the process did exit, so nothing was left running"
     );
   }
   const consequence =
     outcome.settlement === "terminated"
       ? "so its process tree was SIGKILLed; later launches are unaffected"
-      : "and could not be terminated either, so it may " +
-        "still be running and holding its profile — " +
-        "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
+      : "and could not be terminated either, so it may still be running and holding its " +
+        "profile — a later launch in the same job losing `requestSingleInstanceLock()` " +
+        "starts here";
   // A close that rejects at once while the process is still alive is terminated without waiting
   // out the budget, so the wording must not claim the budget expired: a timeout and an outright
   // failure have different causes and fixes.
   return rejectionReason === undefined
-    ? `the launched Electron did not close within the ` +
-        `${String(outcome.budgetMs)} ms it was given ` +
-        `(waited ${String(outcome.waitedMs)} ms) ${consequence}`
+    ? `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was ` +
+        `given (waited ${String(outcome.waitedMs)} ms) ${consequence}`
     : `closing the launched Electron rejected (${rejectionReason}) after ` +
         `${String(outcome.waitedMs)} ms, rather than reaching the ${String(outcome.budgetMs)} ms ` +
         `bound, ${consequence}`;

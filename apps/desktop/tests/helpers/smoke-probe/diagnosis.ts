@@ -119,8 +119,8 @@ function renderDiagnosticDump(result: SpawnResult): string {
   return (
     `--- readiness events observed ---\n${breadcrumbs}\n` +
     `--- environment ---\n${result.diagnostics.join("\n")}\n` +
-    `--- tagged lines that did not parse ` +
-    `---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
+    "--- tagged lines that did not parse ---\n" +
+    `${result.malformedProbeLines.join("\n") || "<none>"}\n` +
     `--- stdout ---\n${result.stdout}\n` +
     `--- stderr ---\n${result.stderr}\n`
   );

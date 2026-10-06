@@ -8,16 +8,15 @@ import { userEvent } from "vitest/browser";
 
 import { renderSettled } from "../../helpers/app/harness.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
+import { layoutPaneContext } from "../../helpers/pane-context.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import type { SessionPane } from "#renderer/features/sessions/pane-layout/state.js";
 import {
   PANE_LAYOUT_RESTORED_PANE_CAP,
   PaneLayoutStore,
 } from "#renderer/features/sessions/pane-layout/store.js";
-import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
@@ -38,24 +37,22 @@ function registryWithButtons(): PaneRegistry {
   return registry;
 }
 
-/** The pane context, cast: the bodies above read only the pane id. */
-function paneContextFor(pane: SessionPane): PaneContext {
-  return { kind: pane.kind, entity: pane.entity, paneId: pane.paneId } as unknown as PaneContext;
-}
-
 describe("browser — moving a pane", () => {
   it("moves the focused pane right on Alt+Shift+ArrowRight, layout still mounted", async () => {
     installMeridianTokens(document);
     const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
     const first = layout.open({ kind: "transcript" });
     const second = layout.open({ kind: "terminal" });
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const { container } = await renderSettled(
-      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+      <FixtureBridgeProvider fixture={fixture}>
         <LiveAnnouncerProvider>
           <SessionPaneLayout
             layout={layout}
             registry={registryWithButtons()}
-            paneContextFor={paneContextFor}
+            paneContextFor={(pane) =>
+              layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
+            }
           />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,

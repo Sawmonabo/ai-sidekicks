@@ -18,10 +18,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderSettled } from "../helpers/app/harness.js";
+import { renderSettled } from "../helpers/app/harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
-import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { FixtureBridgeProvider } from "../helpers/app/frame-fixtures.js";
 import type { Scenario } from "#fixtures/scenarios/script.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";

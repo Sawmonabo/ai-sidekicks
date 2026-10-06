@@ -17,14 +17,27 @@ import {
   DEV_SERVER_URL,
   handedDocument,
   INDEX_URL,
-  LOCKED_WINDOW_OPERATIONS,
   testWindowFrame,
-} from "#test/helpers/window-harness.js";
+} from "#test/helpers/electron/mock/readers.js";
 
 // `recordOrder` is on because the ordering cases assert a sequence across operations.
 const electronMock = createElectronMock({ recordOrder: true });
 
 vi.mock("electron", () => electronMock.moduleExports);
+
+/**
+ * What every locked window's document carries, in the order `constructLockedWindow` installs it:
+ * the navigation policy, then the close pairing and the title mirror. Named once so the ordering
+ * cases read as these, then the caller's hook, then the load, and a new seam fails all of them at
+ * once.
+ */
+const LOCKED_WINDOW_OPERATIONS: readonly string[] = [
+  "webContents.on:will-navigate",
+  "webContents.on:will-redirect",
+  "webContents.setWindowOpenHandler",
+  "webContents.once:destroyed",
+  "webContents.on:page-title-updated",
+];
 
 type WindowModule = typeof import("./factory.js");
 

@@ -1,5 +1,6 @@
 // Reading and picking the color scheme from outside the app, for the end-to-end tests: the scheme
-// a window's root carries, and a View-menu row clicked in main as a person's click runs it.
+// a window's root carries, the View menu's ticks, and a View-menu row clicked in main as a
+// person's click runs it.
 
 import type { Page } from "@playwright/test";
 
@@ -25,4 +26,13 @@ export async function clickViewMenuScheme(
     row?.click();
     return row !== undefined;
   }, label);
+}
+
+/** The View menu's scheme rows, label and tick, as main installed them. */
+export async function readMenuTicks(appUnderTest: AppUnderTest): Promise<Record<string, boolean>> {
+  return await appUnderTest.application.evaluate(({ Menu }) => {
+    const view = Menu.getApplicationMenu()?.items.find((item) => item.label === "View");
+    const rows = (view?.submenu?.items ?? []).filter((item) => item.type === "radio");
+    return Object.fromEntries(rows.map((row) => [row.label, row.checked]));
+  });
 }

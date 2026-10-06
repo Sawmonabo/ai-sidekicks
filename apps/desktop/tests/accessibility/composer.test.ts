@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../helpers/app/harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import {
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,

@@ -7,65 +7,23 @@
 import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/document";
-import type {
-  WorkflowEdgeItemCount,
-  WorkflowRunReadResponse,
-} from "@ai-sidekicks/contracts/workflow/run/records";
+import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
-import { renderSettled } from "../helpers/app/harness.js";
-import { awaitRunGraphSettled } from "../helpers/run-graph-settled.js";
-import {
-  WORKFLOW_DEFINITION_RECORDS,
-  WORKFLOW_FIXTURE_NOW_MS,
-  WORKFLOW_RUN_IDS,
-  WORKFLOW_RUN_RECORDS,
-} from "#fixtures/data/workflow/run/records.js";
-import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { RunGraphCanvas } from "#renderer/features/workflows/runs/page/graph/RunGraphCanvas.js";
+import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
+import { fixtureRun, mountRunGraph, type FixtureRun } from "./mount.js";
 
 afterEach(() => {
   document.documentElement.style.fontSize = "";
 });
 
-/** A fixture run and the document it ran, found by the run's id. */
-function fixtureRun(runId: string): {
-  readonly run: WorkflowRunReadResponse;
-  readonly workflowDocument: WorkflowDocument;
-} {
-  const run = WORKFLOW_RUN_RECORDS.find((record) => record.read.workflowRunId === runId)?.read;
-  const workflowDocument = WORKFLOW_DEFINITION_RECORDS.flatMap((record) => record.versions).find(
-    (version) => version.versionId === run?.workflowVersionId,
-  )?.document;
-  if (run === undefined || workflowDocument === undefined) {
-    throw new Error(`the fixture's run ${runId} or its document is missing`);
-  }
-  return { run, workflowDocument };
-}
-
-/** The run's graph at the largest text size, once it is fitted and painted. */
-async function mountRunGraph(
-  workflowDocument: WorkflowDocument,
-  steps: WorkflowRunReadResponse["steps"],
-  edgeItemCounts: readonly WorkflowEdgeItemCount[],
+/** `fixture`'s graph at the largest text size, once it is fitted and painted. */
+async function mountAtLargestTextSize(
+  fixture: FixtureRun,
+  edgeItemCounts?: readonly WorkflowEdgeItemCount[],
 ): Promise<HTMLElement> {
-  installMeridianTokens(document);
   document.documentElement.style.fontSize = `${String(Math.max(...TEXT_SIZES))}px`;
-  const { container } = await renderSettled(
-    <div className="meridian-run-graph">
-      <RunGraphCanvas
-        document={workflowDocument}
-        steps={steps}
-        edgeItemCounts={edgeItemCounts}
-        selectedNodeId={undefined}
-        nowMs={WORKFLOW_FIXTURE_NOW_MS}
-        onSelectNode={() => undefined}
-      />
-    </div>,
-  );
-  await awaitRunGraphSettled(container);
-  return container;
+  return (await mountRunGraph(fixture, edgeItemCounts)).container;
 }
 
 describe("a run graph node at the largest text size", () => {
@@ -74,8 +32,7 @@ describe("a run graph node at the largest text size", () => {
   it.each([WORKFLOW_RUN_IDS.failed, WORKFLOW_RUN_IDS.waitingReply])(
     "holds every line whole, one width per kind (%s)",
     async (runId) => {
-      const { run, workflowDocument } = fixtureRun(runId);
-      const container = await mountRunGraph(workflowDocument, run.steps, run.edgeItemCounts);
+      const container = await mountAtLargestTextSize(fixtureRun(runId));
 
       const nodes = [...container.querySelectorAll<HTMLElement>(".meridian-run-graph-node")];
       // Scroll sizes are layout sizes, untouched by the zoom's transform. A line clips its own
@@ -95,21 +52,21 @@ describe("a run graph node at the largest text size", () => {
       });
       expect(spills).toEqual([]);
 
-      const widthByKind = new Map<string, Set<number>>();
+      const widthsByKind = new Map<string, Set<number>>();
       for (const node of nodes) {
         const kind = kindRowOf(node).textContent;
-        widthByKind.set(kind, (widthByKind.get(kind) ?? new Set()).add(node.offsetWidth));
+        widthsByKind.set(kind, (widthsByKind.get(kind) ?? new Set()).add(node.offsetWidth));
       }
-      const kinds = [...widthByKind.keys()];
+      const kinds = [...widthsByKind.keys()];
       expect(new Set(kinds.map((kind) => kind.length)).size).toBeGreaterThan(1);
-      for (const [kind, widths] of widthByKind) {
+      for (const [kind, widths] of widthsByKind) {
         expect(widths.size, `every ${kind} node is one width`).toBe(1);
       }
+      // The kind label is a mono figure, so a label with more characters takes more room.
+      const widthOf = (kind: string): number => Math.max(...(widthsByKind.get(kind) ?? []));
       for (const kind of kinds) {
-        for (const other of kinds.filter((candidate) => candidate.length !== kind.length)) {
-          expect(widthByKind.get(kind), `${kind} beside ${other}`).not.toEqual(
-            widthByKind.get(other),
-          );
+        for (const shorter of kinds.filter((candidate) => candidate.length < kind.length)) {
+          expect(widthOf(kind), `${kind} beside ${shorter}`).toBeGreaterThan(widthOf(shorter));
         }
       }
     },
@@ -121,15 +78,16 @@ describe("an edge's item count at the largest text size", () => {
   // review's document carries no places of its own, so the page lays it out itself; a document
   // the builder placed keeps the places its author gave.
   it("stands clear of both nodes, however long", async () => {
-    const { run, workflowDocument } = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
+    const fixture = fixtureRun(WORKFLOW_RUN_IDS.waitingApproval);
+    const { workflowDocument } = fixture;
     const longCounts = workflowDocument.edges.map((edge) => ({
       edgeId: edge.id,
       itemCount: 123_456_789_012,
     }));
     const shortCounts = longCounts.map((count) => ({ ...count, itemCount: 9 }));
-    const shortGraph = await mountRunGraph(workflowDocument, run.steps, shortCounts);
+    const shortGraph = await mountAtLargestTextSize(fixture, shortCounts);
     const shortWidths = nodeWidths(shortGraph);
-    const container = await mountRunGraph(workflowDocument, run.steps, longCounts);
+    const container = await mountAtLargestTextSize(fixture, longCounts);
     // A count's length never moves a node: every box is sized for the widest short form.
     expect(nodeWidths(container)).toEqual(shortWidths);
 

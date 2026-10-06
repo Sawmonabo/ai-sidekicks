@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { MAIN_DIAGNOSTIC_LOG_FILE_NAME } from "#main/services/diagnostic-log.js";
+import { describeFailure } from "#main/services/failure-message.js";
 import { PROFILE_LOGS_FOLDER_NAME } from "#main/services/install-profile.js";
 
 /** How much of each record a failed launch carries: its end, where a startup failure is written. */
@@ -63,7 +64,7 @@ export class MainProcessOutput {
 
   /** `failure` with main's `standing` and the end of its stderr; `failure` stays as the cause. */
   public failureWith(failure: unknown, standing: MainStanding): Error {
-    const failureMessage = failure instanceof Error ? failure.message : String(failure);
+    const failureMessage = describeFailure(failure);
     const stderrTail = this.#stderrTail.toString("utf8").trimEnd();
     return new Error(
       `${failureMessage}\n${standing.exitStatus} when the launch failed.\n` +
@@ -82,7 +83,7 @@ export class MainProcessOutput {
       // A main that stopped before it wrote a line leaves no log; any other failure is said.
       return (error as NodeJS.ErrnoException).code === "ENOENT"
         ? "<no log was written>"
-        : `<the log could not be read: ${String(error)}>`;
+        : `<the log could not be read: ${describeFailure(error)}>`;
     }
     return tailOf(log).toString("utf8").trimEnd();
   }

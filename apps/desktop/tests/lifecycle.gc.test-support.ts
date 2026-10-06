@@ -34,11 +34,10 @@ import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "./helpers/fixture/b
 import { needsXvfb } from "./helpers/display-readiness.js";
 import { createLaunchProfile } from "./helpers/launch/profile.js";
 import {
-  ISOLATED_SERVICE_READY_TIMEOUT_MS,
   ISOLATED_SERVICE_START_CEILING_MS,
-  startIsolatedService,
+  startSpawnHarnessService,
 } from "./helpers/isolated-service.js";
-import { TERMINATION_GRACE_MS } from "./helpers/electron/child/managed-child.js";
+import { TERMINATION_GRACE_MS } from "./helpers/electron/child/managed.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./helpers/process-tree/budget.js";
 import { SPAWN_TIMEOUT_MS } from "./helpers/smoke-probe/harness.js";
 import { TaggedJsonReadingScanner } from "./helpers/tagged-line-scanner.js";
@@ -81,18 +80,13 @@ interface GcProbeSpawnResult {
 export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const startedAt = Date.now();
 
-  // The launch plays no scenario, so main's supervisor looks for the service; it finds this one
-  // and starts none of its own on the person's account.
-  let serviceEnvironment: Readonly<Record<string, string>>;
-  try {
-    serviceEnvironment = (await startIsolatedService(ISOLATED_SERVICE_READY_TIMEOUT_MS))
-      .environment;
-  } catch (serviceFailure: unknown) {
+  const service = await startSpawnHarnessService();
+  if ("failure" in service) {
     return {
       probe: null,
       malformedProbeLines: [],
       stdout: "",
-      stderr: serviceFailure instanceof Error ? serviceFailure.message : String(serviceFailure),
+      stderr: service.failure,
       exitCode: null,
       signal: null,
       elapsedMs: Date.now() - startedAt,
@@ -127,7 +121,7 @@ export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         cwd: PACKAGE_ROOT,
         env: {
           ...envWithoutSmoke,
-          ...serviceEnvironment,
+          ...service.environment,
           SIDEKICKS_GC_PROBE: "1",
           // No focus steal on the person's machine; see `src/main/windows/reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
@@ -150,7 +144,7 @@ export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
 
     child.stdout.on("data", (chunk: Buffer) => {
       // Output proves the tree is up, so record its descendants now: a rootless kill needs them
-      // once the shim is reaped (`spawned-tree-record.ts` says why the root's `exit` is too late).
+      // once the shim is reaped (`process-tree/record.ts` says why the root's `exit` is too late).
       managed.captureTreeDescendants();
       const text = chunk.toString("utf8");
       stdout += text;

@@ -12,15 +12,15 @@ import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { SCENARIOS } from "#fixtures/index.js";
-import { callDaemon } from "#renderer/services/daemon/reply.js";
+import { callDaemon, unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { SESSION_EVENT_STREAM } from "#shared/daemon/streams.js";
-import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { readSessionId } from "#renderer/services/daemon/wire/identifiers.js";
 import {
   createFixture,
   lastScriptedBeatMs,
   type FixtureUnderTest,
 } from "#test/helpers/fixture/bridge.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 
 /** What a whole-session subscription opened after one cursor delivered, and how it ended. */
 interface ResumedStream {
@@ -39,6 +39,19 @@ describe("scenario transcript cursors — each one resumes the scenario's stream
   // `it.each` over no scenarios makes no case, so the check would pass over an empty catalog.
   it("has scenarios that hand cursors out", () => {
     expect(SCENARIOS_HANDING_OUT_CURSORS.length).toBeGreaterThan(0);
+  });
+
+  // The seam case below runs only for a read that hands out an acknowledged cursor, so it would
+  // pass with no scenario carrying one.
+  it("has a scenario whose read hands out an acknowledged cursor", async () => {
+    const acknowledgedCursors = await Promise.all(
+      SCENARIOS_HANDING_OUT_CURSORS.map(async (scenario) => {
+        const fixture = createFixture(scenario);
+        fixture.engine.advance(lastScriptedBeatMs(scenario) + 1);
+        return (await readTranscriptCursors(fixture)).acknowledged;
+      }),
+    );
+    expect(acknowledgedCursors.some((cursor) => cursor !== undefined)).toBe(true);
   });
 
   it.each(SCENARIOS_HANDING_OUT_CURSORS.map((scenario) => [scenario.id, scenario] as const))(
@@ -110,9 +123,7 @@ async function resumeAfter(fixture: FixtureUnderTest, afterCursor: string): Prom
     },
   );
   // A refusal ends the subscription on a later turn, so let it land before reading the result.
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0);
-  });
+  await crossMacrotaskBoundary();
   unsubscribe();
   return { events, ends };
 }

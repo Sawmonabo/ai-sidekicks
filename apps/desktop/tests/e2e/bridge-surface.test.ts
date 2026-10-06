@@ -1,11 +1,10 @@
-// The bridge the console document holds, read from the console document of an app launched beside
-// a background service of the test's own. `window.desktopBridge` has exactly the members of
+// The bridge the console document holds, read from the console document of an app launched beside a
+// background service of the test's own. `window.desktopBridge` has exactly the members of
 // `PreloadApi`, each of the kind the type gives it, and no member at any depth is named for auth
 // material. The `daemon.status` topic carries main's link to that service to the console document,
 // through the real preload and main, with no key of what it delivers named for auth material
-// either. Once linked,
-// `machineSettings.read()` reaches that service's settings verb and answers the defaults of its
-// fresh home folder.
+// either. Once linked, `machineSettings.read()` reaches that service's settings verb and answers
+// the defaults of its fresh home folder.
 
 import { describe, expect, it } from "vitest";
 

@@ -19,24 +19,44 @@ interface MainWindowReading {
   readonly windows: readonly {
     readonly views: readonly { readonly isWebContentsView: boolean; readonly url: string }[];
   }[];
+  /** The URL of every document no window's view hosts. */
+  readonly unhostedDocumentUrls: readonly string[];
 }
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — launch", () => {
-  it("builds the hidden console document and the window it opens, each a BaseWindow", async () => {
+  // A `BrowserWindow` owns a never-navigated document of its own, a mute target in the debugger's
+  // list that a client attaching to the app blocks on; every document in a view of a `BaseWindow`
+  // leaves no such target.
+  it("hosts every document in a view of a BaseWindow, leaving no mute debugger target", async () => {
     await withLaunchedApp({}, async (appUnderTest) => {
       const reading: MainWindowReading = await appUnderTest.application.evaluate(
-        ({ BaseWindow, BrowserWindow, WebContentsView }) => ({
-          browserWindowCount: BrowserWindow.getAllWindows().length,
-          windows: BaseWindow.getAllWindows().map((baseWindow) => ({
-            views: baseWindow.contentView.children.map((child) => ({
-              isWebContentsView: child instanceof WebContentsView,
-              url: child instanceof WebContentsView ? child.webContents.getURL() : "",
+        ({ BaseWindow, BrowserWindow, WebContentsView, webContents }) => {
+          const windows = BaseWindow.getAllWindows().map((baseWindow) => baseWindow.contentView);
+          const hostedIds = new Set(
+            windows.flatMap((contentView) =>
+              contentView.children.flatMap((child) =>
+                child instanceof WebContentsView ? [child.webContents.id] : [],
+              ),
+            ),
+          );
+          return {
+            browserWindowCount: BrowserWindow.getAllWindows().length,
+            windows: windows.map((contentView) => ({
+              views: contentView.children.map((child) => ({
+                isWebContentsView: child instanceof WebContentsView,
+                url: child instanceof WebContentsView ? child.webContents.getURL() : "",
+              })),
             })),
-          })),
-        }),
+            unhostedDocumentUrls: webContents
+              .getAllWebContents()
+              .filter((contents) => !hostedIds.has(contents.id))
+              .map((contents) => contents.getURL()),
+          };
+        },
       );
 
       expect(reading.browserWindowCount, "a BrowserWindow was built").toBe(0);
+      expect(reading.unhostedDocumentUrls, "a document no view hosts").toEqual([]);
       const consoleUrl = expect.stringMatching(/^sidekicks-renderer:\/\/app\//);
       expect(reading.windows).toEqual(
         expect.arrayContaining([

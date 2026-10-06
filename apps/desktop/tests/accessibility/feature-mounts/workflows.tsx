@@ -12,15 +12,11 @@
 
 import type { FunctionComponent } from "react";
 
-import { act } from "@testing-library/react";
-import { onTestFinished } from "vitest";
+import { expect, onTestFinished } from "vitest";
 
 import { renderSettled } from "../../helpers/app/harness.js";
-import { crossMacrotaskBoundary } from "../../helpers/macrotask-boundary.js";
-import {
-  createFixtureBridge,
-  type FixtureBridge,
-} from "#renderer/services/platform/bridge.fixture.js";
+import { advanceScenarioUntil } from "../../helpers/scenario/manual-clock.js";
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { unscriptedScenario } from "../../helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
@@ -136,33 +132,20 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
   };
 }
 
-/** How far the frozen clock moves per round, and how many rounds a chain of reads is given. */
-const SETTLE_STEP_MS = 250;
-const SETTLE_ROUNDS = 8;
-
-/**
- * Move the playback's clock until every read in flight has answered: a run's page reads the run,
- * then its version chain, then the version, then the form its waiting step holds, each held on
- * the clock until it moves.
- */
-async function answerHeldReads(fixture: FixtureBridge): Promise<void> {
-  for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
-    await act(async () => {
-      fixture.scenarioEngine.advance(SETTLE_STEP_MS);
-      await crossMacrotaskBoundary();
-    });
-  }
-}
-
 /**
  * The workflows screen at `route` over the shipped playback, through the rail's own screen
- * registry, once every read it puts in flight has answered.
+ * registry, once it draws every one of `drawnWords`: a run's page reads the run, then its version
+ * chain, then the version, then the form its waiting step holds, each held on the clock until it
+ * moves, so the clock is moved until the words that only the last answer draws stand.
  *
  * It renders under the bridge provider as the running app does: a screen body reaches the
  * bridge through the provider, so a bare mount would throw. The announcer wraps it because
  * `useAnnounce` throws outside its provider.
  */
-async function mountWorkflowsScreenAt(route: AppRoute): Promise<MountedView> {
+async function mountWorkflowsScreenAt(
+  route: AppRoute,
+  drawnWords: readonly string[],
+): Promise<MountedView> {
   const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
   const { bridge } = fixture;
   const WorkflowsScreenBody = await screenBodyComponent();
@@ -173,7 +156,11 @@ async function mountWorkflowsScreenAt(route: AppRoute): Promise<MountedView> {
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
-  await answerHeldReads(fixture);
+  await advanceScenarioUntil(fixture.scenarioEngine, () => {
+    for (const words of drawnWords) {
+      expect(container.textContent).toContain(words);
+    }
+  });
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
     throw new Error("the workflows screen rendered no root");
@@ -181,20 +168,26 @@ async function mountWorkflowsScreenAt(route: AppRoute): Promise<MountedView> {
   return { element, bridge };
 }
 
-/** The Runs tab: the attention list, the filters and the runs table, all read. */
-export async function mountWorkflowRunsTab(): Promise<MountedView> {
-  return mountWorkflowsScreenAt({ kind: "workflows", tab: "runs" });
+/** The Runs tab: the attention list, the filters and the runs table, once it draws `drawnWords`. */
+export async function mountWorkflowRunsTab(drawnWords: readonly string[]): Promise<MountedView> {
+  return mountWorkflowsScreenAt({ kind: "workflows", tab: "runs" }, drawnWords);
 }
 
 /**
- * One run's page: its header, its graph and, where the run waits on a person, the step panel
- * open on the waiting step.
+ * One run's page, once it draws `drawnWords`: its header, its graph and, where the run waits on a
+ * person, the step panel open on the waiting step.
  *
  * The graph renderer is a lazily loaded chunk, so a reader waits on `run-graph-settled.ts`
  * before it reads the picture.
  */
-export async function mountWorkflowRunPage(workflowRunId: string): Promise<MountedView> {
-  return mountWorkflowsScreenAt({ kind: "workflows", tab: "runs", runId: workflowRunId });
+export async function mountWorkflowRunPage(
+  workflowRunId: string,
+  drawnWords: readonly string[],
+): Promise<MountedView> {
+  return mountWorkflowsScreenAt(
+    { kind: "workflows", tab: "runs", runId: workflowRunId },
+    drawnWords,
+  );
 }
 
 /**

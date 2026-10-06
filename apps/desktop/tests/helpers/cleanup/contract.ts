@@ -1,5 +1,5 @@
 // What a bounded cleanup is handed and the verdict it returns. The race that produces the verdict
-// is `bounded-cleanup.ts`.
+// is `bounded.ts`.
 
 import { type ProfileRemovalFailure } from "../launch/profile.js";
 

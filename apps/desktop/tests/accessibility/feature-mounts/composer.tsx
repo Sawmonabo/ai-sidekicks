@@ -1,6 +1,6 @@
 // The composer feature's views, mounted once for the accessibility tier.
 //
-// Not a test file. `helpers/app/harness.ts` owns how the app is mounted; this owns what of this
+// Not a test file. `helpers/app/harness.tsx` owns how the app is mounted; this owns what of this
 // feature is mounted into it.
 //
 // The composer states are addresses, not variants: `features/composer/target.ts` resolves the send

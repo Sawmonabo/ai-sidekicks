@@ -8,7 +8,9 @@ import { afterEach, expect, it } from "vitest";
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "#renderer/styles/glyphs.js";
-import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
+
+const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
 
 afterEach(() => {
   cleanup();
@@ -17,7 +19,7 @@ afterEach(() => {
 
 it("draws a glyph at its own size in pixels at the largest text size", () => {
   installMeridianTokens(document);
-  applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, textSize: 20 });
+  applyAppearance(document, { ...DEFAULT_APPEARANCE_RECORD, textSize: LARGEST_TEXT_SIZE });
   const { container } = render(
     <p>
       <Glyph name="sessions" size={GLYPH_SIZE_CHROME} />
@@ -27,7 +29,7 @@ it("draws a glyph at its own size in pixels at the largest text size", () => {
 
   const glyph = container.querySelector("svg")!.getBoundingClientRect();
   const remBox = container.querySelector("span")!.getBoundingClientRect();
-  expect(remBox.width).toBe(20);
+  expect(remBox.width).toBe(LARGEST_TEXT_SIZE);
   expect(glyph.width).toBe(GLYPH_SIZE_CHROME);
   expect(glyph.height).toBe(GLYPH_SIZE_CHROME);
 });

@@ -33,7 +33,7 @@
 // terminal. The scrollback half takes a warm-up fill for the same reason.
 //
 // Not owned here: adapter-level claims (eviction, disposal giving bytes back, a working day of
-// churn) are `tests/endurance/xterm-adapter.test.ts`'s, and the pane-count sweep and its
+// churn) are `tests/endurance/terminal/adapter.test.ts`'s, and the pane-count sweep and its
 // admissibility rule are `series.ts`'s.
 
 import process from "node:process";

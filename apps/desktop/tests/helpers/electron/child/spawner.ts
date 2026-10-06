@@ -1,6 +1,6 @@
-// Who owns a spawned Electron process, and when it dies.
+// Who owns a spawned child process, Electron or the background service, and when it dies.
 //
-// An Electron process must not outlive the run that spawned it. Three rules hold that:
+// A child must not outlive the run that spawned it. Three rules hold that:
 //
 //   1. A spawner's own deadline fires before the enclosing per-test budget
 //      (`TEST_TIMEOUT_SLACK_MS`): when Vitest's timeout fires first, the worker is torn down with
@@ -12,8 +12,8 @@
 //      that forwards only catchable signals, so `child.kill("SIGKILL")` takes the shim down and
 //      leaves the browser running with the inherited stdout open.
 //
-// `process-tree/` delivers a signal to a tree and `ManagedElectronChild` decides when; this file
-// is the spawner, the one place under `tests/` that reaches `spawn` (enforced in
+// `process-tree/` delivers a signal to a tree and `ManagedChild` decides when; this file is the
+// spawner, the one place under `tests/` that reaches `spawn` (enforced in
 // `apps/desktop/eslint.config.mjs`). Playwright's `_electron.launch` starts the other Electron
 // these tests run, and its process is owned by `BoundedCleanup` in `electron/harness.ts`, because
 // Playwright cannot be handed a child it did not spawn.
@@ -24,7 +24,7 @@ import process from "node:process";
 import { onTestFinished } from "vitest";
 
 import { OrderedChildTeardown, type ChildRelease } from "./teardown.js";
-import { ManagedElectronChild } from "./managed-child.js";
+import { ManagedChild } from "./managed.js";
 
 /**
  * The reserve every spawner keeps between its own deadline and Vitest's.
@@ -35,9 +35,9 @@ import { ManagedElectronChild } from "./managed-child.js";
  */
 export const TEST_TIMEOUT_SLACK_MS = 3_000;
 
-/** What the spawner needs to start one Electron child. */
-export interface ElectronChildSpawnOptions {
-  /** The executable to run — the Electron launcher, or `xvfb-run` wrapping it. */
+/** What the spawner needs to start one child process. */
+export interface ChildSpawnOptions {
+  /** The executable to run: the Electron launcher, `xvfb-run` wrapping it, or Node. */
   readonly command: string;
   readonly args: readonly string[];
   readonly cwd: string;
@@ -52,7 +52,7 @@ export interface ElectronChildSpawnOptions {
 }
 
 /**
- * Spawns Electron with its lifetime bound to the current test.
+ * Spawns a child process with its lifetime bound to the current test.
  *
  * The single spawn chokepoint for `apps/desktop/tests/**`: a second `spawn` reach there (static,
  * dynamic `import()` or `require`) is a lint error, since a second spawn site is a second lifetime
@@ -60,9 +60,7 @@ export interface ElectronChildSpawnOptions {
  * `onTestFinished` refuses, the child is already running and detached, so the call disposes it
  * before rethrowing.
  */
-export function spawnManagedElectronChild(
-  options: ElectronChildSpawnOptions,
-): ManagedElectronChild {
+export function spawnManagedChild(options: ChildSpawnOptions): ManagedChild {
   const abortController = new AbortController();
   const child = spawn(options.command, [...options.args], {
     cwd: options.cwd,
@@ -77,7 +75,7 @@ export function spawnManagedElectronChild(
     signal: abortController.signal,
     killSignal: "SIGKILL",
   });
-  const managed = new ManagedElectronChild(child, abortController);
+  const managed = new ManagedChild(child, abortController);
   // Register ownership before the host query: capturing the tree identity spawns `ps` or
   // PowerShell and blocks this thread, and a stall or throw ahead of the registration would leave
   // a running process with no kill path.

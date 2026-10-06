@@ -6,9 +6,9 @@
 // count and `window-all-closed` must not fire; once every window is closed the count must drop by
 // at least one per window (the delta separates the instance from a fixed non-instance match that
 // a count-only sample cannot tell apart). Two anchors keep a window reachable: main's registry of
-// open windows (`src/main/windows/registry.ts`) and Electron's native `BaseWindow::self_ref_`,
-// so this guards against either letting go of an open window, or an unrelated bug that fires
-// `window-all-closed`.
+// open windows (`src/main/windows/registry.ts`) and Electron's native `BaseWindow::self_ref_`.
+// Either one alone holds the count, so this guards against both letting go of an open window, and
+// against an unrelated bug that fires `window-all-closed`.
 //
 // The probe, its gates, the spawn and the display handling are in `lifecycle.gc.test-support.ts`
 // and `src/main/probes/gc.ts`. Failure shapes: A, count drift or a missing per-window
@@ -34,14 +34,14 @@ describe("window lifecycle reachability", () => {
       if (!result.probe) {
         throw new Error(
           `GC probe did not emit \`${GC_PROBE_TAG}\` line within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
-            `Most likely cause: environmental (xvfb-run missing on a headless Linux runner, ` +
-            `smoke bundle not built, --js-flags=--expose-gc not forwarded). A genuine ` +
-            `window lifecycle regression is also possible — check the window registry, the ` +
-            `Electron version and the BaseWindow::self_ref_ semantics if so.\n` +
-            `Exit code: ${String(result.exitCode)}, signal: ` +
-            `${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
-            `--- tagged lines that did not parse ` +
-            `---\n${result.malformedProbeLines.join("\n") || "<none>"}\n` +
+            "Most likely cause: environmental (xvfb-run missing on a headless Linux runner, " +
+            "smoke bundle not built, --js-flags=--expose-gc not forwarded). " +
+            "A genuine window lifecycle regression is also possible — check the window registry, " +
+            "the Electron version and the BaseWindow::self_ref_ semantics if so.\n" +
+            `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, ` +
+            `elapsed: ${String(result.elapsedMs)}ms.\n` +
+            "--- tagged lines that did not parse ---\n" +
+            `${result.malformedProbeLines.join("\n") || "<none>"}\n` +
             `--- stdout ---\n${result.stdout}\n` +
             `--- stderr ---\n${result.stderr}\n`,
         );
@@ -53,8 +53,8 @@ describe("window lifecycle reachability", () => {
       // misconfigured and the count signal below is unreliable.
       expect(
         probe.queryObjectsAvailable,
-        "v8.queryObjects is not a function — test harness " +
-          "setup is broken; results below are unreliable",
+        "v8.queryObjects is not a function — test harness setup is broken; " +
+          "results below are unreliable",
       ).toBe(true);
       expect(
         probe.globalGcAvailable,
@@ -70,10 +70,11 @@ describe("window lifecycle reachability", () => {
       // instance gone and that match remaining.
       expect(
         probe.max - probe.min,
-        `Probe saw queryObjects(BaseWindow) drift across ` +
-          `the loop (counts: ${JSON.stringify(probe.counts)}). ` +
-          `A reachable window's count must hold across GC pressure — the proximate ` +
-          `cause is the registry dropping a window or a BaseWindow::self_ref_ semantics shift.`,
+        `Probe saw queryObjects(BaseWindow) drift across the loop ` +
+          `(counts: ${JSON.stringify(probe.counts)}). ` +
+          "A reachable window's count must hold across GC pressure — the proximate cause is " +
+          "both anchors letting go: the registry dropping a window and a BaseWindow::self_ref_ " +
+          "semantics shift.",
       ).toBe(0);
       expect(
         probe.windowsOpened,

@@ -17,6 +17,31 @@ import { bridgeOnClock } from "../helpers/fixture/bridge.js";
 
 const WORKTREE_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
+/** Computed properties a shared treatment sets and a browser's own default draws otherwise. */
+const TREATMENT_PROPERTIES = [
+  "borderTopStyle",
+  "borderTopLeftRadius",
+  "cursor",
+  "textTransform",
+  "backgroundColor",
+] as const;
+
+/**
+ * Which treatment properties `element` draws differently from a bare element of its tag, which
+ * wears only the browser's default: empty when no sheet reached the element.
+ */
+function propertiesRestyled(element: Element): string[] {
+  const bare = element.ownerDocument.createElement(element.tagName);
+  element.ownerDocument.body.append(bare);
+  const drawn = getComputedStyle(element);
+  const browserDefault = getComputedStyle(bare);
+  const restyled = TREATMENT_PROPERTIES.filter(
+    (property) => drawn[property] !== browserDefault[property],
+  );
+  bare.remove();
+  return restyled;
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -31,8 +56,11 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
       />,
     );
     const trigger = screen.getByRole("button", { name: `Remove ${WORKTREE_ID}` });
-    expect(getComputedStyle(trigger).borderTopStyle).toBe("solid");
-    expect(getComputedStyle(trigger).cursor).toBe("pointer");
+    expect(propertiesRestyled(trigger), "no sheet reached the trigger").not.toEqual([]);
+    // The negative control: a button no class names draws the browser's default throughout.
+    const plainButton = document.body.appendChild(document.createElement("button"));
+    expect(propertiesRestyled(plainButton)).toEqual([]);
+    plainButton.remove();
 
     await act(async () => {
       trigger.click();
@@ -48,7 +76,7 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
     expect(Math.abs(box.top + box.height / 2 - window.innerHeight / 2)).toBeLessThanOrEqual(1);
   });
 
-  it("draws a mounts form's label as a label and its input with its own edge", () => {
+  it("draws a mounts form's label and input from the shared form sheet", () => {
     // The input's edge is drawn from tokens, and a declaration naming an unset token draws none.
     installMeridianTokens(document);
     const { bridge, clock } = bridgeOnClock("repos");
@@ -67,8 +95,7 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
     const input = container.querySelector(".meridian-form__input");
     expect(label).not.toBeNull();
     expect(input).not.toBeNull();
-    expect(getComputedStyle(label as Element).textTransform).toBe("uppercase");
-    expect(getComputedStyle(input as Element).borderTopStyle).toBe("solid");
-    expect(getComputedStyle(input as Element).borderTopLeftRadius).not.toBe("0px");
+    expect(propertiesRestyled(label as Element), "no sheet reached the label").not.toEqual([]);
+    expect(propertiesRestyled(input as Element), "no sheet reached the input").not.toEqual([]);
   });
 });

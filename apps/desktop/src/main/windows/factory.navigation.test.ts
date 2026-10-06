@@ -10,13 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
+  asMockWindow,
   DEV_SERVER_URL,
   INDEX_URL,
-  navigationListenerOf,
   loggedMessages,
   testWindowFrame,
   windowOpenHandlerOf,
-} from "#test/helpers/window-harness.js";
+} from "#test/helpers/electron/mock/readers.js";
 
 const electronMock = createElectronMock();
 
@@ -27,6 +27,22 @@ type WindowModule = typeof import("./factory.js");
 async function loadWindowModule(): Promise<WindowModule> {
   vi.resetModules();
   return import("./factory.js");
+}
+
+/** A navigation listener as a case invokes it. */
+type NavigationListener = (event: { preventDefault: () => void }, url: string) => void;
+
+/**
+ * The listener registered for one navigation event on a window's document. It takes the event
+ * because `will-navigate` and `will-redirect` share one classification.
+ */
+function navigationListenerOf(
+  rendererWindow: unknown,
+  eventName: "will-navigate" | "will-redirect",
+): NavigationListener {
+  const listeners = asMockWindow(rendererWindow).document.listenersOf(eventName);
+  expect(listeners).toHaveLength(1);
+  return listeners[0] as unknown as NavigationListener;
 }
 
 /** The two seams that can change a live window's document, by event name. */

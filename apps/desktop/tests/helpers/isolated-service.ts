@@ -15,7 +15,8 @@ import path from "node:path";
 import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { onTestFinished } from "vitest";
 
-import { spawnManagedElectronChild } from "./electron/child/spawner.js";
+import { describeFailure } from "#main/services/failure-message.js";
+import { spawnManagedChild } from "./electron/child/spawner.js";
 import { PACKAGE_ROOT } from "./fixture/bundle.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
 
@@ -27,7 +28,7 @@ const SERVICE_ENTRY_PATH = path.join(PACKAGE_ROOT, "../../packages/runtime-daemo
  * 0.2 s on an unloaded macOS M1 Pro; the hosted runners boot Electron up to 25 times slower than
  * that machine, so the ceiling is 10 s.
  */
-export const ISOLATED_SERVICE_READY_TIMEOUT_MS = 10_000;
+const ISOLATED_SERVICE_READY_TIMEOUT_MS = 10_000;
 
 /**
  * What a service start can spend before its launch begins, for an enclosing test budget: the
@@ -40,6 +41,9 @@ export const ISOLATED_SERVICE_START_CEILING_MS: number =
 export interface IsolatedService {
   readonly environment: Readonly<Record<string, string>>;
 }
+
+/** A spawn harness's service start: the environment its launch runs under, or why it failed. */
+export type SpawnHarnessService = IsolatedService | { readonly failure: string };
 
 /**
  * Starts a service in a fresh home and run folder and resolves once it answers, within
@@ -61,7 +65,7 @@ export async function startIsolatedService(readyWithinMs: number): Promise<Isola
   mkdirSync(runtimeDirectory, { mode: 0o700 });
   const environment = { HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory };
 
-  const managed = spawnManagedElectronChild({
+  const managed = spawnManagedChild({
     command: process.execPath,
     args: [SERVICE_ENTRY_PATH],
     cwd: root,
@@ -110,4 +114,17 @@ export async function startIsolatedService(readyWithinMs: number): Promise<Isola
     }
   });
   return { environment };
+}
+
+/**
+ * Starts the service a spawn harness's launch finds: the launch plays no scenario, so main's
+ * supervisor looks for one, finds this one and starts none of its own on the person's account. A
+ * failed start is answered as its message, which the harness reports as its own result.
+ */
+export async function startSpawnHarnessService(): Promise<SpawnHarnessService> {
+  try {
+    return await startIsolatedService(ISOLATED_SERVICE_READY_TIMEOUT_MS);
+  } catch (serviceFailure: unknown) {
+    return { failure: describeFailure(serviceFailure) };
+  }
 }

@@ -1,7 +1,7 @@
 // When a spawned tree's identity is written down. The root is stamped at the spawn, because a pid
 // is reissued once its process is reaped. The descendants are captured once while the child is
 // up, since an Electron has no children at start. The intersection at the root's exit may only
-// remove rows. `process-tree/identity.ts` owns the readings themselves.
+// remove rows. `identity.ts` owns the readings themselves.
 //
 // The exit is too late to record: the process is reaped and the number may belong to a new
 // holder, whose children would pass the ancestry proof and reach `taskkill /t`. While `exit` is
@@ -10,7 +10,7 @@
 // delivering `exit`. The live capture runs once because it blocks this thread; `budget.ts`
 // reserves exactly that many listings.
 
-import { SpawnedTreeIdentity } from "./process-tree/identity.js";
+import { SpawnedTreeIdentity } from "./identity.js";
 
 /** What one spawned tree's owner has written down about it, and when. */
 export class SpawnedTreeRecord {

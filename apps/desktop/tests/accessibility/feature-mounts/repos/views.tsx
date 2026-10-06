@@ -1,6 +1,6 @@
 // The repos feature's mount list and diff pane, mounted once for the accessibility tier.
 //
-// Not a test file. `helpers/app/harness.ts` owns how the app is mounted,
+// Not a test file. `helpers/app/harness.tsx` owns how the app is mounted,
 // `tests/accessibility/feature-mounts/queries.ts` what a mounted view is and how a tier finds it,
 // `fixtures.ts` what the views are drawn against.
 //
@@ -94,7 +94,7 @@ export async function mountDiffPane(): Promise<MountedView> {
 
 /**
  * Review over a finished workflow run, read from the fixture daemon: the files the run's steps
- * wrote, each marked with its step, beside an edit someone else made. Waited on until the rows
+ * wrote, each marked with its step, beside an edit made outside the run. Waited on until the rows
  * land, since the read answers after the first frame.
  */
 export async function mountWorkflowRunReview(): Promise<MountedView> {

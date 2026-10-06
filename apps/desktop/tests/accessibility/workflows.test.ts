@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 
-import { emulateSystemScheme } from "../helpers/app/harness.js";
+import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
@@ -35,52 +35,61 @@ import { COLOR_SCHEMES } from "#renderer/styles/tokens.js";
  */
 const AUDITED_VIEWS: readonly {
   readonly label: string;
-  readonly mount: () => Promise<HTMLElement>;
+  /** Mounts the view and waits until it draws `drawnWords`. */
+  readonly mount: (drawnWords: readonly string[]) => Promise<HTMLElement>;
   readonly drawnWords: readonly string[];
   /** What a person does on the mounted view before it is audited, asserting what it drew. */
   readonly arrange?: (mounted: HTMLElement) => void;
 }[] = [
   {
     label: "the Runs tab",
-    mount: async () => (await mountWorkflowRunsTab()).element,
+    mount: async (drawnWords) => (await mountWorkflowRunsTab(drawnWords)).element,
     // A runs-table heading and an attention line: each draws only once its own read has answered.
     drawnWords: ["Started by", "waiting on Approve release"],
   },
   {
     label: "a run's page waiting on a form",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm, drawnWords)).element,
     drawnWords: ["Submit"],
   },
   {
     label: "a run's page waiting on a form, an entry added and the answers refused",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingForm, drawnWords)).element,
     drawnWords: ["Submit"],
     arrange: addEntryAndSubmitRefused,
   },
   {
     label: "a run's page that failed",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.failed)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.failed, drawnWords)).element,
     drawnWords: ["Fix it and press Resume, or cancel the run"],
   },
   {
     label: "a run's page waiting for a chat reply",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingReply)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.waitingReply, drawnWords)).element,
     drawnWords: ["Which label should these issues get?"],
   },
   {
     label: "a chain's first run holding its question",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.chainHeld)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.chainHeld, drawnWords)).element,
     drawnWords: ["Stop them all"],
   },
   {
     label: "a finished run's page",
-    mount: async () => (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.succeeded)).element,
+    mount: async (drawnWords) =>
+      (await mountWorkflowRunPage(WORKFLOW_RUN_IDS.succeeded, drawnWords)).element,
     drawnWords: ["Open in Review"],
   },
   {
     label: "the builder pane on a definition",
     mount: async () => (await mountWorkflowBuilderPane()).element,
-    drawnWords: [],
+    // The pane puts no read in flight, so its summary line stands at mount; it proves the body
+    // drew inside the frame.
+    drawnWords: ["A definition as a graph"],
   },
 ];
 
@@ -98,7 +107,7 @@ describe("accessibility — the workflows views", () => {
     for (const scheme of COLOR_SCHEMES) {
       it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
-        const mounted = await view.mount();
+        const mounted = await view.mount(view.drawnWords);
         await awaitRunGraphSettled(mounted);
         // The subject, stated before it is read, so the wait above cannot be dropped silently:
         // the fit has not landed at the mount's return whether the lazy chunk is cold or cached.

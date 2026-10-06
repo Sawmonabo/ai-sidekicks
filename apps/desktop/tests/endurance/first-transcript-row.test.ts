@@ -6,10 +6,10 @@
 // is never performed: `src/main/windows/reveal.ts` leaves the window hidden with
 // background throttling off, because a revealed one steals the person's focus and Space. So
 // there is no `show` timestamp, and a wall clock read in either process would compare two clocks
-// across a process boundary. The renderer records the instant itself: `revealWindow` runs from
-// the console view's `did-finish-load`, so the window is shown no earlier than the page has
-// drawn, and the renderer's own `first-contentful-paint` entry is the instant the window had
-// something to show. It sits on
+// across a process boundary. The renderer records the instant itself: main reveals the window as
+// it adopts the window's document, before that document draws, so until the page's first
+// contentful paint the window shows only its painted ground, and the renderer's own
+// `first-contentful-paint` entry is the first instant it shows anything. That entry sits on
 // `performance`'s monotonic transcript, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //

@@ -1,5 +1,5 @@
-// The endurance tier's heap instrument: how the heap is read, and the proof that the
-// instrument is precise. It sits beside `workload.ts`, which drives the app.
+// The endurance tier's heap instrument: how the heap is read, and the proof that the instrument
+// is precise. `../workload.ts` drives the app.
 //
 // The reader's figure is safe in one direction only at precise precision, so the reader and the
 // assertion that establishes precision live together. The proof allocates four megabytes that

@@ -7,11 +7,14 @@
 // (session-scoped kinds carry no `entity`, entity-keyed kinds require one) are enforced at the call
 // site.
 
+import { type SessionPane } from "#renderer/features/sessions/pane-layout/state.js";
+import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { DraftStore } from "#renderer/store/drafts.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { type PaneAddressOf } from "#renderer/routing/panes/address.js";
+import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import { type PaneKind } from "#renderer/routing/panes/kinds.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { WindowStore } from "#renderer/store/window/store.js";
@@ -26,7 +29,7 @@ export interface PaneBindings {
   readonly bridge: PlatformBridge;
   readonly sessionStore: SessionStore | undefined;
   /** The pane this one was opened from, where a case is about the link. */
-  readonly linkedSourcePaneId?: string;
+  readonly linkedSourcePaneId?: string | undefined;
   /**
    * The window store the pane escalates into, for a case that reads its banners; defaulted.
    * `| undefined` is spelled out because `exactOptionalPropertyTypes` rejects a forwarded
@@ -52,9 +55,34 @@ export function paneContext<TKind extends PaneKind>(
   address: PaneAddressOf<TKind>,
   bindings: PaneBindings,
 ): PaneAddressOf<TKind> & PaneBindingMembers {
+  return { ...address, ...bindingMembersOf(address.kind, bindings) };
+}
+
+/**
+ * The context a pane the layout holds is mounted with: its kind and entity read into an address as
+ * the session screen reads them, a refusal for a pair that is none, and its own id and link.
+ */
+export function layoutPaneContext(
+  pane: SessionPane,
+  bindings: Omit<PaneBindings, "paneId" | "linkedSourcePaneId">,
+): PaneContext | Refusal {
+  const address = parsePaneAddress(pane.kind, pane.entity);
+  if ("code" in address) {
+    return address;
+  }
   return {
     ...address,
-    paneId: bindings.paneId ?? `pane-${address.kind}`,
+    ...bindingMembersOf(address.kind, {
+      ...bindings,
+      paneId: pane.paneId,
+      linkedSourcePaneId: pane.sourcePaneId,
+    }),
+  };
+}
+
+function bindingMembersOf(kind: PaneKind, bindings: PaneBindings): PaneBindingMembers {
+  return {
+    paneId: bindings.paneId ?? `pane-${kind}`,
     linkedSourcePaneId: bindings.linkedSourcePaneId,
     bridge: bindings.bridge,
     frameStore: bindings.frameStore ?? new WindowStore(),
