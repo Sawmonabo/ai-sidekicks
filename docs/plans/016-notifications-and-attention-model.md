@@ -202,7 +202,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ### Phase 3 — Notification Emission And Delivery Surfaces
 
-**Precondition:** Phase 2 merged; Plan-020 Phase 2's machine settings members (T-020r-2-8), which T3.1 reads for the app-icon count and T3.7's Notifications page reads and writes; Plan-020 Phase 4's deep-link handler (T-020r-4-3), whose navigation member carries a notification click to T3.2's landing; the workflow-secret keychain store module ([ADR-036](../decisions/036-workflow-secrets-in-the-os-keychain.md)) landed, for T3.4 and T3.5; Plan-025's push key and senders, for T3.6. T3.5, the email digest, is built last of all, after Phase 11, Release ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
+**Precondition:** Phase 2 merged; Plan-020 Phase 2's machine settings members (T-020r-2-8), which T3.1 reads for the app-icon count and T3.7's Notifications page reads and writes; Plan-020 Phase 4's deep-link handler (T-020r-4-3), whose navigation member carries a notification click to T3.2's landing; the workflow-secret keychain store module ([ADR-036](../decisions/036-workflow-secrets-in-the-os-keychain.md)) landed, for T3.4 and T3.5; Plan-025's push key and senders, for T3.6. T3.5, the email digest, is built last of all, after the Release group ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 
 **Goal:** the main process posts, settles and withdraws notifications and sets the app-icon count; the renderer draws the bell's list, the muted row mark and the Notifications page; the daemon sends to the web address, sends the email digest and pushes to devices with no live connection.
 

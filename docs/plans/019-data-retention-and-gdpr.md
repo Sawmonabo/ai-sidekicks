@@ -144,7 +144,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ### Phase 1 — The daemon's secrets (Steps 1–2)
 
-**Precondition:** Plan-005 T-005r-2-1's `DaemonKeyStore` interface and test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-5) are built together with this phase's production store (T22.1.2), which implements that interface; the rest of Plan-005 Phase R2 is not a precondition. T22.1.3, the Windows arm, is built in Phase 10, Other platforms, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
+**Precondition:** Plan-005 T-005r-2-1's `DaemonKeyStore` interface and test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-5) are built together with this phase's production store (T22.1.2), which implements that interface; the rest of Plan-005 Phase R2 is not a precondition. T22.1.3, the Windows arm, is built in the Other platforms group, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 
 #### Tasks
 
@@ -225,7 +225,7 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 ## Rollout Order
 
 1. Land the data verbs in `ipc/handlers/data.ts` (`packages/runtime-daemon/src/ipc/handlers/`, registered on Plan-005's `MethodRegistry` per D-019-1) + documentation updates (Steps 3–4), the erase without its credential-store step.
-2. Land the credential-store dependency and the production store with their tests (Steps 1–2) — no schema impact — with the erase's credential-store step, then the purge's erasure step (Step 5). The Windows arm lands in Phase 10, Other platforms.
+2. Land the credential-store dependency and the production store with their tests (Steps 1–2) — no schema impact — with the erase's credential-store step, then the purge's erasure step (Step 5). The Windows arm lands in the Other platforms group.
 
 ## Rollback Or Fallback
 

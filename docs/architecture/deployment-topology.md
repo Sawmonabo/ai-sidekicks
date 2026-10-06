@@ -167,7 +167,7 @@ Workload: the service idle for 10 minutes, one app window open, no session.
 
 **CD:** none run by the project. The person deploys their own relay: the Workers relay into their own Cloudflare account, the Compose relay with its `docker-compose.yml` on their own server ([ADR-019](../decisions/019-v1-deployment-model-and-oss-license.md)).
 
-**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow (`.github/workflows/release.yml`) and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
+**Local artifacts:** the desktop app's installers and the standalone Node.js bundle, built on a release tag by the release workflow, `.github/workflows/release.yml`, which [Plan-020](../plans/020-desktop-app-and-renderer.md) T-020r-6-4 creates, and published to GitHub Releases. Only the terminal helper's npm platform packages publish to npm ([ADR-022 §Axis 3](../decisions/022-v1-ci-cd-and-release-automation.md#axis-3--release-automation)).
 
 **Versioning:** semver for packages; control-plane API versioned via tRPC router namespacing.
 
