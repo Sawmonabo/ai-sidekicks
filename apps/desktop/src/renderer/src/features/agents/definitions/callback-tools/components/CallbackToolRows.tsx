@@ -42,11 +42,11 @@ export function CallbackToolRows(props: {
             )}
             <span className="meridian-callback-tools__description">{row.tool.description}</span>
           </div>
-          <Collapsible.Root className="meridian-callback-tools__schema">
+          <Collapsible.Root>
             <Collapsible.Trigger className="meridian-disclosure-trigger">
               Input schema
             </Collapsible.Trigger>
-            <Collapsible.Panel className="meridian-callback-tools__schema-panel">
+            <Collapsible.Panel>
               {row.toolArguments.length === 0 ? (
                 // Said rather than left blank: an empty list reads as a panel that failed
                 // to render.

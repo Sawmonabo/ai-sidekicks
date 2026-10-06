@@ -66,7 +66,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
   }
   if (props.registry.kind === "withheld") {
     return (
-      <div className="meridian-callback-tools meridian-callback-tools--withheld">
+      <div className="meridian-callback-tools">
         <p className="meridian-callback-tools__note">
           The registry is withheld. Spawn does not expose these tools while the background service
           has no registered approval-create seam, so a sidekick cannot reach them, and a stray

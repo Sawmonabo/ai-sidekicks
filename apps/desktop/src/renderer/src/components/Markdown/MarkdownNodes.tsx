@@ -139,7 +139,7 @@ function renderNode(
     case "linkReference":
       // No path links. The text always survives; the anchor is what is withheld.
       return (
-        <span className="meridian-markdown__link meridian-markdown__link--inert">
+        <span className="meridian-markdown__link--inert">
           {renderChildren(node.children, context)}
         </span>
       );

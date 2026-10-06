@@ -55,7 +55,7 @@ export function AgentBindingCard(props: AgentBindingCardProps): React.JSX.Elemen
       <ToolAllowlistLine position={toolAllowlist} />
 
       {agent.resolvedConfiguration === undefined ? null : (
-        <details className="meridian-agent-card__disclosure">
+        <details>
           <summary className="meridian-agent-card__disclosure-summary">
             Resolved configuration
           </summary>

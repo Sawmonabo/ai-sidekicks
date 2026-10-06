@@ -12,7 +12,6 @@ import { overlayClassName } from "./overlay-class-name.js";
 export interface OverlayMenuPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
-  readonly positionerClassName: string;
   /** Distance from the anchor, in pixels, as the positioner takes it. */
   readonly sideOffset?: number | undefined;
   /** What the popup is placed against; absent, the menu's own trigger. */
@@ -28,7 +27,7 @@ export function OverlayMenuPopup(props: OverlayMenuPopupProps): React.JSX.Elemen
   return (
     <Menu.Portal container={props.container ?? ownerWindow.document.body}>
       <Menu.Positioner
-        className={overlayClassName(props.positionerClassName)}
+        className={overlayClassName(undefined)}
         sideOffset={props.sideOffset}
         anchor={props.anchor}
       >

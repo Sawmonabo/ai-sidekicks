@@ -63,7 +63,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
         ))}
       </dl>
 
-      <details className="meridian-root-card__detail">
+      <details>
         <summary className="meridian-root-card__detail-summary">Provenance</summary>
         <dl className="meridian-root-card__detail-list">
           {WORKTREE_DETAIL_COLUMNS.map((column) => {

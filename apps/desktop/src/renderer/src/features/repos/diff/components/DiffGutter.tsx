@@ -8,9 +8,7 @@ export function DiffGutter(props: {
   const lineNumber = props.side === "base" ? props.line.baseLineNumber : props.line.headLineNumber;
   return (
     <span className="meridian-diff__gutter">
-      <span className="meridian-diff__line-number">
-        {lineNumber === undefined ? "" : String(lineNumber)}
-      </span>
+      <span>{lineNumber === undefined ? "" : String(lineNumber)}</span>
     </span>
   );
 }

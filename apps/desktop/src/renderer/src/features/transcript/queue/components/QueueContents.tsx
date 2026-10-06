@@ -63,7 +63,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const withheld = feed.items.length - rendered.length;
 
   return (
-    <div className="meridian-queue">
+    <div>
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow

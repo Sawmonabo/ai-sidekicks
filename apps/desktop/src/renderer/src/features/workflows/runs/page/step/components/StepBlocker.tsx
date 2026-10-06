@@ -83,7 +83,7 @@ export function StepBlocker(props: StepBlockerProps): React.JSX.Element | null {
     case "chain":
       // The chain's question is answered on its first run's page; a held step only says so.
       return (
-        <div className="meridian-workflow-step__chain-hold">
+        <div>
           <WaitingEyebrow words="Waiting on you" />
           <p className="meridian-workflow-step__note">
             {`${formatCount(run.chainRoot.runCount)} runs from one start`}

@@ -8,11 +8,10 @@ import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { overlayClassName } from "#renderer/components/OverlayPopups/overlay-class-name.js";
 
-/** What the popup renders, and the class names the caller styles it with. */
+/** What the popup renders, and the class name the caller styles it with. */
 export interface OverlayComboboxPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
-  readonly positionerClassName: string;
   readonly className: string;
   readonly children: React.ReactNode;
 }
@@ -23,7 +22,7 @@ export function OverlayComboboxPopup(props: OverlayComboboxPopupProps): React.JS
   const airspaceRef = useAirspaceRegistration();
   return (
     <Combobox.Portal container={props.container ?? ownerWindow.document.body}>
-      <Combobox.Positioner className={overlayClassName(props.positionerClassName)}>
+      <Combobox.Positioner className={overlayClassName(undefined)}>
         <Combobox.Popup ref={airspaceRef} className={overlayClassName(props.className)}>
           {props.children}
         </Combobox.Popup>

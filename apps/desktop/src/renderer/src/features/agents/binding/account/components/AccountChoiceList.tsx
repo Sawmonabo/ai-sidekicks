@@ -46,7 +46,6 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
           mounting its own portal would be painted over by the Preview pane's native view. */}
       <OverlayComboboxPopup
         container={props.overlayContainer}
-        positionerClassName="meridian-axis-field__positioner"
         className="meridian-axis-field__popup"
       >
         <Combobox.Input

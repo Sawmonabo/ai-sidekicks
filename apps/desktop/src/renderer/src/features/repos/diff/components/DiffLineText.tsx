@@ -18,9 +18,7 @@ export function DiffLineText(props: {
             // Segments have no identity and never reorder (the list is rebuilt whole), so the
             // position is the key.
             key={segmentIndex}
-            className={
-              segment.changed ? "meridian-diff__segment meridian-diff__segment--changed" : undefined
-            }
+            className={segment.changed ? "meridian-diff__segment--changed" : undefined}
           >
             {segment.text}
           </span>

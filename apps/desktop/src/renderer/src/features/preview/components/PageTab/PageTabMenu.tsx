@@ -57,11 +57,7 @@ export function PageTabMenu(props: PageTabMenuProps): React.JSX.Element {
         }
       }}
     >
-      <OverlayMenuPopup
-        anchor={target?.anchor}
-        positionerClassName="meridian-preview-tab-menu__positioner"
-        className="meridian-preview-tab-menu"
-      >
+      <OverlayMenuPopup anchor={target?.anchor} className="meridian-preview-tab-menu">
         {MOVE_ROWS.map((row) => {
           const destination = row.destinationOf(index, pageIds.length);
           return (

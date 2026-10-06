@@ -62,7 +62,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
   }
 
   return (
-    <div className="meridian-remembered-rules">
+    <div>
       {props.unreadableCount > 0 ? (
         <p className="meridian-remembered-rules__unreadable">
           The reply carried rows this build could not read, so this list is shorter than what the

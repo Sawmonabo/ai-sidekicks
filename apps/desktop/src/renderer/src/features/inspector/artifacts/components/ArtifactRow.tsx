@@ -36,7 +36,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
           glyph={row.artifactType === "diff" ? "diff" : "artifact"}
         />
         <Chip tone={ARTIFACT_STATE_TONES[row.state]} label={row.state} mono />
-        <span className="meridian-artifact-row__size">
+        <span>
           {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
         </span>
@@ -63,9 +63,9 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         )}
       </div>
 
-      <details className="meridian-artifact-row__detail">
+      <details>
         <summary className="meridian-artifact-row__detail-summary">Digest and metadata</summary>
-        <dl className="meridian-artifact-row__detail-list">
+        <dl>
           <div className="meridian-artifact-row__pair">
             <dt>Digest</dt>
             <dd>

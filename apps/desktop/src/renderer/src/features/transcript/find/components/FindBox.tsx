@@ -57,7 +57,7 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
         />
       </label>
 
-      <span className="meridian-find__count" role="status">
+      <span role="status">
         <DerivedFigure text={matchCountText(result, props.currentMatchIndex)} />
       </span>
 

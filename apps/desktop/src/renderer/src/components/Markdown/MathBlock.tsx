@@ -24,7 +24,8 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
   if (state.status === "rendered") {
     return (
       <span
-        className={props.isDisplayMode ? "meridian-math meridian-math--display" : "meridian-math"}
+        className={props.isDisplayMode ? "meridian-math--display" : undefined}
+        data-math=""
         // KaTeX's MathML output over `trust: false`.
         dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
       />
@@ -32,7 +33,7 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
   }
 
   return (
-    <span className="meridian-math meridian-math--source">
+    <span className="meridian-math--source" data-math="">
       <code>{props.source}</code>
       {state.status === "unrenderable" ? (
         <Nothing

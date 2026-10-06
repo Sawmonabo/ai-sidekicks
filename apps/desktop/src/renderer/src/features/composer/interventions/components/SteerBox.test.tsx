@@ -3,7 +3,7 @@
 // reaches the wire as typed.
 
 import { useLayoutEffect, useState } from "react";
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SteerBox } from "./SteerBox.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
@@ -37,8 +37,8 @@ describe("the form is keyed by what it is composing against", () => {
   }): null {
     const { record } = props;
     useLayoutEffect(() => {
-      const body = document.querySelector(".meridian-run-composer__body");
-      const confirm = document.querySelector(".meridian-run-composer__confirm");
+      const body = screen.queryByRole("textbox", { name: `Steer ${STEERED_AGENT_NAME}` });
+      const confirm = screen.queryByRole("button", { name: "Send" });
       record({
         body: body instanceof HTMLTextAreaElement ? body.value : "<the form drew no body>",
         isConfirmDisabled: confirm instanceof HTMLButtonElement ? confirm.disabled : false,

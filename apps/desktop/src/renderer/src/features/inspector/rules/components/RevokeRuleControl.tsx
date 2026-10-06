@@ -22,7 +22,7 @@ export function RevokeRuleControl(props: {
     return (
       <button
         className={
-          "meridian-remembered-rules__revoke meridian-action-button " +
+          "meridian-action-button " +
           "meridian-action-button--regular meridian-action-button--outline"
         }
         type="button"
@@ -43,7 +43,7 @@ export function RevokeRuleControl(props: {
       </span>
       <button
         className={
-          "meridian-remembered-rules__revoke meridian-action-button " +
+          "meridian-action-button " +
           "meridian-action-button--regular meridian-action-button--outline"
         }
         type="button"
@@ -53,7 +53,7 @@ export function RevokeRuleControl(props: {
       </button>
       <button
         className={
-          "meridian-remembered-rules__cancel meridian-action-button " +
+          "meridian-action-button " +
           "meridian-action-button--regular meridian-action-button--outline"
         }
         type="button"

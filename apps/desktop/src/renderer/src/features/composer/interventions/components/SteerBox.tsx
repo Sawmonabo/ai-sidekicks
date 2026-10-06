@@ -185,7 +185,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         <button
           type="submit"
           className={
-            "meridian-run-composer__confirm meridian-action-button " +
+            "meridian-action-button " +
             "meridian-action-button--small meridian-action-button--raised"
           }
           disabled={isConfirmLatched}

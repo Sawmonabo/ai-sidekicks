@@ -106,7 +106,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         />
       ) : null}
 
-      <details className="meridian-mount-card__provenance">
+      <details>
         <summary className="meridian-mount-card__provenance-summary">Provenance</summary>
         <dl className="meridian-mount-card__provenance-list">
           <dt>Entered path</dt>

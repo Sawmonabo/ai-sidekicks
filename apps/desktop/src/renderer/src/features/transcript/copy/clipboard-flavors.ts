@@ -80,8 +80,8 @@ const DRAWN_MARKDOWN_HANDLERS: Record<string, Handle> = {
 
 /** The TeX source of a drawn math span, or `undefined` for any other span. */
 function drawnMathSource(element: DrawnElement): string | undefined {
-  const className = element.properties["className"];
-  if (!Array.isArray(className) || !className.includes("meridian-math")) {
+  // `MathBlock` marks every formula it draws with `data-math`.
+  if (element.properties["dataMath"] === undefined) {
     return undefined;
   }
   const annotation = findElement(element, "annotation") ?? findElement(element, "code");

@@ -68,9 +68,7 @@ export const DiffRowView: React.MemoExoticComponent<
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--hunk">
         {/* Wire-verbatim: the `@@` header is the daemon's string and its numbers are not
             re-parsed. */}
-        <span className="meridian-diff__hunk-header" role="cell">
-          {hunk?.header ?? ""}
-        </span>
+        <span role="cell">{hunk?.header ?? ""}</span>
       </div>
     );
   }
