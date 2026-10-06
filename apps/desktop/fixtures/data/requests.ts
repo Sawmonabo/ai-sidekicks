@@ -1,10 +1,5 @@
-// The requests a computed reply reads: the one it was handed, which arrives as `unknown` and is
-// read member by member rather than trusted to a shape, and the ones the playback has answered.
-
-import type { ScenarioComputedReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
-
-/** What the playback has answered so far, across the calls named, in the order each settled. */
-export type AnsweredRequests = Parameters<ScenarioComputedReply["resultFor"]>[3];
+// Reading the request a computed reply was handed, which arrives as `unknown` and is read member
+// by member rather than trusted to a shape.
 
 /** A request read as a record, or an empty one. */
 export function asRecord(value: unknown): Record<string, unknown> {

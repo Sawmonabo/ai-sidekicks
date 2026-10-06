@@ -27,7 +27,8 @@ import {
   minutesAgo,
   type WorkflowRunRecord,
 } from "./records.js";
-import { readMember, readString, type AnsweredRequests } from "../../requests.js";
+import type { AnsweredRequests } from "#renderer/services/daemon/scenario/reply.fixture.js";
+import { readMember, readString } from "../../requests.js";
 
 /** What a workflow reply reads the playback through: its answered writes and a request's stamp. */
 export interface WorkflowPlayback {

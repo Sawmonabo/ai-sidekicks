@@ -63,12 +63,13 @@ import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import type { SessionListAck, SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
+  AnsweredRequests,
   ScenarioNotice,
   ScenarioOpeningNotice,
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
-import { readMember, type AnsweredRequests } from "./requests.js";
+import { readMember } from "./requests.js";
 
 const OBSERVED_AT = "2026-01-01T08:55:00.000Z";
 const SESSION_A = "019b79ee-0280-75e5-8510-ada11a5a21a5" as SessionId;

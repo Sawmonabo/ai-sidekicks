@@ -49,6 +49,12 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
 }
 
 /**
+ * What the playback has answered so far, across the calls named, in the order each settled: the
+ * requests a computed reply or a notice reads its writes from.
+ */
+export type AnsweredRequests = (...calls: readonly string[]) => readonly unknown[];
+
+/**
  * A canned reply the scenario computes from the request the caller actually sent. A method-name
  * match is wrong for an entity-scoped read: two repo mounts read with `repo.mountRead` would get
  * the same mount back.
@@ -73,7 +79,7 @@ export interface ScenarioComputedReply extends ScenarioReplyBase {
     request: unknown,
     settledAtMilliseconds: number,
     computedReplyOrdinal: number,
-    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
+    answeredRequestsFor: AnsweredRequests,
     readRequestStamp: RequestStampReader,
   ) => unknown;
   readonly result?: never;
@@ -100,7 +106,7 @@ export interface ScenarioNotice {
   readonly afterMs: number;
   /** The frame to push, or `undefined` when a write since the reply means there is none. */
   readonly payloadAtDelivery: (
-    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
+    answeredRequestsFor: AnsweredRequests,
     readRequestStamp: RequestStampReader,
   ) => unknown;
 }
@@ -113,7 +119,7 @@ export interface ScenarioNotice {
 export interface ScenarioOpeningNotice {
   readonly stream: MachineNoticeStreamName;
   readonly payloadAtOpen: (
-    answeredRequestsFor: (...calls: readonly string[]) => readonly unknown[],
+    answeredRequestsFor: AnsweredRequests,
     readRequestStamp: RequestStampReader,
   ) => unknown;
 }
