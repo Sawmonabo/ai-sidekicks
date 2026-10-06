@@ -65,7 +65,9 @@
         "vitest/**",
         "$TURBO_ROOT$/vitest.shared.ts"
       ],
-      "outputs": [".tsbuildinfo"]
+      // `tsc -b` emits each project's output beside its build info, and a later `tsc -b` trusts the
+      // build info and never re-emits a missing output, so a cache hit restores both or neither.
+      "outputs": [".tsbuildinfo", "dist/**", "src/renderer/.tsbuildinfo", "out/tsc-renderer/**"]
     },
     "lint": {
       "inputs": [
