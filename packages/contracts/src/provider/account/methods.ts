@@ -88,7 +88,10 @@ export const PROVIDER_WAKE_HELPER_REASON_MAX_LEN = 1024;
  */
 export interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
-  /** Renames an account added from a pasted token or API key; no other account carries a name. */
+  /**
+   * Renames an account added from a pasted token or API key, refused
+   * {@link PROVIDER_ACCOUNT_RENAME_REFUSED_CODE} on any other, which carries no name.
+   */
   displayLabel?: string | undefined;
   /** How `unknown` is resolved to a declared mode. */
   billingMode?: BillingMode | undefined;
@@ -164,6 +167,18 @@ export const ProviderAccountUpdateResponseSchema: z.ZodType<ProviderAccountUpdat
       .optional(),
   })
   .strict();
+
+/**
+ * The update renamed an account that carries no typed name: only an account added from a pasted
+ * token or API key is named by the person, so nothing is renamed.
+ */
+export const PROVIDER_ACCOUNT_RENAME_REFUSED_CODE = "provideraccount.rename_refused" as const;
+/**
+ * The type of {@link PROVIDER_ACCOUNT_RENAME_REFUSED_CODE}.
+ *
+ * @consumedBy the handler that returns the `provideraccount.rename_refused` error
+ */
+export type ProviderAccountRenameRefusedCode = typeof PROVIDER_ACCOUNT_RENAME_REFUSED_CODE;
 
 /** Removes one account. */
 export interface ProviderAccountRemoveRequest {

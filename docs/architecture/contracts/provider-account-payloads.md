@@ -327,8 +327,10 @@ interface ProviderAccountRegisterResponse {
 interface ProviderAccountUpdateRequest {
   accountId: ProviderAccountId;
   billingMode?: BillingMode; // omitted = unchanged; this is how `unknown` is resolved to a declared mode
-  // Rename. Accepted only on an account that carries a `displayLabel`, and refused when it matches
-  // another of that provider's account names. Omitted = unchanged.
+  // Rename. Accepted only on an account that carries a `displayLabel`, refused
+  // `provideraccount.rename_refused` on any other, and refused
+  // `provideraccount.display_label_taken` when it matches another of that provider's account names
+  // under `foldName`. Trimmed. Omitted = unchanged.
   displayLabel?: string;
   // The durable per-account opt-out AC-19 requires. Carried on the update verb rather than as a
   // dedicated verb: it is an ordinary mutable account preference, and a verb of its own would add
