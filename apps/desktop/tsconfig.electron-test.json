@@ -41,6 +41,9 @@
   "include": [
     "tests/e2e/**/*",
     "tests/endurance/**/*",
+    // The smoke tier's one launch through the end-to-end launcher, which runs against the smoke
+    // bundle because that build refuses a scenario.
+    "tests/launch-failure.smoke.test.ts",
     "tests/helpers/**/*.test-support.ts",
     "tests/helpers/electron/harness.ts",
     "tests/helpers/launch/readiness.ts",

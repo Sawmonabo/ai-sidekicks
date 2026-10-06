@@ -169,7 +169,8 @@
     },
     "test:smoke": {
       // Its launches play no scenario, so each starts a background service of its own from the
-      // service's build (`tests/helpers/isolated-service.ts`).
+      // service's build (`tests/helpers/isolated-service.ts`), except the one that asks for a
+      // scenario to see the smoke bundle refuse it.
       "dependsOn": ["build:smoke", "@ai-sidekicks/runtime-daemon#build"],
       // Not `tests/**`: the tiers under `tests/<tier>/**` are not this project's inputs, and a tier
       // test edit must not invalidate the smoke build.

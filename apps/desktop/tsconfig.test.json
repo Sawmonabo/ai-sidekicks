@@ -49,5 +49,8 @@
   // context: JSX + DOM lib) wired in via the parent tsconfig.json `references`; a Node-context pass
   // would drag its .tsx files into a JSX-less, DOM-less compilation and trip TS17004 / TS6142 /
   // TS2584. The renderer's `tsconfig.test.json` typechecks its test files.
-  "exclude": ["dist", "node_modules", "src/renderer/**"]
+  //
+  // `tests/launch-failure.smoke.test.ts` is excluded because it launches through the end-to-end
+  // launcher, whose callbacks are browser code; `tsconfig.electron-test.json` typechecks it.
+  "exclude": ["dist", "node_modules", "src/renderer/**", "tests/launch-failure.smoke.test.ts"]
 }

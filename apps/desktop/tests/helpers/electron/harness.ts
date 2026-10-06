@@ -45,6 +45,7 @@ import {
   readinessFailure,
 } from "../launch/launch-deadline.js";
 import { createLaunchProfile, removeLaunchProfile } from "../launch/launch-profile.js";
+import { MainProcessOutput } from "../launch/main-process-output.js";
 import { awaitPaintingAppWindow } from "../launch/readiness.js";
 import { LAUNCH_TRACE_TAG } from "../launch/trace.js";
 
@@ -166,6 +167,8 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
   }
 
+  // Read from the launch on, so a failure before the window is ready carries main's own words.
+  const mainOutput = new MainProcessOutput(application.process(), profile.directory);
   const cleanup = new BoundedCleanup(
     {
       close: () => application.close(),
@@ -213,6 +216,8 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     const { window, consolePage } = await awaitPaintingAppWindow(application, deadline);
     return { application, window, consolePage, close };
   } catch (error: unknown) {
+    // Read before the close, which ends main and removes its profile.
+    const standing = mainOutput.standing();
     // `close()` rejects on abnormal cleanup, but the launch already failed and its error explains
     // the run. So the rejection is swallowed and the cleanup outcome is attached to the original.
     try {
@@ -220,7 +225,7 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     } catch {
       // Recorded in `cleanupOutcome`, and attached by the throw below.
     }
-    throw withCleanupOutcome(error, cleanupOutcome);
+    throw withCleanupOutcome(mainOutput.failureWith(error, standing), cleanupOutcome);
   }
 }
 

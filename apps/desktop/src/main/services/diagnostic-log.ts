@@ -252,13 +252,16 @@ export function createFileSystemDiagnosticLogSink(): DiagnosticLogFileSink {
 /** Bytes the live log may reach before it rotates. One generation is kept beside it. */
 const MAIN_DIAGNOSTIC_LOG_BYTE_CEILING = 2 * 1024 * 1024;
 
+/** The file main's log is written to, in the logs folder. */
+export const MAIN_DIAGNOSTIC_LOG_FILE_NAME = "main.jsonl";
+
 /**
  * Build main's log under `logDirectory`. `notice` is the floor because main writes few lines
  * and they are the only record of a process that may not have produced a window.
  */
 export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
   return new MainDiagnosticLog({
-    filePath: `${logDirectory}/main.jsonl`,
+    filePath: `${logDirectory}/${MAIN_DIAGNOSTIC_LOG_FILE_NAME}`,
     sink: createFileSystemDiagnosticLogSink(),
     minimumLevel: "notice",
     fileByteCeiling: MAIN_DIAGNOSTIC_LOG_BYTE_CEILING,
