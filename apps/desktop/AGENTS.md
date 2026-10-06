@@ -1,6 +1,6 @@
 # apps/desktop — structure rules
 
-Binding for every change under `apps/desktop/`, on top of the root `AGENTS.md`. Paths are relative to `apps/desktop/` or the renderer root `src/renderer/src/`. Read [Desktop Structure](../../docs/architecture/desktop-structure.md) before adding a folder, moving a file, or adding or changing a lint or layering rule: it lists what each folder and feature holds and each check's exact scope. What each process does is in [Desktop Architecture](../../docs/architecture/desktop.md).
+Binding for every change under `apps/desktop/`, on top of the [root `AGENTS.md`](../../AGENTS.md), which this file never restates. Paths are relative to `apps/desktop/` or the renderer root `src/renderer/src/`. Read [Desktop Structure](../../docs/architecture/desktop-structure.md) before adding a folder, moving a file, or adding or changing a lint or layering rule: it lists what each folder and feature holds and each check's exact scope. What each process does is in [Desktop Architecture](../../docs/architecture/desktop.md).
 
 ## Launching
 
@@ -8,7 +8,7 @@ Binding for every change under `apps/desktop/`, on top of the root `AGENTS.md`. 
 
 ## Before pushing
 
-Run `test:changed <base-ref>` plus the files you authored, and `structure`. Before opening a PR, also run `lint` and `typecheck`, all under `pnpm --filter @ai-sidekicks/desktop run`, then `pnpm -w exec eslint .`; every one clean. `test:changed` exits `2` with no ref or a file no project claims. The aggregate `test` script and the Electron tiers are CI's.
+Run `test:changed <base-ref>` plus the files you authored, and `structure`, both under `pnpm --filter @ai-sidekicks/desktop run`. Before opening a PR, also run the root checks ([Working style](../../AGENTS.md#working-style)) and `pnpm -w exec eslint .`; every one clean. `test:changed` exits `2` with no ref or a file no project claims. `test:renderer` is the cheap headless tier; the aggregate `test` script and the Electron tiers are CI's.
 
 ## Layout
 
@@ -24,9 +24,8 @@ The renderer root `src/renderer/src/` is never flattened into `src/renderer/`. I
 - **Feature limits:** `sessions/` owns the Sessions destination whole (the list and the session screen); `settings/` holds the settings pages only; `repos/` owns git and source control; `workflows/param-form/` is used only by workflows.
 - **Inside a feature** a folder is added only when needed: top views at the root, then `components/`, `hooks/`, `services/`, `contributions/`, `types.ts`, `index.ts`, and non-UI modules named for what they hold. A large feature has one sub-folder per distinct responsibility, shaped the same inside.
 - **A feature's `index.ts`** is its public entry: the one module another folder imports from the feature.
-- **Inside every layer, feature and `tests/`, modules are grouped by topic in folders, never by a shared file-name prefix,** under the same rules as [`packages/AGENTS.md` §Folders by topic](../../packages/AGENTS.md#folders-by-topic): three `launch-*.ts` helpers of one topic beside each other mean a `launch/` folder is missing, and a name inside one drops a word a folder above it says where the shorter name is as clear (`viewport/anchor-capture.ts`, not `viewport/viewport-anchor-capture.ts`), except a component's or hook's file, which keeps its exact name.
 - **A `services/` client is named for the contract it speaks** (`services/provider-accounts/`, an artifacts client in `services/artifacts/`), never for the feature that calls it; a call one feature alone makes stays in that feature's `services/`.
-- **A hook** lives in `useThing.ts` under its owner's `hooks/`. A file mixing hooks with other code is split when the other code is used without the hook.
+- **A hook** lives under its owner's `hooks/`. A file mixing hooks with other code is split when the other code is used without the hook.
 - **Main.** `src/main/` keeps `index.ts`, `menu.ts` and `fixture-launch.ts` at its root and groups the rest into `windows/` (the one window factory and main's registry of windows), `bridge/` (main's handler for each preload bridge method), `appearance/` (the kept appearance record and the platform scheme it drives), `services/` and `probes/`; a further folder is made when its first file lands.
 - **Package files outside `src/`.** `build/` holds the build's own TypeScript and tests and the packaging inputs: the app icon `build/icon.icon`, an Icon Composer document (the neon robot with a voice-waveform mouth), and its glow layer's source `build/icon-glow.svg`. `resources/` holds the files main loads at run time: the menu-bar icon `resources/trayTemplate.png` and `@2x`, a one-color template of the app icon drawn from `resources/tray.svg`.
 - **Preload and shared.** `src/preload/index.ts` is the expose call alone; the exposed type is `PreloadApi` in `src/shared/`, so the preload has no `types.ts`. `src/shared/` holds desktop-only contracts as flat files; a subfolder is made when the second file of its kind lands, never ahead, and none is forbidden: the narrowest owner decides.
@@ -88,6 +87,7 @@ Held in review; a checker would get both wrong.
 
 ## Naming
 
+- **Renames.** Beyond when the root rename rule allows ([Names](../../AGENTS.md#names)), an identifier, file, CSS class or token here also changes when it is unclear or its responsibility or owner changes.
 - **Screens.** A destination's view is a screen (`Screen<Id, Params>`, `SessionScreen`, `AgentsScreen`), and "screen" names nothing else. `ScreenView` is only the frame region showing the screen the rail picked. Routing stays in `app/AppRouter.tsx`. A session's arrangement of panes is its pane layout, never "screen view" or "deck".
 - **"Workspace"** means only the managed folder on disk a session is bound to; there is no `features/workspace/`.
 - **`transcript` and `preview`** name the transcript and the Preview pane; a name about the real browser the pane drives keeps "browser".
@@ -98,19 +98,19 @@ Held in review; a checker would get both wrong.
 
 Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 
-- A sheet one component owns is named for it and imported by it, beside it (`ChordHint.tsx` imports `./ChordHint.css`); a sheet renamed for a component moves its import to that component. No `index.ts` exists only to load a sheet.
+- A sheet one component owns is named for it and imported by it, beside it (`ChordHint.tsx` imports `./ChordHint.css`); a sheet renamed for a component moves its import to that component.
 - Class families different components own split at that seam. One cohesive concern several components of a feature share stays one sheet, imported by the feature's top view or its lazily-loaded chunk root; a sheet is never split only because several components take part in one concern.
 - A global sheet (a utility class, or a treatment shared components compose) lives in `styles/`, imported by `main.tsx`.
 - No file imports another folder's sheet, except a chunk root and `main.tsx`.
 - A CSS class has one owning stylesheet; two sheets declaring it at equal specificity resolve by load order.
 - A treatment several features share is one class in a `styles/` sheet, applied beside the control's own class (the action button and disclosure trigger in `styles/action-buttons.css`). The control's class keeps only layout, state and variation; a class left with no rules is removed.
 - A shared component owns every rule for its classes. A feature varies it through its modifier, `data-*` attribute or custom property, never by restyling the class from another sheet.
-- A feature-private class carries the feature's name as its prefix when it is new or is already being renamed with the concept it names. Renaming a class or token follows the root rename rule.
+- A feature-private class carries the feature's name as its prefix when it is new or is already being renamed with the concept it names. Renaming a class or token follows [Naming](#naming).
 - A custom property a component reads and a caller may set has a fallback (`var(--figure-wire-color, inherit)`); without one the declaration drops silently.
 
 ## Tests
 
-- A test sits beside its subject as `*.test.ts(x)`, across `src/**`, `build/**` and `scripts/**`; the desktop has no `__tests__/`. Playwright runs inside Vitest as the Electron driver.
+- A test sits beside its subject as `*.test.ts(x)`, across `src/**`, `build/**` and `scripts/**`. Playwright runs inside Vitest as the Electron driver.
 - `tests/` holds only tests spanning modules or the app: `helpers/` and the tiers `browser/`, `e2e/`, `endurance/`, `accessibility/`, `budget/`, one Vitest project each, globs disjoint. A test reading one scenario's data sits beside that scenario.
 - Shared scaffolding lives once per role in `tests/helpers/`; a module one tier alone uses sits in that tier's folder; a tier hand-rolling a role another has is rejected. Helper tests sit beside their helpers in `main-unit`, except those needing the renderer's DOM: `RENDERER_TESTS_OUTSIDE_SOURCE` in `vitest/tier-projects.ts` moves them, and the scenario contract check's suite, to `renderer`.
 - A test never reimplements the rule it checks or drives a stand-in for the module under test. Every clean result has a negative control that fails.
@@ -131,15 +131,15 @@ Plain CSS on global design tokens in `styles/`. No `*.module.css`.
 
 `structure` runs `structure:dead-code` (the root `knip.json`) and `structure:layering` (`.dependency-cruiser.mjs`: cycles, orphans, the import direction and boundaries above, folders outside [Layout](#layout)); CI runs them as two Turbo tasks with `--continue`. `lint` (`eslint.config.mjs`) carries the import bans and the gates below. A kept file nothing imports and that imports nothing takes, beside its `ignoreFiles` entry, its exact anchored path in `no-orphans`' `pathNot` with the same comment, never a directory or a pattern; both leave together.
 
-The mechanical gates. Before adding or changing a gate, read its file set and lifts in [Desktop Structure §Mechanical Gates](../../docs/architecture/desktop-structure.md#mechanical-gates).
+The mechanical gates; each one's file set and lifts are in [Desktop Structure §Mechanical Gates](../../docs/architecture/desktop-structure.md#mechanical-gates).
 
-1. `window.desktopBridge` is read off the global only in `services/platform/live-bridge.ts`: `readInstalledBridge` there feeds `PlatformBridgeProvider`, from which every surface takes the bridge, and `readFixtureLaunch` there, called only by `app/fixture/composition.ts`, reads the fixture launch. An alias that dodges the selector is rejected in review.
+1. `window.desktopBridge` is read off the global only in `services/platform/live-bridge.ts`: `readInstalledBridge` there feeds `PlatformBridgeProvider`, and `readFixtureLaunch` there, called only by `app/fixture/composition.ts`, reads the fixture launch. An alias that dodges the selector is rejected in review.
 2. No `setInterval` in renderer source.
 3. No `export default` outside the package-root tool configs.
 4. No module-level `let` in shipped renderer source.
 5. `spawn` from `node:child_process` only in `tests/helpers/electron/child/child.ts`, which registers the kill on `onTestFinished`, and in `src/main/services/daemon/service/start.ts`, which starts the background service detached so it outlives the app.
 6. No `toMatchScreenshot` matcher.
-7. A `.css` import follows [Styling](#styling): its own folder's sheet, except from a chunk root and `main.tsx`.
+7. A `.css` import follows [Styling](#styling).
 8. No directory `import.meta.glob` under `src/`.
 9. No text-snapshot matcher: it records whatever the code produced on its first run and passes. Assert the value.
 10. Renderer file sections: exported types and interfaces, the exported class, the exported function, then everything private. A private type that exactly one helper uses may sit directly above that helper. The constants a file already has stay where they are.
@@ -149,4 +149,4 @@ The mechanical gates. Before adding or changing a gate, read its file set and li
 14. No deep relative import (three or more `../`) in renderer source.
 15. Only `app/App.tsx` reads `__FIXTURE_BUILD__` in renderer source.
 
-A new gate states its file set and lifts in [Desktop Structure](../../docs/architecture/desktop-structure.md), never left to be found in the config. Structure enforcement admits two ESLint plugins: `eslint-plugin-perfectionist` (gates 10 and 11 only) and `eslint-plugin-check-file`. A reusable or exported component in its own file is held in review.
+A new gate states its file set and lifts in [Desktop Structure](../../docs/architecture/desktop-structure.md), never left to be found in the config. Structure enforcement admits two ESLint plugins: `eslint-plugin-perfectionist` (gates 10 and 11 only) and `eslint-plugin-check-file`.
