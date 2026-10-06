@@ -1,14 +1,12 @@
 // The system message vocabulary: which system messages the transcript draws, what each reads, and
-// how it is marked. A system message is one line, never a message row or block. Each binding
-// carries its wire types verbatim. Classification is in
-// `classifier.ts`, which takes this table as its closed input.
+// how it is marked. A system message is one line with no glyph, never a message row or block.
+// Each binding carries its wire types verbatim. Classification is in `classifier.ts`, which takes
+// this table as its closed input.
 
 import {
   AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
 } from "@ai-sidekicks/contracts/agent/provider-binding";
-
-import { type GlyphName } from "#renderer/styles/glyphs.js";
 
 /**
  * Every system message the transcript draws. Closed; `SystemMessageKind` derives from this tuple
@@ -32,11 +30,6 @@ export interface SystemMessageBinding {
   readonly label: string;
   /** The wire event types that produce this system message, verbatim. */
   readonly wireTypes: readonly string[];
-  /**
-   * The glyph the one-line row carries. The glyph set has no rewind or fold glyph, so a
-   * rollback takes `clock` and a compaction takes `chevron-down`.
-   */
-  readonly glyph: GlyphName;
   /** Whether the system message is drawn as a caution; only the failed switch is. */
   readonly isCaution: boolean;
 }
@@ -50,28 +43,24 @@ export const SYSTEM_MESSAGE_BINDINGS: Readonly<Record<SystemMessageKind, SystemM
     kind: "provider-switch",
     label: "Provider switched",
     wireTypes: [AGENT_PROVIDER_BINDING_CHANGED_EVENT],
-    glyph: "chevron-right",
     isCaution: false,
   },
   "provider-switch-failed": {
     kind: "provider-switch-failed",
     label: "Provider switch failed",
     wireTypes: [AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT],
-    glyph: "alert",
     isCaution: true,
   },
   compaction: {
     kind: "compaction",
     label: "Context compacted",
     wireTypes: ["usage.context_compacted"],
-    glyph: "chevron-down",
     isCaution: false,
   },
   rollback: {
     kind: "rollback",
     label: "Rewound",
     wireTypes: ["run.rolled_back"],
-    glyph: "clock",
     isCaution: false,
   },
 };

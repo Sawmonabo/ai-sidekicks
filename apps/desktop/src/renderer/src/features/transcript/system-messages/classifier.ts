@@ -1,5 +1,5 @@
 // Which rows are system messages, and what one row's system message says. The closed vocabulary
-// it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
+// it classifies into (kinds, wire types, labels, the one caution) is in
 // `kinds.ts`. Superseded turns are ranked separately in `superseded-turns.ts`.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";

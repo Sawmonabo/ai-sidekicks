@@ -2,7 +2,7 @@
  * rollback.
  */
 
-/* One line: a glyph and the act's name. */
+/* One line: the act's name, with no glyph. */
 .meridian-system-message {
   display: flex;
   flex-wrap: wrap;
