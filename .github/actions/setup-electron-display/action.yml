@@ -1,0 +1,112 @@
+name: Set up Electron on a display
+description: >-
+  Materializes the Electron binary and, on Linux, sets up its sandbox helper, one X server for the job, and a D-Bus environment that fails fast.
+
+
+runs:
+  using: composite
+  steps:
+    # Electron 44 ships no install script, so `pnpm install` alone leaves no `dist/`;
+    # `apps/desktop/scripts/materialize-electron.ts` explains why. The `postinstall` normally ran
+    # it already, so this step is a fast check plus the path extraction the SUID step needs.
+    # Running the same script, not a second download path, means a skipped postinstall is repaired
+    # and a download failure is its own red step rather than a test timeout. `node -p` runs after
+    # `dist/` is populated so it prints only the path.
+    - name: Materialize the Electron binary
+      id: electron
+      working-directory: apps/desktop
+      shell: bash
+      run: |
+        node --experimental-strip-types scripts/materialize-electron.ts
+        executable=$(node -p "require('electron')")
+        [ -x "$executable" ] || { echo "::error::electron did not resolve to an executable: '$executable'"; exit 1; }
+        echo "executable=$executable" >> "$GITHUB_OUTPUT"
+        ls -l "$executable"
+
+    # Electron on Ubuntu runners needs the SUID sandbox helper (`chrome-sandbox`) owned by root
+    # with mode 4755 for the renderer's Linux namespace sandbox to start, and `pnpm install`
+    # cannot chown it. Running with `--no-sandbox` instead would defeat the invariant
+    # `apps/desktop/tests/launch.smoke.test.ts` asserts: `webPreferences.sandbox: true`, so the
+    # renderer sees `require`, `process` and `global` as `undefined`.
+    #
+    # The helper is taken from beside the executable the previous step resolved, not searched for
+    # under `.pnpm`: a tree holding two Electron versions has two `chrome-sandbox` files and
+    # `find` would return whichever it reached first. The guard fails fast if the `dist/` layout
+    # changed.
+    - name: Configure Electron SUID sandbox helper (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sandbox="$(dirname "${{ steps.electron.outputs.executable }}")/chrome-sandbox"
+        [ -f "$sandbox" ] || { echo "::error::chrome-sandbox not beside the resolved Electron executable — dist layout drift?"; exit 1; }
+        sudo chown root:root "$sandbox"
+        sudo chmod 4755 "$sandbox"
+        ls -l "$sandbox"
+
+    # One X server for the whole job, ready before any test runs, with `$DISPLAY` exported for
+    # every later step. The Electron test harnesses fall back to a per-spawn `xvfb-run -a` only
+    # when no display is set, because that was unsound on a hosted runner:
+    #
+    #   1. `xvfb-run -a` picks its display number with a plain `while [ -f /tmp/.X$i-lock ]` scan,
+    #      a documented race between concurrent invocations.
+    #   2. Each spawn stood up its own Xvfb and wrapper shell, two X servers on a 4-vCPU box for
+    #      no benefit.
+    #   3. `xvfb-run` merges the child's stderr into stdout, which silently disabled every
+    #      stderr-keyed diagnosis branch in the smoke harness.
+    #
+    # `-nolisten tcp` keeps the server on its unix socket.
+    #
+    # Readiness comes from Xvfb's own `-displayfd`: the server picks a free display and writes its
+    # number only once listening, so reading the number is the readiness proof and there is no
+    # display-number race. `xdpyinfo` is not used because the ubuntu-24.04 image has `xvfb` but
+    # not `x11-utils`, so a probe built on it can never succeed.
+    #
+    # Nothing here passes `--no-sandbox`; the SUID helper configured above makes the sandbox work.
+    - name: Start Xvfb and wait for the display to answer (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        display_file="${RUNNER_TEMP}/xvfb-display"
+        xvfb_log="${RUNNER_TEMP}/xvfb.log"
+        : > "$display_file"
+        # No `:N` argument: with `-displayfd` the server allocates a free
+        # display itself and reports it on fd 3, which we point at a file.
+        Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
+          3>"$display_file" >"$xvfb_log" 2>&1 &
+        xvfb_pid=$!
+        # Deliberately no teardown step: the display outlives every test in the
+        # job, and the runner reclaims the VM afterwards. One shared display
+        # means no spawn tears an X server down under another.
+        for attempt in $(seq 1 60); do
+          display_number=$(tr -d '[:space:]' < "$display_file")
+          if [ -n "$display_number" ]; then
+            echo "Xvfb serving :${display_number} after ${attempt} attempt(s)"
+            echo "DISPLAY=:${display_number}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          # Checked AFTER the read, not before: a server that came up and
+          # wrote its number is a success even if this loop notices the pid
+          # later, and checking first would race the write.
+          if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+            echo "::error::Xvfb exited before reporting a display number"
+            cat "$xvfb_log" || true
+            exit 1
+          fi
+          sleep 0.25
+        done
+        echo "::error::Xvfb reported no display number within 15s"
+        cat "$xvfb_log" || true
+        exit 1
+
+    # Chromium probes the session bus for portals and the secret service on boot. A hosted runner
+    # has none, and with `DBUS_SESSION_BUS_ADDRESS` unset libdbus tries an autolaunch that only
+    # costs time. `disabled:` is not a valid bus address, so the lookup fails at once.
+    # `NO_AT_BRIDGE=1` stops the accessibility bridge opening its own bus connection. Neither
+    # changes any sandbox or `webPreferences` setting.
+    - name: Harden D-Bus / portal environment for Electron (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
+        echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"

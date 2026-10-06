@@ -20,8 +20,9 @@
 //      the reading carries `globalGcAvailable` false for the suite to gate on.
 //
 // On Linux CI one Xvfb serves the whole job with `$DISPLAY` exported (see
-// `.github/workflows/ci.yml`), so `needsXvfb()` is false and the binary is spawned directly. The
-// `xvfb-run -a` arm is the fallback for a contributor with no display server.
+// `.github/actions/setup-electron-display/action.yml`), so `needsXvfb()` is false and the binary
+// is spawned directly. The `xvfb-run -a` arm is the fallback for a contributor with no display
+// server.
 
 import process from "node:process";
 

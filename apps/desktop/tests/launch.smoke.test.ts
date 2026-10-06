@@ -11,7 +11,8 @@
 // hold the `SingletonLock`, and this spawn would quit before a window and exit 0 without a probe
 // line (see `spawnElectron()`).
 // CI exports `$DISPLAY` once one job-level Xvfb signals ready on `-displayfd` (see
-// `.github/workflows/ci.yml`); a Linux contributor without one falls back to `xvfb-run -a`.
+// `.github/actions/setup-electron-display/action.yml`); a Linux contributor without one falls
+// back to `xvfb-run -a`.
 //
 // `out/main/index.js` is ESM (Electron supports an ESM main since v28) and
 // `out/preload/index.cjs` is CommonJS because a sandboxed preload cannot be ESM; the header of

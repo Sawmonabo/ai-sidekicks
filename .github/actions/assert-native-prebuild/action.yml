@@ -1,0 +1,146 @@
+name: Assert prebuild provenance and the SQLite pragma readback
+description: >-
+  Asserts the daemon's better-sqlite3 loads this platform's bundled prebuild, and reads back the daemon's SQLite pragmas.
+
+
+inputs:
+  expected-prebuild:
+    description: The prebuild this leg must load, as `<platform>-<arch>`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Assert prebuild provenance and the SQLite pragma readback
+      shell: bash
+      env:
+        EXPECTED_PREBUILD: ${{ inputs.expected-prebuild }}
+      run: |
+        cat > "${RUNNER_TEMP}/assert-native-prebuild.mjs" <<'NODE'
+        import { createRequire } from "node:module";
+        import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+        import os from "node:os";
+        import path from "node:path";
+        import { pathToFileURL } from "node:url";
+
+        const expectedPrebuild = process.env["EXPECTED_PREBUILD"];
+        if (expectedPrebuild === undefined || expectedPrebuild === "") {
+          throw new Error("EXPECTED_PREBUILD is unset — the matrix leg names the platform");
+        }
+
+        // `pathToFileURL`, not a `file://` template: a Windows cwd is
+        // `D:\a\...`, which is not a valid file URL.
+        const daemonRequire = createRequire(
+          new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
+        );
+
+        const DatabaseConstructor = daemonRequire("better-sqlite3");
+
+        // Conjunct (a): the binding the daemon RESOLVES, read back off
+        // `require.cache` after a real open, so a prebuild that resolves but
+        // will not load fails here too.
+        const probeDirectory = mkdtempSync(path.join(os.tmpdir(), "sidekicks-prebuild-"));
+        const databasePath = path.join(probeDirectory, "probe.db");
+        try {
+          const seedDatabase = new DatabaseConstructor(databasePath);
+          seedDatabase.pragma("journal_mode = wal");
+          seedDatabase.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY)");
+          seedDatabase.close();
+
+          const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
+            entry.endsWith(".node"),
+          );
+          if (loadedBindings.length !== 1) {
+            throw new Error(
+              `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
+            );
+          }
+          const [loadedBinding] = loadedBindings;
+          if (
+            !/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(
+              loadedBinding,
+            )
+          ) {
+            throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
+          }
+          // ...and it is THIS platform's prebuild. Without this the assertion
+          // would pass on a leg that silently loaded the wrong architecture.
+          const loadedName = path.basename(loadedBinding, ".node");
+          if (loadedName !== expectedPrebuild) {
+            throw new Error(
+              `expected the ${expectedPrebuild} prebuild, loaded ${loadedName} (${loadedBinding})`,
+            );
+          }
+
+          // Conjunct (b): `build/Release/` holds no `.node` — the one location
+          // a source build writes and, with `prebuild-install` gone from the
+          // 13.x line, the only writer left.
+          const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
+          const releaseDirectory = path.join(packageRoot, "build", "Release");
+          const compiledArtifacts = existsSync(releaseDirectory)
+            ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
+            : [];
+          if (compiledArtifacts.length > 0) {
+            throw new Error(
+              `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
+            );
+          }
+
+          // The daemon's pragmas, on the REOPEN path — the only path that tests
+          // the override. A freshly created database is in delete mode and
+          // reads `synchronous = 2` from `SQLITE_DEFAULT_SYNCHRONOUS`, which
+          // says nothing about the WAL default the override exists for. A
+          // connection opening an ALREADY-WAL database reads
+          // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and the daemon's durability
+          // rule is that this must be raised to FULL, not inherited.
+          const database = new DatabaseConstructor(databasePath);
+          const compileOptions = database.pragma("compile_options").map((row) => row.compile_options);
+          const walSynchronousDefault = database.pragma("synchronous", { simple: true });
+          if (walSynchronousDefault !== 1) {
+            throw new Error(
+              `expected the WAL default synchronous = 1 (NORMAL) before the override, read ${String(walSynchronousDefault)}`,
+            );
+          }
+
+          database.pragma("journal_mode = wal");
+          database.pragma("synchronous = FULL");
+          database.pragma("foreign_keys = ON");
+          database.pragma("busy_timeout = 5000");
+
+          const sqliteVersion = database.prepare("SELECT sqlite_version() AS version").get().version;
+          const readback = {
+            journal_mode: database.pragma("journal_mode", { simple: true }),
+            synchronous: database.pragma("synchronous", { simple: true }),
+            foreign_keys: database.pragma("foreign_keys", { simple: true }),
+            busy_timeout: database.pragma("busy_timeout", { simple: true }),
+          };
+          const expectedReadback = {
+            journal_mode: "wal",
+            synchronous: 2,
+            foreign_keys: 1,
+            busy_timeout: 5000,
+          };
+          for (const [pragmaName, expectedValue] of Object.entries(expectedReadback)) {
+            if (readback[pragmaName] !== expectedValue) {
+              throw new Error(
+                `pragma ${pragmaName}: expected ${String(expectedValue)}, read ${String(readback[pragmaName])}`,
+              );
+            }
+          }
+          database.close();
+
+          console.log(`platform:            ${process.platform}-${process.arch}`);
+          console.log(`node:                ${process.version} (Node-API ${process.versions.napi})`);
+          console.log(`loaded prebuild:     ${loadedBinding}`);
+          console.log(`build/Release .node: none (${releaseDirectory})`);
+          console.log(`better-sqlite3:      ${daemonRequire("better-sqlite3/package.json").version}`);
+          console.log(`embedded sqlite:     ${sqliteVersion}`);
+          console.log(
+            `wal synchronous default: ${String(walSynchronousDefault)} (SQLITE_DEFAULT_WAL_SYNCHRONOUS present: ${String(compileOptions.includes("DEFAULT_WAL_SYNCHRONOUS=1"))})`,
+          );
+          console.log(`pragma readback:     ${JSON.stringify(readback)}`);
+        } finally {
+          rmSync(probeDirectory, { recursive: true, force: true });
+        }
+        NODE
+        node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
