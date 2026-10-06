@@ -11,7 +11,7 @@ import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import { type Refusal } from "#renderer/lib/refusal/refusal.js";
 import { clippingAncestorsOf } from "#renderer/lib/clipping-ancestors.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
-import { SCHEME_ATTRIBUTE } from "#shared/appearance.js";
+import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { observeElementPosition } from "./element-motion.js";
 import { overlayMotionObserver } from "./overlay-observation.js";
 import {
@@ -255,7 +255,8 @@ export class PaneGeometryPublisher {
     });
     observer.observe(ownerDocument.documentElement, {
       attributes: true,
-      attributeFilter: [SCHEME_ATTRIBUTE],
+      // The scheme the page is drawn in, which changes under `system` when the system's does.
+      attributeFilter: [RESOLVED_SCHEME_ATTRIBUTE],
     });
     this.#detachers.push(() => {
       observer.disconnect();

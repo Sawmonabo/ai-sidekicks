@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AirspaceRegistry } from "#renderer/lib/airspace/airspace-registry.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { refuse } from "#renderer/lib/refusal/refusal.js";
+import { RESOLVED_SCHEME_ATTRIBUTE } from "#shared/appearance.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
 import {
   detachAttachedRoots,
@@ -94,6 +95,26 @@ describe("PaneGeometryPublisher", () => {
     publisher.invalidate("window-resize");
     expect(clock.pendingCount).toBe(0);
     expect(pageHost.samples).toStrictEqual([]);
+  });
+});
+
+describe("PaneGeometryPublisher — the theme source", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute(RESOLVED_SCHEME_ATTRIBUTE);
+  });
+
+  it("resamples when the scheme the page is drawn in turns, under system too", async () => {
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock } = publisherOver(pageHost);
+    publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
+    clock.runFrame();
+
+    // Under `system` only the resolved scheme moves; no explicit scheme is written.
+    document.documentElement.setAttribute(RESOLVED_SCHEME_ATTRIBUTE, "dark");
+    await settleMutationRecords();
+
+    expect(clock.pendingFrameCount).toBe(1);
+    publisher.dispose();
   });
 });
 
