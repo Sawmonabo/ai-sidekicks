@@ -5,6 +5,14 @@ files:
   - out/**
   # The renderer's type-check output, which the app never loads.
   - "!out/tsc-renderer/**"
+# The `resources/` files an installed macOS app reads at run time, the menu-bar icon's face, put
+# beside the archive, where `process.resourcesPath` finds them.
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - menu-bar-idleTemplate.png
+      - menu-bar-idleTemplate@2x.png
 mac:
   # The Icon Composer document: electron-builder compiles it with Xcode's `actool` into the
   # bundle's asset catalog, and into an `.icns` for macOS before 26.

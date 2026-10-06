@@ -2,14 +2,14 @@
 // the windows a person sees counted, the last of them closing driving the platform's answer while a
 // quit or a lost renderer closing them does not, and a person closing the load-failure page
 // counting as the last; a quit closing the hidden window first and the rest once its document is
-// gone; a Dock click and a second launch, before start, after it and during a quit, asking the kept
-// console document to reopen the window used last; the renderer's process going away, answered on
-// a later task by building the hidden window again, the third loss in a row a safe start the
-// console document ends, and the count clearing after five quiet minutes; the window the console
-// document's `window.open` gets (main's own options and kept place, never the page's, centered or
-// cascaded when none is kept) and found again by the id its frame name carries; the pushes to the
-// console document; and the window-place file across a close and a restart. `electron` is mocked;
-// the place file is real, in a temporary folder.
+// gone; a Dock click, a menu-bar icon click and a second launch, before start, after it and
+// during a quit, asking the kept console document to reopen the window used last; the renderer's
+// process going away, answered on a later task by building the hidden window again, the third loss
+// in a row a safe start the console document ends, and the count clearing after five quiet minutes;
+// the window the console document's `window.open` gets (main's own options and kept place, never
+// the page's, centered or cascaded when none is kept) and found again by the id its frame name
+// carries; the pushes to the console document; and the window-place file across a close and a
+// restart. `electron` is mocked; the place file is real, in a temporary folder.
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -258,7 +258,7 @@ describe("the windows a person sees, counted", () => {
     },
   );
 
-  it("leave the app running on macOS, where a Dock click asks the kept document to reopen one", async () => {
+  it("leave the app running on macOS, where a Dock or menu-bar icon click asks the kept document to reopen one", async () => {
     const { openWindows, app } = await startedRegistry("darwin");
     openWindows.openHiddenWindow({ additionalArguments: APP_FACTS_SWITCHES });
     const only = openChildWindow("window/w-1");
@@ -279,7 +279,32 @@ describe("the windows a person sees, counted", () => {
     expect(sentToConsoleDocument()).toEqual([
       { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
     ]);
-    expect(openChildWindow("window/w-1").options).toMatchObject(lastPlace);
+    const reopened = openChildWindow("window/w-1");
+    expect(reopened.options).toMatchObject(lastPlace);
+
+    // A click on the menu-bar icon does the same: it asks for the window used last again.
+    const menuBarIconClicks: (() => void)[] = [];
+    const menuBarIcon = {
+      on: (eventName: string, listener: () => void) => {
+        if (eventName === "click") {
+          menuBarIconClicks.push(listener);
+        }
+      },
+      destroy: vi.fn(),
+    };
+    openWindows.installMenuBarIcon(menuBarIcon as never);
+    reopened.close();
+    for (const click of menuBarIconClicks) {
+      click();
+    }
+    expect(sentToConsoleDocument()).toEqual([
+      { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
+      { channel: REOPEN_WINDOW_CHANNEL, value: "window/w-1" },
+    ]);
+
+    // A quit takes the icon off the menu bar at once.
+    electronMock.emitAppEvent("before-quit");
+    expect(menuBarIcon.destroy).toHaveBeenCalledOnce();
   });
 
   it.each(["linux", "darwin"] as const)(

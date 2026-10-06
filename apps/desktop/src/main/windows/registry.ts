@@ -7,8 +7,9 @@
 // when one closes, and kept for the console windows open now, the last one closed and one place per
 // pane kind), and the app's answers to the platform's window events. The hidden window never
 // closes, so Electron's `window-all-closed` never fires: the registry counts the windows a person
-// sees, and the last of them closing drives the platform's last-window behavior. A Dock click or a
-// second launch with none open asks the console document to reopen the console window used last;
+// sees, and the last of them closing drives the platform's last-window behavior. A Dock click, a
+// click on the macOS menu-bar icon (held here for the app's life) or a second launch with none open
+// asks the console document to reopen the console window used last;
 // the renderer's process going away builds the hidden window again, the third loss in a row as a
 // safe start that leaves every kept place as it is until the console document ends it. The
 // registry carries the `window` pushes to the console document, the one document with the bridge.
@@ -21,6 +22,7 @@ import type {
   RenderProcessGoneDetails,
   Rectangle,
   Screen,
+  Tray,
   WebContents,
 } from "electron";
 
@@ -107,6 +109,8 @@ export class OpenWindows {
   #isQuitting = false;
   /** The widths the renderer handed for a window with no kept place; none before it hands them. */
   #defaultSizes: WindowDefaultSizes | undefined;
+  /** The macOS menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
+  #menuBarIcon: Pick<Tray, "destroy"> | undefined;
 
   /** Reads the kept places, so every window opens where it was. Safe before `ready`. */
   public constructor(options: OpenWindowsOptions) {
@@ -161,6 +165,8 @@ export class OpenWindows {
         return;
       }
       this.#isQuitting = true;
+      // Gone with the windows rather than after the service's flush, which can take seconds.
+      this.#menuBarIcon?.destroy();
       // Every console window open now comes back at the next start, and only those; each one's
       // close writes the file.
       this.#keepOnlyPlacesOf(this.#windows);
@@ -184,15 +190,18 @@ export class OpenWindows {
       }
     });
     app.on("second-instance", () => {
-      if (this.#isQuitting) {
-        return;
-      }
-      const lastUsed = this.#windows[0];
-      if (lastUsed === undefined) {
-        this.#reopenWindowUsedLast();
-      } else {
-        bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#platform);
-      }
+      this.#showWindowUsedLast();
+    });
+  }
+
+  /**
+   * Keeps the macOS menu-bar icon for the app's life. A click on it shows the window used last, as
+   * a second launch does, and reopens it where it was when none is open; a quit removes it.
+   */
+  public installMenuBarIcon(menuBarIcon: Pick<Tray, "on" | "destroy">): void {
+    this.#menuBarIcon = menuBarIcon;
+    menuBarIcon.on("click", () => {
+      this.#showWindowUsedLast();
     });
   }
 
@@ -232,9 +241,26 @@ export class OpenWindows {
   }
 
   /**
-   * A Dock click or a second launch with no window a person sees: the console document, kept since
-   * start, opens the console window used last again. The hidden window is built again only when a
-   * person closed it, and when it shows the load-failure page that page comes forward instead.
+   * A second launch or a menu-bar icon click: the window used last comes forward, or, with none
+   * open, the console document opens it again. During a quit nothing opens.
+   */
+  #showWindowUsedLast(): void {
+    if (this.#isQuitting) {
+      return;
+    }
+    const lastUsed = this.#windows[0];
+    if (lastUsed === undefined) {
+      this.#reopenWindowUsedLast();
+    } else {
+      bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#platform);
+    }
+  }
+
+  /**
+   * A Dock click, a menu-bar icon click or a second launch with no window a person sees: the
+   * console document, kept since start, opens the console window used last again. The hidden window
+   * is built again only when a person closed it, and when it shows the load-failure page that page
+   * comes forward instead.
    */
   #reopenWindowUsedLast(): void {
     const hiddenWindow = this.#hiddenWindow;

@@ -11,7 +11,15 @@
 import { homedir, totalmem } from "node:os";
 import path from "node:path";
 
-import { app, crashReporter, nativeTheme, screen } from "electron";
+import {
+  app,
+  crashReporter,
+  nativeImage,
+  nativeTheme,
+  screen,
+  Tray,
+  type NativeImage,
+} from "electron";
 import { appFactsSwitches, supportedArch, supportedPlatform } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
@@ -57,6 +65,10 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 
 // The app icon at the Dock's size, inset by the system's icon margin, for a development run.
 const DOCK_ICON_FILE = "dock-icon.png";
+
+// The macOS menu-bar icon's resting face. The `Template` suffix makes macOS draw it in the menu
+// bar's own color, and the image loads with its `@2x` beside it.
+const MENU_BAR_IDLE_FACE_FILE = "menu-bar-idleTemplate.png";
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
@@ -123,6 +135,16 @@ function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure
   } catch (failure) {
     return { failure };
   }
+}
+
+/** The menu-bar icon's resting face; throws when the file is missing or not an image. */
+function readMenuBarIdleFace(): NativeImage {
+  const facePath = resourceFilePath(MENU_BAR_IDLE_FACE_FILE, import.meta.dirname);
+  const face = nativeImage.createFromPath(facePath);
+  if (face.isEmpty()) {
+    throw new Error(`the menu-bar icon's image at ${facePath} could not be read`);
+  }
+  return face;
 }
 
 /**
@@ -192,6 +214,11 @@ function startApplication(): void {
       // Dock; an installed app's bundle carries its own. `dock` exists only on macOS.
       if (!app.isPackaged) {
         app.dock?.setIcon(resourceFilePath(DOCK_ICON_FILE, import.meta.dirname));
+      }
+      // On macOS the menu-bar icon stays when the last window closes, and a click on it brings
+      // the window used last back.
+      if (process.platform === "darwin") {
+        openWindows.installMenuBarIcon(new Tray(readMenuBarIdleFace()));
       }
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
