@@ -1,19 +1,24 @@
 /*
- * The centered dialog: a modal question or a short form over a dimmed window. The dialog wears
+ * What the overlay popups own. Every overlay's outermost box and popup wear `meridian-overlay`,
+ * which cuts them out of the window's drag region: a popup that opens over the rail or a session
+ * header would otherwise move the window under a press instead of taking it.
+ *
+ * The centered dialog is a modal question or a short form over a dimmed window. The dialog wears
  * `meridian-dialog`, its backdrop `meridian-dialog__backdrop`, and its title, description and row
  * of buttons the elements below, each beside the dialog's own class.
  *
- * The rules sit inside `:where()` so they carry no specificity: a dialog's own class wins
- * whichever sheet loads first. A global sheet, loaded through `global-sheets.ts`; every value is
- * a Meridian token.
+ * The dialog rules sit inside `:where()` so they carry no specificity: a dialog's own class wins
+ * whichever sheet loads first. Every value is a Meridian token.
  */
+
+.meridian-overlay {
+  app-region: no-drag;
+}
 
 :where(.meridian-dialog__backdrop) {
   position: fixed;
   inset: 0;
   background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
-  /* Over the window's drag regions a press must reach the backdrop and the dialog. */
-  app-region: no-drag;
 }
 
 :where(.meridian-dialog) {
@@ -29,7 +34,6 @@
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-lg);
   background: var(--meridian-surface-raised);
-  app-region: no-drag;
 }
 
 :where(.meridian-dialog__title) {

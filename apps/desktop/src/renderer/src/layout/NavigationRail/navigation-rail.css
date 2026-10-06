@@ -28,8 +28,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: var(--meridian-rail-button-size);
+  height: var(--meridian-rail-button-size);
   padding: 0;
   border: none;
   border-radius: var(--meridian-radius-md);
@@ -53,13 +53,14 @@
 }
 
 /* The current marker is a bar, not a fill: at this size a filled square reads as a pressed button.
- * It sits on the rail's leading edge, one margin before the button. */
+ * It sits on the rail's leading edge, one margin before the button, centered on it at the
+ * `space-5` height. */
 .meridian-rail__button--current::before {
   content: "";
   position: absolute;
-  inset-block: 0.375rem;
-  inset-inline-start: -0.5rem;
-  width: 2px;
-  border-radius: 1px;
+  inset-block: calc((100% - var(--meridian-space-5)) / 2);
+  inset-inline-start: calc(-1 * var(--meridian-space-2));
+  width: var(--meridian-leading-edge);
+  border-radius: calc(var(--meridian-leading-edge) / 2);
   background: var(--meridian-accent);
 }

@@ -5,6 +5,7 @@ import { Menu } from "@base-ui/react/menu";
 
 import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayMenuPopup`. */
 export interface OverlayMenuPopupProps {
@@ -23,8 +24,11 @@ export function OverlayMenuPopup(props: OverlayMenuPopupProps): React.JSX.Elemen
   const airspaceRef = useAirspaceRegistration();
   return (
     <Menu.Portal container={props.container ?? ownerWindow.document.body}>
-      <Menu.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>
-        <Menu.Popup ref={airspaceRef} className={props.className}>
+      <Menu.Positioner
+        className={overlayClassName(props.positionerClassName)}
+        sideOffset={props.sideOffset}
+      >
+        <Menu.Popup ref={airspaceRef} className={overlayClassName(props.className)}>
           {props.children}
         </Menu.Popup>
       </Menu.Positioner>

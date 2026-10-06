@@ -224,11 +224,15 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  */
 export const LEADING_EDGE_WIDTH_PX = 2;
 
+/** The navigation rail's square button, in rem: its hit target. */
+export const RAIL_BUTTON_SIZE_REM = 2.25;
+
 /**
- * The navigation rail's width, in rem: a 2.25rem hit target with equal margins, 52 px at the
- * default text size. Root-relative like every chrome width, so it grows with the text size.
+ * The navigation rail's width, in rem: its button with one `space-2` margin either side, 52 px at
+ * the default text size. Root-relative like every chrome width, so it grows with the text size.
  */
-export const RAIL_WIDTH_REM = 3.25;
+export const RAIL_WIDTH_REM: number =
+  RAIL_BUTTON_SIZE_REM + 2 * scaleStep(SPACE_SCALE_REM, "space-2");
 
 /**
  * One step of a rem scale, such as `SPACE_SCALE_REM` or `TYPE_SCALE_REM`. Throws on an unknown

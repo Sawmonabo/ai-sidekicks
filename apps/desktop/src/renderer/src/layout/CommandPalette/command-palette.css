@@ -11,8 +11,6 @@
   background: var(--meridian-ground);
   opacity: 0.72;
   transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
-  /* Over the window's drag regions a press must reach the backdrop and the palette. */
-  app-region: no-drag;
 }
 
 .command-palette__backdrop[data-starting-style],
@@ -38,7 +36,6 @@
   box-shadow: 0 1.5rem 3rem oklch(0% 0 0 / 22%);
   font-family: var(--meridian-font-sans);
   font-size: var(--meridian-text-md);
-  app-region: no-drag;
   transition:
     opacity var(--meridian-motion-settle) var(--meridian-ease-settle),
     translate var(--meridian-motion-settle) var(--meridian-ease-settle);

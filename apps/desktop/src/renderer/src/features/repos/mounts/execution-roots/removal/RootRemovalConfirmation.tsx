@@ -61,7 +61,7 @@ export function RootRemovalConfirmation(props: RootRemovalConfirmationProps): Re
               Keep it
             </AlertDialog.Close>
             <AlertDialog.Close
-              className={BUTTON_CLASS_NAME}
+              className={`${BUTTON_CLASS_NAME} meridian-action-button--destructive`}
               onClick={() => {
                 send();
               }}

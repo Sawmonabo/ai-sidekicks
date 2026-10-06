@@ -3,6 +3,7 @@
 // among that window's mounts at press time. The app publishes how to read that window here.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { PublishedValue } from "#renderer/lib/published-value.js";
 
 /** Publishes how to read the document of the window used last; only the app calls it. */
 export function publishCommandWindow(readDocument: () => Document | undefined): Unsubscribe {
@@ -11,25 +12,7 @@ export function publishCommandWindow(readDocument: () => Document | undefined): 
 
 /** The document of the window a command acts in; `undefined` while no window is open. */
 export function readCommandWindow(): Document | undefined {
-  return commandWindows.read();
+  return commandWindows.current?.();
 }
 
-/** The one published reader, withdrawn only by the publisher that set it. */
-class CommandWindowChannel {
-  #readDocument: (() => Document | undefined) | undefined;
-
-  public publish(readDocument: () => Document | undefined): Unsubscribe {
-    this.#readDocument = readDocument;
-    return () => {
-      if (this.#readDocument === readDocument) {
-        this.#readDocument = undefined;
-      }
-    };
-  }
-
-  public read(): Document | undefined {
-    return this.#readDocument?.();
-  }
-}
-
-const commandWindows = new CommandWindowChannel();
+const commandWindows = new PublishedValue<() => Document | undefined>();

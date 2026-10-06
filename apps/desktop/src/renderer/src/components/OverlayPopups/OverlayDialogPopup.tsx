@@ -10,6 +10,7 @@ import { Dialog } from "@base-ui/react/dialog";
 
 import { useModalOverlayAirspace } from "#renderer/hooks/useModalOverlayAirspace.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayDialogPopup`. */
 export interface OverlayDialogPopupProps {
@@ -32,10 +33,13 @@ export function OverlayDialogPopup(props: OverlayDialogPopupProps): React.JSX.El
   const airspace = useModalOverlayAirspace();
   return (
     <Dialog.Portal container={props.container ?? ownerWindow.document.body}>
-      <Dialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />
+      <Dialog.Backdrop
+        ref={airspace.backdropRef}
+        className={overlayClassName(props.backdropClassName)}
+      />
       <Dialog.Popup
         ref={airspace.popupRef}
-        className={props.className}
+        className={overlayClassName(props.className)}
         aria-label={props.label}
         initialFocus={props.initialFocus}
       >

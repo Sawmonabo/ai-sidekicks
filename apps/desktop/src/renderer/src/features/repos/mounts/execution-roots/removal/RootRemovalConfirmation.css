@@ -1,6 +1,7 @@
 /*
  * Removing an execution root. The confirmation and its buttons wear the shared treatments in
- * `styles/dialog.css` and `styles/action-buttons.css`; here is the settled line a removal leaves.
+ * `components/OverlayPopups/OverlayPopups.css` and `styles/action-buttons.css`; here is the
+ * settled line a removal leaves.
  */
 
 .meridian-root-removal {

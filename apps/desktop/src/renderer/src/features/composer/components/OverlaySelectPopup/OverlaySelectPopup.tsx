@@ -6,6 +6,7 @@ import { Select } from "@base-ui/react/select";
 
 import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { overlayClassName } from "#renderer/components/OverlayPopups/overlay-class-name.js";
 
 /** The classes and children of the popup, and where it portals. */
 export interface OverlaySelectPopupProps {
@@ -22,8 +23,8 @@ export function OverlaySelectPopup(props: OverlaySelectPopupProps): React.JSX.El
   const airspaceRef = useAirspaceRegistration();
   return (
     <Select.Portal container={props.container ?? ownerWindow.document.body}>
-      <Select.Positioner className={props.positionerClassName}>
-        <Select.Popup ref={airspaceRef} className={props.className}>
+      <Select.Positioner className={overlayClassName(props.positionerClassName)}>
+        <Select.Popup ref={airspaceRef} className={overlayClassName(props.className)}>
           {props.children}
         </Select.Popup>
       </Select.Positioner>

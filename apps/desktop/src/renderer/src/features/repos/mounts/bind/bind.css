@@ -1,7 +1,7 @@
 /*
  * The bind dialog's own rules: the mount root caption, the execution-mode picker and the bound
  * line. The dialog, its buttons and its form parts wear the shared treatments in
- * `styles/dialog.css`, `styles/action-buttons.css` and `styles/form.css`.
+ * `components/OverlayPopups/OverlayPopups.css`, `styles/action-buttons.css` and `styles/form.css`.
  */
 
 /* A row, not a column: the legend names one value, so the pair reads as a caption on the field. */

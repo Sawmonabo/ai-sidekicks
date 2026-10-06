@@ -5,6 +5,7 @@ import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import { useModalOverlayAirspace } from "#renderer/hooks/useModalOverlayAirspace.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayAlertDialogPopup`. */
 export interface OverlayAlertDialogPopupProps {
@@ -21,8 +22,11 @@ export function OverlayAlertDialogPopup(props: OverlayAlertDialogPopupProps): Re
   const airspace = useModalOverlayAirspace();
   return (
     <AlertDialog.Portal container={props.container ?? ownerWindow.document.body}>
-      <AlertDialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />
-      <AlertDialog.Popup ref={airspace.popupRef} className={props.className}>
+      <AlertDialog.Backdrop
+        ref={airspace.backdropRef}
+        className={overlayClassName(props.backdropClassName)}
+      />
+      <AlertDialog.Popup ref={airspace.popupRef} className={overlayClassName(props.className)}>
         {props.children}
       </AlertDialog.Popup>
     </AlertDialog.Portal>

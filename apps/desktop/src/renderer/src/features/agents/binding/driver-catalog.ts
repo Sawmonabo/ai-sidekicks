@@ -81,8 +81,6 @@ export function catalogCarriesEffortLevel(
  * One model's output-speed vocabulary: the model's own list where its provider publishes one,
  * else the driver's list on the capability report. `undefined` where the driver declares no
  * speed axis or the model is not listed, so a form shows no speed control.
- *
- * @consumedBy the composer's output-speed control
  */
 export function outputSpeedLevelsFor(
   catalog: DriverCatalogReading,

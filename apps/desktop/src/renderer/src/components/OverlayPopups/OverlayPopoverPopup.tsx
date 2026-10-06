@@ -6,6 +6,7 @@ import { Popover } from "@base-ui/react/popover";
 
 import { useAirspaceRegistration } from "#renderer/hooks/useAirspaceRegistration.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { overlayClassName } from "./overlay-class-name.js";
 
 /** Props for `OverlayPopoverPopup`. */
 export interface OverlayPopoverPopupProps {
@@ -26,8 +27,15 @@ export function OverlayPopoverPopup(props: OverlayPopoverPopupProps): React.JSX.
   const airspaceRef = useAirspaceRegistration();
   return (
     <Popover.Portal container={props.container ?? ownerWindow.document.body}>
-      <Popover.Positioner className={props.positionerClassName} sideOffset={props.sideOffset}>
-        <Popover.Popup ref={airspaceRef} id={props.popupId} className={props.className}>
+      <Popover.Positioner
+        className={overlayClassName(props.positionerClassName)}
+        sideOffset={props.sideOffset}
+      >
+        <Popover.Popup
+          ref={airspaceRef}
+          id={props.popupId}
+          className={overlayClassName(props.className)}
+        >
           {props.children}
         </Popover.Popup>
       </Popover.Positioner>

@@ -16,7 +16,8 @@
   app-region: drag;
 }
 
-/* A press on a control presses it, and the session's title drags the view, never the window. */
+/* A press on a control presses it. The session's title is kept out of the window's drag region
+   because the design gives that press to dragging the view, never the window. */
 .meridian-session-header :is(button, input, select, textarea, a, [role="button"]),
 .meridian-session-header__identity {
   app-region: no-drag;
