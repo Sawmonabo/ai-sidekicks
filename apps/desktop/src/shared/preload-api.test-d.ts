@@ -14,7 +14,8 @@ import type {
   DaemonResult,
 } from "@ai-sidekicks/contracts/daemon/methods";
 
-import type { PreloadApi, ServedDaemonCall, Unsubscribe } from "./preload-api.js";
+import type { MainProcessState } from "./daemon/daemon-status-topic.js";
+import type { DaemonWire, PreloadApi, ServedDaemonCall, Unsubscribe } from "./preload-api.js";
 
 /**
  * How many levels deep the walk goes, so a recursive type cannot expand forever. A key nested
@@ -58,10 +59,14 @@ type HandedKeys<Parameter, Depth extends readonly unknown[]> = Parameter extends
  * Every daemon result, one per method. `daemon.call` is generic, so walking its signature reaches
  * only the result of the whole method union, which names no member's keys.
  */
-type DaemonResults = { [M in DaemonMethod]: ServedDaemonCall<DaemonResult<M>> }[DaemonMethod];
+type ResultsOf<Methods extends DaemonMethod> = {
+  [M in Methods]: ServedDaemonCall<DaemonResult<M>>;
+}[Methods];
+type DaemonResults = ResultsOf<DaemonMethod>;
 
-/** Every value a daemon subscription delivers, one per subscription, for the same reason. */
-type DaemonPayloads = { [E in DaemonEvent]: DaemonEventPayload<E> }[DaemonEvent];
+/** Every value the subscriptions named deliver, one per subscription, for the same reason. */
+type PayloadsOf<Events extends DaemonEvent> = { [E in Events]: DaemonEventPayload<E> }[Events];
+type DaemonPayloads = PayloadsOf<DaemonEvent>;
 
 /**
  * Any key whose lowercased form contains a forbidden substring. The outer `K extends string`
@@ -81,10 +86,10 @@ type ContainsForbidden<K extends string> = K extends string
 /**
  * Names the daemon's results and values carry that match a forbidden substring and hold no
  * credential: counts of model tokens and the run's token limit, a workflow secret's id and its
- * list (never a value), the path of the service's secrets file, the flag on a question that takes
- * a masked answer, the name of the environment variable a tool server's bearer token is read
- * from, the handle the service mints for a folder it listed, a screencast frame's acknowledgment
- * id, and the dates a webhook token was made and last used.
+ * list (never a value), the path of the service's secrets file, the name of the environment
+ * variable a tool server's bearer token is read from, the handle the service mints for a folder
+ * it listed, a screencast frame's acknowledgment id, and the dates a webhook token was made and
+ * last used.
  */
 type CredentialFreeKeys =
   | "tokens"
@@ -100,7 +105,6 @@ type CredentialFreeKeys =
   | "secretId"
   | "secrets"
   | "secretsFile"
-  | "secret"
   | "bearerTokenEnvVar"
   | "folderToken"
   | "ackToken"
@@ -111,14 +115,25 @@ type CredentialFreeKeys =
 type Offenders<T> = Exclude<ContainsForbidden<AllKeys<T>>, CredentialFreeKeys>;
 
 /**
- * The two credentials the design shows the person once, to copy into the receiver or caller they
- * authenticate: the notification web address's signing secret, and a workflow webhook's token.
- * Each is allowed only on the results that carry it.
+ * The methods that answer one of the two credentials the design shows the person once, to copy
+ * into the receiver or caller they authenticate: the notification web address's signing secret,
+ * and a workflow webhook's token. Each is allowed only on these methods' results.
  */
-type ShownOnceCredentials =
-  | ServedDaemonCall<DaemonResult<"attention.webAddressSave">>
-  | ServedDaemonCall<DaemonResult<"attention.webAddressSecretRotate">>
-  | ServedDaemonCall<DaemonResult<"workflow.webhookTokenRotate">>;
+type ShownOnceMethod =
+  | "attention.webAddressSave"
+  | "attention.webAddressSecretRotate"
+  | "workflow.webhookTokenRotate";
+
+/**
+ * The bridge with the daemon wire's generic `call` and `subscribe` left out: what they hand the
+ * page is walked per method and per subscription instead, with main's status state beside it.
+ */
+type BridgeOutsideTheDaemonWire =
+  | Omit<PreloadApi, "daemon">
+  | Omit<DaemonWire, "call" | "subscribe">;
+
+/** The subscriptions that deliver a question, whose `secret` flag says it takes a masked answer. */
+type QuestionEvent = "session.subscribe" | "driver.subscribeEvents";
 
 /** Fails to compile (TS2344) when `T` is anything other than `never`. */
 type AssertNever<T extends never> = T;
@@ -131,13 +146,21 @@ type AssertTrue<T extends true> = T;
 
 /** Fails the typecheck when the bridge, a daemon result or a delivered value grows such a name. */
 type _NoForbiddenKeysOnBridge = AssertNever<
-  Offenders<PreloadApi | Exclude<DaemonResults, ShownOnceCredentials> | DaemonPayloads>
+  Offenders<
+    | BridgeOutsideTheDaemonWire
+    | MainProcessState
+    | ResultsOf<Exclude<DaemonMethod, ShownOnceMethod>>
+    | PayloadsOf<Exclude<DaemonEvent, QuestionEvent>>
+  >
 >;
 
 /** The shown-once results carry their credential and nothing else that matches. */
 type _OnlyTheShownCredential = AssertNever<
-  Exclude<Offenders<ShownOnceCredentials>, "signingSecret" | "token">
+  Exclude<Offenders<ResultsOf<ShownOnceMethod>>, "signingSecret" | "token">
 >;
+
+/** The question streams carry the masked-answer flag and nothing else that matches. */
+type _OnlyTheQuestionFlag = AssertNever<Exclude<Offenders<PayloadsOf<QuestionEvent>>, "secret">>;
 
 // Negative controls: each line fails the typecheck if the walk stops finding what it must.
 /** A key planted deep in what a method answers, inside a list. */
