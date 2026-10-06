@@ -11,7 +11,6 @@ import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provi
 
 import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
-import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**
  * The narrow slice of the window's account registry reading this axis reads; the full readout
@@ -47,7 +46,7 @@ export interface AccountChoice {
 export type AccountAxisReading =
   | { readonly kind: "driver-unchosen" }
   | { readonly kind: "reading" }
-  | { readonly kind: "refused"; readonly refusal: Refusal }
+  | { readonly kind: "refused" }
   | { readonly kind: "unknown-provider"; readonly driverName: string }
   | {
       readonly kind: "served";
@@ -79,9 +78,8 @@ export function accountAxisReadingFor(
   }
   // Through the phase-aware accessor: a reading whose newest read served carries no
   // refusal, though an earlier one failed.
-  const refusal = findReadRefusal(registry);
-  if (refusal !== undefined) {
-    return { kind: "refused", refusal };
+  if (findReadRefusal(registry) !== undefined) {
+    return { kind: "refused" };
   }
   if (registry.phase === "reading") {
     return { kind: "reading" };

@@ -22,10 +22,9 @@ export interface AccountChoiceListProps {
 export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Element {
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
-  // Never the id: an account the registry does not carry reads blank, and the field's advisory
-  // says the registry does not carry a pinned one.
+  // Never the id: the registry was read, so an account it does not carry was removed.
   const labelFor = (accountId: string): string =>
-    reading.choices.find((choice) => choice.accountId === accountId)?.label ?? "";
+    reading.choices.find((choice) => choice.accountId === accountId)?.label ?? "Removed account";
   return (
     <Combobox.Root
       items={accountIds}

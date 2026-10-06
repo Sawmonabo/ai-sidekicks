@@ -1,10 +1,13 @@
 // The account axis's reset control drops the entry rather than pinning the definition's
-// account, and the field names an account by its label, never by its id. Driven through the
-// real component over a typed registry reading.
+// account, and the field names an account by its label, never by its id: a pinned account the
+// read registry lacks reads `Removed account`, and the account list's own states read as the
+// Providers page words them. Driven through the real component over a typed registry reading.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { refuse } from "#renderer/lib/refusal/contract.js";
+import type { AccountRegistryReading } from "../axis.js";
 import { account, registryAccountId, resolvedTo, served } from "../reading.test-support.js";
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 
@@ -34,14 +37,16 @@ interface AxisCase extends Pick<
   "value" | "inheritedValue" | "isOverridden"
 > {
   readonly onValueChange?: (accountId: string | undefined) => void;
+  readonly registry?: AccountRegistryReading;
+  readonly onReopenRegistry?: () => void;
 }
 
 /** The field on its own, over a served registry. */
 function renderedAxis(axis: AxisCase): HTMLElement {
   const { container } = render(
     <AccountAxisField
-      registry={served(REGISTRY_ACCOUNTS, [resolvedTo("acct-personal")])}
-      onReopenRegistry={(): void => {}}
+      registry={axis.registry ?? served(REGISTRY_ACCOUNTS, [resolvedTo("acct-personal")])}
+      onReopenRegistry={axis.onReopenRegistry ?? ((): void => {})}
       driverName="claude"
       value={axis.value}
       inheritedValue={axis.inheritedValue}
@@ -89,7 +94,40 @@ describe("the account axis — how it names an account", () => {
       inheritedValue: undefined,
       isOverridden: true,
     });
+    expect(missing.querySelector('[role="combobox"]')?.textContent).toBe("Removed account");
     expect(missing.textContent).toContain("registry does not carry that account");
     expect(missing.textContent).not.toContain("acct-removed");
+  });
+
+  it("reads the account list's own states while it is unread, refused or empty", () => {
+    const pinned = { value: "acct-personal", inheritedValue: undefined, isOverridden: true };
+    const unread = renderedAxis({
+      ...pinned,
+      registry: { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
+    });
+    expect(unread.textContent).toContain("Reading the account list…");
+    // Unread is not removed: nothing says the registry lacks the pinned account.
+    expect(unread.textContent).not.toContain("does not carry");
+
+    const reopened = vi.fn<() => void>();
+    const refused = renderedAxis({
+      ...pinned,
+      onReopenRegistry: reopened,
+      registry: {
+        phase: "refused",
+        readRefusal: refuse("test", "transport.closed", "The connection closed."),
+        accounts: [],
+        readiness: [],
+      },
+    });
+    expect(refused.textContent).toContain("The account list could not be read.");
+    expect(refused.textContent).not.toContain("transport.closed");
+    fireEvent.click(refused.querySelector("button") as HTMLButtonElement);
+    expect(reopened).toHaveBeenCalledOnce();
+
+    const empty = renderedAxis({ ...pinned, registry: served([]) });
+    expect(empty.textContent).toContain(
+      "No accounts for Claude Code. Sign in to run work on this provider.",
+    );
   });
 });
