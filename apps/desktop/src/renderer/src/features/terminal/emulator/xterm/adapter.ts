@@ -21,9 +21,6 @@ import { XtermMountBinding } from "./mount-binding.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./links.js";
 import { applyDeclaredMonospaceFamily } from "./typeface.js";
 
-// Re-exported so consumers name the mode through the emulator's own entry point.
-export type { TerminalRendererMode } from "./addons.js";
-
 /** What one adapter is built with: its terminal id, renderer pool, and callbacks. */
 export interface XtermTerminalAdapterOptions {
   /** The shared terminal this adapter is a view of. One per session. */

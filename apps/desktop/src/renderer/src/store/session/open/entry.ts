@@ -27,7 +27,8 @@ import type { EntityProjectorTable } from "../entities/vocabulary.js";
 import { ApplyQueue } from "../apply/queue.js";
 import { RefreshScheduler, type RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
 import { type ApplyOutcome } from "../apply/outcome.js";
-import { SessionStore, type SessionBaseState } from "../store.js";
+import type { SessionBaseState } from "../state.js";
+import { SessionStore } from "../store.js";
 import {
   isUnresolvableCursorRejection,
   resolveTranscriptResume,

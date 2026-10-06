@@ -13,7 +13,8 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open/entry.js";
 import type { RefreshReason } from "#renderer/lib/reads/refresh/scheduler.js";
-import type { SessionDegradedCause, SessionStore } from "./store.js";
+import type { SessionDegradedCause } from "./degradation.js";
+import type { SessionStore } from "./store.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";

@@ -10,7 +10,8 @@ import { useStore } from "zustand";
 
 import type { SessionDegradedCause } from "../degradation.js";
 import type { FailedDependentReadsState } from "../failed-dependent-reads.js";
-import type { SessionStore, SessionStoreState } from "../store.js";
+import type { SessionStoreState } from "../state.js";
+import type { SessionStore } from "../store.js";
 
 /** Whether the store has been initialized, so a view can tell "not loaded" apart. */
 export function useSessionInitialized(store: SessionStore): boolean {

@@ -44,13 +44,6 @@ import {
 import type { SessionBaseState, SessionStoreState } from "./state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply/outcome.js";
 
-// The store's vocabulary, re-exported so callers need not know which dependency declares it.
-// `SequenceGap` is not: nothing outside its owner imports it.
-export type { SessionDegradedCause } from "./degradation.js";
-export type { SessionBaseState, SessionStoreState } from "./state.js";
-export { selectEntity, selectPartition } from "./selectors.js";
-export type { EarlierWindowMerge } from "./earlier-window.js";
-
 /** Construction inputs. */
 export interface SessionStoreOptions {
   readonly sessionId: string;

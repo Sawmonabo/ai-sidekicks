@@ -11,7 +11,8 @@ import type {
 } from "#renderer/store/session/entities/vocabulary.js";
 import type { SessionBaseStateReader } from "#renderer/store/session/open/entry.js";
 import { eventOfKind } from "../events.js";
-import { SessionStore, type SessionBaseState } from "#renderer/store/session/store.js";
+import type { SessionBaseState } from "#renderer/store/session/state.js";
+import { SessionStore } from "#renderer/store/session/store.js";
 
 /** A reader that establishes nothing: the honest "no wire is registered" answer. */
 export const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);

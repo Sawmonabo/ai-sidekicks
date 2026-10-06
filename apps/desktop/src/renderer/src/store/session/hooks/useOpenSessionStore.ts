@@ -23,12 +23,9 @@ import { useStore } from "zustand";
 import type { StoredEntity } from "../entities/vocabulary.js";
 import type { EntityKind, EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { SessionStoreRegistry } from "../registry.js";
-import {
-  selectEntity,
-  selectPartition,
-  type SessionStore,
-  type SessionStoreState,
-} from "../store.js";
+import { selectEntity, selectPartition } from "../selectors.js";
+import type { SessionStoreState } from "../state.js";
+import type { SessionStore } from "../store.js";
 
 /**
  * The store for one session, or `undefined` while that session is not open. Subscribed through

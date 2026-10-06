@@ -8,7 +8,7 @@ import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { OpenSessionEntry } from "./entry.js";
-import type { SessionBaseState } from "../store.js";
+import type { SessionBaseState } from "../state.js";
 
 describe("OpenSessionEntry — the resume position is submitted on the read", () => {
   /** One read the entry performed: which position it was asked to start from. */

@@ -5,7 +5,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TerminalRendererPool } from "../renderer-pool.js";
-import { XtermTerminalAdapter, type TerminalRendererMode } from "./adapter.js";
+import { XtermTerminalAdapter } from "./adapter.js";
+import type { TerminalRendererMode } from "./addons.js";
 import {
   attachedMountElement,
   disposeLiveEmulators,
