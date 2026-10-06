@@ -40,7 +40,7 @@ Ship the Spec-020 data acts and the daemon's secrets: every daemon secret is its
 - `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` — Plan-005 T-005r-2-1 creates it in the `bootstrap/` composition root with the `DaemonKeyStore` interface; this plan adds the production store, which keeps each daemon secret as its own credential-store item through `keychain-entry.ts` and, on Windows, `WindowsCredentialStore`, reciprocating Plan-005 CP-005-5
 - `packages/runtime-daemon/src/ipc/handlers/data.ts` — **created by this plan** in the shipped `ipc/handlers/` host: the data verbs registered on Plan-005's `MethodRegistry`, over the schemas in `packages/contracts/src/daemon/data.ts`
 - Plan-005's retention handlers — **extended** with the purge's erasure step: `secure_delete` on for the delete of the session's rows, and the `TRUNCATE` checkpoint after commit
-- `docs/architecture/contracts/api-payload-contracts.md` — kept in step with the data verbs this plan builds (T22.2.4)
+- `docs/architecture/contracts/api-payload-contracts.md` — kept in step with the data verbs this plan builds (T19.2.4)
 
 ## Data And Storage Changes
 
@@ -81,8 +81,8 @@ Per [Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.
 - **Linux with no Secret Service.** The daemon keeps its items in one file in its own data folder, readable only by the person (mode `0600`), as `gh` and Codex do; never the kernel keyring, and never silently: Settings › Runtime then shows `Secrets are kept in <path>, readable only by you, because no Secret Service is running.`, `<path>` being that file, `secrets.json`, read from `daemon.status.read`'s `secretsFile`.
 - **Windows, native and WSL alike.** One Credential Manager generic credential per item at `CRED_PERSIST_LOCAL_MACHINE`, written and read by the service's Windows half through `windows-native-keyring-store` 1.1.0 with `persistence=local`, because the `@napi-rs/keyring` 2.1.0 binding's Windows path writes Enterprise (CP-019-5). A daemon inside a WSL 2 distribution keeps its items there too, so a Windows computer has one place for secrets on either side.
 - **A locked store** refuses with its cause, `locked` or `unavailable`, and the secret is stored nowhere else.
-- **One call at a time per account.** Credential-store calls on one account run one at a time, and a save that timed out and lands later is deleted, so it never overwrites the value a retry wrote (T22.1.4).
-- **Erase** deletes every credential-store item the app made (T22.2.2).
+- **One call at a time per account.** Credential-store calls on one account run one at a time, and a save that timed out and lands later is deleted, so it never overwrites the value a retry wrote (T19.1.4).
+- **Erase** deletes every credential-store item the app made (T19.2.2).
 
 ## API And Transport Changes
 
@@ -97,14 +97,14 @@ Methods registered by Plan-019 on Plan-005's JSON-RPC `MethodRegistry` (`ipc/han
 
 Behavioral invariants this plan must preserve; the §Implementation Phase Sequence Tasks cite them in `Verifies invariant`.
 
-- **I-019-1 — The export carries no secret.** An export folder holds no settings value, credential, pasted token, workflow secret, key or diagnostic log, and it streams one session at a time within 64 MiB, one export at a time. ([Spec-020 §Data Export](../specs/020-data-retention-export-and-deletion.md#data-export).) Tasks: T22.2.1.
-- **I-019-2 — Erase runs in its order.** `daemon.dataErase` stops work, signs providers out and revokes the refresh family before it deletes any credential-store item, and deletes every credential-store item the app made before it deletes the data folder; project folders are never touched. ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path 1; [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T22.2.2.
-- **I-019-3 — Reciprocal completeness.** Every CP-019 obligation has a reciprocal entry in its owner plan; no one-sided cross-plan edge ships. For CP-019-3 (the `REFERENCES users(id)` Path-2 closure), every owner table's plan carries a live reciprocal, so the closure is complete with no silent gap. Tasks: T22.3.1.
-- **I-019-4 — Nothing readable after a purge.** The purge deletes the session's rows in one transaction with `secure_delete` on and checkpoints the write-ahead log with `TRUNCATE` once it commits, so a byte scan of the database file and its log finds none of the deleted session's text. ([Spec-020 §Erasure In The Daemon's Database](../specs/020-data-retention-export-and-deletion.md#erasure-in-the-daemons-database); [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T22.3.1.
-- **I-019-5 — No phantom PII columns.** Every column named in the §PII Data Map resolves to a real column in its owner plan's schema. (D-019-2.) Tasks: T22.3.1.
-- **I-019-6 — One purge.** `daemon.retentionPurge` is the only path that deletes a session, and it runs this plan's erasure step; nothing deletes a session by age. ([Spec-020 §Retention Policy](../specs/020-data-retention-export-and-deletion.md#retention-policy); [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T22.3.1.
-- **I-019-7 — Each secret is its own credential-store item.** Every daemon secret — the identity key, the channel key, and the hosted sign-in's refresh token and DPoP key — is its own item in the operating system's credential store, and nothing in the daemon's database is encrypted by the app; on Linux the store is the Secret Service, opened explicitly, or, when none answers, one file in the data folder at mode `0600`, never the kernel keyring and never silently. ([Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.md#daemon-secrets).) Tasks: T22.1.1, T22.1.2, T22.1.4.
-- **I-019-8 — Windows items stay in the Windows half.** On a Windows computer, native or WSL, every Credential Manager item is written, read and deleted in the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE`, whichever unit keeps it — a daemon secret, a pasted token, a workflow secret, a tool server's refresh token or DPoP key — and none at a roaming persistence; the items stay in Windows' Credential Manager whichever side runs the service. ([Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.md#daemon-secrets).) Tasks: T22.1.3.
+- **I-019-1 — The export carries no secret.** An export folder holds no settings value, credential, pasted token, workflow secret, key or diagnostic log, and it streams one session at a time within 64 MiB, one export at a time. ([Spec-020 §Data Export](../specs/020-data-retention-export-and-deletion.md#data-export).) Tasks: T19.2.1.
+- **I-019-2 — Erase runs in its order.** `daemon.dataErase` stops work, signs providers out and revokes the refresh family before it deletes any credential-store item, and deletes every credential-store item the app made before it deletes the data folder; project folders are never touched. ([Spec-020 §Erasure Paths](../specs/020-data-retention-export-and-deletion.md#erasure-paths) Path 1; [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T19.2.2.
+- **I-019-3 — Reciprocal completeness.** Every CP-019 obligation has a reciprocal entry in its owner plan; no one-sided cross-plan edge ships. For CP-019-3 (the `REFERENCES users(id)` Path-2 closure), every owner table's plan carries a live reciprocal, so the closure is complete with no silent gap. Tasks: T19.3.1.
+- **I-019-4 — Nothing readable after a purge.** The purge deletes the session's rows in one transaction with `secure_delete` on and checkpoints the write-ahead log with `TRUNCATE` once it commits, so a byte scan of the database file and its log finds none of the deleted session's text. ([Spec-020 §Erasure In The Daemon's Database](../specs/020-data-retention-export-and-deletion.md#erasure-in-the-daemons-database); [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T19.3.1.
+- **I-019-5 — No phantom PII columns.** Every column named in the §PII Data Map resolves to a real column in its owner plan's schema. (D-019-2.) Tasks: T19.3.1.
+- **I-019-6 — One purge.** `daemon.retentionPurge` is the only path that deletes a session, and it runs this plan's erasure step; nothing deletes a session by age. ([Spec-020 §Retention Policy](../specs/020-data-retention-export-and-deletion.md#retention-policy); [Spec-020 §Ordering And Atomicity](../specs/020-data-retention-export-and-deletion.md#ordering-and-atomicity).) Tasks: T19.3.1.
+- **I-019-7 — Each secret is its own credential-store item.** Every daemon secret — the identity key, the channel key, and the hosted sign-in's refresh token and DPoP key — is its own item in the operating system's credential store, and nothing in the daemon's database is encrypted by the app; on Linux the store is the Secret Service, opened explicitly, or, when none answers, one file in the data folder at mode `0600`, never the kernel keyring and never silently. ([Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.md#daemon-secrets).) Tasks: T19.1.1, T19.1.2, T19.1.4.
+- **I-019-8 — Windows items stay in the Windows half.** On a Windows computer, native or WSL, every Credential Manager item is written, read and deleted in the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE`, whichever unit keeps it — a daemon secret, a pasted token, a workflow secret, a tool server's refresh token or DPoP key — and none at a roaming persistence; the items stay in Windows' Credential Manager whichever side runs the service. ([Spec-020 §Daemon Secrets](../specs/020-data-retention-export-and-deletion.md#daemon-secrets).) Tasks: T19.1.3.
 
 ## Cross-Plan Obligations
 
@@ -144,67 +144,67 @@ The Implementation Steps regroup into three buildable phases: Phase 1 (the daemo
 
 ### Phase 1 — The daemon's secrets (Steps 1–2)
 
-**Precondition:** Plan-005 T-005r-2-1's `DaemonKeyStore` interface and test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-5) are built together with this phase's production store (T22.1.2), which implements that interface; the rest of Plan-005 Phase R2 is not a precondition. T22.1.3, the Windows arm, is built in the Other platforms group, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
+**Precondition:** Plan-005 T-005r-2-1's `DaemonKeyStore` interface and test-only stub at `bootstrap/daemon-key-store.ts` (CP-005-5) are built together with this phase's production store (T19.1.2), which implements that interface; the rest of Plan-005 Phase R2 is not a precondition. T19.1.3, the Windows arm, is built in the Other platforms group, after Plan-005 Phase R4 — T-005r-4-10 builds the Windows half's credential verbs, which `WindowsCredentialStore` calls over the Windows half's channel and one-shot (CP-019-5); the rest of the phase builds on macOS without it ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
 
 #### Tasks
 
-- **T22.1.1 — Credential-store dependency.**
+- **T19.1.1 — Credential-store dependency.**
   - Files: `packages/runtime-daemon/package.json` (EXTEND)
   - **Spec coverage:** Spec-020 §Daemon Secrets
   - **Verifies invariant:** I-019-7
   - Consumes: `@napi-rs/keyring`.
-- **T22.1.2 — The production `DaemonKeyStore`.**
+- **T19.1.2 — The production `DaemonKeyStore`.**
   - Files: `packages/runtime-daemon/src/bootstrap/daemon-key-store.ts` (EXTEND — Plan-005 T-005r-2-1 creates the file with the `DaemonKeyStore` interface and its test-only stub); `packages/runtime-daemon/src/crypto/keychain-entry.ts` (CREATE)
   - **Spec coverage:** Spec-020 §Daemon Secrets (one item per secret; the Secret Service opened explicitly on Linux, and the one file when none answers; a locked store)
   - **Verifies invariant:** I-019-7
-  - Consumes: `@napi-rs/keyring` (T22.1.1) and, on Windows, `WindowsCredentialStore` (T22.1.3); the daemon composition root in the shipped `bootstrap/` dir; Plan-005 CP-005-5 store contract (reciprocates it).
-- **T22.1.3 — The Windows arm.**
+  - Consumes: `@napi-rs/keyring` (T19.1.1) and, on Windows, `WindowsCredentialStore` (T19.1.3); the daemon composition root in the shipped `bootstrap/` dir; Plan-005 CP-005-5 store contract (reciprocates it).
+- **T19.1.3 — The Windows arm.**
   - Files: `packages/runtime-daemon/src/crypto/windows-credential-store.ts` (CREATE, `WindowsCredentialStore`)
   - **Spec coverage:** Spec-020 §Daemon Secrets (Windows, native and WSL alike)
   - **Verifies invariant:** I-019-8
   - Consumes: the Windows half's Credential Manager verbs, over its channel and one-shot (Plan-005 Phase R4, CP-019-5).
-- **T22.1.4 — One call at a time.**
+- **T19.1.4 — One call at a time.**
   - Files: `packages/runtime-daemon/src/crypto/keychain-entry.ts` (EXTEND)
-  - Calls on one account run one at a time; a save that timed out and lands later is deleted, so it never overwrites the value a retry wrote; `WindowsCredentialStore` (T22.1.3) follows the same rule when it lands.
+  - Calls on one account run one at a time; a save that timed out and lands later is deleted, so it never overwrites the value a retry wrote; `WindowsCredentialStore` (T19.1.3) follows the same rule when it lands.
   - **Tests:** a `setPassword` that hangs past the timeout and resolves after the retry's save never leaves its value in the item.
   - **Spec coverage:** Spec-020 §Daemon Secrets (the items; a locked store)
   - **Verifies invariant:** I-019-7
-  - Consumes: `keychain-entry.ts` (T22.1.2).
+  - Consumes: `keychain-entry.ts` (T19.1.2).
 
 ### Phase 2 — The data acts (Steps 3–4)
 
-**Precondition:** Plan-005 Phase 2 merged (the JSON-RPC `MethodRegistry` the verbs register on, per D-019-1 — already shipped) + the contracts in `packages/contracts/src/daemon/data.ts`. Phase 1 is needed only by the erase's credential-store step (T22.2.2 deletes every credential-store item the app made), which lands with Phase 1's production store (T22.1.2); the export, the registration and the erase's other steps build before it.
+**Precondition:** Plan-005 Phase 2 merged (the JSON-RPC `MethodRegistry` the verbs register on, per D-019-1 — already shipped) + the contracts in `packages/contracts/src/daemon/data.ts`. Phase 1 is needed only by the erase's credential-store step (T19.2.2 deletes every credential-store item the app made), which lands with Phase 1's production store (T19.1.2); the export, the registration and the erase's other steps build before it.
 
 #### Tasks
 
-- **T22.2.1 — `Export all data`.**
+- **T19.2.1 — `Export all data`.**
   - Files: `packages/runtime-daemon/src/crypto/data-export.ts` (CREATE); `packages/runtime-daemon/src/ipc/handlers/data.ts` (CREATE)
   - **Spec coverage:** Spec-020 §Data Export
   - **Verifies invariant:** I-019-1
   - Consumes: `daemon.dataExport {destination}` and `daemon.dataExportSubscribe` schemas; each session's rows as the store holds them; Plan-015's `account.export` for `hosted-account.json` when signed in.
-- **T22.2.2 — `Erase all data`.**
+- **T19.2.2 — `Erase all data`.**
   - Files: `packages/runtime-daemon/src/crypto/data-erase.ts` (CREATE); `ipc/handlers/data.ts` (same)
   - **Spec coverage:** Spec-020 §Erasure Paths (Path 1), Spec-020 §Ordering And Atomicity
   - **Verifies invariant:** I-019-2
-  - Consumes: `daemon.dataErase {}` schema; Plan-005's `Stop`; each provider's own sign-out (`claude auth logout`, Codex `account/logout`); the hosted refresh-family revocation; the credential store's delete (T22.1.2, T22.1.3), through the Windows half's one-shot verbs when the service is stopped (CP-019-5).
-- **T22.2.3 — Register the data verbs on `MethodRegistry`.**
+  - Consumes: `daemon.dataErase {}` schema; Plan-005's `Stop`; each provider's own sign-out (`claude auth logout`, Codex `account/logout`); the hosted refresh-family revocation; the credential store's delete (T19.1.2, T19.1.3), through the Windows half's one-shot verbs when the service is stopped (CP-019-5).
+- **T19.2.3 — Register the data verbs on `MethodRegistry`.**
   - Files: `ipc/handlers/data.ts` (same); daemon registry wiring
   - **Spec coverage:** Spec-020 §Interfaces And Contracts
   - **Verifies invariant:** I-019-2
   - Consumes: Plan-005 `MethodRegistry`. Plan-005 reciprocates the registration.
-- **T22.2.4 — Contract doc in step.**
+- **T19.2.4 — Contract doc in step.**
   - Files: `docs/architecture/contracts/api-payload-contracts.md` (EXTEND)
   - **Spec coverage:** Spec-020 §Interfaces And Contracts (the data verbs' shapes)
   - **Verifies invariant:** none (a documentation task)
-  - Consumes: the data verbs (T22.2.1, T22.2.2, T22.2.3).
+  - Consumes: the data verbs (T19.2.1, T19.2.2, T19.2.3).
 
 ### Phase 3 — The purge's erasure step and the account-deletion alignment (Step 5)
 
-**Precondition:** Phases 1 and 2 merged, the Windows arm (T22.1.3) aside (the task spans the CP-019-2 to CP-019-6 reciprocals per I-019-3 to I-019-6, so it lands after every other task of this plan that builds on macOS) + Plan-005 Phase R1's `daemon.retentionPurge`.
+**Precondition:** Phases 1 and 2 merged, the Windows arm (T19.1.3) aside (the task spans the CP-019-2 to CP-019-6 reciprocals per I-019-3 to I-019-6, so it lands after every other task of this plan that builds on macOS) + Plan-005 Phase R1's `daemon.retentionPurge`.
 
 #### Tasks
 
-- **T22.3.1 — The purge's erasure step and the account-deletion alignment.**
+- **T19.3.1 — The purge's erasure step and the account-deletion alignment.**
   - Files: Plan-005's retention handlers (EXTEND — `secure_delete` on for the delete of the session's rows inside the purge's transaction, and the `TRUNCATE` checkpoint after commit); the cross-plan alignment per Implementation Step 5
   - **Spec coverage:** Spec-020 §Retention Policy (the purge), Spec-020 §Erasure In The Daemon's Database, Spec-020 §Erasure Paths (Path 2), Spec-020 §Ordering And Atomicity
   - **Verifies invariant:** I-019-3, I-019-4, I-019-5, I-019-6
