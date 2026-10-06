@@ -756,7 +756,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `workflow.runsPauseSet` | Pause new runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.10 |
 | `workflow.secretCreate {scope, scopeRef, name, secretValue}` → `{secretId, scope, scopeRef, name}` | Create a workflow secret from the Credential chooser's `New secret` | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.secretDelete {secretId}` | `Delete` a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
-| `workflow.secretList {scopeRef?}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: a project's and the shared ones, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
+| `workflow.secretList {}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: the shared ones and each project's, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.secretReplace {secretId, secretValue}` → `{secretId}` | `Replace value` on a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.stepRead` | Read a step's input, output or log (step panel, inspector data panels) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T2.7 |
 | `workflow.subscribe` | Live updates: runs, steps, schedules, the start hold | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-014](../../plans/014-workflow-authoring-and-execution.md) T5.12 |
@@ -7945,11 +7945,9 @@ type WorkflowSecretPlace = { scope: "project"; scopeRef: ProjectId } | { scope: 
 // One secret as the chooser lists it: its place and name, and never its value.
 type WorkflowSecretSummary = { secretId: WorkflowSecretId; name: string } & WorkflowSecretPlace;
 
-// WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: a project's
-// and the shared ones, by name. Metadata only.
-interface WorkflowSecretListRequest {
-  scopeRef?: ProjectId; // the project whose secrets join the shared ones; omit for the shared ones alone
-}
+// WorkflowSecretList — workflow.secretList. The secrets a step's Credential chooser offers: every
+// secret, the shared ones and each project's, by name. Metadata only. A workflow belongs to no
+// project, so the request is the empty payload.
 interface WorkflowSecretListResponse {
   secrets: WorkflowSecretSummary[];
 }
@@ -8121,7 +8119,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.definitionRead` | `query` | `WorkflowDefinitionReadRequest` → `WorkflowDefinitionReadResponse` | Latest version unless `version` is supplied; carries a webhook workflow's token dates and last fire, never the token |
 | `workflow.definitionList` | `query` | `WorkflowDefinitionListRequest` → `WorkflowDefinitionListResponse` | Every workflow in the one library with the facts its catalog row shows, paged |
 | `workflow.versionRead` | `query` | `WorkflowVersionReadRequest` → `WorkflowVersionReadResponse` | Immutable version body; a running instance stays pinned to its own |
-| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own, working in that session's folder or the repository `projectId` names; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-025) |
+| `workflow.runStart` | `mutation` | `WorkflowRunStartRequest` → `WorkflowRunStartResponse` | Binds a run to a pinned version, in the asking chat's session or the workflow's own, working in that session's folder or the repository `projectId` names, or with neither in the run's own folder; emits `workflow.started`; judges an agent's start and a trigger's fire under `workflow::start` and refuses `workflow.start_denied` (ADR-025); refuses `workflow.repository_required` for a start in no repository of a version holding a Git, Repo diff or Run tests step |
 | `workflow.runRead` | `query` | `WorkflowRunReadRequest` → `WorkflowRunReadResponse` | Projection read; rebuildable from `session_events`. Carries the step array with each waiting step's cause, instants and question and each answered step's resolution, the chain's first run with its run count, whether the run's execution context was captured, the Keep mark, the fix session, the run's cost, a going run's live step, the per-edge item counts, a finished run's review epoch and the chain's question on its first run, so a waiting run renders from this one call (Spec-015 §Park surfacing on the read model) |
 | `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-014-21); refuses `workflow.run_not_cancelable` against a run that has ended; a `failed` run parked on its failed step has not ended and is canceled (a cancel on an already-`canceled` run returns the saved result) |
 | `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | The person's resumption of a parked run, carrying the optional explicit SA-39 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the re-pin member on an accepted repair); refuses `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
@@ -8161,7 +8159,7 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.runAttentionList` | `query` | `WorkflowRunAttentionListRequest` → `WorkflowRunAttentionListResponse` | The runs waiting on a person, oldest first, under one `account` entry per spent provider account keyed by its `providerAccountId`; no filter narrows it |
 | `workflow.webhookTokenRotate` | `mutation` | `WorkflowWebhookTokenRotateRequest` → `WorkflowWebhookTokenRotateResponse` | Creates or rotates a workflow's webhook token, returned once; only its hash is kept, so the old token is refused from that moment |
 | `workflow.webhookListenerRead` | `query` | `WorkflowWebhookListenerReadRequest` → `WorkflowWebhookListenerReadResponse` | The webhook listener's port and whether it listens |
-| `workflow.secretList` | `query` | `WorkflowSecretListRequest` → `WorkflowSecretListResponse` | This project's secrets and the shared ones, by name, for a step's Credential chooser; never a value |
+| `workflow.secretList` | `query` | `EmptyPayload` → `WorkflowSecretListResponse` | Every secret, the shared ones and each project's, by name, for a step's Credential chooser; never a value |
 | `workflow.secretCreate` | `mutation` | `WorkflowSecretCreateRequest` → `WorkflowSecretSummary` | Seals a new secret's value in the keychain under a scope and name; refuses `workflow.secret_name_invalid` or `workflow.secret_store_unavailable` |
 | `workflow.secretReplace` | `mutation` | `WorkflowSecretReplaceRequest` → `WorkflowSecretActResponse` | Replaces a secret's value in the keychain; refuses `workflow.secret_store_unavailable` |
 | `workflow.secretDelete` | `mutation` | `WorkflowSecretDeleteRequest` → `WorkflowSecretActResponse` | Deletes a secret's record and its keychain entry |

@@ -701,7 +701,8 @@ The normalized-table-over-blob shape and the rebuildable-projection split align 
 -- Commitments: C-1 (one document plus a typed TypeScript SDK), C-8 (schema version marker)
 CREATE TABLE workflow_definitions (
   id                   TEXT PRIMARY KEY,               -- ULID; NOT the content hash
-  name                 TEXT NOT NULL,                  -- author-facing name
+  name                 TEXT NOT NULL,                  -- author-facing name, in the person's own casing
+  name_folded          TEXT NOT NULL,                  -- the full-Unicode case fold of name, written by the store on every insert and rename
   content_hash         TEXT NOT NULL,                  -- BLAKE3 over JCS-canonicalized definition body
   schema_version       TEXT NOT NULL                   -- the document's own schemaVersion, verbatim; V1 value '2' (Spec-015 §Required Behavior). A string rather than a number so a later '2.1' round-trips
                        CHECK(schema_version GLOB '[0-9]*'),
@@ -722,10 +723,11 @@ CREATE TABLE workflow_definitions (
   deleted_at           TEXT                            -- the soft delete: set when the person deletes the workflow, whose runs keep their pinned versions; NULL while it is in the library
 );
 
--- One library, so a name names one workflow: unique among the workflows not deleted, and a
--- deleted workflow's name can be used again. A save, an import or a create whose name another
--- workflow holds is refused with workflow.definition_refused (finding name_taken).
-CREATE UNIQUE INDEX idx_workflow_definitions_name ON workflow_definitions(name) WHERE deleted_at IS NULL;
+-- One library, so a name names one workflow: unique among the workflows not deleted ignoring case,
+-- on the stored fold key, the same rule agent definition names follow, and a deleted workflow's name
+-- can be used again. A save, an import or a create whose name another workflow holds in any letter
+-- case is refused with workflow.definition_refused (finding name_taken).
+CREATE UNIQUE INDEX idx_workflow_definitions_name_folded ON workflow_definitions(name_folded) WHERE deleted_at IS NULL;
 CREATE INDEX idx_workflow_definitions_content_hash ON workflow_definitions(content_hash);
 
 -- Note: `updated_at` intentionally absent — definitions are immutable by C-9/F13 convention.
