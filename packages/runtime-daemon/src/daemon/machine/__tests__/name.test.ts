@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
-import { nodeMachineNameSources, readMachineName, type MachineNameSources } from "../name.js";
+import { createNodeMachineNameSources, readMachineName, type MachineNameSources } from "../name.js";
 
 function sources(
   platform: NodeJS.Platform,
@@ -27,7 +27,7 @@ describe("readMachineName", () => {
         encoding: "utf8",
       }).trim();
 
-      expect(await readMachineName(nodeMachineNameSources())).toBe(computerName);
+      expect(await readMachineName(createNodeMachineNameSources())).toBe(computerName);
     },
   );
 

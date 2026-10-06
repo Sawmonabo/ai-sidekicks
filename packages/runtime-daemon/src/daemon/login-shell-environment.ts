@@ -2,7 +2,8 @@
 // and Linux the login shell runs once (`<shell> -lic`, printing `env -0` between two markers), so
 // proxy, certificate and locale settings and a later-installed provider are present with no
 // terminal open. A shell that stalls or prints no markers is ended and the start goes on with the
-// account's default environment: the start never waits on a shell. Windows uses the account's own.
+// account's default environment: the start never waits on a shell. Inside a WSL distribution the
+// search path keeps no folder on the Windows drives. Windows uses the account's own.
 
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -48,6 +49,8 @@ export interface LoginShellCaptureOptions {
   readonly userName: string;
   /** Reads the account's temporary folder on macOS; consulted only when the capture falls back. */
   readonly readUserTempDirectory: () => Promise<string>;
+  /** Reads where the Windows drives are mounted inside a WSL distribution; consulted on Linux. */
+  readonly readWindowsDriveMounts: () => Promise<readonly string[]>;
   readonly deadlineMs: number;
   /** The daemon's own environment: the one the shell starts with, and the base on Windows. */
   readonly serviceEnvironment: NodeJS.ProcessEnv;
@@ -78,7 +81,10 @@ export async function captureLoginShellEnvironment(
   }
   const outcome = await runLoginShell(options.shell, options);
   if (outcome.kind === "captured") {
-    return outcome.pairs;
+    if (options.platform !== "linux") {
+      return outcome.pairs;
+    }
+    return leaveOutWindowsDrives(outcome.pairs, await options.readWindowsDriveMounts());
   }
   options.writeServiceLog(
     `The login shell (${options.shell}) ${outcome.reason}, so providers start with the ` +
@@ -244,6 +250,31 @@ function readBetweenMarkers(
     }
   }
   return pairs;
+}
+
+// A Windows program reached under a drive mount cannot run its Linux dependencies, so the search
+// path drops every folder at or under one.
+function leaveOutWindowsDrives(
+  pairs: readonly SpawnEnvPair[],
+  driveMounts: readonly string[],
+): readonly SpawnEnvPair[] {
+  if (driveMounts.length === 0) {
+    return pairs;
+  }
+  const isOnDrive = (folder: string): boolean =>
+    driveMounts.some((mount) => folder === mount || folder.startsWith(`${mount}/`));
+  return pairs.map(
+    ([name, value]): SpawnEnvPair =>
+      name === "PATH"
+        ? [
+            name,
+            value
+              .split(":")
+              .filter((folder) => !isOnDrive(folder))
+              .join(":"),
+          ]
+        : [name, value],
+  );
 }
 
 function toPairs(environment: NodeJS.ProcessEnv): readonly SpawnEnvPair[] {

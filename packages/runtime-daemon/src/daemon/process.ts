@@ -32,6 +32,7 @@ import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import { openDatabase } from "../session/migration-runner.js";
+import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
 import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
@@ -164,14 +165,14 @@ export class DaemonProcess {
           streamingPrimitive.cleanupTransport(transport.id);
         },
         onError: (transport, error) => {
-          // The gateway reports a failure of the listener itself under connection id 0; the
-          // service then reads as degraded until it stops.
-          if (transport.id === 0) {
-            this.#markListenerFailed();
-          }
-          const subject =
-            transport.id === 0 ? "The socket's listener" : `Connection ${String(transport.id)}`;
-          options.writeServiceLog(`${subject} failed: ${describeError(error)}`);
+          options.writeServiceLog(
+            `Connection ${String(transport.id)} failed: ${describeError(error)}`,
+          );
+        },
+        // The service reads as degraded from a listener failure until it stops.
+        onListenerError: (error) => {
+          this.#markListenerFailed();
+          options.writeServiceLog(`The socket's listener failed: ${describeError(error)}`);
         },
       },
     });
@@ -257,7 +258,15 @@ export class DaemonProcess {
   }
 
   async #listen(runFolder: DaemonRunFolder, sessionToken: string): Promise<void> {
-    await this.#gateway.start();
+    try {
+      await this.#gateway.start();
+    } catch (error) {
+      // Another start bound the socket between this start's check of the run folder and its bind.
+      if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
+        throw new DaemonAlreadyRunningError(`the socket ${runFolder.socketPath}`, { cause: error });
+      }
+      throw error;
+    }
     try {
       await writeSessionToken(runFolder, sessionToken);
     } catch (error) {

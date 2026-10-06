@@ -29,7 +29,7 @@ export function openServiceLog(options: {
 }): ServiceLogWriter {
   const { standardError } = options;
   const folder = path.join(options.dataFolder, SERVICE_LOG_FOLDER_NAME);
-  const filePath = path.join(folder, `service-${fileSafeTime(options.startedAt)}.log`);
+  const filePath = path.join(folder, `service-${formatFileSafeTime(options.startedAt)}.log`);
   let fileDescriptor: number | undefined;
   let isStandardErrorOpen = true;
 
@@ -94,7 +94,7 @@ export function openServiceLog(options: {
 
 // `2026-10-05T08:12:03.456Z` becomes `2026-10-05T08-12-03Z`: no colon, which Windows refuses in
 // a file name.
-function fileSafeTime(time: Date): string {
+function formatFileSafeTime(time: Date): string {
   return `${time.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
 }
 

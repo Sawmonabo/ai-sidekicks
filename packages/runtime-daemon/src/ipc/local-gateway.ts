@@ -96,14 +96,16 @@ export type SupervisionDisconnectReason =
   | "malformed_frame";
 
 /**
- * Callbacks that observe the connection lifecycle; `onConnect` is optional. All are synchronous,
- * and a throwing callback is a programmer error that the gateway does not swallow. Each
- * connection's `onError` is followed by exactly one `onDisconnect` for the same transport.
+ * Callbacks that observe the listener and the connection lifecycle; `onConnect` is optional. All
+ * are synchronous, and a throwing callback is a programmer error that the gateway does not swallow.
+ * Each connection's `onError` is followed by exactly one `onDisconnect` for the same transport;
+ * `onListenerError` reports a failure of the listener itself, which has no connection.
  */
 export interface SupervisionHooks {
   onConnect?(transport: SupervisionTransport): void;
   onDisconnect(transport: SupervisionTransport, reason: SupervisionDisconnectReason): void;
   onError(transport: SupervisionTransport, err: unknown): void;
+  onListenerError(err: unknown): void;
 }
 
 // --------------------------------------------------------------------------
@@ -270,10 +272,7 @@ export class LocalIpcGateway {
     });
 
     server.on("error", (err) => {
-      // Server-level errors have no connection, so supervision gets a synthetic transport (id 0).
-      if (this.#hooks !== null) {
-        this.#hooks.onError({ id: 0 }, err);
-      }
+      this.#hooks?.onListenerError(err);
     });
 
     // `#server` and `#started` are set only after the listen resolves, so a failed bind leaves the

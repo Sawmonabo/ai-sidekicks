@@ -2,10 +2,10 @@
 // `daemon.hello` on its socket, keeps serving a client that drops and reconnects, comes back after
 // a SIGKILL over the socket file the crash left with the same machine id and a new session token
 // the old one no longer opens, and stops cleanly on SIGTERM, a second one during its drain
-// included. Its service log goes to standard error and to its own file: a log folder it cannot
-// open never stops it, a start that fails says why in the file, and it runs on, logging to the
-// file, once its standard error's reader is gone. Each run gets its own home and run folder, so
-// the person's own files are never read.
+// included, and one during its start ends the login shell. Its service log goes to standard error
+// and to its own file: a log folder it cannot open never stops it, a start that fails says why in
+// the file, and it runs on, logging to the file, once its standard error's reader is gone. Each run
+// gets its own home and run folder, so the person's own files are never read.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -273,6 +273,40 @@ describe("the daemon started from its command", () => {
       await pipe.close();
 
       expect(await daemon.exited).toStrictEqual({ code: 0, signal: null });
+    },
+    READY_TIMEOUT_MS * 2,
+  );
+
+  // The account's own login shell runs with the test's home, so these profiles hold it.
+  it.runIf(/\/(?:zsh|bash|sh|dash)$/.test(os.userInfo().shell ?? ""))(
+    "ends the login shell when a stop comes during the start, and stops without its ready line",
+    async () => {
+      const sleepFile = path.join(homeDirectory, "login-shell-sleep");
+      const profile = `sleep 60 &\necho $! > '${sleepFile}'\nsleep 60\n`;
+      for (const name of [".zshenv", ".bash_profile", ".profile"]) {
+        await writeFile(path.join(homeDirectory, name), profile);
+      }
+      const daemon = spawnDaemon();
+      const sleepProcessId = await vi.waitFor(
+        async () => {
+          const text = await readFile(sleepFile, "utf8");
+          expect(text).toMatch(/^\d+\n$/);
+          return Number(text);
+        },
+        { timeout: READY_TIMEOUT_MS },
+      );
+
+      daemon.child.kill("SIGTERM");
+
+      expect(await daemon.exited).toStrictEqual({ code: 0, signal: null });
+      expect(daemon.standardError()).toContain("was ended, since a stop came during the start");
+      expect(daemon.standardError()).not.toContain(DAEMON_READY_LINE);
+      // The shell's whole group is ended, so the profile's background process is gone too.
+      await vi.waitFor(() => {
+        expect(() => process.kill(sleepProcessId, 0)).toThrow(
+          expect.objectContaining({ code: "ESRCH" }),
+        );
+      });
     },
     READY_TIMEOUT_MS * 2,
   );

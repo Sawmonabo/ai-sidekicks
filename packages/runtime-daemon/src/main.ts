@@ -21,9 +21,10 @@ import {
   LOGIN_SHELL_DEADLINE_MS,
   readDarwinUserTempDirectory,
 } from "./daemon/login-shell-environment.js";
-import { nodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
+import { createNodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { openServiceLog } from "./daemon/service-log.js";
+import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
 
 // The service's version is its package's; the manifest sits one folder above this file, in the
@@ -54,7 +55,9 @@ const writeServiceLog = openServiceLog({
 let isStarted = false;
 // Node would print an error nothing handled to standard error alone, which whoever started the
 // daemon may not keep, so it goes to the service log, stack and all. A failed start ends here too.
-// A rejection can carry any value, whatever Node's types say.
+// Node's default rejection mode throws an unhandled rejection, a rejected top-level await
+// included, as an uncaught exception, so this one handler covers both; an `unhandledRejection`
+// handler would turn that mode off. A rejection can carry any value, whatever Node's types say.
 process.on("uncaughtException", (error: unknown) => {
   const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
   writeServiceLog(`${isStarted ? "The daemon failed" : "The daemon could not start"}: ${detail}`);
@@ -92,7 +95,7 @@ const daemon = await DaemonProcess.start({
     userId: account.uid,
   }),
   ptyHost: selectPtyHost(),
-  readMachineName: () => readMachineName(nodeMachineNameSources()),
+  readMachineName: () => readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: () =>
     captureLoginShellEnvironment({
       platform: process.platform,
@@ -100,6 +103,7 @@ const daemon = await DaemonProcess.start({
       homeDirectory: account.homedir,
       userName: account.username,
       readUserTempDirectory: readDarwinUserTempDirectory,
+      readWindowsDriveMounts,
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       serviceEnvironment: process.env,
       writeServiceLog,

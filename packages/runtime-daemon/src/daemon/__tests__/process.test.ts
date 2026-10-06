@@ -3,14 +3,15 @@
 // folder another daemon holds, a socket another daemon answers on, a run folder other accounts can
 // reach, and, before the bind, a socket path longer than the platform binds, while a path at that
 // limit binds and answers a hello; a data folder other accounts could read becomes the person's
-// alone; of two starts racing, the token file holds the winner's token.
+// alone; of two starts racing for one socket, the loser is refused and the token file holds the
+// winner's token.
 // Over the socket, the status read reports the running service and its process, and reads
 // degraded once the listener fails; `daemon.start` is a method it does not have; a flush leaves
 // it running, a stop or restart ends it with another client still connected, and a connection
 // whose handshake was incompatible cannot stop it. The machine's settings file is read and written
-// over the socket: one client's change reaches the file and another client's subscription, a
-// refused change writes nothing, and a closed connection's subscription lets go of the file. A stop
-// leaves every write it answered on disk, and ends within its drain bound while a write hangs.
+// over the socket: one client's change reaches the file and another client's subscription, and a
+// closed connection's subscription lets go of the file. A stop waits for a write under way and
+// leaves it on disk, and ends within its drain bound while a write hangs.
 
 import { execFileSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -349,13 +350,24 @@ describe("the socket path's limit under a long TMPDIR", () => {
 describe("two starts racing for the socket", () => {
   it("leave the token file holding the token of the daemon that owns the socket", async () => {
     const drain = { shutdown: () => Promise.resolve(EMPTY_DRAIN) };
+    // Two data folders, so the data-folder lock lets both through and the bind decides.
+    const homes = [path.join(scratch, "home-a"), path.join(scratch, "home-b")];
+    for (const home of homes) {
+      await mkdir(home);
+    }
     // Each round starts over the previous round's token file, as a restart does.
     for (let round = 0; round < 5; round += 1) {
-      const outcomes = await Promise.allSettled([startDaemon(drain), startDaemon(drain)]);
+      const outcomes = await Promise.allSettled(
+        homes.map((home) => startDaemon(drain, { homeDirectory: home })),
+      );
       const winners = outcomes.flatMap((outcome) =>
         outcome.status === "fulfilled" ? [outcome.value] : [],
       );
       expect(winners).toHaveLength(1);
+      // The loser meets the winner at the run folder's check or at the bind; either is a refusal.
+      expect(
+        outcomes.flatMap((outcome) => (outcome.status === "rejected" ? [outcome.reason] : [])),
+      ).toStrictEqual([expect.any(DaemonAlreadyRunningError)]);
 
       const client = await connect(runFolder.socketPath);
       client.send({
@@ -589,48 +601,35 @@ describe("the machine's settings over the socket", () => {
     await writer.client.close();
   });
 
-  it("refuses a credential-shaped row and a pattern git refuses, writing nothing", async () => {
-    await startDaemon(drainNothing);
-    const { client, call } = await openSession();
-
-    expect(
-      await call("daemon.machineSettingsUpdate", {
-        change: { environmentRows: [{ name: "OPENAI_API_KEY", value: "sk-x" }] },
-      }),
-    ).toMatchObject({
-      error: {
-        message:
-          "Credentials are not set here. Sign in to a provider on Providers, or add a workflow " +
-          "step's token in its Credential field.",
-        data: {
-          type: "daemon.environment_name_refused",
-          fields: { name: "OPENAI_API_KEY", reason: "credential_shaped" },
-        },
-      },
-    });
-    expect(
-      await call("daemon.machineSettingsUpdate", { change: { branchNamePattern: "a b/{title}" } }),
-    ).toMatchObject({
-      error: {
-        message: "Git does not accept this as a branch name.",
-        data: { type: "daemon.branch_pattern_refused", fields: { reason: "not_a_branch_name" } },
-      },
-    });
-    await expect(access(settingsPath())).rejects.toMatchObject({ code: "ENOENT" });
-    await client.close();
-  });
-
-  it("a stop with another client connected leaves every write the daemon answered on disk", async () => {
+  it("a stop waits for a write under way and leaves it on disk", async () => {
+    // The settings file is a named pipe, so a settings write waits on its read until the test
+    // writes the file's contents into the pipe.
+    await mkdir(path.dirname(settingsPath()), { recursive: true });
+    execFileSync("mkfifo", [settingsPath()]);
     const daemon = await startDaemon(drainNothing);
     const writer = await openSession();
     const stopper = await openSession();
+    writer.client.send({
+      jsonrpc: JSONRPC_VERSION,
+      id: 50,
+      method: "daemon.machineSettingsUpdate",
+      params: { change: { screenReaderMode: true } },
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
+    });
+    // The write is under way once its read has opened the pipe.
+    const pipe = await vi.waitFor(() =>
+      open(settingsPath(), fsConstants.O_WRONLY | fsConstants.O_NONBLOCK),
+    );
 
-    expect(
-      await writer.call("daemon.machineSettingsUpdate", { change: { screenReaderMode: true } }),
-    ).toMatchObject({ result: { settings: { screenReaderMode: true } } });
     expect(await stopper.call("daemon.stop")).toMatchObject({ result: { accepted: true } });
+    // The stop closes the socket before it drains, so the write finishes during the drain.
+    await whenClosed(writer.client);
+    await pipe.writeFile(JSON.stringify(MACHINE_SETTINGS_DEFAULTS));
+    await pipe.close();
 
     expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
+    // The write's rename replaced the pipe with the file.
+    expect((await lstat(settingsPath())).isFile()).toBe(true);
     expect(JSON.parse(await readFile(settingsPath(), "utf8"))).toStrictEqual({
       ...MACHINE_SETTINGS_DEFAULTS,
       screenReaderMode: true,

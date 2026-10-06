@@ -48,8 +48,8 @@ export async function readMachineName(sources: MachineNameSources): Promise<stri
   }
 }
 
-/** The sources on this process: the real platform, programs, files and host name. */
-export function nodeMachineNameSources(): MachineNameSources {
+/** Creates the sources on this process: the real platform, programs, files and host name. */
+export function createNodeMachineNameSources(): MachineNameSources {
   const execFileAsync = promisify(execFile);
   return {
     platform: process.platform,

@@ -3,7 +3,8 @@
 // falls back to the account's default environment, never the service's own, with one line in the
 // service log. That fallback holds the account's home, shell, user and login name and the default
 // search path, plus on macOS its temporary folder, which is left out with a log line when it
-// cannot be read. Each "shell" here is a small script run the way the login shell is,
+// cannot be read. Inside a WSL distribution the search path loses its folders on the Windows
+// drives. Each "shell" here is a small script run the way the login shell is,
 // `<shell> -lic <script>`.
 
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -50,7 +51,9 @@ async function writeFakeShell(body: string): Promise<string> {
 function capture(
   shell: string | null,
   deadlineMs: number,
-  overrides: Partial<Pick<LoginShellCaptureOptions, "platform" | "readUserTempDirectory">> = {},
+  overrides: Partial<
+    Pick<LoginShellCaptureOptions, "platform" | "readUserTempDirectory" | "readWindowsDriveMounts">
+  > = {},
 ) {
   return captureLoginShellEnvironment({
     platform: "darwin",
@@ -61,6 +64,7 @@ function capture(
       temporaryDirectoryReads += 1;
       return Promise.resolve(USER_TEMP_DIRECTORY);
     },
+    readWindowsDriveMounts: () => Promise.resolve([]),
     deadlineMs,
     serviceEnvironment: SERVICE_ENVIRONMENT,
     writeServiceLog: (line) => {
@@ -116,6 +120,25 @@ describe("captureLoginShellEnvironment", () => {
     expect(serviceLog).toStrictEqual([]);
     // The temporary folder is read only for the fallback.
     expect(temporaryDirectoryReads).toBe(0);
+  });
+
+  it("drops the search path's folders on the Windows drives inside WSL", async () => {
+    // WSL appends the Windows search path under the drive mounts; `/mnt/cx` is no drive.
+    const shell = await writeFakeShell(
+      [
+        "export PATH='/home/person/.local/bin:/mnt/c/Program Files/nodejs:/mnt/c:/mnt/cx/bin:" +
+          "/usr/bin'",
+        '/bin/sh -c "$2"',
+      ].join("\n"),
+    );
+
+    const pairs = await capture(shell, 10_000, {
+      platform: "linux",
+      readWindowsDriveMounts: () => Promise.resolve(["/mnt/c", "/mnt/d"]),
+    });
+
+    expect(new Map(pairs).get("PATH")).toBe("/home/person/.local/bin:/mnt/cx/bin:/usr/bin");
+    expect(new Map(pairs).get("SERVICE_ONLY")).toBe("from the service");
   });
 
   it("ends a shell that misses the deadline, with whatever it started, and falls back", async () => {

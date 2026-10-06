@@ -4,8 +4,8 @@
 /** Thrown by a start when another daemon already holds what this one needs. */
 export class DaemonAlreadyRunningError extends Error {
   /** `heldPlace` names what the other daemon holds, such as `the data folder <path>`. */
-  constructor(heldPlace: string) {
-    super(`Another daemon already holds ${heldPlace}`);
+  constructor(heldPlace: string, options?: ErrorOptions) {
+    super(`Another daemon already holds ${heldPlace}`, options);
     this.name = "DaemonAlreadyRunningError";
   }
 }
