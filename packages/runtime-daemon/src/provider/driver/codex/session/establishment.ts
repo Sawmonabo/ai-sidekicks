@@ -338,7 +338,8 @@ export class CodexSessionEstablishment {
     boundaryTurnId: string,
   ): Promise<ForkConversationResult> {
     // Resolved afresh against the model's tier list, before the thread id is read, so the fork
-    // runs at the requested speed where the model still lists it.
+    // runs at the requested speed where the model still lists it. The fork holds the session's
+    // slot, so no resume or close replaces this record during the read.
     const outputSpeed = await this.#outputSpeed.resolveLevel(
       record.model,
       record.outputSpeedRequest,
