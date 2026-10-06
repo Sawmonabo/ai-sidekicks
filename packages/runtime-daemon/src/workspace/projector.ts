@@ -23,7 +23,8 @@ import {
  */
 export interface FilesystemPathProbe {
   readonly probedPath: string;
-  // Binary because `RepoMountHealth.status` has exactly two members.
+  // Reachability only: `identity_mismatch` and its `isRepository` need the root's git common
+  // directory compared with the attach-time anchor, which this probe does not read.
   readonly reachable: boolean;
   readonly checkedAt: string;
 }

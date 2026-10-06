@@ -76,19 +76,24 @@ export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git"]);
 /**
  * A mount's health, probed on every read and never stored. `unreachable` means the root cannot be
  * probed and outranks the rest; `identity_mismatch` means the root's git common directory is not
- * the one recorded at attach, and re-attaching is the recovery.
+ * the one recorded at attach. `isRepository` says whether git still answers for the root, which
+ * decides whether re-attaching can recover it.
  */
-export interface RepoMountHealth {
-  status: "healthy" | "unreachable" | "identity_mismatch";
-  checkedAt: string;
-}
-/** Wire schema for {@link RepoMountHealth}. */
-export const RepoMountHealthSchema: z.ZodType<RepoMountHealth, RepoMountHealth> = z
-  .object({
-    status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
-    checkedAt: isoDateTimeSchema,
-  })
-  .strict();
+export type RepoMountHealth =
+  | { status: "healthy" | "unreachable"; checkedAt: string; isRepository?: never }
+  | { status: "identity_mismatch"; isRepository: boolean; checkedAt: string };
+/** Wire schema for {@link RepoMountHealth}; only `identity_mismatch` carries `isRepository`. */
+export const RepoMountHealthSchema: z.ZodType<RepoMountHealth, RepoMountHealth> =
+  z.discriminatedUnion("status", [
+    z.object({ status: z.enum(["healthy", "unreachable"]), checkedAt: isoDateTimeSchema }).strict(),
+    z
+      .object({
+        status: z.literal("identity_mismatch"),
+        isRepository: z.boolean(),
+        checkedAt: isoDateTimeSchema,
+      })
+      .strict(),
+  ]);
 
 /**
  * The `repo.mount_health_changed` payload: a mount's health after the daemon's re-probe changed

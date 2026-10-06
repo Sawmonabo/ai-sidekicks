@@ -200,7 +200,11 @@ export const MOUNTS: readonly RepoMountReadResponse[] = [
     id: DRIFTED_MOUNT_ID,
     canonicalRoot: "/Users/dev/code/moved",
     localPath: "/Users/dev/code/moved",
-    health: { status: "identity_mismatch", checkedAt: "2026-01-01T09:05:01.000Z" },
+    health: {
+      status: "identity_mismatch",
+      isRepository: true,
+      checkedAt: "2026-01-01T09:05:01.000Z",
+    },
   }),
 ];
 

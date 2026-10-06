@@ -1,8 +1,8 @@
 // One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
 // verbatim (the stylesheet truncates it; the title and copy control recover it) and never
 // resolved or compared here, because containment and symlink rules belong to the daemon.
-// Re-attach shows only on `identity_mismatch`, the permanent verdict, since `unreachable` is
-// transient.
+// Re-attach shows only on `identity_mismatch`, the permanent verdict, and only while git still
+// answers for the root; `unreachable` is transient.
 
 import "./MountCard.css";
 
@@ -96,7 +96,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           {availability.unavailableBecause}
         </p>
       )}
-      {mount.health.status === "identity_mismatch" ? (
+      {mount.health.status === "identity_mismatch" && mount.health.isRepository ? (
         <ReattachControl
           bridge={props.bridge}
           sessionId={props.sessionStore.sessionId}

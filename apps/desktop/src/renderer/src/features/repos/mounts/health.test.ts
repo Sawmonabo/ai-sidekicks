@@ -9,7 +9,13 @@ import { buildMount } from "./repo-mounts.test-support.js";
 describe("mount-health — a drifted mount", () => {
   it("withholds the bind controls, saying the drift is permanent", () => {
     const availability = readBindControlAvailability(
-      buildMount({ health: { status: "identity_mismatch", checkedAt: "2026-01-01T00:00:00Z" } }),
+      buildMount({
+        health: {
+          status: "identity_mismatch",
+          isRepository: true,
+          checkedAt: "2026-01-01T00:00:00Z",
+        },
+      }),
     );
     expect(availability.available).toBe(false);
     expect(availability.available === false && availability.unavailableBecause).toContain(
