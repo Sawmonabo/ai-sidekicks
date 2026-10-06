@@ -331,6 +331,7 @@ class ElectronMockImpl implements ElectronMock {
           listener({}, ...structuredClone(args));
         }
       },
+      isDestroyed: () => false,
       once: vi.fn(),
       on: vi.fn(),
     };

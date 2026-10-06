@@ -127,7 +127,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     },
     [BRIDGE_CHANNELS.openInEditor]: async (event, request) => {
       const { ref, line } = parseEditorOpenRequest(request);
-      const targetPath = filePathRefs.requirePath(event.sender, ref);
+      const targetPath = filePathRefs.requirePath(event.sender, ref, "open");
       await openInEditor(
         {
           installedEditors: () => installedEditorsFor(process.platform, runProgram),
@@ -154,7 +154,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
         content,
       ),
     [BRIDGE_CHANNELS.revealInFileExplorer]: (event, ref) => {
-      shell.showItemInFolder(filePathRefs.requirePath(event.sender, ref));
+      shell.showItemInFolder(filePathRefs.requirePath(event.sender, ref, "open"));
     },
     [BRIDGE_CHANNELS.readKeyboardMap]: () => keyboardMapFile.read(),
     [BRIDGE_CHANNELS.writeKeyboardMap]: (_event, map) =>

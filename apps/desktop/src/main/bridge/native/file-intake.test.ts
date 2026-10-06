@@ -2,7 +2,7 @@
 // person can read, gone with the page that pasted it, and nothing the page builds itself becomes a
 // path main hands out.
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -41,7 +41,7 @@ describe("a dropped file", () => {
     const ref = await refForDroppedFile(refs, owner, dropped);
 
     expect(ref).not.toContain(scratch);
-    expect(refs.pathOf(owner, ref)).toBe(dropped);
+    expect(refs.requirePath(owner, ref, "attach")).toBe(dropped);
     for (const droppedPath of [scratch, "notes.md", "", undefined]) {
       await expect(refForDroppedFile(refs, owner, droppedPath)).rejects.toThrow(TypeError);
     }
@@ -56,7 +56,7 @@ describe("a pasted picture", () => {
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
     const ref = await pastedImagesIn(folder, refs).save(owner, bytes.buffer);
-    const filePath = refs.requirePath(owner, ref);
+    const filePath = refs.requirePath(owner, ref, "attach");
 
     expect(ref).not.toContain(folder);
     expect(path.dirname(filePath)).toBe(folder);
@@ -69,29 +69,59 @@ describe("a pasted picture", () => {
     const folder = path.join(scratch, "pasted");
     const refs = new FilePathRefs();
     const owner = pageOwner(1);
-    const ref = await pastedImagesIn(folder, refs).save(owner, new Uint8Array([1, 2, 3]));
-    const filePath = refs.requirePath(owner, ref);
+    const ref = await pastedImagesIn(folder, refs).save(owner, new Uint8Array([1, 2, 3]).buffer);
+    const filePath = refs.requirePath(owner, ref, "attach");
 
-    expect(() => refs.requirePath(pageOwner(2), ref)).toThrow(TypeError);
+    expect(() => refs.requirePath(pageOwner(2), ref, "attach")).toThrow(TypeError);
     owner.destroy();
 
     await vi.waitFor(async () => {
       await expect(stat(filePath)).rejects.toMatchObject({ code: "ENOENT" });
     });
-    expect(() => refs.requirePath(owner, ref)).toThrow(TypeError);
+    expect(() => refs.requirePath(owner, ref, "attach")).toThrow(TypeError);
   });
 
-  it("clears what an earlier run left in its folder, and refuses empty or non-byte input", async () => {
+  it("is removed when its page loads a new document, whose tokens it no longer serves", async () => {
+    const folder = path.join(scratch, "pasted");
+    const refs = new FilePathRefs();
+    const owner = pageOwner(1);
+    const ref = await pastedImagesIn(folder, refs).save(owner, new Uint8Array([1]).buffer);
+    const filePath = refs.requirePath(owner, ref, "attach");
+
+    owner.navigate();
+
+    await vi.waitFor(async () => {
+      await expect(stat(filePath)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("is not kept for a page that went while it was being written", async () => {
+    const folder = path.join(scratch, "pasted");
+    const owner = pageOwner(1);
+    const pastedImages = pastedImagesIn(folder, new FilePathRefs());
+    const saving = pastedImages.save(owner, new Uint8Array([1]).buffer);
+    owner.destroy();
+
+    await expect(saving).rejects.toThrow("has closed");
+    await expect(readdir(folder)).resolves.toStrictEqual([]);
+  });
+
+  it("clears what an earlier run left in its folder at start, before any paste", async () => {
     const folder = path.join(scratch, "pasted");
     await mkdir(folder);
     const leftOver = path.join(folder, "pasted-image-from-an-earlier-run");
     await writeFile(leftOver, "old", "utf8");
-    const pastedImages = pastedImagesIn(folder, new FilePathRefs());
 
-    await pastedImages.save(pageOwner(1), new Uint8Array([7]));
+    pastedImagesIn(folder, new FilePathRefs());
 
-    await expect(stat(leftOver)).rejects.toMatchObject({ code: "ENOENT" });
-    for (const bytes of [new Uint8Array(0), "a picture", [1, 2], undefined]) {
+    await vi.waitFor(async () => {
+      await expect(stat(leftOver)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("refuses empty or non-byte input", async () => {
+    const pastedImages = pastedImagesIn(path.join(scratch, "pasted"), new FilePathRefs());
+    for (const bytes of [new ArrayBuffer(0), new Uint8Array([1]), "a picture", [1, 2], undefined]) {
       await expect(pastedImages.save(pageOwner(1), bytes)).rejects.toThrow(TypeError);
     }
   });

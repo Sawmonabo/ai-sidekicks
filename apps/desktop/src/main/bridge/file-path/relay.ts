@@ -6,42 +6,40 @@
 // take, so the page shows a path as text and never holds one as a capability.
 //
 // Where each verb carries a path is named here once, by the contract's member names: a member is
-// a key, and `*` is each element of a list.
+// a key, and `*` is each element of a list. Only verbs the app calls are named, since `call()`
+// refuses every other before the relay runs.
+
+import nodePath from "node:path";
 
 import type { FilePathRef } from "#shared/preload-api.js";
 
-import type { FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
+import type { FilePathPurpose, FilePathRefOwner, FilePathRefs } from "./file-path-refs.js";
 
 /** Where one path sits in a request or a reply: keys from the root, `*` for each list element. */
 type PathLocation = readonly string[];
 
-/** The request members that hold a file the person picked, dropped or pasted, by verb. */
-const REQUEST_PATH_LOCATIONS: ReadonlyMap<string, readonly PathLocation[]> = new Map([
-  ["session.attachmentAdd", [["items", "*", "path"]]],
-  ["workflow.definitionExport", [["filePath"]]],
-  ["workflow.definitionImport", [["filePath"]]],
-  ["agent.definitionExport", [["folder"]]],
-  ["agent.definitionImport", [["folder"]]],
-  ["agent.definitionUpdate", [["reattachFilePath"]]],
-]);
+/** One request member that holds a file, and the purpose its token must have been minted for. */
+interface RequestPathMember {
+  readonly location: PathLocation;
+  readonly purpose: FilePathPurpose;
+}
+
+/**
+ * The request members that hold a file the person picked, dropped or pasted, by verb. No verb the
+ * app calls takes one yet; the staging, import and export verbs join it as the app calls them.
+ */
+const REQUEST_PATH_MEMBERS: ReadonlyMap<string, readonly RequestPathMember[]> = new Map();
 
 /** The reply members that hold a path the page offers to open, by verb. */
 const REPLY_PATH_LOCATIONS: ReadonlyMap<string, readonly PathLocation[]> = new Map([
   ["session.memoryRead", [["entries", "*", "path"]]],
-  [
-    "session.hookList",
-    [
-      ["files", "*", "path"],
-      ["folders", "*", "hooks", "*", "sourcePath"],
-    ],
-  ],
 ]);
 
 /**
  * `params` with each token `method` takes in place of a path swapped for the path, for a page
  * that holds those tokens. A member absent from `params` is left for the contract to judge. Throws
- * a `TypeError` for a value in a path member that is not a token `owner` holds, a raw path
- * included.
+ * a `TypeError` for a value in a path member that is not a token `owner` holds for that member's
+ * purpose, a raw path included.
  */
 export function swapTokensForPaths(
   filePathRefs: FilePathRefs,
@@ -50,15 +48,17 @@ export function swapTokensForPaths(
   params: unknown,
 ): unknown {
   let swapped = params;
-  for (const location of REQUEST_PATH_LOCATIONS.get(method) ?? []) {
-    swapped = replaceAt(swapped, location, (ref) => filePathRefs.requirePath(owner, ref));
+  for (const { location, purpose } of REQUEST_PATH_MEMBERS.get(method) ?? []) {
+    swapped = replaceAt(swapped, location, (ref) => filePathRefs.requirePath(owner, ref, purpose));
   }
   return swapped;
 }
 
 /**
- * A token for each path `method`'s reply `value` offers to open, minted for `owner` and keyed by
- * the path, so the page opens what it shows. Empty for a verb whose reply offers none.
+ * A token to open each absolute path `method`'s reply `value` offers, minted for `owner` and keyed
+ * by the path, so the page opens what it shows. A path that is not absolute is shown and never
+ * opened: a program handed one could read it as an option. Empty for a verb whose reply offers
+ * none.
  */
 export function mintTokensForPaths(
   filePathRefs: FilePathRefs,
@@ -66,16 +66,15 @@ export function mintTokensForPaths(
   method: string,
   value: unknown,
 ): Readonly<Record<string, FilePathRef>> {
-  const refs: Record<string, FilePathRef> = {};
+  const refsByPath = new Map<string, FilePathRef>();
   for (const location of REPLY_PATH_LOCATIONS.get(method) ?? []) {
-    replaceAt(value, location, (path) => {
-      if (typeof path === "string") {
-        refs[path] ??= filePathRefs.mint(owner, path);
+    for (const path of valuesAt(value, location)) {
+      if (typeof path === "string" && isAbsolutePath(path) && !refsByPath.has(path)) {
+        refsByPath.set(path, filePathRefs.mint(owner, "open", path));
       }
-      return path;
-    });
+    }
   }
-  return refs;
+  return Object.fromEntries(refsByPath);
 }
 
 /** `value` with what sits at `location` replaced by `replace`'s answer; a copy where it changed. */
@@ -96,6 +95,31 @@ function replaceAt(
     return value;
   }
   return { ...value, [key]: replaceAt(value[key], rest, replace) };
+}
+
+/** Every value at `location` in `value`, read in place. */
+function* valuesAt(value: unknown, location: PathLocation): Generator<unknown> {
+  const [key, ...rest] = location;
+  if (key === undefined) {
+    yield value;
+    return;
+  }
+  if (key === "*") {
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        yield* valuesAt(element, rest);
+      }
+    }
+    return;
+  }
+  if (isRecord(value) && Object.hasOwn(value, key)) {
+    yield* valuesAt(value[key], rest);
+  }
+}
+
+// The daemon answers with paths on its own machine, a POSIX one or, on Windows, a Windows one.
+function isAbsolutePath(path: string): boolean {
+  return nodePath.posix.isAbsolute(path) || nodePath.win32.isAbsolute(path);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

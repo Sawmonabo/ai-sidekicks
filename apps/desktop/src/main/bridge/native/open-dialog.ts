@@ -6,7 +6,11 @@ import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 
 import type { OpenDialogPurpose, OpenDialogResults, PickedFile } from "#shared/preload-api.js";
-import type { FilePathRefOwner, FilePathRefs } from "../file-path/file-path-refs.js";
+import type {
+  FilePathPurpose,
+  FilePathRefOwner,
+  FilePathRefs,
+} from "../file-path/file-path-refs.js";
 
 /** The part of Electron's `dialog` the open dialog uses. */
 export interface OpenDialogHost {
@@ -22,6 +26,13 @@ const OPEN_DIALOG_PROPERTIES: Readonly<
   attachFiles: ["openFile", "multiSelections"],
   importFile: ["openFile"],
   pickFolder: ["openDirectory"],
+};
+
+/** What each purpose's tokens are minted for, so a verb takes only a file picked for it. */
+const OPEN_DIALOG_TOKEN_PURPOSES: Readonly<Record<OpenDialogPurpose, FilePathPurpose>> = {
+  attachFiles: "attach",
+  importFile: "import",
+  pickFolder: "folder",
 };
 
 /**
@@ -42,12 +53,16 @@ export async function showOpenDialog(
   }
   if (purpose === "pickFolder") {
     const [folder] = chosen.filePaths;
-    return folder === undefined ? null : filePathRefs.mint(owner, folder);
+    return folder === undefined ? null : filePathRefs.mint(owner, "folder", folder);
   }
   const refs: PickedFile[] = [];
   for (const path of chosen.filePaths) {
     const { size } = await stat(path);
-    refs.push({ ref: filePathRefs.mint(owner, path), name: basename(path), sizeBytes: size });
+    refs.push({
+      ref: filePathRefs.mint(owner, OPEN_DIALOG_TOKEN_PURPOSES[purpose], path),
+      name: basename(path),
+      sizeBytes: size,
+    });
   }
   return { refs };
 }
