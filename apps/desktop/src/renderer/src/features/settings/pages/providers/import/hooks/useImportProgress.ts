@@ -1,10 +1,10 @@
 // Drains one provider's import stream for as long as its holder is mounted.
 //
-// The subscribe call is the caller's. A rejected call, or a stream that rejects part-way,
-// settles the reading as `failed` with the service's own words. The stream is opened once per
-// provider and closed on the way out, since one left open after unmount is a producer with no
-// reader; a message arriving after that installs nowhere because the disposal flag is read
-// before every publish.
+// The stream opens on mount, because its first message is the provider's last outcome, so the row
+// reads the same after a reload. A rejected call, or a stream that rejects part-way, settles the
+// reading as `failed` with the service's own words, and `reopen` asks again. The stream is closed
+// on the way out, since one left open after unmount is a producer with no reader; a message
+// arriving after that installs nowhere because the disposal flag is read before every publish.
 
 import { useEffect, useState } from "react";
 
@@ -18,31 +18,30 @@ import type {
   ImportProgressSubscribeCall,
 } from "../progress.js";
 
-const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
+/** One provider's import stream as read so far, and the act that opens it again. */
+export interface ImportProgress {
+  readonly reading: ImportProgressReading;
+  /** Open the stream again after it failed or closed. */
+  readonly reopen: () => void;
+}
+
+const NOTHING_SAID: ImportProgressReading = { status: "open", newest: undefined };
 
 /** The subsystem a failed import stream names as its author. */
 const IMPORT_PROGRESS_ORIGIN = "provider-import-progress";
 
-/**
- * Drain one provider's import stream for as long as its holder is mounted.
- * `provider` is `undefined` until an import is put. That is the `unsubscribed` arm, not an
- * empty `open` one: nothing has been asked, and "no progress yet" would answer a question
- * nobody put.
- */
+/** Drain one provider's import stream for as long as its holder is mounted. */
 export function useImportProgress(
   subscribe: ImportProgressSubscribeCall,
-  provider: ProviderName | undefined,
-): ImportProgressReading {
-  const [reading, setReading] = useState<ImportProgressReading>(UNSUBSCRIBED);
+  provider: ProviderName,
+): ImportProgress {
+  const [reading, setReading] = useState<ImportProgressReading>(NOTHING_SAID);
+  const [openingOrdinal, setOpeningOrdinal] = useState(0);
 
   useEffect(() => {
-    if (provider === undefined) {
-      setReading(UNSUBSCRIBED);
-      return;
-    }
     let isDisposed = false;
     let openStream: ImportProgressStream | undefined;
-    setReading({ status: "open", newest: undefined });
+    setReading(NOTHING_SAID);
 
     const drain = async (): Promise<void> => {
       const stream = await subscribe({ provider });
@@ -74,7 +73,12 @@ export function useImportProgress(
       openStream?.close();
       openStream = undefined;
     };
-  }, [subscribe, provider]);
+  }, [subscribe, provider, openingOrdinal]);
 
-  return reading;
+  return {
+    reading,
+    reopen: () => {
+      setOpeningOrdinal((held) => held + 1);
+    },
+  };
 }

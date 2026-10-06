@@ -15,10 +15,9 @@ import type {
 } from "@ai-sidekicks/contracts/provider/import";
 
 import { ProviderImportPanel } from "../panel/ProviderImportPanel.js";
-import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type { ImportProgressStream, ImportProgressSubscribeCall } from "../progress.js";
+import { useProviderImport, type ProviderImportCalls } from "./useProviderImport.js";
+import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
-import { chooseProvider } from "../panel/ProviderImportPanel.test-support.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */
 const IMPORT_ID = "provider-import-19" as ProviderImportId;
@@ -34,105 +33,48 @@ const WHILE_READING: ProviderImportProgress = {
 const STILL_READING: ProviderImportProgress = { ...WHILE_READING, read: 31 };
 
 /**
- * A progress stream a case drives by hand, and whose closes it counts.
- *
- * The close is counted, not flagged, so a drain that closed twice (a double release on the
- * live wire) is caught.
- */
-class DrivenProgressStream implements ImportProgressStream {
-  #pending: ProviderImportProgress | undefined;
-  #wake: (() => void) | undefined;
-  #isClosed = false;
-  #closeCount = 0;
-
-  public get events(): AsyncIterable<ProviderImportProgress> {
-    return this.#iterate();
-  }
-
-  /** How many times the drain closed this stream. */
-  public get closeCount(): number {
-    return this.#closeCount;
-  }
-
-  public close(): void {
-    this.#closeCount += 1;
-    this.#isClosed = true;
-    this.#wake?.();
-    this.#wake = undefined;
-  }
-
-  /** Deliver one message to whatever is draining. */
-  public emit(message: ProviderImportProgress): void {
-    this.#pending = message;
-    this.#wake?.();
-    this.#wake = undefined;
-  }
-
-  async *#iterate(): AsyncGenerator<ProviderImportProgress> {
-    while (!this.#isClosed) {
-      const pending = this.#pending;
-      if (pending !== undefined) {
-        this.#pending = undefined;
-        yield pending;
-        continue;
-      }
-      await new Promise<void>((resolve) => {
-        this.#wake = resolve;
-      });
-    }
-  }
-}
-
-interface ImportCalls {
-  readonly begin: ProviderImportBeginCall;
-  readonly subscribe: ImportProgressSubscribeCall;
-}
-
-/**
- * The import's two calls, answered by the case.
+ * The import's three calls, answered by the case.
  *
  * The begin settles at once and the stream is driven frame by frame, which puts the middle
  * of a reading where the case says.
  */
-function callsReading(stream: DrivenProgressStream): ImportCalls {
+function callsReading(stream: DrivenProgressStream): ProviderImportCalls {
   return {
     begin: async () => await Promise.resolve({ importId: IMPORT_ID }),
     subscribe: async () => await Promise.resolve(stream),
+    stop: async () => {
+      await Promise.resolve();
+    },
   };
 }
 
 /**
  * The composition the model exists for: the model above the condition, the panel below it.
  *
- * The calls are props and the case passes the same ones every render, because the begin call
- * is what the import is addressed by; fresh calls would re-mint the act.
+ * The calls are props and the case passes the same ones every render, because the calls are
+ * what the import is addressed by; fresh calls would re-mint the act.
  */
 function ImportHarness(props: {
-  readonly calls: ImportCalls;
+  readonly calls: ProviderImportCalls;
   readonly isPanelMounted: boolean;
 }): React.JSX.Element {
-  const providerImport = useProviderImport(props.calls.begin, props.calls.subscribe);
+  const providerImport = useProviderImport("claude", props.calls);
   return <div>{props.isPanelMounted ? <ProviderImportPanel model={providerImport} /> : null}</div>;
 }
 
-function submit(container: HTMLElement): void {
-  const form = container.querySelector("form");
-  act(() => {
-    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
+/** The panel's import action, or `undefined` while no panel is mounted. */
+function importAction(container: HTMLElement): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Import sessions from Claude Code",
+  );
 }
 
-/** Choose the provider and put the import. */
+/** Press the import action and let the start settle. */
 async function startAnImport(container: HTMLElement): Promise<void> {
-  chooseProvider(container, "claude");
-  submit(container);
+  act(() => {
+    importAction(container)?.click();
+  });
   await settle();
-}
-
-/** The panel's own submit control, or `undefined` while no panel is mounted. */
-function submitControl(container: HTMLElement): HTMLButtonElement | undefined {
-  const button = container.querySelector("button.meridian-provider-import__submit");
-  return button instanceof HTMLButtonElement ? button : undefined;
 }
 
 describe("an import whose panel goes away", () => {
@@ -146,12 +88,12 @@ describe("an import whose panel goes away", () => {
       stream.emit(WHILE_READING);
       await settle();
     });
-    expect(view.container.textContent).toContain("12");
+    expect(view.container.textContent).toContain("Importing from Claude Code… 12 read.");
 
     // The disclosure moving, as the panel experiences it.
     view.rerender(<ImportHarness calls={calls} isPanelMounted={false} />);
     await settle();
-    expect(submitControl(view.container)).toBeUndefined();
+    expect(importAction(view.container)).toBeUndefined();
     // A frame that arrives while nobody is looking; the subscription is still open, so it
     // lands.
     await act(async () => {
@@ -164,9 +106,8 @@ describe("an import whose panel goes away", () => {
 
     // The same import, still being read and reporting what happened while the panel was
     // away; the control is still shut because the act still exists.
-    expect(view.container.textContent).toContain("31");
-    expect(submitControl(view.container)?.disabled).toBe(true);
-    expect(view.container.textContent).toContain("The last import is still being read.");
+    expect(view.container.textContent).toContain("Importing from Claude Code… 31 read.");
+    expect(importAction(view.container)?.disabled).toBe(true);
     // And nobody let go of the subscription on the way past.
     expect(stream.closeCount).toBe(0);
   });

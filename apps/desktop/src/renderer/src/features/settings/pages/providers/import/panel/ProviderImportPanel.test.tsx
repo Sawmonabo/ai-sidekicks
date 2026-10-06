@@ -1,160 +1,193 @@
-// Putting a provider import from its panel, end to end.
+// One provider's session import from its panel, end to end.
 //
-// The panel and the model above it are the real modules; the two calls are stubs. Asserts
-// what the form sends, that the stream opens on the named provider, and that the panel shows
-// the service's own words at every step, with the control shut until the started import
-// settles.
+// The panel and the model above it are the real modules; the three calls are stubs. Asserts the
+// stream opens on the section's provider before anything is pressed, what the action and `Stop`
+// send, and that the one progress row says how the import stands in the service's own counts.
 
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type {
   ProviderImportId,
+  ProviderImportOutcome,
   ProviderImportProgress,
 } from "@ai-sidekicks/contracts/provider/import";
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
-import { useProviderImport, type ProviderImportBeginCall } from "../hooks/useProviderImport.js";
-import type { ImportProgressStream, ImportProgressSubscribeCall } from "../progress.js";
-import { chooseProvider } from "./ProviderImportPanel.test-support.js";
+import { useProviderImport, type ProviderImportCalls } from "../hooks/useProviderImport.js";
+import { DrivenProgressStream } from "../progress.test-support.js";
 import { settle } from "#test/helpers/settle.js";
 
 /** The id the stubbed start answers with. */
 const IMPORT_ID = "provider-import-3" as ProviderImportId;
 
-/** How the provider's previous import ended: the first message a stream sends. */
-const PREVIOUS_OUTCOME: ProviderImportProgress = {
-  kind: "settled",
-  provider: "claude",
-  importId: "provider-import-2" as ProviderImportId,
-  settlement: { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] },
-};
+/** What each call received, in order. */
+interface SentRequests {
+  readonly begin: unknown[];
+  readonly subscribe: unknown[];
+  readonly stop: unknown[];
+}
 
-/** The service's messages for the import this case starts, ending on its outcome. */
-const MESSAGES: readonly ProviderImportProgress[] = [
-  PREVIOUS_OUTCOME,
-  { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 7 },
-  { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 33 },
-  {
-    kind: "settled",
-    provider: "claude",
-    importId: IMPORT_ID,
-    settlement: {
-      outcome: "finished",
-      imported: 58,
-      total: 61,
-      alreadyHere: 4,
-      failures: [{ source: "one.jsonl", reason: "truncated" }],
-      unreadableFiles: [],
-      attachedProjects: ["web"],
-    },
-  },
-];
-
-/**
- * A stream that waits for the case before each message.
- *
- * Paced by the case, not a clock, so the intermediate states are on screen to be asserted;
- * a stream that walked itself would batch them into the last.
- */
-function steppedStream(): {
-  readonly stream: ImportProgressStream;
-  readonly step: () => Promise<void>;
+/** The three calls over one driven stream, each recording what it was sent. */
+function recordingCalls(stream: DrivenProgressStream): {
+  readonly calls: ProviderImportCalls;
+  readonly sent: SentRequests;
 } {
-  let release: (() => void) | undefined;
-  let isReleased = false;
-  async function* messages(): AsyncGenerator<ProviderImportProgress> {
-    for (const message of MESSAGES) {
-      // A release that arrived before the generator parked is spent here, so order does not matter.
-      if (!isReleased) {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-      }
-      isReleased = false;
-      yield message;
-    }
-  }
+  const sent: SentRequests = { begin: [], subscribe: [], stop: [] };
   return {
-    stream: { events: messages(), close: () => undefined },
-    step: async () => {
-      await act(async () => {
-        isReleased = true;
-        release?.();
-        await settle();
-      });
+    sent,
+    calls: {
+      begin: async (request) => {
+        sent.begin.push(request);
+        return await Promise.resolve({ importId: IMPORT_ID });
+      },
+      subscribe: async (request) => {
+        sent.subscribe.push(request);
+        return await Promise.resolve(stream);
+      },
+      stop: async (request) => {
+        sent.stop.push(request);
+        await Promise.resolve();
+      },
     },
   };
 }
 
 function ImportHarness(props: {
-  readonly begin: ProviderImportBeginCall;
-  readonly subscribe: ImportProgressSubscribeCall;
+  readonly provider: ProviderName;
+  readonly calls: ProviderImportCalls;
 }): React.JSX.Element {
-  return <ProviderImportPanel model={useProviderImport(props.begin, props.subscribe)} />;
+  return <ProviderImportPanel model={useProviderImport(props.provider, props.calls)} />;
 }
 
-/** The panel's own submit control. */
-function submitControl(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector("button.meridian-provider-import__submit");
-  if (!(button instanceof HTMLButtonElement)) {
-    throw new Error("the import panel rendered no submit control");
-  }
-  return button;
+/** Mount one provider's panel and let its stream open. */
+async function renderPanel(
+  provider: ProviderName,
+): Promise<{ readonly stream: DrivenProgressStream; readonly sent: SentRequests }> {
+  const stream = new DrivenProgressStream();
+  const { calls, sent } = recordingCalls(stream);
+  render(<ImportHarness provider={provider} calls={calls} />);
+  await settle();
+  return { stream, sent };
 }
 
-/** What the progress line says, or an empty string where it is absent. */
-function progressText(container: HTMLElement): string {
-  return container.querySelector(".meridian-provider-import__progress")?.textContent ?? "";
+async function emit(stream: DrivenProgressStream, message: ProviderImportProgress): Promise<void> {
+  stream.emit(message);
+  await settle();
 }
 
-describe("importing a provider's conversations", () => {
-  it("sends the provider, follows its import to the end, then reopens the form", async () => {
-    const beginRequests: unknown[] = [];
-    const subscribeRequests: unknown[] = [];
-    const { stream, step } = steppedStream();
-    const view = render(
-      <ImportHarness
-        begin={async (request) => {
-          beginRequests.push(request);
-          return await Promise.resolve({ importId: IMPORT_ID });
-        }}
-        subscribe={async (request) => {
-          subscribeRequests.push(request);
-          return await Promise.resolve(stream);
-        }}
-      />,
+function settledMessage(
+  provider: ProviderName,
+  settlement: ProviderImportOutcome,
+): ProviderImportProgress {
+  return { kind: "settled", provider, importId: IMPORT_ID, settlement };
+}
+
+function importAction(label: string): HTMLButtonElement {
+  return screen.getByRole<HTMLButtonElement>("button", { name: label });
+}
+
+/** What the one progress row says. */
+function rowText(): string {
+  return screen.getByRole("status").textContent;
+}
+
+describe("one provider's import", () => {
+  it("opens the provider's stream before anything is pressed, and draws its last outcome", async () => {
+    const { stream, sent } = await renderPanel("codex");
+    expect(sent.subscribe).toStrictEqual([{ provider: "codex" }]);
+    expect(sent.begin).toStrictEqual([]);
+
+    await emit(
+      stream,
+      settledMessage("codex", { outcome: "nothingNew", alreadyHere: 4, unreadableFiles: [] }),
     );
+    expect(rowText()).toBe("Nothing new to import from Codex · 4 already here.");
+    // History is not a running import: the action stays offered.
+    expect(importAction("Import sessions from Codex").disabled).toBe(false);
+  });
 
-    expect(submitControl(view.container).disabled).toBe(true);
-    chooseProvider(view.container, "claude");
+  it("starts on the press, counts what it reads, and stops on Stop with the running import", async () => {
+    const { stream, sent } = await renderPanel("claude");
+    // Negative control: nothing is running, so there is nothing to stop.
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+
     act(() => {
-      view.container
-        .querySelector("form")
-        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      importAction("Import sessions from Claude Code").click();
     });
     await settle();
+    expect(sent.begin).toStrictEqual([{ provider: "claude" }]);
+    expect(importAction("Import sessions from Claude Code").disabled).toBe(true);
 
-    expect(beginRequests).toStrictEqual([{ provider: "claude" }]);
-    expect(subscribeRequests).toStrictEqual([{ provider: "claude" }]);
+    await emit(stream, { kind: "progress", provider: "claude", importId: IMPORT_ID, read: 128 });
+    expect(rowText()).toContain("Importing from Claude Code… 128 read.");
 
-    // The stream's first message is the last import's outcome. It is shown, and it
-    // does not reopen the form: the import this panel started has not settled.
-    await step();
-    expect(progressText(view.container)).toContain("found nothing new");
-    expect(submitControl(view.container).disabled).toBe(true);
+    act(() => {
+      screen.getByRole("button", { name: "Stop" }).click();
+    });
+    await settle();
+    expect(sent.stop).toStrictEqual([{ importId: IMPORT_ID }]);
 
-    for (const read of [7, 33]) {
-      await step();
-      expect(progressText(view.container)).toContain(`Reading — ${String(read)} conversations`);
-      expect(submitControl(view.container).disabled).toBe(true);
-    }
+    await emit(stream, settledMessage("claude", { outcome: "stopped" }));
+    expect(rowText()).toBe("Import stopped. The sessions already read are in the sessions list.");
+    // The import can be started again.
+    expect(importAction("Import sessions from Claude Code").disabled).toBe(false);
+  });
 
-    // And the moment the import it started settles, the form is a form again.
-    await step();
-    expect(progressText(view.container)).toBe(
-      "The last import brought in 58 of 61 conversations; 4 already " +
-        "here. 1 conversation could not be imported. Attached 1 project.",
+  it("settles with every count the service sent, and unfolds the failures on a press", async () => {
+    const { stream } = await renderPanel("claude");
+    await emit(
+      stream,
+      settledMessage("claude", {
+        outcome: "finished",
+        imported: 125,
+        total: 128,
+        alreadyHere: 34,
+        failures: [{ source: "one.jsonl", reason: "truncated" }],
+        unreadableFiles: ["two.jsonl", "three.jsonl"],
+        attachedProjects: [],
+      }),
     );
-    expect(submitControl(view.container).disabled).toBe(false);
+    const line =
+      "Imported 125 of 128 sessions from Claude Code · 34 already here · 1 failed · " +
+      "2 files could not be read.";
+    const row = screen.getByRole("button", { name: line });
+    expect(screen.queryByText("truncated", { exact: false })).toBeNull();
+    fireEvent.click(row);
+    expect(screen.getByText("truncated", { exact: false })).not.toBeNull();
+    expect(screen.getByText("three.jsonl")).not.toBeNull();
+  });
+
+  it("draws a count only where there is one", async () => {
+    const { stream } = await renderPanel("claude");
+    await emit(
+      stream,
+      settledMessage("claude", {
+        outcome: "finished",
+        imported: 12,
+        total: 12,
+        alreadyHere: 0,
+        failures: [],
+        unreadableFiles: [],
+        attachedProjects: [],
+      }),
+    );
+    expect(rowText()).toBe("Imported 12 sessions from Claude Code.");
+    // Nothing failed and every file was read, so nothing unfolds.
+    expect(screen.queryByRole("button", { name: /Imported/u })).toBeNull();
+  });
+
+  it("draws a refused import in the service's own words, and Try again starts it again", async () => {
+    const { stream, sent } = await renderPanel("codex");
+    await emit(
+      stream,
+      settledMessage("codex", { outcome: "refused", reason: "The Codex folder is missing." }),
+    );
+    expect(rowText()).toContain("The Codex folder is missing.");
+    act(() => {
+      screen.getByRole("button", { name: "Try again" }).click();
+    });
+    await settle();
+    expect(sent.begin).toStrictEqual([{ provider: "codex" }]);
   });
 });

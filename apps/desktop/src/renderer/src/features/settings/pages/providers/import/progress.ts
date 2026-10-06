@@ -10,6 +10,7 @@ import type {
   ProviderImportId,
   ProviderImportProgress,
   ProviderImportProviderRequest,
+  ProviderImportStopRequest,
 } from "@ai-sidekicks/contracts/provider/import";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -24,41 +25,43 @@ export type ImportProgressSubscribeCall = (
   request: ProviderImportProviderRequest,
 ) => Promise<ImportProgressStream>;
 
+/** The call that stops one running import; its stopped outcome arrives on the stream. */
+export type ImportStopCall = (request: ProviderImportStopRequest) => Promise<void>;
+
 /**
  * Where one provider's import stream has got to. `failed` is a subscription or a stream that
  * rejected, carrying the service's own words.
  */
 export type ImportProgressReading =
-  | { readonly status: "unsubscribed" }
   | { readonly status: "open"; readonly newest: ProviderImportProgress | undefined }
   | { readonly status: "closed"; readonly newest: ProviderImportProgress | undefined }
   | { readonly status: "failed"; readonly refusal: Refusal };
 
 /**
- * Whether an import is still being read.
+ * The import still being read, or `undefined` where none is.
  *
  * `startedImportId` is the id this screen's own start was answered with, if any. A stream's
  * first message may be the last import's outcome, so a settled message for any other import
  * is history; this screen's import is still going until its own settled message arrives. A
- * progress message always means a running import.
+ * progress message always names a running import, whoever started it.
  *
  * Before the stream has spoken, including the frame between the start settling and the
- * stream opening, an import is underway exactly when this screen started one. A closed
- * or failed stream reads nothing further, so it ends the reading.
+ * stream opening, the running import is the one this screen started. A closed or failed
+ * stream reads nothing further, so it ends the reading.
  */
-export function isImportUnderway(
+export function runningImportIdOf(
   startedImportId: ProviderImportId | undefined,
   progress: ImportProgressReading,
-): boolean {
-  if (progress.status === "closed" || progress.status === "failed") {
-    return false;
-  }
-  if (progress.status === "unsubscribed" || progress.newest === undefined) {
-    return startedImportId !== undefined;
+): ProviderImportId | undefined {
+  if (progress.status !== "open") {
+    return undefined;
   }
   const { newest } = progress;
-  if (newest.kind === "progress") {
-    return true;
+  if (newest === undefined) {
+    return startedImportId;
   }
-  return startedImportId !== undefined && newest.importId !== startedImportId;
+  if (newest.kind === "progress") {
+    return newest.importId;
+  }
+  return newest.importId === startedImportId ? undefined : startedImportId;
 }

@@ -1,20 +1,34 @@
-/* The provider-import panel's styles. The submit wears the shared action button at
-   its regular size in the outline face, from `styles/action-buttons.css`, and the provider
-   field the shared field, label and input, and a missing choice the shared blocked line, from
-   `styles/form.css`. */
+/* The provider-import panel's styles. The action and `Stop` wear the shared action button from
+   `styles/action-buttons.css`, and a row that unfolds wears the shared disclosure trigger. */
 
 .meridian-provider-import {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
+}
+
+/* The action's name and line on the left, the action on the right. */
+.meridian-provider-import__head {
+  display: flex;
+  gap: var(--meridian-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.meridian-provider-import__words {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-provider-import__name {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
 }
 
 .meridian-provider-import__submit {
-  align-self: flex-start;
+  flex: none;
 }
 
 .meridian-provider-import__submit:disabled {
@@ -22,13 +36,32 @@
   cursor: not-allowed;
 }
 
-/* The lede, the progress line, and why the control is closed while an import is underway: that
-   reports progress, which only needs waiting out, so it is quiet text. A choice still to make
-   wears the shared amber blocked line instead. */
+/* The line under the name, and the one progress row: quiet text. */
 .meridian-provider-import__lede,
-.meridian-provider-import__progress,
-.meridian-provider-import__underway {
+.meridian-provider-import__progress {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
+}
+
+.meridian-provider-import__progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+/* What a settled row unfolds: each failure with its reason, and each file that could not be
+   read. */
+.meridian-provider-import__unfolded {
+  flex-basis: 100%;
+}
+
+.meridian-provider-import__unfolded-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
