@@ -683,6 +683,16 @@ interface SessionNoticeProviderUpdated {
   toVersion: string;
 }
 
+// session.notice of kind `provider_restarted`: the person's `Restart` brought back a provider
+// process that ended under the session. One flow row, `Restarted · Claude Code is back`
+// (`Restarted · Codex is back` on Codex); the daemon's own restart of a shared Codex service
+// writes none.
+interface SessionNoticeProviderRestarted {
+  sessionId: SessionId;
+  kind: "provider_restarted";
+  provider: ProviderName;
+}
+
 // session.notice of kind `provider_missing`: the session's provider is not installed where the
 // background service runs, so no provider process started (Spec-001 §Fallback Behavior). One flow
 // row naming the provider, opening Settings › Providers on its section; `placeHasNeitherProvider`
