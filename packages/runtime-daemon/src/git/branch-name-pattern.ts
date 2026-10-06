@@ -5,9 +5,8 @@
 // branch.
 
 import {
+  BRANCH_NAME_TITLE_PLACEHOLDER,
   branchPatternPlaceholderRefusal,
-  fillBranchNamePattern,
-  type BranchNamePatternValues,
   type BranchPatternRefusalReason,
 } from "@ai-sidekicks/contracts/machine-settings";
 
@@ -17,6 +16,21 @@ import {
   runGitWithExecFile,
   type GitRunner,
 } from "./process.js";
+
+const BRANCH_NAME_SESSION_PLACEHOLDER = "{session}";
+
+interface BranchNamePatternValues {
+  /** The tail derived from the session's title. */
+  readonly title: string;
+  /** The session's short id, the last 8 hex characters of its id. */
+  readonly session: string;
+}
+
+function fillBranchNamePattern(pattern: string, values: BranchNamePatternValues): string {
+  return pattern
+    .replaceAll(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
+    .replaceAll(BRANCH_NAME_SESSION_PLACEHOLDER, values.session);
+}
 
 // What a pattern is filled with at save, before any session exists: a short id's shape (8 hex
 // characters) and a tail's (lowercase letters), so git judges the parts the person typed.

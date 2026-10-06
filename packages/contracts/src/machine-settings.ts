@@ -261,8 +261,8 @@ const BackupSettingsSchema: z.ZodType<BackupSettings, BackupSettings> = z
   })
   .strict();
 
-const BRANCH_NAME_TITLE_PLACEHOLDER = "{title}";
-const BRANCH_NAME_SESSION_PLACEHOLDER = "{session}";
+/** The placeholder a branch-name pattern holds exactly once: the tail of the session's title. */
+export const BRANCH_NAME_TITLE_PLACEHOLDER = "{title}";
 
 function countOccurrences(text: string, part: string): number {
   return text.split(part).length - 1;
@@ -302,21 +302,6 @@ export function branchPatternPlaceholderRefusal(
     return "title_not_once";
   }
   return null;
-}
-
-/** The values a pattern's placeholders are filled with. */
-export interface BranchNamePatternValues {
-  /** The tail derived from the session's title. */
-  readonly title: string;
-  /** The session's short id, the last 8 hex characters of its id. */
-  readonly session: string;
-}
-
-/** The branch name a pattern names for `values`. */
-export function fillBranchNamePattern(pattern: string, values: BranchNamePatternValues): string {
-  return pattern
-    .replaceAll(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
-    .replaceAll(BRANCH_NAME_SESSION_PLACEHOLDER, values.session);
 }
 
 /**
