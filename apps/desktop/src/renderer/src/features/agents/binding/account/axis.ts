@@ -9,7 +9,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import type { ListedProviderAccount } from "#renderer/lib/account-plane-sentences.js";
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 

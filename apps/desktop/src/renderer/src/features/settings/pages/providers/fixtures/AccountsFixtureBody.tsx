@@ -12,7 +12,7 @@
 import "./AccountsFixtureBody.css";
 
 import { type ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
-import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
+import { PROVIDER_LABELS, PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 import {
   Fragment,
   useEffect,
@@ -22,8 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import type { ListedProviderAccount } from "#renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/Account/AccountDetail.js";

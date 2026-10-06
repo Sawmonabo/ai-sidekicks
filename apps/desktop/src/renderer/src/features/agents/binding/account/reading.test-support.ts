@@ -8,7 +8,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { AccountRegistryReading } from "./axis.js";
-import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
+import { listedAccount } from "#renderer/store/provider-accounts/listing.js";
 
 /** The instant every stored observation in these suites was taken at. */
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";

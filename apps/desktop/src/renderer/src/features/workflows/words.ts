@@ -3,6 +3,7 @@
 // wire spelling reaches the screen; each closed set is keyed by its contract's own union, so a
 // value the contract adds fails to compile here until it has words.
 
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type {
   WorkflowRunStatus,
   WorkflowStepStatus,
@@ -19,7 +20,6 @@ import {
   WORKFLOW_STEP_TIMED_OUT_CODE,
 } from "@ai-sidekicks/contracts/workflow/run/failures";
 
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 
 /** A run's status as its chip reads it. */
@@ -92,7 +92,7 @@ export const WORKFLOW_CODE_LABELS: Readonly<Record<string, string>> = {
 
 /**
  * A spent account by its provider's name and its label, as the run header and the attention
- * section name it after `the`: `Claude Code account Work`.
+ * section name it after `the`: `Claude Code account sam@example.com · Max`.
  */
 export function spentAccountWords(account: WorkflowSpentAccount): string {
   return `${PROVIDER_LABELS[account.provider]} account ${account.label}`;

@@ -1,7 +1,7 @@
 // The account picker over the accounts this driver's provider carries. The combobox holds the
-// daemon-minted `accountId` and resolves the label through the library's label seam, so a
-// relabeled account never changes the wire identity. The caller mints the label id because
-// `role="combobox"` takes no name from its own content.
+// daemon-minted `accountId` and shows the account's label through the library's label seam, so a
+// renamed account or a newly reported identity never changes the wire identity. The caller mints
+// the label id because `role="combobox"` takes no name from its own content.
 
 import { Combobox } from "@base-ui/react/combobox";
 

@@ -12,7 +12,7 @@ import type { ProviderImportOutcome } from "@ai-sidekicks/contracts/provider/imp
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatCount, formatWireString } from "#renderer/lib/wire/figures.js";
 import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 

@@ -9,7 +9,7 @@ import type {
   ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
-import type { ListedProviderAccount } from "#renderer/lib/account-plane-sentences.js";
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import type { UnreadableDeliveryReading } from "#renderer/services/wire-reads/unreadable-deliveries.js";
 import type { WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
 import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
@@ -29,13 +29,13 @@ export interface ProviderAccountReadout extends UnreadableDeliveryReading, WireR
    *
    * Folded from the same read and tail as the quota rows, so a view naming a paying account
    * needs no second fetch. Empty until the read has served: a missing entry means "not
-   * read", not "no such account", and a consumer renders nothing for one
-   * rather than falling back to the handle.
+   * read", not "no such account", and a consumer renders nothing for one rather than
+   * falling back to the handle.
    */
   readonly accountLabels: ReadonlyMap<string, string>;
   /**
-   * Every account the registry carries, whole, in the order the daemon sent them, with its label;
-   * an account still signing in that its provider has not named yet has no row until it ends.
+   * Every account the registry lists, whole, in the order the daemon sent them, with its label;
+   * an account its provider has not named yet has no row.
    *
    * This window has one reader of the registry. `providerAccount.list` answers with the
    * accounts, the readiness projection and the quota rows in one snapshot, so a page taking

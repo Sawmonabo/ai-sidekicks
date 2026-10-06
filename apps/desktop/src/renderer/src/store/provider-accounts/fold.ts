@@ -19,12 +19,10 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
-import {
-  listedAccount,
-  type ListedProviderAccount,
-} from "#renderer/lib/account-plane-sentences.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
+
+import { listedAccount, type ListedProviderAccount } from "./listing.js";
 
 /** One provider account's quota in one limit window, as a view renders it. */
 export interface ProviderQuotaReading {
@@ -125,12 +123,14 @@ export class ProviderAccountFold {
   #nextArrivalOrdinal = 0;
 
   /**
-   * Record an account whole. The registry sends state, not deltas. An account still signing in
-   * that its provider has not named yet is not held, since it has no row until its sign-in ends.
+   * Record an account whole. The registry sends state, not deltas. An account its provider has
+   * not named, still signing in or put again without its name, is not held, since it has no row.
    */
   public putAccount(account: ProviderAccount): void {
     const listed = listedAccount(account);
-    if (listed !== undefined) {
+    if (listed === undefined) {
+      this.#accountsById.delete(account.accountId);
+    } else {
       this.#accountsById.set(account.accountId, listed);
     }
   }

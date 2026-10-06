@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import type {
   McpServerInventoryEntry,

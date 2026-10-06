@@ -11,7 +11,7 @@ import type {
   ProviderAccount,
   ProviderAccountId,
 } from "@ai-sidekicks/contracts/provider/account/record";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type {
   ProviderAccountProbeResponse,
   ProviderAccountSetCurrentResponse,
@@ -25,7 +25,6 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
 
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import type { ProviderLoginCompletion } from "#renderer/services/provider-accounts/deliveries.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 

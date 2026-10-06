@@ -6,7 +6,6 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
@@ -16,7 +15,7 @@ import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PushDrivenReadState } from "#renderer/store/reads/push-driven.js";
 import { useRunFilters, type RunFiltersHold } from "../runs/hooks/useRunFilters.js";
 import type { RunListAnswer, RunListAsk } from "../runs/list-pages.js";
-import type { PayerReading } from "../runs/cost.js";
+import { readPayer, type PayerReading } from "../runs/cost.js";
 import type { WorkflowNoticeFeedState } from "../notice-feed.js";
 import type { WorkflowRunComparison } from "../runs/comparison.js";
 import {
@@ -187,17 +186,11 @@ export function useWorkflowsScreen(
   );
 
   const payerOf = useCallback(
-    (providerAccountId: string): PayerReading => {
-      if (accountsState.kind !== "loaded") {
-        return { kind: "unread" };
-      }
-      // An account still signing in has paid for nothing, so a payer is always a listed one.
-      const payer = accountsState.value.accounts.find(
-        (account) => account.accountId === providerAccountId,
-      );
-      const listed = payer === undefined ? undefined : listedAccount(payer);
-      return listed === undefined ? { kind: "removed" } : { kind: "listed", label: listed.label };
-    },
+    (providerAccountId: string): PayerReading =>
+      readPayer(
+        accountsState.kind === "loaded" ? accountsState.value.accounts : undefined,
+        providerAccountId,
+      ),
     [accountsState],
   );
   const definitions = useMemo(

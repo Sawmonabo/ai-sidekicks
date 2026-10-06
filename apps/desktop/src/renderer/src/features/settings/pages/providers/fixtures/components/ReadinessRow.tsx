@@ -9,7 +9,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import { PROVIDER_READINESS_STATE_WORDS } from "#renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { ProviderAccountProbeCall, ProviderAccountRegisterCall } from "../sign-in/flow.js";
 import { RemedyLine } from "./RemedyLine.js";
 

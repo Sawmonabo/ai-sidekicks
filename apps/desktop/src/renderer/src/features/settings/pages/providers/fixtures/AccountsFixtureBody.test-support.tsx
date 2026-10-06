@@ -19,7 +19,7 @@ import {
   type AccountListReading,
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
-import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
+import { listedAccount } from "#renderer/store/provider-accounts/listing.js";
 
 /** Provider-published limit identifiers, which the page must never draw. */
 export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;

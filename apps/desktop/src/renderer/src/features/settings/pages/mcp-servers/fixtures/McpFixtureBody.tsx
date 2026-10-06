@@ -21,8 +21,11 @@ import type {
   McpServerInventoryEntry,
   McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
-import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import {
+  PROVIDER_LABELS,
+  PROVIDER_NAMES,
+  type ProviderName,
+} from "@ai-sidekicks/contracts/provider/name";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import { relativeTimeChangesAt } from "#renderer/lib/wire/figures.js";
 import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";

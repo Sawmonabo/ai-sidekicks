@@ -2,9 +2,7 @@
 // with for each grade the background service answered. The grade itself never reaches the screen.
 
 import type { McpApplicationGrade } from "@ai-sidekicks/contracts/mcp/server";
-import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import { PROVIDER_LABELS, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 /** The line a change settles with for one grade, naming the provider whose settings it reached. */
 export function settleLineFor(grade: McpApplicationGrade, provider: ProviderName): string {

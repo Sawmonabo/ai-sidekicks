@@ -37,16 +37,6 @@ export const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN = 128;
 export const PROVIDER_QUOTA_LABEL_MAX_LEN = 256;
 /** Longest provider plan id. */
 export const PROVIDER_ACCOUNT_PLAN_MAX_LEN = 128;
-/**
- * Longest label an account is named by: the provider-reported email, plan and organization with
- * the two ` · ` separators between them, which outruns a typed name beside its credential's kind.
- */
-export const PROVIDER_ACCOUNT_LABEL_MAX_LEN: number =
-  PROVIDER_ACCOUNT_EMAIL_MAX_LEN +
-  PROVIDER_ACCOUNT_PLAN_MAX_LEN +
-  PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN +
-  2 * " · ".length;
-
 // Each enum is one literal tuple surfaced twice: as the Zod schema the wire parses with, and as
 // a `readonly` array the schema conformance test compares with the database CHECK list.
 

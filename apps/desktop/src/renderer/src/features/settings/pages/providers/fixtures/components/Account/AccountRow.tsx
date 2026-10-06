@@ -1,3 +1,4 @@
+import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -6,9 +7,8 @@ import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import {
   BILLING_MODE_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
-  type ListedProviderAccount,
 } from "#renderer/lib/account-plane-sentences.js";
-import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
+import type { ListedProviderAccount } from "#renderer/store/provider-accounts/listing.js";
 import { observationAgeInDays } from "../../quota-rows.js";
 
 /**
@@ -21,8 +21,9 @@ const STALE_OBSERVATION_DAYS = 14;
 
 /**
  * One registry row: what the account is named by, the provider, how it is charged, whether it
- * is the default, and the health reading with the moment it was taken. Pressing it selects the account, and the
- * caller makes a press on an account the mark is not on do what `Set as default` does.
+ * is the default, and the health reading with the moment it was taken. Pressing it selects the
+ * account, and the caller makes a press on an account the mark is not on do what `Set as default`
+ * does.
  *
  * The health reading is a stored observation, not a claim of authentication, so the row says
  * what the last look found. An account never observed has `healthObservedAt: null`, which

@@ -1,5 +1,6 @@
 // The closed set of providers the daemon drives, one literal tuple surfaced as the wire schema and
-// as the `readonly` array the schema conformance test compares with the database CHECK list.
+// as the `readonly` array the schema conformance test compares with the database CHECK list, and
+// what each is called on screen, where the wire's name never appears.
 import { z } from "zod";
 
 const PROVIDER_NAME_VALUES = ["claude", "codex"] as const;
@@ -15,3 +16,9 @@ export const PROVIDER_NAMES: readonly ProviderName[] = PROVIDER_NAME_VALUES;
 /** Parses a {@link ProviderName}. */
 export const ProviderNameSchema: z.ZodType<ProviderName, ProviderName> =
   z.enum(PROVIDER_NAME_VALUES);
+
+/** The on-screen name of each provider, total over {@link ProviderName}. */
+export const PROVIDER_LABELS: Readonly<Record<ProviderName, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+};
