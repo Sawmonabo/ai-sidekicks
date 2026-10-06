@@ -111,10 +111,16 @@ export class KeptAppearance {
   }
 
   #keep(change: Pick<QueuedRecord, "record" | "scheme">): Promise<void> {
+    // The renderer sends its whole record with the scheme it last heard, so a record whose scheme
+    // is the kept one leaves a View-menu pick still waiting in force.
+    const menuScheme = this.#queued?.scheme;
+    const scheme =
+      change.scheme ?? (change.record?.scheme === this.#record.scheme ? menuScheme : undefined);
     return new Promise((resolve, reject) => {
       // Replaces a choice still waiting, whose caller now settles with this one.
       this.#queued = {
-        ...change,
+        record: change.record,
+        scheme,
         waiting: [...(this.#queued?.waiting ?? []), { resolve, reject }],
       };
       if (!this.#isWriting) {

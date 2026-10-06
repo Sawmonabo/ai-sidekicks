@@ -1,11 +1,15 @@
 // The View menu's color scheme against main's appearance record: the tick follows the record, a
-// pick moves it once written, and a pick that is not kept puts the tick back on the scheme in force
-// and is written to main's diagnostic log. `electron` is mocked; the kept appearance is real, over
+// pick moves it once written, a pick that is not kept puts the tick back on the scheme in force and
+// is written to main's diagnostic log, and a change that keeps the scheme rebuilds nothing. `electron` is mocked; the kept appearance is real, over
 // a file whose writes the case settles.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
+import {
+  DEFAULT_APPEARANCE_RECORD,
+  MERIDIAN_GROUNDS,
+  type AppearanceRecord,
+} from "#shared/appearance.js";
 import { createElectronMock, type MenuTemplateItem } from "#test/helpers/electron/mock/module.js";
 
 import type { MainDiagnosticEntry } from "./services/diagnostic-log.js";
@@ -55,10 +59,7 @@ describe("the View menu's color scheme", () => {
       nativeTheme: electronMock.nativeTheme as never,
     });
     const logged: MainDiagnosticEntry[] = [];
-    installApplicationMenu(appearance, {
-      log: { write: (entry) => logged.push(entry) },
-      now: () => new Date("2026-10-05T09:00:00.000Z"),
-    });
+    installApplicationMenu(appearance, { write: (entry) => logged.push(entry) });
     expect(tickedScheme()).toBe("System");
 
     clickScheme("Dark");
@@ -79,5 +80,15 @@ describe("the View menu's color scheme", () => {
     expect(logged).toMatchObject([
       { level: "error", source: "main/menu", message: expect.stringContaining("no space left") },
     ]);
+
+    const installedBeforeTextSize = electronMock.installedMenuTemplates.length;
+    const textSizeKept = appearance.choose(
+      { theme: "meridian", scheme: "dark", textSize: 20, transcriptWidth: 57.5 },
+      MERIDIAN_GROUNDS,
+    );
+    writes[2]?.land();
+    await textSizeKept;
+    expect(appearance.record.textSize).toBe(20);
+    expect(electronMock.installedMenuTemplates.length).toBe(installedBeforeTextSize);
   });
 });

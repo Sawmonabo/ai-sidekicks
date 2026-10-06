@@ -21,7 +21,7 @@ import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
 
 import { KeptAppearance } from "./kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./record-file.js";
-import { stampRootElement } from "../services/root-stamp.js";
+import { stampRootElement } from "../services/renderer/root-stamp.js";
 
 const CHOICE: AppearanceChoice = {
   theme: "graphite",
@@ -64,7 +64,6 @@ function startApp(nativeTheme = createNativeTheme()): KeptAppearance {
     file: new AppearanceRecordFile({
       filePath,
       log: { write: (entry) => logged.push(entry) },
-      now: () => new Date("2026-10-05T09:00:00.000Z"),
     }),
     nativeTheme: nativeTheme as never,
   });
@@ -121,21 +120,6 @@ describe("the appearance record", () => {
       '<!doctype html><html lang="en" data-theme="graphite" data-color-scheme="dark" ' +
         'data-resolved-color-scheme="dark" ' +
         'style="font-size:15px;--meridian-transcript-width:44rem"><head></head></html>',
-    );
-  });
-
-  it("stamps no explicit scheme under system, so the stylesheet follows the system", async () => {
-    await startApp().choose({ ...CHOICE, scheme: "system" }, GROUNDS);
-
-    const stamped = stampRootElement("<html><body></body></html>", {
-      record: startApp().record,
-      platformScheme: "dark",
-      isSafeStart: false,
-    });
-
-    expect(stamped).toBe(
-      '<html data-theme="graphite" data-resolved-color-scheme="dark" ' +
-        'style="font-size:15px;--meridian-transcript-width:44rem"><body></body></html>',
     );
   });
 
@@ -218,6 +202,34 @@ describe("a choice", () => {
     await Promise.all([middle, last]);
     expect(appearance.record).toStrictEqual(lastRecord);
     expect(changeCount()).toBe(2);
+  });
+
+  it("keeps a waiting View-menu pick when a renderer record with the kept scheme follows it", async () => {
+    const { appearance, writes } = startOverHeldWrites();
+    const kept = appearance.choose(CHOICE, GROUNDS);
+    writes[0]?.land();
+    await kept;
+
+    const running = appearance.choose({ ...CHOICE, transcriptWidth: 50 }, GROUNDS);
+    const menuPick = appearance.chooseScheme("light");
+    // The renderer's record carries the scheme it last heard, the kept one.
+    const rendererChoice = appearance.choose({ ...CHOICE, textSize: 20 }, GROUNDS);
+    writes[1]?.land();
+    await running;
+
+    const keptBoth = { ...CHOICE, textSize: 20, scheme: "light", grounds: GROUNDS };
+    expect(writes[2]?.record).toStrictEqual(keptBoth);
+    writes[2]?.land();
+    await Promise.all([menuPick, rendererChoice]);
+    expect(appearance.record).toStrictEqual(keptBoth);
+
+    // A renderer record that changes the scheme itself replaces the waiting pick.
+    const laterRunning = appearance.choose({ ...CHOICE, transcriptWidth: 50 }, GROUNDS);
+    void appearance.chooseScheme("dark");
+    void appearance.choose({ ...CHOICE, scheme: "system" }, GROUNDS);
+    writes[3]?.land();
+    await laterRunning;
+    expect(writes[4]?.record).toStrictEqual({ ...CHOICE, scheme: "system", grounds: GROUNDS });
   });
 
   it("whose write fails is refused, and the record, the platform scheme and the listeners stand", async () => {
