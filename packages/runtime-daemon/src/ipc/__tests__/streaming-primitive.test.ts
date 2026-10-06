@@ -9,11 +9,13 @@ import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrp
 import type {
   SubscriptionCancelParams,
   SubscriptionCancelResult,
+  SubscriptionEndParams,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -103,25 +105,54 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("server-side cancel() or complete() removes the entry; a later next() is a no-op", () => {
+  it("tells the client once when the daemon ends a stream, then sends nothing more", () => {
     const { primitive, send } = makeFixture();
-    const sub = primitive.createSubscription<{ x: number }>(11, passthroughSchema<{ x: number }>());
-    sub.next({ x: 1 });
-    expect(send).toHaveBeenCalledTimes(1);
-    sub.cancel();
-    sub.next({ x: 2 }); // silent no-op
-    expect(send).toHaveBeenCalledTimes(1);
-    // Idempotent.
-    expect(() => sub.cancel()).not.toThrow();
+    const endFrame = (params: SubscriptionEndParams): JsonRpcNotification<unknown> => ({
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_END_METHOD,
+      params,
+    });
 
     const completed = primitive.createSubscription<{ y: number }>(
       12,
       passthroughSchema<{ y: number }>(),
     );
-    completed.next({ y: 1 });
     completed.complete();
-    completed.next({ y: 2 }); // silent no-op
-    expect(send).toHaveBeenCalledTimes(2);
+    completed.complete();
+    completed.next({ y: 2 });
+    expect(send.mock.calls).toStrictEqual([
+      [12, endFrame({ subscriptionId: completed.subscriptionId, reason: "completed" })],
+    ]);
+    send.mockClear();
+
+    // A cancel names its error, or the stream reads as ended by the service.
+    const error = { code: -32602, message: "bad", data: { type: "session.not_found" } };
+    const named = primitive.createSubscription<{ x: number }>(
+      11,
+      passthroughSchema<{ x: number }>(),
+    );
+    named.cancel(error);
+    named.cancel();
+    named.next({ x: 2 });
+    const unnamed = primitive.createSubscription<{ x: number }>(
+      11,
+      passthroughSchema<{ x: number }>(),
+    );
+    unnamed.cancel();
+    expect(send.mock.calls).toStrictEqual([
+      [11, endFrame({ subscriptionId: named.subscriptionId, reason: "refused", error })],
+      [
+        11,
+        endFrame({
+          subscriptionId: unnamed.subscriptionId,
+          reason: "refused",
+          error: {
+            code: JsonRpcErrorCode.InternalError,
+            message: "The service ended this stream.",
+          },
+        }),
+      ],
+    ]);
   });
 
   it(
@@ -143,6 +174,7 @@ describe("LocalSubscriptionProducer round-trip + cancel cleanup", () => {
         ctx,
       )) as SubscriptionCancelResult;
       expect(result.canceled).toBe(true);
+      // The client asked, so no end frame answers it; a later value is dropped.
       sub.next({ z: 1 });
       expect(send).not.toHaveBeenCalled();
     },
@@ -226,7 +258,7 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT fire handlers on complete(): producer-driven termination is silent", () => {
+  it("does NOT fire handlers on complete(): the producer ended the stream itself", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     const handler = vi.fn<() => void>();

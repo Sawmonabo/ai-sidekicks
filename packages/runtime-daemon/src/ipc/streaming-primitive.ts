@@ -1,5 +1,6 @@
 // Streaming primitive: the server side of `LocalSubscriptionProducer<T>`, emitting
-// `$/subscription/notify` frames and handling `$/subscription/cancel`.
+// `$/subscription/notify` frames, the `$/subscription/end` frame of a stream the daemon ends, and
+// handling `$/subscription/cancel`.
 //
 // - Every emitted value is validated against the subscription's `valueSchema` before the frame is
 //   sent; a failure throws `StreamingValidationError`.
@@ -10,21 +11,31 @@
 // - A subscription id is a `crypto.randomUUID()` string, which satisfies `SubscriptionIdSchema`.
 
 import type { Handler, MethodRegistry, ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import type { JsonRpcError, JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import type {
   LocalSubscriptionProducer,
   SubscriptionCancelParams,
   SubscriptionCancelResult,
+  SubscriptionEndParams,
   SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelParamsSchema,
   SubscriptionCancelResultSchema,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+
+import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
+
+// What a server cancel that names no error tells the client.
+const STREAM_ENDED_ERROR: JsonRpcError = {
+  code: JsonRpcErrorCode.InternalError,
+  message: "The service ended this stream.",
+};
 
 /**
  * Thrown synchronously from `next(value)` when the value fails the subscription's `valueSchema`: a
@@ -75,8 +86,9 @@ function fireCancelHandlers(handlers: Array<() => void>): void {
 
 /**
  * Cancels `producer` after a failure no caller will receive (a source callback or a deferred
- * catch-up flush) and logs it with any cancel-handler failure. Nothing escapes: an uncaught
- * throw there would stop the daemon.
+ * catch-up flush), ending the client's stream with that failure's sanitized wire error, and logs
+ * it with any cancel-handler failure. Nothing escapes: an uncaught throw there would stop the
+ * daemon.
  */
 export function cancelAfterDetachedFailure(
   producer: Pick<LocalSubscriptionProducer<unknown>, "cancel">,
@@ -84,7 +96,7 @@ export function cancelAfterDetachedFailure(
   failure: unknown,
 ): void {
   try {
-    producer.cancel();
+    producer.cancel(mapJsonRpcError(failure, null).error);
   } catch (cancelFailure) {
     console.error(message, failure, cancelFailure);
     return;
@@ -150,6 +162,14 @@ export class StreamingPrimitive {
 
     const send = this.#send;
     const subscriptions = this.#subscriptions;
+    const sendEnd = (params: SubscriptionEndParams): void => {
+      const frame: JsonRpcNotification<SubscriptionEndParams> = {
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_END_METHOD,
+        params,
+      };
+      send(entry.transportId, frame);
+    };
     const removeFromTransport = (id: SubscriptionId): void => {
       const e = subscriptions.get(id);
       if (e === undefined) {
@@ -194,23 +214,25 @@ export class StreamingPrimitive {
         send(entry.transportId, frame);
       },
       complete(): void {
-        // State only: no frame is sent and `onCancel` handlers do not fire.
+        // Tells the client the stream finished; `onCancel` handlers do not fire.
         if (entry.state !== "active") {
           return;
         }
         entry.state = "complete";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
+        sendEnd({ subscriptionId, reason: "completed" });
       },
-      cancel(): void {
-        // Server-initiated: sends no frame but fires `onCancel` handlers. Leaves the maps first so
-        // a re-entrant handler sees the post-cancel state.
+      cancel(error?: JsonRpcError): void {
+        // Server-initiated: tells the client why, then fires `onCancel` handlers. Leaves the maps
+        // first so a re-entrant handler sees the post-cancel state.
         if (entry.state !== "active") {
           return;
         }
         entry.state = "canceled";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
+        sendEnd({ subscriptionId, reason: "refused", error: error ?? STREAM_ENDED_ERROR });
         fireCancelHandlers(entry.onCancelHandlers);
       },
       onCancel(fn: () => void): void {

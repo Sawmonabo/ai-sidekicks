@@ -1,11 +1,13 @@
-// The wire shapes of a streaming subscription (`$/subscription/notify` and
+// The wire shapes of a streaming subscription (`$/subscription/notify`, `$/subscription/end` and
 // `$/subscription/cancel`) and the `LocalSubscriptionProducer` a daemon handler emits through: it
 // returns the `subscriptionId` in the ack, then each `next(value)` is validated and sent as a
-// notify frame. Only the owning connection may cancel, and a closed connection drops its own.
+// notify frame, and a stream the daemon ends sends one end frame. Only the owning connection may
+// cancel, and a closed connection drops its own.
 
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
+import { JsonRpcErrorSchema, type JsonRpcError } from "./jsonrpc.js";
 
 /**
  * The method name of the daemon-to-client notification carrying one subscription value. The
@@ -38,6 +40,40 @@ export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
 /** Parses a {@link SubscriptionId} with the same accept set as every branded UUID id. */
 export const SubscriptionIdSchema: z.ZodType<SubscriptionId, SubscriptionId> =
   brandedUuidIdSchema<SubscriptionId>("SubscriptionId");
+
+/**
+ * The method name of the daemon-to-client notification that ends one subscription from the
+ * daemon's side. It is the last frame for that id; a subscription the client cancels, or whose
+ * connection closes, gets none.
+ */
+export const SUBSCRIPTION_END_METHOD = "$/subscription/end" as const;
+
+/**
+ * The `params` of an end frame: `completed` when the stream finished, or `refused` with the error
+ * the daemon ended it for.
+ */
+export type SubscriptionEndParams =
+  | { readonly subscriptionId: SubscriptionId; readonly reason: "completed" }
+  | {
+      readonly subscriptionId: SubscriptionId;
+      readonly reason: "refused";
+      readonly error: JsonRpcError;
+    };
+
+/** Parses {@link SubscriptionEndParams}; unknown fields are refused. */
+export const SubscriptionEndParamsSchema: z.ZodType<SubscriptionEndParams> = z.discriminatedUnion(
+  "reason",
+  [
+    z.object({ subscriptionId: SubscriptionIdSchema, reason: z.literal("completed") }).strict(),
+    z
+      .object({
+        subscriptionId: SubscriptionIdSchema,
+        reason: z.literal("refused"),
+        error: JsonRpcErrorSchema,
+      })
+      .strict(),
+  ],
+);
 
 /**
  * The ack every `*.subscribe` method returns, carrying only the `subscriptionId` the server
@@ -176,18 +212,19 @@ export interface LocalSubscriptionProducer<T> {
   next(value: T): void;
 
   /**
-   * Marks the subscription complete from the producer's side. It sends no frame and does not fire
-   * `onCancel` handlers. Idempotent; later `next` calls are no-ops.
+   * Marks the subscription complete from the producer's side and sends the `completed` end frame.
+   * It does not fire `onCancel` handlers. Idempotent; later `next` calls are no-ops.
    */
   complete(): void;
 
   /**
-   * Cancels from the server side: removes the subscription and fires `onCancel` handlers, without
-   * sending a frame. Idempotent; later `next` calls are no-ops.
+   * Cancels from the server side: removes the subscription, sends the `refused` end frame carrying
+   * `error`, or an internal error when none is given, and fires `onCancel` handlers. Idempotent;
+   * later `next` calls are no-ops.
    *
    * @throws AggregateError carrying every handler failure, after all handlers ran.
    */
-  cancel(): void;
+  cancel(error?: JsonRpcError): void;
 
   /**
    * Registers a callback for when the subscription is canceled from outside: by `cancel()`, by

@@ -17,6 +17,8 @@
 //   synchronous `socket.write`. The wire-frame-ordering tests in `handlers/__tests__` catch a
 //   change that adds one.
 
+import type { JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+
 import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 
 /**
@@ -26,7 +28,7 @@ import { cancelAfterDetachedFailure } from "./streaming-primitive.js";
 export interface AckBarrierProducer<EmissionType> {
   readonly subscriptionId: string;
   next(value: EmissionType): void;
-  cancel(): void;
+  cancel(error?: JsonRpcError): void;
 }
 
 /**

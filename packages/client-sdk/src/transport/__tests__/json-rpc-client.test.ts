@@ -11,7 +11,10 @@ import type {
   JsonRpcResponseEnvelope,
 } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import {
+  SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import {
   buildSubscriptionNotify,
@@ -599,5 +602,56 @@ describe("subscription ends with an error instead of growing or vanishing", () =
 
     await cancelPromise;
     await expect(subscription.next()).rejects.toBeInstanceOf(JsonRpcRemoteError);
+  });
+
+  it("a stream the daemon ends keeps its queued values, then ends as the daemon says", async () => {
+    const transport = createScriptedDaemon();
+    const client = new JsonRpcClient(transport, TEST_CLIENT_OPTIONS);
+    const open = (
+      id: string,
+    ): ReturnType<typeof client.subscribe<{ topic: string }, { seq: number }>> => {
+      const subscription = client.subscribe(
+        "test.subscribe",
+        { topic: id },
+        TOPIC_PARAMS_SCHEMA,
+        valueSchema,
+      );
+      transport.deliverInbound({
+        jsonrpc: JSONRPC_VERSION,
+        id: requestIdAt(transport, transport.sentEnvelopes.length - 1),
+        result: { subscriptionId: id },
+      });
+      transport.deliverInbound(buildSubscriptionNotify(id, { seq: 1 }));
+      return subscription;
+    };
+    const completedId = "55555555-5555-4555-8555-555555555555";
+    const refusedId = "66666666-6666-4666-8666-666666666666";
+    const completed = open(completedId);
+    const refused = open(refusedId);
+    const error = { code: -32603, message: "ended", data: { type: "session.not_found" } };
+
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_END_METHOD,
+      params: { subscriptionId: completedId, reason: "completed" },
+    });
+    transport.deliverInbound({
+      jsonrpc: JSONRPC_VERSION,
+      method: SUBSCRIPTION_END_METHOD,
+      params: { subscriptionId: refusedId, reason: "refused", error },
+    });
+    // A value after its end is dropped as an unknown id.
+    transport.deliverInbound(buildSubscriptionNotify(completedId, { seq: 2 }));
+
+    expect(await completed.next()).toEqual({ seq: 1 });
+    expect(await completed.next()).toBeUndefined();
+    expect(await refused.next()).toEqual({ seq: 1 });
+    await expect(refused.next()).rejects.toMatchObject({
+      constructor: JsonRpcRemoteError,
+      code: -32603,
+      data: { type: "session.not_found" },
+    });
+    // The daemon already dropped both, so neither end is answered with a cancel.
+    expect(cancelFrames(transport)).toHaveLength(0);
   });
 });

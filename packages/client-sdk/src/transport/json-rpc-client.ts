@@ -23,8 +23,10 @@ import type {
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
   SubscriptionCancelResultSchema,
+  SubscriptionEndParamsSchema,
   SubscriptionIdSchema,
   type SubscriptionId,
   SubscriptionNotifyParamsSchema,
@@ -131,10 +133,10 @@ interface PendingRequest {
  * Lifecycle of one subscription:
  *   * `pending` - the init response has not arrived.
  *   * `active` - the id is known and notifications drain into the queue.
- *   * `completed` - canceled or transport closed; `next()` drains the queue, then returns
- *     `undefined`.
- *   * `errored` - the init, a value, the queue bound, the cancel or the transport failed; `next()`
- *     drains the queue, then rejects with the stored error.
+ *   * `completed` - canceled, ended by the daemon as `completed`, or transport closed; `next()`
+ *     drains the queue, then returns `undefined`.
+ *   * `errored` - the init, a value, the queue bound, the cancel or the transport failed, or the
+ *     daemon ended it as `refused`; `next()` drains the queue, then rejects with the stored error.
  */
 type SubscriptionStatus = "pending" | "active" | "completed" | "errored";
 
@@ -528,8 +530,12 @@ export class JsonRpcClient {
   }
 
   #handleNotification(env: JsonRpcNotification): void {
+    if (env.method === SUBSCRIPTION_END_METHOD) {
+      this.#handleEnd(env.params);
+      return;
+    }
     if (env.method !== SUBSCRIPTION_NOTIFY_METHOD) {
-      // Only `$/subscription/notify` is understood; drop anything else.
+      // Only the subscription frames are understood; drop anything else.
       return;
     }
     // Route by `subscriptionId` first, then validate the whole frame against the schema of
@@ -572,6 +578,42 @@ export class JsonRpcClient {
     }
     // The wrapper parse already validated `value` against `state.valueSchema`.
     pushSubscriptionValue(state, parsed.data.value);
+  }
+
+  // The daemon ended a subscription: queued values stay readable, then `next()` returns
+  // `undefined` for `completed` or rejects with the daemon's error for `refused`. The daemon has
+  // already dropped it, so no cancel is sent; a frame for an id no longer tracked is dropped.
+  #handleEnd(params: unknown): void {
+    const subscriptionIdRaw =
+      typeof params === "object" && params !== null
+        ? (params as { subscriptionId?: unknown }).subscriptionId
+        : undefined;
+    const state =
+      typeof subscriptionIdRaw === "string"
+        ? this.#subscriptions.get(subscriptionIdRaw)
+        : undefined;
+    if (state === undefined) {
+      return;
+    }
+    this.#subscriptions.delete(state.subscriptionId);
+    const parsed = SubscriptionEndParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      completeSubscriptionWithError(
+        state,
+        new JsonRpcSchemaError(
+          "value",
+          "Streaming end frame failed schema validation",
+          parsed.error.issues,
+        ),
+      );
+      return;
+    }
+    if (parsed.data.reason === "completed") {
+      completeSubscription(state);
+      return;
+    }
+    const { code, message, data } = parsed.data.error;
+    completeSubscriptionWithError(state, new JsonRpcRemoteError(code, message, data));
   }
 
   #handleClose(reason: Error | undefined): void {

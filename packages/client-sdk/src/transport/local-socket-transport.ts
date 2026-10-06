@@ -8,6 +8,7 @@ import { encodeFrame, FrameAccumulator } from "@ai-sidekicks/contracts/content-l
 import {
   JSONRPC_VERSION,
   JsonRpcErrorCode,
+  JsonRpcErrorSchema,
   MAX_MESSAGE_BYTES,
   type JsonRpcErrorData,
   type JsonRpcId,
@@ -85,13 +86,7 @@ const InboundEnvelopeSchema: z.ZodType<InboundEnvelope> = z.union([
   z.strictObject({
     jsonrpc: z.literal(JSONRPC_VERSION),
     id: JsonRpcIdSchema,
-    error: z.object({
-      code: z.number().int(),
-      message: z.string(),
-      data: z
-        .object({ type: z.string(), fields: z.record(z.string(), z.unknown()).exactOptional() })
-        .exactOptional(),
-    }),
+    error: JsonRpcErrorSchema,
   }),
   z.strictObject({
     jsonrpc: z.literal(JSONRPC_VERSION),

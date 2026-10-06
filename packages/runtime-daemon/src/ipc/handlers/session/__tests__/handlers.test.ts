@@ -30,6 +30,7 @@ import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonr
 import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/session";
 import {
   STREAM_FRAME_MAX_CHANGES,
+  SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -452,8 +453,8 @@ describe("session.subscribe survives a malformed frame", () => {
   });
 
   it(
-    "catch-up: a malformed event in a catch-up frame cancels the subscription and sends " +
-      "nothing after it",
+    "catch-up: a malformed event in a catch-up frame ends the subscription refused and sends " +
+      "nothing else",
     async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -466,7 +467,24 @@ describe("session.subscribe survives a malformed frame", () => {
       const stream = await subscribeWith(ALWAYS_ROOM, catchUp);
       vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
-      expect(stream.send).not.toHaveBeenCalled();
+      // The bad event never reaches the client; its stream ends refused instead.
+      expect(stream.send.mock.calls).toMatchObject([
+        [
+          expect.any(Number),
+          {
+            method: SUBSCRIPTION_END_METHOD,
+            params: {
+              subscriptionId: stream.subscriptionId,
+              reason: "refused",
+              // The failure's own sanitized words, not the bare "ended" line.
+              error: {
+                code: JsonRpcErrorCode.InternalError,
+                message: expect.stringContaining("value validation failed"),
+              },
+            },
+          },
+        ],
+      ]);
       expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
       const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
@@ -484,7 +502,20 @@ describe("session.subscribe survives a malformed frame", () => {
     stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
     expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
 
-    expect(stream.send).not.toHaveBeenCalled();
+    // The bad event never reaches the client; its stream ends refused instead.
+    expect(stream.send.mock.calls).toMatchObject([
+      [
+        expect.any(Number),
+        {
+          method: SUBSCRIPTION_END_METHOD,
+          params: {
+            subscriptionId: stream.subscriptionId,
+            reason: "refused",
+            error: { code: JsonRpcErrorCode.InternalError },
+          },
+        },
+      ],
+    ]);
     expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
     const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
     expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");

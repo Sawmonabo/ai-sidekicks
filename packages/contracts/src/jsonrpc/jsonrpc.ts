@@ -1,6 +1,8 @@
 // JSON-RPC 2.0 envelope types shared by the daemon and its clients. No Node imports, so any
 // runtime can use them; the daemon's gateway owns framing and transport.
 
+import { z } from "zod";
+
 import { DAEMON_HELLO_METHOD } from "./negotiation.js";
 
 /** The `jsonrpc` member every envelope carries. */
@@ -138,6 +140,18 @@ export interface JsonRpcError {
   readonly message: string;
   readonly data?: JsonRpcErrorData;
 }
+
+/**
+ * Parses a {@link JsonRpcError}. Its optional members are exact: present with a value, or absent,
+ * as JSON carries them.
+ */
+export const JsonRpcErrorSchema: z.ZodType<JsonRpcError> = z.object({
+  code: z.number().int(),
+  message: z.string(),
+  data: z
+    .object({ type: z.string(), fields: z.record(z.string(), z.unknown()).exactOptional() })
+    .exactOptional(),
+});
 
 /** A JSON-RPC 2.0 error response; `id` is `null` when the request's id could not be read. */
 export interface JsonRpcErrorResponse {

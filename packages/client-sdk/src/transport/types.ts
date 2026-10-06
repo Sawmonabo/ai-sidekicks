@@ -57,8 +57,9 @@ export interface ClientTransport {
  * `$/subscription/notify` value lands in one bounded internal queue that `next()` and `for await`
  * both drain; `cancel()` sends `$/subscription/cancel` and awaits the ack.
  *
- * The stream completes with `undefined` (after the queue drains) on a server cancel or a client
- * `cancel()`. `next()` rejects with the transport's close reason when the transport drops, and
+ * The stream completes with `undefined` (after the queue drains) when the daemon ends it as
+ * `completed` or on a client `cancel()`. `next()` rejects with `JsonRpcRemoteError` when the
+ * daemon ends it as `refused`, with the transport's close reason when the transport drops, and
  * with `JsonRpcSubscriptionOverflowError` when the consumer let the queue fill.
  */
 export interface LocalSubscriptionConsumer<T> {

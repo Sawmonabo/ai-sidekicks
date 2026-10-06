@@ -7,8 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
 import type { MachinePresence, PresenceSubscribeResponse } from "@ai-sidekicks/contracts/presence";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
-import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
-import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/jsonrpc";
+import {
+  SUBSCRIPTION_END_METHOD,
+  SUBSCRIPTION_NOTIFY_METHOD,
+} from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
@@ -182,7 +185,20 @@ describe("presence.subscribe — catch-up flush + live-tail crash guards", () =>
 
       // The subscription is already canceled, so canceling it again finds nothing.
       expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
-      expect(presence.send).not.toHaveBeenCalled();
+      // The bad update never reaches the client; its stream ends refused instead.
+      expect(presence.send.mock.calls).toMatchObject([
+        [
+          7,
+          {
+            method: SUBSCRIPTION_END_METHOD,
+            params: {
+              subscriptionId: subscriptionId,
+              reason: "refused",
+              error: { code: JsonRpcErrorCode.InternalError },
+            },
+          },
+        ],
+      ]);
       expectCanceledWithLog(consoleErrorSpy, "catch-up", subscriptionId);
     },
   );
@@ -204,7 +220,20 @@ describe("presence.subscribe — catch-up flush + live-tail crash guards", () =>
       }).not.toThrow();
 
       expect(presence.primitive.cancelSubscription(subscriptionId)).toBe(false);
-      expect(presence.send).not.toHaveBeenCalled();
+      // The bad update never reaches the client; its stream ends refused instead.
+      expect(presence.send.mock.calls).toMatchObject([
+        [
+          7,
+          {
+            method: SUBSCRIPTION_END_METHOD,
+            params: {
+              subscriptionId: subscriptionId,
+              reason: "refused",
+              error: { code: JsonRpcErrorCode.InternalError },
+            },
+          },
+        ],
+      ]);
       expectCanceledWithLog(consoleErrorSpy, "live-tail", subscriptionId);
     },
   );
