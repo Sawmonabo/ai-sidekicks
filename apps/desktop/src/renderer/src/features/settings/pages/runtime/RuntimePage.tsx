@@ -34,8 +34,8 @@ export function RuntimePage(props: RuntimePageProps): ReactNode {
   return (
     <section className="meridian-settings-page" aria-label="Runtime">
       <p className="meridian-settings-page__lede">
-        The background service that runs your sidekicks, the folders it can reach, what it keeps,
-        and the port it listens on.
+        The background service that runs sidekicks, the folders it can reach, what it keeps, and the
+        port it listens on.
       </p>
 
       <section className="meridian-settings-page__block">

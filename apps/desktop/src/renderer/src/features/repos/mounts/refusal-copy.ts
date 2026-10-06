@@ -117,7 +117,7 @@ const MOUNT_REFUSAL_REMEDIES: Readonly<Record<MountRefusalCode, CasedRefusalReme
     // performs.
     nextMove:
       "The bound checkout is on a different branch than the run needs, " +
-      "and nothing here switches it — that checkout's branch is yours. " +
+      "and nothing here switches it; switch it in that checkout. " +
       "The background service's message names the branch it expected.",
     distinctions: NO_DISTINCTIONS,
   },

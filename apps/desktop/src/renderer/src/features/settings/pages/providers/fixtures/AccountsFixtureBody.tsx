@@ -127,13 +127,7 @@ export function AccountsFixtureBody(props: {
   );
 
   if (registry.phase === "reading") {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="block"
-        title="Reading this machine’s account registry."
-      />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Reading the account registry." />;
   }
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
@@ -194,7 +188,7 @@ export function AccountsFixtureBody(props: {
           <Nothing
             kind="empty"
             placement="block"
-            title="This machine has no provider accounts."
+            title="No provider accounts yet."
             detail="A run will refuse until one is registered. Register one below."
           />
         ) : (

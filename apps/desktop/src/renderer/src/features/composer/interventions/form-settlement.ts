@@ -64,7 +64,7 @@ export function readInterventionFormSettlement(
           RUN_INTERVENTION_REFUSAL_ORIGIN,
           settledState,
           "The background service recorded this intervention and has not " +
-            "applied it yet. Your text is on that record; confirming again " +
+            "applied it yet. The text is on that record; confirming again " +
             "would raise a second one, so this control stays latched until " +
             "you close it.",
         ),

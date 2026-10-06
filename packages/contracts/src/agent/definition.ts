@@ -192,10 +192,11 @@ const AgentListedBindingsSchema: z.ZodType<AgentListedBindings> = z
 // The definition's own vocabularies
 
 /**
- * Where an agent's one memory lives: `user` everywhere, in the daemon's own
- * agent-memory folder; `project` in this project, saved with the repository;
- * `local` in this project on this machine only. Either provider running the agent
- * reads and writes the same folder.
+ * Where an agent's one memory lives, read on screen as `All projects`, `This project · in the
+ * repo` and `This project · not in the repo`, and `None` where the definition carries no scope:
+ * `user` in the daemon's own agent-memory folder, for every project; `project` in the project's
+ * repository; `local` in the project but kept out of the repository. Either provider running the
+ * agent reads and writes the same folder.
  */
 export const AGENT_MEMORY_SCOPES = ["user", "project", "local"] as const;
 /** One of {@link AGENT_MEMORY_SCOPES}. */

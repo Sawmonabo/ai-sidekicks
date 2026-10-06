@@ -249,9 +249,9 @@ export function KeyboardPage(): ReactNode {
         )}
         {keybindingOverrides.repair === undefined ? null : (
           <p className="meridian-settings-page__state" role="alert">
-            The keyboard map on this machine could not be read, so the chords the app ships with
-            were used and the file was written out again. Any chord changed before now is back at
-            the one the app ships with.
+            The keyboard map could not be read, so the chords the app ships with were used and the
+            file was written out again. Any chord changed before now is back at the one the app
+            ships with.
           </p>
         )}
         {keybindingOverrides.readRefusal === undefined ? null : (
@@ -312,7 +312,7 @@ function describeBinding(
       ? `${title} now has no chord`
       : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
   return unsaved === undefined
-    ? `${act}, and the change is kept on this machine.`
+    ? `${act}, and the change is saved.`
     : `${act} for as long as this window is open, and will not come ` +
         `back after a reload. ${unsaved.detail}`;
 }

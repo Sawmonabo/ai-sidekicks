@@ -29,7 +29,7 @@ import type { SendController, SendControllerDependencies } from "../controller-c
 /** What a recognized command with nowhere to run says; the text is still in the line. */
 const NO_EXECUTOR_DETAIL =
   "That command was recognized but nothing here can run it, so " +
-  "nothing happened. Your message is still in the line.";
+  "nothing happened. The message is still in the line.";
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {

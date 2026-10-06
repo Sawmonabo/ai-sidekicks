@@ -49,7 +49,7 @@ describe("the palette's workflow entry over unsent words", () => {
     expect(line.value).toBe("ship the parser fix");
     const question = screen.getByRole("group", { name: "Replace the draft" });
     expect(question.querySelector("p")?.textContent).toBe(
-      "Replace your unsent message with /workflow run?",
+      "Replace the unsent message with /workflow run?",
     );
     expect(
       within(question)

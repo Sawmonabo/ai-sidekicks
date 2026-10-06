@@ -337,8 +337,7 @@ export function describeRunningProviderSignIn(options: {
   const holder = options.holdingAccountLabel ?? "another account";
   return (
     `A sign-in for ${holder} is already running. Cancel it before ` +
-    "starting this one — this machine runs one brokered sign-in at a " +
-    "time."
+    "starting this one — the app runs one sign-in at a time."
   );
 }
 

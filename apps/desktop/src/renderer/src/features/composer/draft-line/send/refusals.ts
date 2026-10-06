@@ -49,7 +49,7 @@ export function interventionNotApplied(
   return refuse(
     DAEMON_REFUSAL_ORIGIN,
     rejectionReason ?? state,
-    "The run did not take this steer, so nothing was sent. Your " +
+    "The run did not take this steer, so nothing was sent. The " +
       "message is still in the line — the console has read the run's " +
       "current version, so sending again guards it against where the " +
       "turn is now.",

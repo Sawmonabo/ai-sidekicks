@@ -23,11 +23,6 @@ interface AgentRegistryRule {
 /** The standing facts about the registry, declared once and rendered in order. */
 const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
   {
-    term: "Where they live",
-    statement:
-      "On this machine, and nowhere else. There is no sharing, no sync, and nothing to export.",
-  },
-  {
     term: "What names them",
     statement:
       "A name is a label, not an identifier. Renaming a sidekick " +
@@ -43,8 +38,8 @@ export interface AgentLibraryProps {
 }
 
 /**
- * The page's frame: heading, lede and the two standing facts. `actions` sit beside the
- * heading and `children` under the facts.
+ * The page's frame: heading, lede and the standing facts. `actions` sit beside the heading and
+ * `children` under the facts.
  */
 export function AgentDefinitionsFrame(props: {
   readonly actions?: ReactNode;

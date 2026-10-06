@@ -11,7 +11,7 @@ export interface SafeStartNoticeProps {
 export function SafeStartNotice(props: SafeStartNoticeProps): React.JSX.Element {
   return (
     <p className="meridian-frame__notice">
-      {"The app restarted after repeated problems. Your windows weren't restored."}
+      {"The app restarted after repeated problems and did not reopen its windows."}
       <button
         type="button"
         className="meridian-action-button meridian-action-button--small meridian-action-button--outline"

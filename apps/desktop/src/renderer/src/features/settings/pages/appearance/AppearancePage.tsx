@@ -67,9 +67,7 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
 
   return (
     <div className="meridian-settings-page">
-      <p className="meridian-settings-page__lede">
-        How the app looks on this machine. Kept for this install.
-      </p>
+      <p className="meridian-settings-page__lede">How the app looks.</p>
 
       <section className="meridian-settings-page__block" aria-label="Color scheme">
         <h3 className="meridian-settings-page__block-title">Color scheme</h3>

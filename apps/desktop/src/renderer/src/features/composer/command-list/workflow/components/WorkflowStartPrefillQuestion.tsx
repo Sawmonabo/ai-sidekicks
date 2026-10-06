@@ -16,7 +16,7 @@ export function WorkflowStartPrefillQuestion(props: {
   return (
     <div className="meridian-workflow-start-prefill" role="group" aria-label="Replace the draft">
       <p className="meridian-workflow-start-prefill__question">
-        Replace your unsent message with /workflow run?
+        Replace the unsent message with /workflow run?
       </p>
       <button
         type="button"

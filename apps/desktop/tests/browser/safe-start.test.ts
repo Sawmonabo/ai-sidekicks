@@ -24,7 +24,7 @@ import { renderAppSettled } from "../helpers/app/harness.js";
 import { FrameWindows } from "../helpers/frame-windows.js";
 import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
-const SAFE_START_LINE = "The app restarted after repeated problems. Your windows weren't restored.";
+const SAFE_START_LINE = "The app restarted after repeated problems and did not reopen its windows.";
 
 /** The window the fixture launch names as used last, as the last run kept it. */
 const USED_LAST_KEPT: KeptWindow = { windowId: FIXTURE_WINDOW_ID, route: { kind: "workflows" } };

@@ -344,7 +344,7 @@ export interface MachineSettings {
   newSessionCarriesLastModel: boolean;
   /** `Keep this Mac awake while a sidekick is working`. */
   keepAwakeWhileAgentWorks: boolean;
-  /** `Keep this Mac awake for your other devices`, held only while on power. */
+  /** `Keep this Mac awake for other devices`, held only while on power. */
   keepAwakeForOtherDevices: boolean;
   notifications: NotificationSettings;
   /** `Remember site data`. */

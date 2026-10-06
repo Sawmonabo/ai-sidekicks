@@ -109,9 +109,7 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
 
       <section className="meridian-settings-page__block">
         <h3 className="meridian-settings-page__block-title">Restart or stop it</h3>
-        <p className="meridian-settings-page__aside">
-          Both stop whatever is in flight on this machine.
-        </p>
+        <p className="meridian-settings-page__aside">Both stop whatever is in flight.</p>
         {confirming === undefined ? (
           <div className="meridian-settings-page__actions">
             <button
