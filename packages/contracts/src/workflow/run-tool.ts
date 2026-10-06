@@ -3,26 +3,31 @@
 // allowlist, so both read this one definition.
 import { z } from "zod";
 
-import { ProjectIdSchema, type ProjectId } from "../project.js";
+import { PROJECT_NAME_MAX_LEN } from "../project.js";
 import type { SessionCallbackTool } from "../provider/driver/driver.js";
+import { wireFreeFormString } from "../session/session.js";
 
 /**
  * The `workflow_run` input: a workflow named by its name, which the library holds once, and the
- * project whose repository the run works in, for a workflow that needs one.
+ * project whose repository the run works in, for a workflow that needs one, named as
+ * `session_options` lists it; the daemon resolves the name to the project.
  */
 export interface WorkflowRunToolInput {
   definitionName: string;
-  projectId?: ProjectId | undefined;
+  project?: string | undefined;
 }
 /** Schema for {@link WorkflowRunToolInput}. */
 export const WorkflowRunToolInputSchema: z.ZodType<WorkflowRunToolInput, WorkflowRunToolInput> = z
   .object({
     definitionName: z.string().min(1).describe("The workflow's name."),
-    projectId: ProjectIdSchema.optional().describe(
-      "The id of the project whose repository the run works in, for a workflow with a step " +
-        "that needs a repository; named only from a chat, since a project session's run works " +
-        "in its own repository. Leave it out to run in this session's folder.",
-    ),
+    project: wireFreeFormString(PROJECT_NAME_MAX_LEN, "WorkflowRunToolInput.project")
+      .optional()
+      .describe(
+        "The project whose repository the run works in, named from session_options, for a " +
+          "workflow with a step that needs a repository; named only from a chat, since a " +
+          "project session's run works in its own repository. Leave it out to run in this " +
+          "session's folder.",
+      ),
   })
   .strict();
 

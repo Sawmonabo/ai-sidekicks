@@ -22,9 +22,7 @@ describe("workflow_run", () => {
     const run = { definitionName: "Nightly suite" };
     expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, {})).toContain("definitionName");
     expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, run)).toBe(null);
-    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, { ...run, projectId: PROJECT_ID })).toBe(
-      null,
-    );
+    expect(describeArgumentRefusal(WORKFLOW_RUN_TOOL, { ...run, project: "Notes app" })).toBe(null);
   });
 });
 
@@ -46,13 +44,14 @@ const CREATE_INPUT = {
 };
 
 describe("a session is never an input, and only a run names a project", () => {
-  it("admits the run, list and create inputs alone, a run's project, and no other id", () => {
+  it("admits the run, list and create inputs alone, a run's project by name, and no id", () => {
     const run = { definitionName: "Nightly suite" };
     expect(WorkflowRunToolInputSchema.safeParse(run).success).toBe(true);
-    expect(WorkflowRunToolInputSchema.safeParse({ ...run, projectId: PROJECT_ID }).success).toBe(
+    expect(WorkflowRunToolInputSchema.safeParse({ ...run, project: "Notes app" }).success).toBe(
       true,
     );
-    for (const refused of [{ sessionId: SESSION_ID }, { projectId: "not-a-project" }]) {
+    const refusals = [{ sessionId: SESSION_ID }, { projectId: PROJECT_ID }, { project: "" }];
+    for (const refused of refusals) {
       expect(WorkflowRunToolInputSchema.safeParse({ ...run, ...refused }).success).toBe(false);
     }
     expect(WorkflowDefinitionListRequestSchema.safeParse({}).success).toBe(true);
