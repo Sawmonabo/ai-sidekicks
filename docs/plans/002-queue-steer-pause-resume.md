@@ -373,7 +373,7 @@ If T3.14's capture call-site sat in Phase 3, Phase 3 could not merge before [Pla
 - **Consumes:** `RunState` / `InterventionState` (T1.3); `run.*` subscription channel names (CP-002-4, D-002-3)
 - **T4.4 — Bridge-bypass import-restriction**
 - **Files:** the run controls in `apps/desktop/src/renderer/src/features/composer/` (EXTEND)
-- **Spec coverage:** Spec-021 §Preload Bridge Contract (renderer composes via the preload bridge, never bypasses)
+- **Spec coverage:** Preload Bridge Contract (renderer composes via the preload bridge, never bypasses)
 - **Verifies invariant:** I-002-10 (= CP-002-5)
 - **Note:** the renderer's existing `no-restricted-imports` entry in `apps/desktop/eslint.config.mjs`, which bans `@ai-sidekicks/runtime-daemon` and `@ai-sidekicks/control-plane` across `src/renderer/src/**`, holds the bridge-discipline rule for the run controls; this task adds no rule and no test of its own.
 - **T4.5 — Test suite (orchestration + single-client renderer component tests)**

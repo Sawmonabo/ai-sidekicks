@@ -196,7 +196,7 @@ interface AgentDefinitionUpdateRequest {
   hooks?: AgentHooks | null; // a whole-object replace, as `bindings`
   memoryScope?: AgentDefinition["memoryScope"];
   // Reattaches an orphaned record to a provider's file: the token of the file the person picked with
-  // `native.showOpenDialog`, which main's relay turns into a path (Spec-021 §Preload Bridge Contract).
+  // `native.showOpenDialog`, which main's relay turns into a path (Preload Bridge Contract).
   // Accepted only while the record is orphaned.
   reattachFile?: FilePathRef;
 }
@@ -223,7 +223,7 @@ interface AgentDefinitionDeleteResponse {
 // hooks and memory scope, and every binding with the account left out. The notes in an agent's memory
 // folder are never read into a file. The daemon leaves the accounts out itself and never relies on the
 // caller to. The request carries the picked folder's token; main's relay turns it into the path the
-// daemon writes, so no path string crosses the bridge (Spec-021 §Preload Bridge Contract). An unknown
+// daemon writes, so no path string crosses the bridge (Preload Bridge Contract). An unknown
 // id refuses the whole export; a failed write refuses with `agent.export_write_failed`, carrying the
 // operating system's cause.
 interface AgentDefinitionExportRequest {

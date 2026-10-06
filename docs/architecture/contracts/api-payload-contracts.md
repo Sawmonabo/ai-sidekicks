@@ -434,7 +434,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `highlight.read` | Syntax color spans the daemon computes once per file and caches; every surface paints the spans it is handed | [Spec-021 §Console Libraries](../../specs/021-desktop-app-and-renderer.md#console-libraries), [ADR-033](../../decisions/033-one-syntax-colorer-in-the-daemon.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-5-4 |
+| `highlight.read` | Syntax color spans the daemon computes once per file and caches; every surface paints the spans it is handed | [Desktop App Implementation Notes §Console Libraries](../desktop-implementation-notes.md#console-libraries), [ADR-033](../../decisions/033-one-syntax-colorer-in-the-daemon.md) | [Plan-020](../../plans/020-desktop-app-and-renderer.md) T-020r-5-4 |
 
 ### `mcp.*`
 

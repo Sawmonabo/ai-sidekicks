@@ -42,7 +42,7 @@ interface WorkflowDefinitionDeleteResponse {
 // and a round trip in either direction must reproduce them exactly. The renderer never names a path and
 // never holds the file's bytes: it sends the `FilePathRef` token `native.showSaveDialog` returned, and
 // main's relay puts the path that token stands for in `filePath` before the request reaches the daemon
-// (Spec-021 §Preload Bridge Contract).
+// (Preload Bridge Contract).
 interface WorkflowDefinitionExportRequest {
   definitionId: WorkflowDefinitionId;
   version?: number; // omit for latest

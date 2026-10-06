@@ -318,7 +318,7 @@ None.
 
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live per-binding read of a provider's own command-and-skill enumeration, which is the provider's answer about what it loaded, beside this spec's registry of what is on disk.
 - [Spec-021 §The surface set](021-desktop-app-and-renderer.md#the-surface-set) — the icon rail and the console's surfaces this destination joins.
-- [Spec-021 §Console Test Tiers](021-desktop-app-and-renderer.md#console-test-tiers) — the tiers a console change is proven by.
+- [Desktop App Implementation Notes §Console Test Tiers](../architecture/desktop-implementation-notes.md#console-test-tiers) — the tiers a console change is proven by.
 - [Spec-026](026-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; a definition stays one file and every available skill reaches it through the pack. [Spec-026 §Browse plugins](026-agent-definitions-and-peer-invocation.md#browse-plugins) is where a plugin carrying skills is installed.
 - [ADR-029](../decisions/029-five-rail-destinations.md) — the five rail destinations, their order, and the rule that sorts a future surface into a destination or a Settings page.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) — Claude Code's own skill enumeration, names only, with no scope and no enabled axis.

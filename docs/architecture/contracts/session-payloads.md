@@ -272,7 +272,7 @@ interface SessionDraftUpdateResponse {
 // copy OUTSIDE the checkout, so a staged file survives a working-folder move and never appears in a
 // diff. Several items at a time, at least one; a file item is a file, never a folder. The renderer holds
 // only the `FilePathRef` token the platform's own chooser, a drop or a paste gave it
-// ([Spec-021 §Preload Bridge Contract](../../specs/021-desktop-app-and-renderer.md#preload-bridge-contract)),
+// ([Preload Bridge Contract](preload-bridge-contract.md)),
 // and main's relay turns the token into the `path` the daemon copies, so a path reaches the daemon only
 // from the main process or the command line; a pasted picture is a file too, written by main to a
 // temporary file whose token it mints. Each accepted item is validated by the Plan-011 ingest pipeline —
