@@ -8248,7 +8248,7 @@ type McpApprovalMode = "auto" | "prompt" | "writes" | "approve"; // Codex-native
 // empty-string PK component. Payload/read-model types compose this union via intersection (never
 // `interface extends` — unions don't extend).
 // A fourth arm names a server an installed plugin carries in its `.mcp.json`, its scopeRef the
-// plugin's name: listed on the MCP servers page with the origin `plugin · <plugin name>` and sent
+// plugin's name: listed on the MCP servers page as `Declared by plugin <name>` and sent
 // to a session only when switched on for it. Its declaration changes only with the plugin, so
 // mcp.upsertServer and mcp.removeServer refuse it; mcp.setEnabled and the tool overrides target it.
 // A binding in a scope the person writes, its declaration in a provider's own config.
