@@ -16,8 +16,8 @@ import { DraftLine } from "./DraftLine.js";
 import { agentPane, inertBridge } from "../../composer.test-support.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
-import type { WorkflowStartOperations } from "../../command-list/workflow-command/start-workflow-from-line.js";
-import { fixtureWorkflowStartOperations } from "../../command-list/workflow-command/workflow-command.test-support.js";
+import type { WorkflowStartOperations } from "../../command-list/workflow-command/start-from-line.js";
+import { fixtureWorkflowStartOperations } from "../../command-list/workflow-command/start-from-line.test-support.js";
 
 /** An initialized, empty session store for the default session. */
 export function openSessionStore(): SessionStore {

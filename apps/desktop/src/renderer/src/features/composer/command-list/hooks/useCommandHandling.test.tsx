@@ -10,7 +10,7 @@ import { commandRegistry } from "#renderer/registries/commands/window-command-re
 import { DEFAULT_ROUTE } from "#renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import { useCommandHandling } from "./useCommandHandling.js";
-import type { WorkflowStartOperations } from "../workflow-command/start-workflow-from-line.js";
+import type { WorkflowStartOperations } from "../workflow-command/start-from-line.js";
 import { useWorkflowStartHandlers } from "../workflow-command/hooks/useWorkflowStartHandlers.js";
 import { WORKFLOW_START_COMMAND_GROUP } from "../workflow-command/hooks/useWorkflowStartPrefill.js";
 import {
@@ -22,7 +22,7 @@ import {
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
   type WorkflowCalls,
-} from "../workflow-command/workflow-command.test-support.js";
+} from "../workflow-command/start-from-line.test-support.js";
 
 /** Stub calls holding the one workflow the line names, recording which session each start named. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {

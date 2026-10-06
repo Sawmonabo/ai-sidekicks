@@ -16,7 +16,7 @@ import {
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
-} from "../../command-list/workflow-command/workflow-command.test-support.js";
+} from "../../command-list/workflow-command/start-from-line.test-support.js";
 import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow-command/hooks/useWorkflowStartPrefill.js";
 import {
   FIRST_AGENT_ID,

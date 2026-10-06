@@ -8,7 +8,7 @@ import { readWorkflowDefinitions } from "./enumeration.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
-} from "../workflow-command.test-support.js";
+} from "../start-from-line.test-support.js";
 
 /** The names one walk carried back, in the order the pages served them. */
 function namesOf(enumeration: Awaited<ReturnType<typeof readWorkflowDefinitions>>): string[] {

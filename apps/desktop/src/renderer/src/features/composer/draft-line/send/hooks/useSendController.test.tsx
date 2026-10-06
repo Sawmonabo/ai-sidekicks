@@ -16,12 +16,12 @@ import type { ComposerSessionTarget } from "#renderer/features/composer/composer
 import { LINE_READING_COMMAND_IDS } from "#renderer/features/composer/command-list/composer-command-line-handlers.js";
 import { readComposerCommands } from "#renderer/features/composer/command-list/composer-commands.js";
 import { createConsoleCommandExecutor } from "#renderer/features/composer/command-list/console-command/executor.js";
-import { startWorkflowFromLine } from "#renderer/features/composer/command-list/workflow-command/start-workflow-from-line.js";
+import { startWorkflowFromLine } from "#renderer/features/composer/command-list/workflow-command/start-from-line.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
-} from "#renderer/features/composer/command-list/workflow-command/workflow-command.test-support.js";
+} from "#renderer/features/composer/command-list/workflow-command/start-from-line.test-support.js";
 import { WORKFLOW_COMMAND_ROOT } from "#renderer/features/composer/command-list/workflow-command/grammar.js";
 import type { CommandExecutor } from "#renderer/features/composer/types.js";
 import { composerDraftKey } from "../../draft-key.js";

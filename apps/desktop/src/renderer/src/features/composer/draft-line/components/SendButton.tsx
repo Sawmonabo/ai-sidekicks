@@ -12,7 +12,7 @@ import { useRefusalBannerEscalation } from "../../hooks/useRefusalBannerEscalati
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useCommandHandling } from "../../command-list/hooks/useCommandHandling.js";
 import { useWorkflowStartHandlers } from "../../command-list/workflow-command/hooks/useWorkflowStartHandlers.js";
-import { type WorkflowStartOperations } from "../../command-list/workflow-command/start-workflow-from-line.js";
+import { type WorkflowStartOperations } from "../../command-list/workflow-command/start-from-line.js";
 import type { ComposerSendCalls } from "../send/dispatch.js";
 import { useSendController } from "../send/hooks/useSendController.js";
 

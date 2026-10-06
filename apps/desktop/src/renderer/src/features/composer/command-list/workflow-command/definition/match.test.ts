@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { matchWorkflowDefinition } from "./match.js";
-import { workflowDefinition } from "../workflow-command.test-support.js";
+import { workflowDefinition } from "../start-from-line.test-support.js";
 
 const DEPLOY_PRODUCTION = workflowDefinition({ name: "deploy-production" });
 

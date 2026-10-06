@@ -35,7 +35,7 @@ export interface WorkflowStartInput {
 
 /**
  * Start the run a typed `/workflow run <name>` names. A line it cannot act on (no verb, a verb
- * it does not take, no name, a name no single workflow here carries, no session) starts nothing
+ * it does not take, no name, a name no workflow here carries, no session) starts nothing
  * and is sent as typed, so the provider answers it and the console adds nothing.
  */
 export async function startWorkflowFromLine(

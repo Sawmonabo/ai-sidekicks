@@ -19,9 +19,9 @@ import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
   WORKFLOW_TEST_SESSION_ID,
-} from "./workflow-command.test-support.js";
+} from "./start-from-line.test-support.js";
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./grammar.js";
-import { startWorkflowFromLine } from "./start-workflow-from-line.js";
+import { startWorkflowFromLine } from "./start-from-line.js";
 
 const registeredIds: string[] = [];
 
