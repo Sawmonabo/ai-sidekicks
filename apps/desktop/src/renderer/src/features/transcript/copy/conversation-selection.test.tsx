@@ -69,4 +69,36 @@ describe("a selection across the conversation", () => {
       ].join("\n\n"),
     });
   });
+
+  it("rebuilds a reply's code block as its fence, with no word from the block's corner", () => {
+    const reply = sampleRunRow({ id: "replies", type: "assistant.message" });
+    const replyKind = classifyTranscriptRow(reply);
+    if (replyKind === undefined) {
+      throw new Error("an agent message is a message kind");
+    }
+    const { container } = render(
+      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+        <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
+          <MessageRow
+            row={reply}
+            rowKind={replyKind}
+            agentHue={undefined}
+            isSuperseded={false}
+            density="expanded"
+            footnotes={new FootnoteRegistry()}
+            thinkingRow={undefined}
+            editControl={undefined}
+            content={{ status: "available", body: "Run it:\n\n```ts\nconst a = 1;\n```\n" }}
+            replyRowIds={["replies"]}
+          />
+        </div>
+      </FixtureBridgeProvider>,
+    );
+    const everything = document.createRange();
+    everything.selectNodeContents(container);
+
+    const copied = readConversationSelection(everything, container);
+    expect(copied?.text).toBe("Run it:\n\n```ts\nconst a = 1;\n```");
+    expect(copied?.html).not.toContain("Copy");
+  });
 });
