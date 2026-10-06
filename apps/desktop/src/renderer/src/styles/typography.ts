@@ -32,6 +32,19 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
+ * Every glyph's advance in the mono face, in em: IBM Plex Mono sets each printable ASCII
+ * character 600/1000 em wide at every weight, so a mono figure's width is its length times this
+ * and needs no measurement.
+ */
+export const MONO_ADVANCE_EM = 0.6;
+
+/**
+ * A wire figure's size, in em of the text around it. Mono runs optically larger than sans at the
+ * same size; a hair under 1em balances them.
+ */
+export const WIRE_FIGURE_SIZE_EM = 0.93;
+
+/**
  * Letter spacing, in em so it scales with the size it is set at. Uppercase text needs more room
  * between letters than mixed case to read at a small size, and a heading over a group sits one
  * step wider than the labels inside it so the two never read as the same rank. Every sheet sets

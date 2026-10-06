@@ -5,10 +5,17 @@
 
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type {
+  WorkflowDocument,
+  WorkflowNode,
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { RUN_GRAPH_NODE_WIDTH, runGraphNodeHeight, type CanvasPoint } from "./layout.js";
+import type { CanvasPoint } from "./layout.js";
+import {
+  deriveNodeBoxSize,
+  type NodeBoxSize,
+} from "#renderer/features/workflows/canvas/node-box.js";
 import { itemCountWords } from "#renderer/features/workflows/words.js";
 import type { RunGraphNodeView } from "./model.js";
 
@@ -30,6 +37,9 @@ export interface NodeHandleIds {
   readonly outputs: readonly string[];
 }
 
+/** A node no edge touches, with no handle on either side. */
+export const NO_HANDLES: NodeHandleIds = { inputs: [], outputs: [] };
+
 /** The one node kind this graph draws; the string is the `nodeTypes` key. */
 export const RUN_GRAPH_NODE_TYPE = "run-node" as const;
 
@@ -47,19 +57,23 @@ export function toRunGraphFlowNodes(
   handlesByNode: ReadonlyMap<string, NodeHandleIds>,
   positions: ReadonlyMap<string, CanvasPoint>,
   selectedNodeId: string | undefined,
+  countFigure: string,
 ): RunGraphFlowNode[] {
   return views.map((view) => {
-    const height = runGraphNodeHeight(
+    const handles = handlesByNode.get(view.node.id) ?? NO_HANDLES;
+    const { width, height } = runGraphNodeBox(
+      view.node,
+      handles,
+      countFigure,
       view.errorLine !== undefined || view.resumeLine !== undefined,
     );
-    const handles = handlesByNode.get(view.node.id) ?? { inputs: [], outputs: [] };
     return {
       id: view.node.id,
       type: RUN_GRAPH_NODE_TYPE,
       position: positions.get(view.node.id) ?? { x: 0, y: 0 },
-      width: RUN_GRAPH_NODE_WIDTH,
+      width,
       height,
-      measured: { width: RUN_GRAPH_NODE_WIDTH, height },
+      measured: { width, height },
       handles: [
         ...handles.inputs.map((id, index) => ({
           id,
@@ -74,7 +88,7 @@ export function toRunGraphFlowNodes(
           id,
           type: "source" as const,
           position: Position.Right,
-          x: RUN_GRAPH_NODE_WIDTH,
+          x: width,
           y: handleOffset(height, index, handles.outputs.length),
           width: 0,
           height: 0,
@@ -108,6 +122,25 @@ export function nodeHandleIds(document: WorkflowDocument): ReadonlyMap<string, N
     });
   }
   return byNode;
+}
+
+/**
+ * The box one node takes on this run's canvas: its kind's label and the run's widest count
+ * across, its busier side's handles down, and one line more for a failure or a resume instant.
+ * Every node of one kind comes out the same width.
+ */
+export function runGraphNodeBox(
+  node: WorkflowNode,
+  handles: NodeHandleIds,
+  countFigure: string,
+  hasExtraLine: boolean,
+): NodeBoxSize {
+  return deriveNodeBoxSize({
+    kindLabel: node.kind,
+    countFigure,
+    handleCount: Math.max(handles.inputs.length, handles.outputs.length),
+    hasExtraLine,
+  });
 }
 
 /** Where the `index`th of `count` handles stands down a side `height` tall, evenly spaced. */

@@ -36,8 +36,8 @@ export interface RunGraphNodeView {
   readonly isDisabled: boolean;
   /** `Attempt 2` on a node whose latest step is a retry; absent on a first attempt. */
   readonly attemptWords: string | undefined;
-  /** How many items left the node's first output, `3 items`, once its latest step ran through. */
-  readonly outputCountWords: string | undefined;
+  /** How many items left the node's first output, `3`, once its latest step ran through. */
+  readonly outputCountFigure: string | undefined;
   /**
    * The failure's first line, verbatim, after the failing item where the error names one
    * (`Item 2 · The summary came back empty`); present only on a failed node that carries either.
@@ -103,6 +103,20 @@ export function runGraphNodeViews(
   return [document.trigger, ...document.nodes].map((node) =>
     nodeView(node, latestByNode.get(node.id), firstOutputCounts.get(node.id), nowMs),
   );
+}
+
+/**
+ * The widest first-output count figure the run reports, which every node's box keeps room for;
+ * one digit before the run reports any.
+ */
+export function widestCountFigure(views: readonly RunGraphNodeView[]): string {
+  let widest = formatCount(0);
+  for (const view of views) {
+    if (view.outputCountFigure !== undefined && view.outputCountFigure.length > widest.length) {
+      widest = view.outputCountFigure;
+    }
+  }
+  return widest;
 }
 
 /**
@@ -189,7 +203,6 @@ function nodeView(
   const attemptWords =
     step === undefined || step.attempt === 1 ? undefined : `Attempt ${formatCount(step.attempt)}`;
   const outputCount = step === undefined ? undefined : ownOutputCount(step, firstOutputEdgeCount);
-  const outputCountWords = outputCount === undefined ? undefined : itemCountWords(outputCount);
   const errorLine = status === "failed" ? failureLine(step) : undefined;
   return {
     node,
@@ -198,7 +211,7 @@ function nodeView(
     isWaitingOnPerson: isPersonWaitCause(waitCause),
     isDisabled,
     attemptWords,
-    outputCountWords,
+    outputCountFigure: outputCount === undefined ? undefined : formatCount(outputCount),
     errorLine,
     resumeLine,
     stateWords,
@@ -207,7 +220,7 @@ function nodeView(
       isDisabled ? "Disabled" : undefined,
       stateWords,
       attemptWords,
-      outputCountWords,
+      outputCount === undefined ? undefined : itemCountWords(outputCount),
       errorLine,
       resumeLine,
     ]

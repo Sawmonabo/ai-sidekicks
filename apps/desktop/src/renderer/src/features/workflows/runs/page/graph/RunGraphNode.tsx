@@ -1,5 +1,5 @@
 // One node of the run, as a box on the canvas: its name and its first output's item count, its
-// kind, and a ring and a line saying what its latest step is doing and which attempt it is. The
+// kind, which its box is sized to hold whole, and a ring and a line saying what its latest step is doing and which attempt it is. The
 // library supplies position, focus and handle geometry; every color is drawn from design tokens
 // through the data attributes the sheet reads.
 
@@ -36,12 +36,14 @@ export function RunGraphNode(props: NodeProps<RunGraphFlowNode>): React.JSX.Elem
       ))}
       <span className="meridian-run-graph-node__head">
         <span className="meridian-run-graph-node__name">{view.node.name}</span>
-        {view.outputCountWords === undefined ? null : (
-          <span className="meridian-run-graph-node__count">{view.outputCountWords}</span>
+        {view.outputCountFigure === undefined ? null : (
+          <span className="meridian-run-graph-node__count">
+            <WireFigure value={view.outputCountFigure} />
+          </span>
         )}
       </span>
       <span className="meridian-run-graph-node__kind">
-        <WireFigure value={view.node.kind} truncate />
+        <WireFigure value={view.node.kind} />
       </span>
       <span className="meridian-run-graph-node__state">
         {view.attemptWords === undefined

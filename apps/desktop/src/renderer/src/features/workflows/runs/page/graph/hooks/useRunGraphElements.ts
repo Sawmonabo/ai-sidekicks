@@ -6,14 +6,16 @@ import type { WorkflowStep } from "@ai-sidekicks/contracts/workflow/run/run";
 import type { WorkflowEdgeItemCount } from "@ai-sidekicks/contracts/workflow/run/records";
 
 import {
+  NO_HANDLES,
   nodeHandleIds,
+  runGraphNodeBox,
   runGraphNodeCenter,
   toRunGraphFlowEdges,
   toRunGraphFlowNodes,
   type RunGraphFlowNode,
 } from "../elements.js";
 import { placeRunGraphNodes, type CanvasPoint } from "../layout.js";
-import { flowingEdgeIds, liveNodeId, runGraphNodeViews } from "../model.js";
+import { flowingEdgeIds, liveNodeId, runGraphNodeViews, widestCountFigure } from "../model.js";
 
 /**
  * What the canvas hands the library, and where the live step stands.
@@ -28,10 +30,10 @@ export interface RunGraphElements {
 }
 
 /**
- * The run's nodes and edges, each rebuilt only when what it reads moves: places and handles with
- * the document, edges with it, the item counts and the steps they flow with, states with the
- * steps and counts, the mark with the selection. The library re-enters its store whenever an
- * array's identity moves.
+ * The run's nodes and edges, each rebuilt only when what it reads moves: handles with the
+ * document, places with it and the widest count the run reports, which every box keeps room for;
+ * edges with the item counts and the steps they flow with; states with the steps and counts; the
+ * mark with the selection. The library re-enters its store whenever an array's identity moves.
  */
 export function useRunGraphElements(
   document: WorkflowDocument,
@@ -40,7 +42,6 @@ export function useRunGraphElements(
   selectedNodeId: string | undefined,
   nowMs: number,
 ): RunGraphElements {
-  const positions = useMemo(() => placeRunGraphNodes(document), [document]);
   const handles = useMemo(() => nodeHandleIds(document), [document]);
   const edges = useMemo(
     () => toRunGraphFlowEdges(document, edgeItemCounts, flowingEdgeIds(document, steps)),
@@ -50,9 +51,18 @@ export function useRunGraphElements(
     () => runGraphNodeViews(document, steps, edgeItemCounts, nowMs),
     [document, steps, edgeItemCounts, nowMs],
   );
+  // A string, so a step update that leaves the widest count as it was keeps every place.
+  const countFigure = widestCountFigure(views);
+  const positions = useMemo(
+    () =>
+      placeRunGraphNodes(document, (node) =>
+        runGraphNodeBox(node, handles.get(node.id) ?? NO_HANDLES, countFigure, false),
+      ),
+    [document, handles, countFigure],
+  );
   const nodes = useMemo(
-    () => toRunGraphFlowNodes(views, handles, positions, selectedNodeId),
-    [views, handles, positions, selectedNodeId],
+    () => toRunGraphFlowNodes(views, handles, positions, selectedNodeId, countFigure),
+    [views, handles, positions, selectedNodeId, countFigure],
   );
   const liveCenter = useMemo(() => {
     const liveId = liveNodeId(steps);

@@ -8,8 +8,8 @@
  * failure, and the accent only for a running step.
  *
  * A node and an edge's count are part of the drawing, not chrome: their type, spacing and corner
- * come from `--meridian-run-graph-*` measures in canvas units (`canvas-measures.ts`), so only the
- * zoom scales them and a larger text size never pushes a node's lines past its stated box. The
+ * come from `--meridian-workflow-canvas-*` measures in canvas units (`canvas/measures.ts`), so
+ * only the zoom scales them and a larger text size never pushes a node's lines past its box. The
  * attribution mark and the canvas's own frame are chrome and keep the root-relative tokens.
  *
  * A run's own motion, the running node's breathing ring and the edge flowing into it, holds
@@ -18,10 +18,9 @@
  */
 
 .meridian-run-graph {
-  /* Strokes are unitless (the library feeds them to SVG `stroke-width`); the hairline and the
-     ring are lengths. */
+  /* Strokes are unitless (the library feeds them to SVG `stroke-width`); the hairline is a
+     length. The node's ring comes with the canvas's measures. */
   --meridian-run-graph-hairline: 1px;
-  --meridian-run-graph-ring: 2px;
   --meridian-run-graph-stroke: 1.5;
   --meridian-run-graph-mark-stroke: 2;
 
@@ -126,15 +125,15 @@
 .meridian-run-graph-node {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-run-graph-space-1);
+  gap: var(--meridian-workflow-canvas-space-1);
   justify-content: center;
   box-sizing: border-box;
   block-size: 100%;
   inline-size: 100%;
-  padding: var(--meridian-run-graph-space-2) var(--meridian-run-graph-space-3);
+  padding: var(--meridian-workflow-canvas-space-2) var(--meridian-workflow-canvas-space-3);
   background: var(--meridian-surface);
-  border: var(--meridian-run-graph-ring) solid var(--meridian-edge);
-  border-radius: var(--meridian-run-graph-radius-sm);
+  border: var(--meridian-workflow-canvas-ring) solid var(--meridian-edge);
+  border-radius: var(--meridian-workflow-canvas-radius-sm);
   color: var(--meridian-text);
   font-family: var(--meridian-font-sans);
   /* A click selects the node, so it reads as something to press. */
@@ -149,7 +148,7 @@
 /* The name and the first output's count share the top line; the count never truncates. */
 .meridian-run-graph-node__head {
   display: flex;
-  gap: var(--meridian-run-graph-space-2);
+  gap: var(--meridian-workflow-canvas-space-2);
   align-items: baseline;
   min-inline-size: 0;
 }
@@ -162,12 +161,11 @@
 .meridian-run-graph-node__count {
   flex: none;
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .meridian-run-graph-node__name,
-.meridian-run-graph-node__kind,
 .meridian-run-graph-node__state,
 .meridian-run-graph-node__error,
 .meridian-run-graph-node__resume {
@@ -177,35 +175,37 @@
 }
 
 .meridian-run-graph-node__name {
-  font-size: var(--meridian-run-graph-text-sm);
+  font-size: var(--meridian-workflow-canvas-text-sm);
   font-weight: 600;
 }
 
+/* Held whole on one line: the box's width is derived from it, so it never truncates. */
 .meridian-run-graph-node__kind {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
+  white-space: nowrap;
 }
 
 .meridian-run-graph-node__state {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
 .meridian-run-graph-node__error {
   color: var(--meridian-red-text);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
 .meridian-run-graph-node__resume {
   color: var(--meridian-text-muted);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
 /* An edge's item count, read off the canvas's own background. */
 .meridian-run-graph .react-flow__edge-text {
   fill: var(--meridian-text-muted);
   font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-run-graph-text-xs);
+  font-size: var(--meridian-workflow-canvas-text-xs);
 }
 
 .meridian-run-graph .react-flow__edge-textbg {
@@ -214,8 +214,8 @@
 
 /* The page's selection: an outline outside the ring, so the ring keeps saying the state. */
 .meridian-run-graph-node[data-selected="true"] {
-  outline: var(--meridian-run-graph-ring) solid var(--meridian-accent);
-  outline-offset: var(--meridian-run-graph-ring);
+  outline: var(--meridian-workflow-canvas-ring) solid var(--meridian-accent);
+  outline-offset: var(--meridian-workflow-canvas-ring);
 }
 
 .meridian-run-graph-node[data-status="pending"] .meridian-run-graph-node__state {
@@ -283,10 +283,10 @@
  */
 .meridian-run-graph-node[data-status="running"]::after {
   position: absolute;
-  inset: calc(var(--meridian-run-graph-ring) * -1);
+  inset: calc(var(--meridian-workflow-canvas-ring) * -1);
   content: "";
-  border: var(--meridian-run-graph-ring) solid var(--meridian-accent);
-  border-radius: var(--meridian-run-graph-radius-sm);
+  border: var(--meridian-workflow-canvas-ring) solid var(--meridian-accent);
+  border-radius: var(--meridian-workflow-canvas-radius-sm);
   pointer-events: none;
   animation: meridian-run-graph-breath var(--meridian-motion-breath) var(--meridian-ease-settle)
     infinite alternate;

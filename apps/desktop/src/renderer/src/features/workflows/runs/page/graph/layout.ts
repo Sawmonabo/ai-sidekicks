@@ -1,11 +1,20 @@
 // Where each node stands on the run's canvas: the place the builder put it, read from the
 // document's layout, or, when the document carries no place for some node, the whole graph laid
-// out left to right. Every box carries a stated size, so the picture is complete on its first
-// paint. This module imports the layout library, so only the lazy canvas chunk reaches it.
+// out left to right around each node's derived box. Every box carries a stated size, so the
+// picture is complete on its first paint. This module imports the layout library, so only the
+// lazy canvas chunk reaches it.
 
 import { graphlib, layout } from "@dagrejs/dagre";
 
-import type { WorkflowDocument } from "@ai-sidekicks/contracts/workflow/definition/definition";
+import type {
+  WorkflowDocument,
+  WorkflowNode,
+} from "@ai-sidekicks/contracts/workflow/definition/definition";
+
+import {
+  NODE_EXTRA_LINE_HEIGHT,
+  type NodeBoxSize,
+} from "#renderer/features/workflows/canvas/node-box.js";
 
 /** A point on the canvas, in canvas units. */
 export interface CanvasPoint {
@@ -14,82 +23,61 @@ export interface CanvasPoint {
 }
 
 /**
- * One node's width, in canvas units: room for its name and its kind on one line each at the
- * default text size. Only the zoom scales it, never the person's text size.
+ * The gap between two nodes in the same column, in canvas units: twice the line a box grows by,
+ * so a node that grows downward never reaches the node below it.
  */
-export const RUN_GRAPH_NODE_WIDTH = 208;
-
-/**
- * A node's height before any failure line, in canvas units: its name, kind and state lines at
- * the body line height, the gaps between them, its padding and its ring, all set in the canvas
- * units `canvas-measures.ts` states (80.5).
- */
-const RUN_GRAPH_NODE_HEIGHT = 84;
-
-/**
- * How much a node grows to carry one more line and the gap above it: a failed node's error, or
- * the instant a waiting node resumes itself.
- */
-const RUN_GRAPH_EXTRA_LINE_HEIGHT = 24;
-
-/**
- * The gap between two nodes in the same column, in canvas units. Wider than the extra line, so
- * a node that grows downward never reaches the node below it.
- */
-const RUN_GRAPH_NODE_GAP = 40;
+const RUN_GRAPH_NODE_GAP = 2 * NODE_EXTRA_LINE_HEIGHT;
 
 /** The gap between two columns, in canvas units: room for an edge to read as a connection. */
 const RUN_GRAPH_COLUMN_GAP = 72;
 
 /**
  * Every node's top-left corner, keyed by node id, the trigger included. Positions depend on the
- * document alone, so a run moving from step to step never moves a node.
+ * document and each node's box before any extra line, `boxOf`, so a run moving from step to step
+ * moves a node only when the widest count it reports gains a digit.
  */
-export function placeRunGraphNodes(document: WorkflowDocument): ReadonlyMap<string, CanvasPoint> {
-  const nodeIds = [document.trigger.id, ...document.nodes.map((node) => node.id)];
+export function placeRunGraphNodes(
+  document: WorkflowDocument,
+  boxOf: (node: WorkflowNode) => NodeBoxSize,
+): ReadonlyMap<string, CanvasPoint> {
+  const nodes = [document.trigger, ...document.nodes];
   const placed = document.layout?.nodes ?? {};
   const positions = new Map<string, CanvasPoint>();
-  for (const nodeId of nodeIds) {
-    const point = placed[nodeId];
+  for (const node of nodes) {
+    const point = placed[node.id];
     if (point === undefined) {
-      return layOutLeftToRight(document, nodeIds);
+      return layOutLeftToRight(document, nodes, boxOf);
     }
-    positions.set(nodeId, { x: point.x, y: point.y });
+    positions.set(node.id, { x: point.x, y: point.y });
   }
   return positions;
 }
 
-/** A node's height on the canvas: one more line when it carries a failure or a resume instant. */
-export function runGraphNodeHeight(hasExtraLine: boolean): number {
-  return hasExtraLine ? RUN_GRAPH_NODE_HEIGHT + RUN_GRAPH_EXTRA_LINE_HEIGHT : RUN_GRAPH_NODE_HEIGHT;
-}
-
 function layOutLeftToRight(
   document: WorkflowDocument,
-  nodeIds: readonly string[],
+  nodes: readonly WorkflowNode[],
+  boxOf: (node: WorkflowNode) => NodeBoxSize,
 ): ReadonlyMap<string, CanvasPoint> {
+  const boxes = new Map(nodes.map((node) => [node.id, boxOf(node)]));
   const graph = new graphlib.Graph();
   graph.setGraph({ rankdir: "LR", nodesep: RUN_GRAPH_NODE_GAP, ranksep: RUN_GRAPH_COLUMN_GAP });
   // The layout reads a label on every edge; these carry nothing of their own.
   graph.setDefaultEdgeLabel(() => ({}));
-  for (const nodeId of nodeIds) {
-    graph.setNode(nodeId, { width: RUN_GRAPH_NODE_WIDTH, height: RUN_GRAPH_NODE_HEIGHT });
+  for (const [nodeId, box] of boxes) {
+    graph.setNode(nodeId, { width: box.width, height: box.height });
   }
   for (const edge of document.edges) {
     graph.setEdge(edge.source, edge.target);
   }
   layout(graph);
   return new Map(
-    nodeIds.map((nodeId) => {
+    [...boxes].map(([nodeId, box]) => {
       const laidOut = graph.node(nodeId);
       // The layout answers each node's center, always set once it has run; the canvas places a
       // node by its corner.
       return [
         nodeId,
-        {
-          x: (laidOut.x ?? 0) - RUN_GRAPH_NODE_WIDTH / 2,
-          y: (laidOut.y ?? 0) - RUN_GRAPH_NODE_HEIGHT / 2,
-        },
+        { x: (laidOut.x ?? 0) - box.width / 2, y: (laidOut.y ?? 0) - box.height / 2 },
       ];
     }),
   );
