@@ -61,9 +61,9 @@ describe("keyboard page — a command registered after the page first rendered",
         <KeyboardPage />
       </LiveAnnouncerProvider>,
     );
-    expect(rowOf(container, "Check for updates")).toBeDefined();
+    expect(rowOf(container, "Color scheme")).toBeDefined();
 
-    commandRegistry.unregister("bridge.checkForUpdates");
+    commandRegistry.unregister("settings.cycleColorScheme");
     await act(async () => {
       rerender(
         <LiveAnnouncerProvider>
@@ -73,6 +73,6 @@ describe("keyboard page — a command registered after the page first rendered",
       await crossMacrotaskBoundary();
     });
 
-    expect(() => rowOf(container, "Check for updates")).toThrow();
+    expect(() => rowOf(container, "Color scheme")).toThrow();
   });
 });

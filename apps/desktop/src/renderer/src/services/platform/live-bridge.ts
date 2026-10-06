@@ -46,7 +46,6 @@ export function createLiveBridge(preloadApi: PreloadApi): PlatformBridge {
 const PRELOAD_NAMESPACE_PRESENCE: Readonly<Record<keyof PreloadApi, true>> = {
   daemon: true,
   native: true,
-  update: true,
   machineSettings: true,
   keyboardMap: true,
   window: true,

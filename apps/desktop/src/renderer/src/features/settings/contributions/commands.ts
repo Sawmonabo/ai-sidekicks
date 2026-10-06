@@ -1,5 +1,5 @@
-// The Settings palette commands: acts on this install with no screen of their own (copy build
-// details, check for updates) and the `Color scheme` row.
+// The Settings palette commands: an act on this install with no screen of its own (copy build
+// details) and the `Color scheme` row.
 //
 // Every bridge act settles: the palette drops the promise a command returns, so each act
 // catches its own failure and hands the caller's sink a `Refusal`. The refusal detail is a
@@ -11,7 +11,7 @@ import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { CommandDefinition } from "#renderer/registries/commands/types.js";
 
 /** Why a bridge-backed command could not complete. */
-export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
+export type BridgeCommandRefusalCode = "clipboard-unavailable";
 
 /** The subsystem name every refusal this module raises carries. */
 const BRIDGE_COMMAND_REFUSAL_ORIGIN = "palette-bridge-command";
@@ -45,20 +45,6 @@ export function buildBridgeCommands(
         );
       },
     },
-    {
-      id: "bridge.checkForUpdates",
-      title: "Check for updates",
-      group: "Help",
-      keywords: ["update", "upgrade", "release", "version"],
-      run: async () => {
-        // Requests the check and returns: the updater's state arrives through
-        // `update.subscribe` to whichever view renders it, and awaiting an outcome here would be
-        // a second reader of it.
-        await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
-          bridge.update.requestCheck(),
-        );
-      },
-    },
   ];
 }
 
@@ -80,17 +66,12 @@ const CLIPBOARD_REFUSAL_DETAIL =
   "The build details could not be copied. The clipboard belongs to " +
   "the main process, and this window could not reach it.";
 
-const UPDATE_REFUSAL_DETAIL =
-  "The update check could not start. The updater runs in the main " +
-  "process, and this window could not reach it.";
-
 /**
  * Perform one act, and route either kind of failure to the sink.
  *
- * `act` is called inside the `try`, and that placement is the contract: a preload member main
- * has not wired throws synchronously while the fixture refuses with a rejected promise. A
- * boundary on the returned promise would let the throw escape into the palette's
- * fire-and-forget dispatch, which drops it.
+ * `act` is called inside the `try`, and that placement is the contract: a bridge member may throw
+ * synchronously where another rejects. A boundary on the returned promise would let the throw
+ * escape into the palette's fire-and-forget dispatch, which drops it.
  */
 async function settle(
   onRefusal: BridgeCommandRefusalSink,

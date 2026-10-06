@@ -64,21 +64,15 @@ type BridgeMember = Exclude<
   "window.lastUsedWindowId"
 >;
 
-/** The updater's members, which keep throwing until the updater is built. */
-type UpdaterMember = Extract<BridgeMember, `update.${string}`>;
-
 /**
  * The channels main answers for each bridge member: the one it invokes, and for a subscription
  * the one it opens on and the ones its first value is read from or it is closed on. Keyed by every
- * member but the updater's, so a member added to `PreloadApi` fails the build until it names the
+ * member, so a member added to `PreloadApi` fails the build until it names the
  * channels main answers it on; main's installer is keyed by every channel, so each one fails the
  * build until it has an answer.
  */
 export const BRIDGE_MEMBER_CHANNELS: Readonly<
-  Record<
-    Exclude<BridgeMember, UpdaterMember>,
-    readonly (InvokedBridgeChannel | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL)[]
-  >
+  Record<BridgeMember, readonly (InvokedBridgeChannel | typeof OPEN_DAEMON_SUBSCRIPTION_CHANNEL)[]>
 > = {
   "daemon.call": [BRIDGE_CHANNELS.daemonCall],
   "daemon.subscribe": [OPEN_DAEMON_SUBSCRIPTION_CHANNEL, BRIDGE_CHANNELS.closeDaemonSubscription],

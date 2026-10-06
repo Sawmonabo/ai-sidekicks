@@ -1,6 +1,6 @@
 // The palette's bridge-backed commands. A refused act is rendered, not dropped; the cases run
-// against the fixture bridge, whose `update.requestCheck` rejects and whose
-// `native.copyToClipboard` resolves.
+// against the fixture bridge, whose `native.copyToClipboard` resolves, with that member made to
+// reject or throw where a case needs the failure.
 
 import { describe, expect, it } from "vitest";
 import type { ClipboardContent } from "#shared/preload-api.js";
@@ -25,40 +25,48 @@ function commandById(commands: readonly CommandDefinition[], commandId: string):
 
 describe("palette bridge commands — a refused act is rendered, never dropped", () => {
   it("routes a bridge rejection to the refusal sink", async () => {
-    // `update.requestCheck` has no fixture stand-in and rejects. The palette drops the promise
-    // `invoke` returns, so a `run` that let this reject would show the person nothing.
+    // The palette drops the promise `invoke` returns, so a `run` that let this reject would show
+    // the person nothing.
+    const bridge = fixtureBridge();
+    const rejecting: PlatformBridge = {
+      ...bridge,
+      native: {
+        ...bridge.native,
+        copyToClipboard: () => Promise.reject(new Error("the clipboard is unreachable")),
+      },
+    };
     const refusals: Refusal[] = [];
-    const commands = buildBridgeCommands(fixtureBridge(), (refusal) => refusals.push(refusal));
+    const commands = buildBridgeCommands(rejecting, (refusal) => refusals.push(refusal));
 
-    await commandById(commands, "bridge.checkForUpdates").run();
+    await commandById(commands, "bridge.copyBuildDetails").run();
 
     expect(refusals).toHaveLength(1);
-    expect(refusals[0]?.code).toBe("update-check-unavailable");
+    expect(refusals[0]?.code).toBe("clipboard-unavailable");
     expect(refusals[0]?.origin).toBe("palette-bridge-command");
-    expect(refusals[0]?.detail).toContain("update check could not start");
+    expect(refusals[0]?.detail).toContain("build details could not be copied");
   });
 
   it("routes a bridge that THROWS to the same sink as one that rejects", async () => {
-    // A preload member main has not wired throws synchronously, while the fixture refuses with
-    // a rejected promise; both must land on one sink. Negative control for a boundary attached
-    // to the returned promise, which the throw would escape.
+    // A member that throws synchronously must land on the same sink as one that rejects.
+    // Negative control for a boundary attached to the returned promise, which the throw would
+    // escape.
     const bridge = fixtureBridge();
     const throwing: PlatformBridge = {
       ...bridge,
-      update: {
-        ...bridge.update,
-        requestCheck: () => {
-          throw new Error("update.requestCheck is not implemented");
+      native: {
+        ...bridge.native,
+        copyToClipboard: () => {
+          throw new Error("the clipboard is unreachable");
         },
       },
     };
     const refusals: Refusal[] = [];
     const commands = buildBridgeCommands(throwing, (refusal) => refusals.push(refusal));
 
-    await expect(commandById(commands, "bridge.checkForUpdates").run()).resolves.toBeUndefined();
+    await expect(commandById(commands, "bridge.copyBuildDetails").run()).resolves.toBeUndefined();
 
     expect(refusals).toHaveLength(1);
-    expect(refusals[0]?.code).toBe("update-check-unavailable");
+    expect(refusals[0]?.code).toBe("clipboard-unavailable");
   });
 
   it("negative control: an act the bridge serves reports no refusal", async () => {

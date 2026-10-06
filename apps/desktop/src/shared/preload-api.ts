@@ -11,11 +11,10 @@
 // `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
 // `src/shared/`, with no dependency on the `electron` package.
 //
-// `PreloadApi` carries the members main answers and the members the renderer already calls.
-// A member main does not answer yet throws `NotImplementedError`; `createStubBridge` is that
-// whole object, and the preload replaces the members main answers (every member but the
-// updater's). The request and reply types of the bridge calls not built yet are declared here as
-// well, and each call joins `PreloadApi` with its main handler.
+// `PreloadApi` carries the members main answers. `createStubBridge` is the same object with every
+// round-trip member throwing `NotImplementedError`; the preload starts from it and replaces every
+// member with its IPC call. The request and reply types of the bridge calls not built yet are
+// declared here as well, and each call joins `PreloadApi` with its main handler.
 
 import type {
   DaemonEvent,
@@ -358,7 +357,7 @@ export interface DaemonWire {
 
 /**
  * The one object the preload exposes on `window.desktopBridge`: the daemon's wire, the OS calls
- * main makes for the renderer, the updater, the machine settings, the keyboard map, and build
+ * main makes for the renderer, the machine settings, the keyboard map, and build
  * facts.
  */
 export interface PreloadApi {
@@ -393,14 +392,6 @@ export interface PreloadApi {
     copyToClipboard(content: ClipboardContent): Promise<void>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;
-  };
-
-  readonly update: {
-    getState(): Promise<UpdateState>;
-    subscribe(handler: (state: UpdateState) => void): Unsubscribe;
-    requestCheck(): Promise<void>;
-    requestDownload(): Promise<void>;
-    requestRestart(): Promise<void>;
   };
 
   /**
@@ -472,8 +463,8 @@ export interface PreloadApi {
 }
 
 /**
- * Thrown by a preload member main has no handler for yet. Its `name` is stable, so a caller can
- * test it without importing the class.
+ * Thrown by a member of the stub bridge, one the preload has not carried to main. Its `name` is
+ * stable, so a caller can test it without importing the class.
  */
 export class NotImplementedError extends Error {
   public constructor(member: string) {
@@ -508,13 +499,6 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
-    },
-    update: {
-      getState: () => stubThrow("update.getState"),
-      subscribe: () => stubThrow("update.subscribe"),
-      requestCheck: () => stubThrow("update.requestCheck"),
-      requestDownload: () => stubThrow("update.requestDownload"),
-      requestRestart: () => stubThrow("update.requestRestart"),
     },
     machineSettings: {
       read: () => stubThrow("machineSettings.read"),

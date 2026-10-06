@@ -1,5 +1,5 @@
-// The object the preload exposes: the stub bridge, with the members main answers carried over
-// IPC. The updater has no main handler yet, so its members still throw `NotImplementedError`.
+// The object the preload exposes: the stub bridge, with every member main answers carried over
+// IPC.
 
 import { ipcRenderer, webUtils } from "electron";
 

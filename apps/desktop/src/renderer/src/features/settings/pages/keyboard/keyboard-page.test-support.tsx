@@ -22,7 +22,7 @@ import { KeyboardPage } from "./KeyboardPage.js";
 const TEST_COMMAND_IDS = [
   "frame.goToSessions",
   "frame.goToWorkflows",
-  "bridge.checkForUpdates",
+  "settings.cycleColorScheme",
 ] as const;
 
 /**
@@ -89,8 +89,8 @@ beforeEach(() => {
       run: () => undefined,
     },
     {
-      id: "bridge.checkForUpdates",
-      title: "Check for updates",
+      id: "settings.cycleColorScheme",
+      title: "Color scheme",
       group: "Help",
       run: () => undefined,
     },
