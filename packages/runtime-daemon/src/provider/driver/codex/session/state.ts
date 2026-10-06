@@ -179,33 +179,33 @@ export type CodexUsageEstablishment =
  * Gets or creates a turn's entry in the bounded evidence buffer, or returns `null` when it can
  * neither evict nor grow, which is session-fatal. While a `turn/start` is in flight nothing is
  * evicted (one synchronous drain can outrun the waiting `startRun` continuation, and dropping
- * its terminal would report a swallowed opening as a completed turn) and the memory may grow to
+ * its terminal would report a swallowed opening as a completed turn) and the buffer may grow to
  * `CODEX_BUFFERED_TURN_EVIDENCE_CEILING`. With none in flight, oldest-first eviction is free.
  */
 export function bufferTurnEvidence(
   record: CodexSessionRecord,
   turnId: string,
 ): BufferedTurnEvidence | null {
-  const memory = record.bufferedTurnEvidence;
-  const existing = memory.get(turnId);
+  const buffer = record.bufferedTurnEvidence;
+  const existing = buffer.get(turnId);
   if (
     existing === undefined &&
     record.inFlightTurnStarts > 0 &&
-    memory.size >= CODEX_BUFFERED_TURN_EVIDENCE_CEILING
+    buffer.size >= CODEX_BUFFERED_TURN_EVIDENCE_CEILING
   ) {
     // Only a turn not already held is refused; dropping a held one would make the refusal the loss.
     return null;
   }
   const buffered = existing ?? { observations: new Set(), terminal: undefined };
-  memory.delete(turnId);
-  memory.set(turnId, buffered);
+  buffer.delete(turnId);
+  buffer.set(turnId, buffered);
   if (record.inFlightTurnStarts === 0) {
-    while (memory.size > CODEX_BUFFERED_TURN_EVIDENCE_LIMIT) {
-      const oldest = memory.keys().next();
+    while (buffer.size > CODEX_BUFFERED_TURN_EVIDENCE_LIMIT) {
+      const oldest = buffer.keys().next();
       if (oldest.done === true) {
         break;
       }
-      memory.delete(oldest.value);
+      buffer.delete(oldest.value);
     }
   }
   return buffered;

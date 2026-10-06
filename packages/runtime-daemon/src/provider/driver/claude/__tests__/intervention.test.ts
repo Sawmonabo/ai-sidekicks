@@ -14,7 +14,7 @@ import {
   buildInterruptParams,
   buildSteerParams,
   FakeClaudeProviderProcess,
-} from "./transport.test-support.js";
+} from "../__fixtures__/transport-doubles.js";
 
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
   readonly channel: FakeClaudeProviderProcess | undefined;

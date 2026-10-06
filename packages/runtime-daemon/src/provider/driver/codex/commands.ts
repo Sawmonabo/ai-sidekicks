@@ -16,6 +16,7 @@ import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { isPlainObject } from "../../record-readers.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import { CodexTransportError } from "./session/errors.js";
 import {
   type CodexLifecycleOptions,
   type CodexSessionRecord,
@@ -158,17 +159,19 @@ const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
  * Maps the provider's `skills/list` reply onto command entries, concatenating per-directory
  * groups. Pure: rejections are returned, not emitted. `providerAccountId` is the bound account or
  * `null`, never `""` or a wildcard; entries are deep-frozen because the list is shared state.
+ * Throws `CodexTransportError` for a reply with no `data` list: reading it as no commands would
+ * hold a false claim that the provider has none.
  */
 function readCodexProviderCommandEntries(
   response: unknown,
   providerAccountId: string | null,
 ): CodexProviderCommandReading {
-  if (!isPlainObject(response)) {
-    return CODEX_EMPTY_PROVIDER_COMMAND_READING;
-  }
-  const groups = response["data"];
+  const groups = isPlainObject(response) ? response["data"] : undefined;
   if (!Array.isArray(groups)) {
-    return CODEX_EMPTY_PROVIDER_COMMAND_READING;
+    throw new CodexTransportError(
+      `The Codex app-server's "${CODEX_SKILLS_LIST_METHOD}" reply carries no skill list.`,
+      { method: CODEX_SKILLS_LIST_METHOD },
+    );
   }
   const entries: ProviderCommandEntry[] = [];
   const rejections: CodexProviderCommandRejection[] = [];
@@ -210,12 +213,6 @@ interface CodexProviderCommandReading {
   readonly entries: readonly ProviderCommandEntry[];
   readonly rejections: readonly CodexProviderCommandRejection[];
 }
-
-/** The shared frozen empty reading, so no unreadable-reply path returns a mutable array. */
-const CODEX_EMPTY_PROVIDER_COMMAND_READING: CodexProviderCommandReading = Object.freeze({
-  entries: Object.freeze([]),
-  rejections: Object.freeze([]),
-});
 
 /**
  * Freezes one entry and its nested binding, keeping its declared type; a shallow freeze would let

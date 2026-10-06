@@ -3,21 +3,29 @@
 
 import { describe, expect, it } from "vitest";
 
-import { UnownedBriefTargetError } from "../projection.js";
 import {
   BriefDeliveryCoordinator,
   type BriefDeliveryRequest,
   type BriefDeliverySettlement,
   type BriefOutboundFrame,
+  type BriefTargetIdentity,
+  UnownedBriefTargetError,
 } from "../delivery.js";
 import type { CanonicalTranscriptProjection } from "../../../driver/contract.js";
-import {
-  projectionOf,
-  requestFor,
-  TARGET,
-  turn,
-  type DeliveryDraft,
-} from "./projection.test-support.js";
+import { projectionOf, requestFor as renderRequestFor, turn } from "./projection.test-support.js";
+
+/** The target every fixture request addresses. */
+const TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-1" };
+
+/** A delivery request before a coordinator has established its target and minted the handle. */
+type DeliveryDraft = Omit<BriefDeliveryRequest, "target"> & {
+  readonly target: BriefTargetIdentity;
+};
+
+/** A request for `projection` to the fixture target. */
+function requestFor(projection: CanonicalTranscriptProjection): DeliveryDraft {
+  return { ...renderRequestFor(projection), target: TARGET };
+}
 
 const HELLO: CanonicalTranscriptProjection = projectionOf([
   turn(1, "user", [{ kind: "text", text: "hello" }]),

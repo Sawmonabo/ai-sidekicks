@@ -115,8 +115,13 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
     return { settled: "written" };
   }
 
+  // Parks each control request's answer until a test releases it, so a close or rewind can land
+  // while the request is in flight.
+  controlResponseGate: Promise<void> | undefined = undefined;
+
   async sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse> {
     this.controlRequests.push(request);
+    await this.controlResponseGate;
     await Promise.resolve();
     return this.controlResponse;
   }

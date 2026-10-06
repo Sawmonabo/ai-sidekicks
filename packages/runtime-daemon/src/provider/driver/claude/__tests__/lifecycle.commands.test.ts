@@ -22,7 +22,7 @@ import {
   TEST_RUN_ID,
   TEST_SECOND_RUN_ID,
   TEST_SESSION_ID,
-} from "./transport.test-support.js";
+} from "../__fixtures__/transport-doubles.js";
 import {
   armRunDispatch,
   buildHarness,

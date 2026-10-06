@@ -43,7 +43,7 @@ export function classifyClaudeSpentRetries(frame: unknown): ProviderSpentRetries
   if (!isPositiveFiniteNumber(attempt) || !isPositiveFiniteNumber(maxRetries)) {
     return null;
   }
-  if ((attempt as number) < (maxRetries as number)) {
+  if (attempt < maxRetries) {
     return null;
   }
   return { cause: "retries-exhausted" };

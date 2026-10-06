@@ -1,8 +1,14 @@
-// Setup the Codex lifecycle test files share, beside the doubles in `app-server.test-support.ts`.
+// Setup the Codex lifecycle test files share, beside the doubles in
+// `__fixtures__/app-server-doubles.ts`.
 
 import type { CreateSessionParams, ResumeSessionParams } from "../../contract.js";
 
-import { SESSION_CONFIG, SESSION_ID, TEST_MODEL, THREAD_ID } from "./app-server.test-support.js";
+import {
+  SESSION_CONFIG,
+  SESSION_ID,
+  TEST_MODEL,
+  THREAD_ID,
+} from "../__fixtures__/app-server-doubles.js";
 
 /** The create every lifecycle test opens its session with. */
 export const CREATE_PARAMS: CreateSessionParams = {

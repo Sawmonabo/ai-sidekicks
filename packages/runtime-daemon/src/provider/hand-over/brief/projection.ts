@@ -1,6 +1,6 @@
 // The hand-over brief: what stands in for a conversation a new provider session cannot
-// continue. It renders the canonical projection as bounded prose and names the target it goes
-// to; `delivery.ts` sends it, at most once.
+// continue. It renders the canonical projection as bounded prose; `delivery.ts` sends it, at most
+// once, into the target it names.
 //
 //   * The budget is a fraction of the target's context window, never an absolute token count.
 //   * Eviction removes whole exchanges only, and the newest tool exchanges are protected.
@@ -17,46 +17,6 @@ import type {
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
 } from "../../driver/contract.js";
-
-/**
- * The target session a brief is delivered into, named by its provider session id alone: a resume
- * handle may rotate for one unchanged session, which would make one switch look like two.
- */
-export interface BriefTargetIdentity {
-  readonly providerSessionId: string;
-}
-
-/**
- * A target one coordinator established; only that coordinator may send to it, as its in-memory
- * record of the one send into each target is the only duplicate guard. A caller passing an
- * inherited session id to `establishTarget` as fresh cannot be detected.
- */
-export class EstablishedBriefTarget {
-  readonly #providerSessionId: string;
-
-  constructor(providerSessionId: string) {
-    this.#providerSessionId = providerSessionId;
-  }
-
-  get providerSessionId(): string {
-    return this.#providerSessionId;
-  }
-}
-
-/** Thrown when a coordinator is handed a target it did not itself establish. */
-export class UnownedBriefTargetError extends Error {
-  readonly providerSessionId: string;
-
-  constructor(providerSessionId: string) {
-    super(
-      `Refusing to deliver a brief into provider session "${providerSessionId}": this ` +
-        `coordinator did not establish that target, so it holds no record of what may already ` +
-        `have been sent into it.`,
-    );
-    this.name = "UnownedBriefTargetError";
-    this.providerSessionId = providerSessionId;
-  }
-}
 
 /** The loss this floor declares on every path. */
 const BRIEF_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";

@@ -73,18 +73,6 @@ export class ClaudeHandshakeRegister {
   }
 
   /**
-   * Records the fast-mode state a freshly attached process's `initialize` reply reported, so the
-   * binding carries an observation from spawn, before any turn.
-   */
-  observeInitializeFastMode(
-    sessionId: SessionId,
-    providerSessionId: string,
-    declaration: ClaudeFastModeDeclaration,
-  ): void {
-    this.#holdFastMode(sessionId, providerSessionId, declaration);
-  }
-
-  /**
    * Records one `system/init` declaration; the last wins, since the surface can change mid-run. A
    * declaration reporting a fast-mode state replaces the held one; one reporting none keeps it.
    */
@@ -99,7 +87,7 @@ export class ClaudeHandshakeRegister {
       invocableCommandNames: new Set(declaration.slashCommands),
     });
     if (declaration.fastModeState !== null) {
-      this.#holdFastMode(sessionId, providerSessionId, declaration);
+      this.holdFastMode(sessionId, providerSessionId, declaration);
     }
     // The handshake of the turn the run started: whatever level it applied has taken effect.
     this.settleRunOutputSpeed(sessionId, providerSessionId);
@@ -222,8 +210,11 @@ export class ClaudeHandshakeRegister {
     return held?.providerSessionId === providerSessionId ? held.state : undefined;
   }
 
-  // Read once, as observed, so a declaration the bounds refuse emits its diagnostic once.
-  #holdFastMode(
+  /**
+   * Records the fast-mode state a process reported, in its `initialize` reply at spawn or in a
+   * handshake. Read once, as observed, so a declaration the bounds refuse emits its diagnostic once.
+   */
+  holdFastMode(
     sessionId: SessionId,
     providerSessionId: string,
     declaration: ClaudeFastModeDeclaration,

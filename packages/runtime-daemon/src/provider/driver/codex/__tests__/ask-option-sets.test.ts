@@ -14,7 +14,7 @@ import {
   THREAD_ID,
   TURN_ID,
   createManagerHarness,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
 describe("readCodexAskOptionSet (the input-ask choice set)", () => {

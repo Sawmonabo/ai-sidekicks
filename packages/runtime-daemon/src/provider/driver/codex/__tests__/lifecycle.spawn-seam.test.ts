@@ -17,7 +17,7 @@ import {
   TEST_MODEL,
   createHarness,
   threadStartResult,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { RESUME_PARAMS } from "./lifecycle.test-support.js";
 
 describe("Codex credential-policy strip at the spawn seam", () => {

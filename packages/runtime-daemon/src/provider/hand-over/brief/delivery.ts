@@ -6,15 +6,48 @@
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import type { OutboundTextFrame } from "../../outbound-frame.js";
 import { OutboundTextFrameWriter } from "../../outbound-frame.js";
-import {
-  EstablishedBriefTarget,
-  type BriefBudgetPolicy,
-  BriefProjection,
-  type BriefRendering,
-  type BriefTargetIdentity,
-  UnownedBriefTargetError,
-} from "./projection.js";
+import { type BriefBudgetPolicy, BriefProjection, type BriefRendering } from "./projection.js";
 import type { CanonicalTranscriptProjection } from "../../driver/contract.js";
+
+/**
+ * The target session a brief is delivered into, named by its provider session id alone: a resume
+ * handle may rotate for one unchanged session, which would make one switch look like two.
+ */
+export interface BriefTargetIdentity {
+  readonly providerSessionId: string;
+}
+
+/**
+ * A target one coordinator established; only that coordinator may send to it, as its in-memory
+ * record of the one send into each target is the only duplicate guard. A caller passing an
+ * inherited session id to `establishTarget` as fresh cannot be detected.
+ */
+export class EstablishedBriefTarget {
+  readonly #providerSessionId: string;
+
+  constructor(providerSessionId: string) {
+    this.#providerSessionId = providerSessionId;
+  }
+
+  get providerSessionId(): string {
+    return this.#providerSessionId;
+  }
+}
+
+/** Thrown when a coordinator is handed a target it did not itself establish. */
+export class UnownedBriefTargetError extends Error {
+  readonly providerSessionId: string;
+
+  constructor(providerSessionId: string) {
+    super(
+      `Refusing to deliver a brief into provider session "${providerSessionId}": this ` +
+        `coordinator did not establish that target, so it holds no record of what may already ` +
+        `have been sent into it.`,
+    );
+    this.name = "UnownedBriefTargetError";
+    this.providerSessionId = providerSessionId;
+  }
+}
 
 /**
  * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,
@@ -137,8 +170,14 @@ export class BriefDeliveryCoordinator {
       projection: request.projection,
       budget: request.budget,
     });
+    // Composed before the send, so a composing failure is thrown with nothing sent, never settled
+    // as a send that may have landed.
+    const frame: OutboundTextFrame = this.#frameWriter.compose({
+      text: rendering.text,
+      origin: "system_narration",
+    });
     const delivery: Promise<BriefDeliverySettlement> = this.#send(
-      targetProviderSessionId,
+      { targetProviderSessionId, frame },
       rendering,
     );
     this.#deliveries.set(targetProviderSessionId, delivery);
@@ -146,17 +185,11 @@ export class BriefDeliveryCoordinator {
   }
 
   async #send(
-    targetProviderSessionId: string,
+    outboundFrame: BriefOutboundFrame,
     rendering: BriefRendering,
   ): Promise<BriefDeliverySettlement> {
     try {
-      await this.#gateway.sendBriefTurn({
-        targetProviderSessionId,
-        frame: this.#frameWriter.compose({
-          text: rendering.text,
-          origin: "system_narration",
-        }),
-      });
+      await this.#gateway.sendBriefTurn(outboundFrame);
       return settle(rendering, "delivered");
     } catch (sendFailure) {
       return settle(rendering, "unconfirmed", sendFailure);

@@ -32,7 +32,7 @@ import {
   threadStartResult,
   turnCompletedFrame,
   zeroTurnCompletedFrame,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";

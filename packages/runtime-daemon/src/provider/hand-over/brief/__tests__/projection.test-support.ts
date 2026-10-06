@@ -1,21 +1,17 @@
 // Fixtures for the hand-over brief's tests: canonical transcript turns and the request a render
-// reads and a delivery addresses.
+// reads.
 
 import {
   defaultBriefBudgetPolicy,
   type BriefBudgetPolicy,
-  type BriefTargetIdentity,
+  type BriefRenderRequest,
 } from "../projection.js";
-import type { BriefDeliveryRequest } from "../delivery.js";
 import { RUN_ID, SESSION_ID } from "../../__tests__/canonical-transcript.test-support.js";
 import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
 } from "../../../driver/contract.js";
-
-/** The target every fixture request addresses. */
-export const TARGET: BriefTargetIdentity = { providerSessionId: "provider-session-target-1" };
 
 /** A budget wide enough that the whole fixture fits, so eviction is opt-in per case. */
 const ROOMY_BUDGET: BriefBudgetPolicy = defaultBriefBudgetPolicy(1_000_000);
@@ -47,15 +43,10 @@ export function projectionOf(
   return { sessionId: SESSION_ID, runId: RUN_ID, builtAtPosition: 100, turns };
 }
 
-/** A delivery request before a coordinator has established its target and minted the handle. */
-export type DeliveryDraft = Omit<BriefDeliveryRequest, "target"> & {
-  readonly target: BriefTargetIdentity;
-};
-
-/** A request for `projection` to the fixture target, within `budget`. */
+/** A render request for `projection`, within `budget`. */
 export function requestFor(
   projection: CanonicalTranscriptProjection,
   budget: BriefBudgetPolicy = ROOMY_BUDGET,
-): DeliveryDraft {
-  return { projection, target: TARGET, budget };
+): BriefRenderRequest {
+  return { projection, budget };
 }

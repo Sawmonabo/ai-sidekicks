@@ -1,10 +1,11 @@
 // The Claude leg of the output-speed axis: every new process is told the level before any turn,
 // a run that changes it sends `apply_flag_settings` once, nothing the provider refuses or the
-// driver's table lacks is recorded as applied, and each run reports the state it runs at.
+// driver's table lacks is recorded as applied, a close or rewind while that request is in flight
+// leaves the run unwritten, and each run reports the state it runs at.
 
 import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ClaudeHandshakeDeclaration } from "../session/transport.js";
 import {
@@ -13,7 +14,7 @@ import {
   TEST_RUN_ID,
   TEST_SECOND_RUN_ID,
   TEST_SESSION_ID,
-} from "./transport.test-support.js";
+} from "../__fixtures__/transport-doubles.js";
 import {
   armRunDispatch,
   buildHarness,
@@ -166,5 +167,53 @@ describe("Claude output speed per run", () => {
     await expect(startRunAt(harness, THIRD_RUN_ID)).rejects.toThrow("pipe closed");
     publishHandshake(channel, OPT_IN_REQUIRED);
     expect(settled).toHaveLength(2);
+  });
+});
+
+describe("Claude output speed while the session changes", () => {
+  // Starts a run that changes the level and parks its `apply_flag_settings` answer.
+  async function startRunHeldAtApply(harness: LifecycleHarness): Promise<{
+    readonly channel: FakeClaudeProviderProcess;
+    readonly started: Promise<void>;
+    readonly releaseApply: () => void;
+  }> {
+    const channel = await createLiveSession(harness, { outputSpeed: "off" });
+    let releaseApply = (): void => {};
+    channel.controlResponseGate = new Promise<void>((resolve) => {
+      releaseApply = resolve;
+    });
+    const started = startRunAt(harness, TEST_RUN_ID, "on");
+    await vi.waitFor(() => {
+      expect(channel.controlRequests).toEqual([FAST_MODE_OFF, FAST_MODE_ON]);
+    });
+    return { channel, started, releaseApply };
+  }
+
+  it("writes nothing when the session closes while the level is being applied", async () => {
+    const harness = buildHarness();
+    const { channel, started, releaseApply } = await startRunHeldAtApply(harness);
+
+    const closed = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    releaseApply();
+
+    await expect(started).rejects.toMatchObject({ fields: { reason: "no_live_session" } });
+    await closed;
+    expect(channel.sendUserTextAttempts).toBe(0);
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("writes nothing and fails the run once when a rewind lands while the level is applied", async () => {
+    const harness = buildHarness();
+    const { channel, started, releaseApply } = await startRunHeldAtApply(harness);
+
+    await rewindTestSession(harness);
+    releaseApply();
+
+    await expect(started).rejects.toMatchObject({ fields: { reason: "no_live_session" } });
+    expect(channel.sendUserTextAttempts).toBe(0);
+    expect(spawnedChannel(harness, 1).sendUserTextAttempts).toBe(0);
+    expect(harness.textNeutralizationFailures.map(({ runId }) => runId)).toStrictEqual([
+      TEST_RUN_ID,
+    ]);
   });
 });

@@ -24,7 +24,7 @@ import {
   TURN_ID,
   createManagerHarness,
   routedAskHarness,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
@@ -310,6 +310,22 @@ describe("Codex provider command list", () => {
     ]);
     expect(Object.hasOwn(entries[2] as object, "description")).toBe(false);
     expect(Object.hasOwn(entries[3] as object, "description")).toBe(false);
+  });
+
+  it("refuses a reply with no skill list rather than holding it as no commands", async () => {
+    const harness = createManagerHarness({ onServerNotification: true });
+    let reply: unknown = { data: "not a list" };
+    harness.server.on("skills/list", () => ({ result: reply }));
+    await harness.manager.createSession(CREATE_PARAMS);
+
+    await expect(harness.manager.listProviderCommands(BINDING)).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { method: "skills/list" },
+    });
+
+    // Nothing was held, so the next read asks the provider again.
+    reply = { data: [{ cwd: SESSION_CWD, skills: [{ name: "review" }], errors: [] }] };
+    expect(await entryNames(harness)).toEqual(["review"]);
   });
 
   it("caps the reply at the wire bound and marks it incomplete", async () => {

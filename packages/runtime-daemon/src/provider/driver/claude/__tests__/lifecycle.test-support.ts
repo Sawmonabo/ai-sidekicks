@@ -26,7 +26,7 @@ import {
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
-} from "./transport.test-support.js";
+} from "../__fixtures__/transport-doubles.js";
 
 /** A lifecycle under test together with the doubles and recorders it was built over. */
 export interface LifecycleHarness {

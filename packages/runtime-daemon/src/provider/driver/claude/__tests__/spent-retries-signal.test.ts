@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { classifyClaudeSpentRetries } from "../usage-limit-signal.js";
+import { classifyClaudeSpentRetries } from "../spent-retries-signal.js";
 
 const SPENT_RETRIES = { cause: "retries-exhausted" } as const;
 

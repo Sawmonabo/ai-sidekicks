@@ -289,6 +289,21 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
         });
         throw cause;
       }
+      // Re-read after the request: a close or rewind in that window retired this channel and
+      // already answered for the frame, so nothing is armed or written on it.
+      if (this.#findLiveSession(dispatch.sessionId)?.channel !== live.channel) {
+        this.#textNeutralization.ruleFailedOpeningFrame({
+          sessionId: dispatch.sessionId,
+          runId: params.runId,
+          channel: live.channel,
+          frame,
+          delivery: "unsent",
+        });
+        throw new ClaudeSessionUnavailableError("no_live_session", {
+          sessionId: dispatch.sessionId,
+          runId: params.runId,
+        });
+      }
     }
     // Armed before the write, so the turn's handshake cannot outrun it.
     this.#handshakes.armRunOutputSpeed(dispatch.sessionId, live.providerSessionId, params.runId);
@@ -601,11 +616,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     // rollback, since a failed adoption already disposed its source.
     this.#handshakes.forgetHandshake(live.sessionId);
     // Before the hooks, so a `system/init` delivered during registration replaces it.
-    this.#handshakes.observeInitializeFastMode(
-      live.sessionId,
-      live.providerSessionId,
-      initializeFastMode,
-    );
+    this.#handshakes.holdFastMode(live.sessionId, live.providerSessionId, initializeFastMode);
     try {
       this.#registerLiveSessionHooks(band, live);
     } catch (error) {

@@ -55,6 +55,9 @@ describe("DriverCapabilityCache", () => {
       "outputSpeedLevels",
     ]);
     expect(DriverCapabilityReportSchema.safeParse(report).success).toBe(true);
+    // The driver's own vocabulary, on the first read and on the second, served from the entry.
+    expect(report.outputSpeedLevels).toStrictEqual(["off", "on"]);
+    expect(cache.read("claude").outputSpeedLevels).toStrictEqual(["off", "on"]);
   });
 
   it("omits the vocabulary where the flag is false or the levels are read per model", () => {

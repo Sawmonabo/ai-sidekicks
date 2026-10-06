@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import { CODEX_MAX_LINE_LENGTH, type CodexServerRequestDecision } from "../index.js";
 import { CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON } from "../server-requests.js";
-import { RUN_ID, SESSION_ID, TURN_ID, routedAskHarness } from "./app-server.test-support.js";
+import {
+  RUN_ID,
+  SESSION_ID,
+  TURN_ID,
+  routedAskHarness,
+} from "../__fixtures__/app-server-doubles.js";
 
 // --------------------------------------------------------------------------
 // Routed server requests reach the daemon, and every path answers.

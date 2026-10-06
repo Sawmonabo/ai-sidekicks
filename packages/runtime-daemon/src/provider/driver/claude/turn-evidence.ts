@@ -24,7 +24,7 @@ const CLAUDE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
 );
 
 /** True for a finite number greater than zero. */
-export function isPositiveFiniteNumber(value: unknown): boolean {
+export function isPositiveFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 

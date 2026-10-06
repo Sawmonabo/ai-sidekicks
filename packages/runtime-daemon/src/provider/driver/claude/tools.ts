@@ -12,10 +12,11 @@
  */
 
 import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
-import type {
-  IdempotencyClass,
-  NormalizedProviderToolMetadata,
-  ProviderToolMetadata,
+import {
+  IDEMPOTENCY_CLASSES,
+  type IdempotencyClass,
+  type NormalizedProviderToolMetadata,
+  type ProviderToolMetadata,
 } from "@ai-sidekicks/contracts/provider/driver/tools";
 
 import {
@@ -28,18 +29,8 @@ import type { McpServerStatusEmission } from "../contract.js";
 /** The class an unannotated tool takes: a repeat is for the person to judge. */
 const DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS: IdempotencyClass = "manual_reconcile_only";
 
-/** The closed `idempotency_class` vocabulary, for runtime recognition. */
-const RECOGNIZED_IDEMPOTENCY_CLASSES: readonly IdempotencyClass[] = [
-  "idempotent",
-  "compensable",
-  "manual_reconcile_only",
-];
-
 function isRecognizedIdempotencyClass(value: unknown): value is IdempotencyClass {
-  return (
-    typeof value === "string" &&
-    (RECOGNIZED_IDEMPOTENCY_CLASSES as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (IDEMPOTENCY_CLASSES as readonly string[]).includes(value);
 }
 
 /**

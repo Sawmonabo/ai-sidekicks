@@ -23,7 +23,7 @@ import {
   createHarness,
   threadStartResult,
   turnCompletedFrame,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
 
 const FAST_TIER = "priority";

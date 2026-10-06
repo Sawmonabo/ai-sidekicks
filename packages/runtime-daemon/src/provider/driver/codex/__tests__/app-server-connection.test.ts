@@ -24,7 +24,7 @@ import {
   TURN_ID,
   createHarness,
   createdSession,
-} from "./app-server.test-support.js";
+} from "../__fixtures__/app-server-doubles.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
 

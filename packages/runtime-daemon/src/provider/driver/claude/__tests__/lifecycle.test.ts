@@ -12,7 +12,7 @@ import {
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
-} from "./transport.test-support.js";
+} from "../__fixtures__/transport-doubles.js";
 import {
   buildHarness,
   createLiveSession,
