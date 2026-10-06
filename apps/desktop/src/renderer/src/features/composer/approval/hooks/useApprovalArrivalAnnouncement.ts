@@ -41,7 +41,7 @@ export function useApprovalArrivalAnnouncement(
     }
     setAnnouncement(
       arrived.length === 1
-        ? `A decision is waiting: ${APPROVAL_CATEGORY_LABELS[first.category]}.`
+        ? `Approval needed: ${APPROVAL_CATEGORY_LABELS[first.category]}.`
         : `${String(arrived.length)} decisions are waiting.`,
     );
     const focused = ownerDocument.activeElement;
