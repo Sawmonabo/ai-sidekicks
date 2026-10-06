@@ -1,7 +1,6 @@
 // Attaching a repository by path: the one entry point for a mount, which belongs to the
 // machine rather than the session. A plain `Dialog`, not `AlertDialog`: this is abandonable
-// data entry, not consent to a consequence. Attach is not followed by a bind, since that would
-// pick an execution mode nobody asked for.
+// data entry, not consent to a consequence. Attach is not followed by a bind.
 
 import "./AttachRepositoryDialog.css";
 
@@ -80,8 +79,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
       <OverlayDialogPopup backdropClassName="meridian-dialog__backdrop" className="meridian-dialog">
         <Dialog.Title className="meridian-dialog__title">Attach a repository</Dialog.Title>
         <Dialog.Description className="meridian-dialog__description">
-          Attaching adds the repository to this machine. Choosing an execution mode is a separate
-          step, taken when a workspace is bound on it.
+          Attaching adds the repository to this machine.
         </Dialog.Description>
 
         <label className="meridian-form__field">
