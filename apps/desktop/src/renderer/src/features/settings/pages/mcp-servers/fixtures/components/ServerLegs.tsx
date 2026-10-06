@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { MCP_SERVER_STATUS_WORDS } from "../../status-words.js";
 import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
@@ -19,8 +18,8 @@ import { SessionName } from "./SessionName.js";
  * The per-session grain is preserved, not folded: one configuration backs many concurrent
  * sessions, and two can honestly disagree, so one scalar would report a partial outage as fine or
  * broken. Each line is keyed by `(sessionId, bindingId)` through `live-leg-key.ts`, shared with
- * the outcome list. A session the directory does not name is drawn by its id. The aggregate above
- * this list is the daemon's and is never recomputed here.
+ * the outcome list. A session the directory does not name reads `A session`, never its id. The
+ * aggregate above this list is the daemon's and is never recomputed here.
  */
 export function ServerLegs(props: {
   readonly legs: readonly McpServerLegStatus[] | undefined;
@@ -36,11 +35,7 @@ export function ServerLegs(props: {
     <ul className="meridian-mcp__legs">
       {legs.map((leg) => (
         <li key={mcpLiveLegKeyOf(leg)} className="meridian-mcp__leg">
-          <SessionName
-            sessionId={leg.sessionId}
-            sessionDirectory={sessionDirectory}
-            unnamed={<WireFigure value={leg.sessionId} />}
-          />
+          <SessionName sessionId={leg.sessionId} sessionDirectory={sessionDirectory} />
           <span className="meridian-settings-page__aside">·</span>
           <Chip
             label={MCP_SERVER_STATUS_WORDS[leg.status]}

@@ -49,12 +49,8 @@ export function MutationOutcomeLine(props: {
       ))}
       {failedSessions.map((liveResult) => (
         <p key={mcpLiveLegKeyOf(liveResult)} className="meridian-settings-page__state">
-          <SessionName
-            sessionId={liveResult.sessionId}
-            sessionDirectory={sessionDirectory}
-            unnamed="A session"
-          />{" "}
-          is still running with the old setting.
+          <SessionName sessionId={liveResult.sessionId} sessionDirectory={sessionDirectory} /> is
+          still running with the old setting.
         </p>
       ))}
     </div>

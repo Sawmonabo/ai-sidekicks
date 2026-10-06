@@ -1,8 +1,8 @@
 // The MCP fixture body over this window's bridge. Its inventory read and its changes go through
 // `callDaemon`, so each reply is parsed against the method's registered shape, and its live-status
 // signal is the governance stream, opened before the first read and opened again when it ends,
-// with a read after each re-open for what the gap hid. This window reads no session directory, so
-// the body is handed none and a session a change failed on is not named by its title.
+// with a read after each re-open for what the gap hid. No session directory read reaches this
+// mount yet, so the body is handed none and every running session on the page reads `A session`.
 
 import { useMemo, type ReactNode } from "react";
 

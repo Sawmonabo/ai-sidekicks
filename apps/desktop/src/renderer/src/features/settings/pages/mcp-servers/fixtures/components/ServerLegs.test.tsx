@@ -1,5 +1,6 @@
 // The readings under `Running sessions`: one line per running session that uses the server, the
-// session as the session list names it, its state word, and the reading's age, never an instant.
+// session as the session list names it and never by its id, its state word, and the reading's
+// age, never an instant.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,8 +49,22 @@ describe("ServerLegs", () => {
     expect(lines).toStrictEqual([
       ["Fix login", "·", "Connected", "· updated", "2 minutes ago"],
       ["New chat", "·", "Failed"],
-      [UNLISTED_SESSION, "·", "Unknown"],
+      ["A session", "·", "Unknown"],
     ]);
+    expect(container.textContent).not.toContain(UNLISTED_SESSION);
+  });
+
+  it("negative control: with no directory each session reads `A session`, never its id", () => {
+    const { container } = render(
+      <ServerLegs legs={LEGS} sessionDirectory={undefined} nowMilliseconds={NOW_MS} />,
+    );
+    const names = [...container.querySelectorAll(".meridian-mcp__leg")].map(
+      (line) => line.firstChild?.textContent,
+    );
+    expect(names).toStrictEqual(["A session", "A session", "A session"]);
+    for (const sessionId of [TITLED_SESSION, UNTITLED_SESSION, UNLISTED_SESSION]) {
+      expect(container.textContent).not.toContain(sessionId);
+    }
   });
 
   it("says no running session uses the server when none does", () => {
