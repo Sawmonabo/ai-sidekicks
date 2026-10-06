@@ -4,7 +4,7 @@
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 /** One arm of the contract's closed availability discriminant. */

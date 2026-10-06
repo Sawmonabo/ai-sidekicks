@@ -20,7 +20,7 @@ import { caseFold } from "unicode-case-folding";
 import { z } from "zod";
 
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
-import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { countSchema } from "../../internal/wire-scalars.js";
 

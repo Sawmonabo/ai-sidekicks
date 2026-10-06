@@ -4,7 +4,7 @@
 // own handshake arrives.
 
 import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider/driver/caps";
-import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   ProviderCommandEntrySchema,
   type ProviderCommandBinding,

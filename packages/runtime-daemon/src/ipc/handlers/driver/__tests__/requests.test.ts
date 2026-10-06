@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/transcript";

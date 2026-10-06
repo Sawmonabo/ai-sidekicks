@@ -9,7 +9,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
   RepoMountIdSchema,

@@ -45,7 +45,7 @@ import type { SessionEventType } from "./registry.js";
 import type { GitSettledPayload } from "../gitflow/local.js";
 import type { McpServerOauthCompletedPayload } from "../mcp/governance.js";
 import type { PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload } from "../plan.js";
-import type { RunId } from "../provider/driver/intervention.js";
+import type { RunId } from "../run/id.js";
 import type { PtyControlChangedPayload } from "../pty.js";
 import type { QuestionAskedPayload } from "../question.js";
 import type { RelayPinRefusedPayload } from "../relay.js";

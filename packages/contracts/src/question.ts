@@ -18,7 +18,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 
 /** The daemon-minted id of one question record. */

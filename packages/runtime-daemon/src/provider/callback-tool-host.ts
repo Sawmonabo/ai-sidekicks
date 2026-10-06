@@ -12,7 +12,7 @@
 
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/caps";
-import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { DriverDiagnosticsEmitter } from "./driver/diagnostics.js";

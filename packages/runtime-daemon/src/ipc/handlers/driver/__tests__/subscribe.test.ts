@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 

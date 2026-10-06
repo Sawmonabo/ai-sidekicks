@@ -2,7 +2,7 @@
 // doubles, plus the arrangements most tests open with.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";

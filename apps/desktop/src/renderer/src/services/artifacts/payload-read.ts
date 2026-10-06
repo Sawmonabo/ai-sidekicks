@@ -11,7 +11,7 @@ import {
   type ArtifactReadRequest,
   type ArtifactReadResponse,
 } from "@ai-sidekicks/contracts/artifacts/operations";
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
 import { refuse } from "#renderer/lib/refusal/contract.js";
 import type { DaemonReply } from "#renderer/services/daemon/reply.js";

@@ -3,7 +3,7 @@
 // driver's table lacks is recorded as applied, a close or rewind while that request is in flight
 // leaves the run unwritten, and each run reports the state it runs at.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/transcript";
 import { describe, expect, it, vi } from "vitest";
 

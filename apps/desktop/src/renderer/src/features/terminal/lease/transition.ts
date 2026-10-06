@@ -7,7 +7,7 @@
 
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import type { PtyControlChangedReason, TerminalId } from "@ai-sidekicks/contracts/pty";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { readPtyControlChangedPayload } from "#renderer/services/daemon/pty-control-changed-payload.js";

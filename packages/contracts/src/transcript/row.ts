@@ -18,7 +18,7 @@ import {
   SOURCE_POSITION_PAYLOAD_KEY,
 } from "../event/envelope.js";
 import type { EventCategory } from "../event/envelope.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run/control.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import {

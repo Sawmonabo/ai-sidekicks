@@ -14,7 +14,7 @@ import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "./provider/name.js";
-import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
 import { FILE_PATH_MAX_LEN } from "./free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { PermissionLevelSchema, type PermissionLevel } from "./session/controls/methods.js";

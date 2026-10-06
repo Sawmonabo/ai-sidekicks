@@ -40,7 +40,7 @@ import {
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
 } from "@ai-sidekicks/contracts/provider/driver/caps";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   RecoveryConditionSchema,
   type RecoveryCondition,

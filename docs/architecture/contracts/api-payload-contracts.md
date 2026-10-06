@@ -2004,9 +2004,9 @@ type ApplyInterventionParams =
 // was carry an id a resolver could look up, so the rule had nothing to attach to and CP-011-1 made
 // the retyping a PREREQUISITE of the first change that wires delivery through this carrier.
 // The carrier sets no count bound of its own: how many files a message carries is what the daemon and the
-// provider accept, and a provider that will not take one refuses in its own words. The brand is
-// homed with its earliest-shipping consumer per Plan-003 CP-003-4 — this payload — and every later
-// consumer imports it (`packages/contracts/src/provider/driver/intervention.ts#ArtifactIdSchema`); Plan-011 Task 1
+// provider accept, and a provider that will not take one refuses in its own words. The brand lives
+// in `packages/contracts/src/artifacts/id.ts` per Plan-003 CP-003-4, and this payload and every later
+// consumer import it (`ArtifactIdSchema`); Plan-011 Task 1
 // imports rather than restates, so no second definition of an artifact id exists.
 interface SteerPayload {
   content: string;

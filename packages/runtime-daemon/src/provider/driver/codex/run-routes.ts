@@ -1,7 +1,7 @@
 // The run-to-session routes of the Codex leg: which session each run's live turns are on, and the
 // lookups that turn a frame's join key back into its run.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { type CodexSessionRecord, newestActiveTurnForRun } from "./session/state.js";
 

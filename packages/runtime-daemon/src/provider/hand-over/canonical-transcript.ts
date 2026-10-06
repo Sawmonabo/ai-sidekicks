@@ -10,7 +10,7 @@
 //   body (assistant text, reasoning blocks, tool arguments, tool results) comes from
 //   `TranscriptContentSource`, which this module declares and does not implement.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { StoredEvent } from "../../session/records.js";

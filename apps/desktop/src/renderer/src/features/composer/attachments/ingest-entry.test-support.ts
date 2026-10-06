@@ -1,7 +1,7 @@
 // Staged entries for the chip fold and the send-reference fold. Two factories, split on the
 // union's send-capable arm, so a case cannot build an entry the staged list never publishes.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
 import type { AttachmentIngestEntry } from "./shapes.js";

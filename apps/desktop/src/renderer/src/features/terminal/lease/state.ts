@@ -12,7 +12,7 @@
 
 import { PTY_CONTROL_CHANGED_EVENT, type TerminalId } from "@ai-sidekicks/contracts/pty";
 import type { CommandId } from "@ai-sidekicks/contracts/command";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {

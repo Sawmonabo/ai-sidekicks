@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { generalRow, runRow } from "../event-rows.test-support.js";

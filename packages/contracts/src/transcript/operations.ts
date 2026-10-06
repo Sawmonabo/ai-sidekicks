@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import {

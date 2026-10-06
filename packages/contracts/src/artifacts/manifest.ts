@@ -2,8 +2,8 @@
 // closed vocabularies it carries.
 import { z } from "zod";
 
-import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "./id.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "../session/id.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 

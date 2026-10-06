@@ -19,7 +19,7 @@
 
 import type { DriverSubscribeEventsParams } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { DRIVER_EVENT_TYPES } from "@ai-sidekicks/contracts/provider/driver/event";

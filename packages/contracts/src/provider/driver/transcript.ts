@@ -10,7 +10,7 @@ import {
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN,
 } from "./caps.js";
-import { type RunId } from "./intervention.js";
+import { type RunId } from "../../run/id.js";
 import { wireFreeFormString } from "../../free-form-string.js";
 
 // ---- Declared losses ----

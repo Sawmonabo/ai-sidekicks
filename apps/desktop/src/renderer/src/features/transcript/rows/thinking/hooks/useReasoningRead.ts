@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import { useReadScope } from "#renderer/hooks/useReadScope.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { type ReasoningReading } from "../reasoning-reading.js";
 
 /** The reading a row holds, and the call that advances it. */

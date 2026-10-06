@@ -8,7 +8,7 @@
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 

@@ -1,14 +1,7 @@
-// An intervention's artifact ids are UUIDs, and its result, which crosses a trust boundary, never
-// contradicts itself.
+// An intervention's result, which crosses a trust boundary, never contradicts itself.
 import { describe, expect, it } from "vitest";
 
-import {
-  ArtifactIdSchema,
-  DriverInterventionResultSchema,
-  type DriverInterventionResult,
-} from "../intervention.js";
-
-const AN_ARTIFACT_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
+import { DriverInterventionResultSchema, type DriverInterventionResult } from "../intervention.js";
 
 describe("DriverInterventionResultSchema — intervention result envelope (trust boundary)", () => {
   it("parses a `degraded` result carrying the text-neutralization refusal code", () => {
@@ -33,19 +26,5 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
       const paths = result.error.issues.map((issue) => issue.path.join("."));
       expect(paths).toContain("refusalCode");
     }
-  });
-});
-
-describe("ArtifactIdSchema — the attachment element brand", () => {
-  it("accepts a UUID and brands it", () => {
-    expect(ArtifactIdSchema.parse(AN_ARTIFACT_ID)).toBe(AN_ARTIFACT_ID);
-  });
-
-  it("REFUSES a non-UUID artifact id", () => {
-    // The value reaches an artifact manifest lookup, so a path or store-key fragment must not
-    // arrive as one.
-    expect(ArtifactIdSchema.safeParse("../../etc/passwd").success).toBe(false);
-    expect(ArtifactIdSchema.safeParse("artifact-1").success).toBe(false);
-    expect(ArtifactIdSchema.safeParse("").success).toBe(false);
   });
 });

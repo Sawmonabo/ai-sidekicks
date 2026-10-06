@@ -11,7 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
   WorkflowBinaryRef,
   WorkflowDocument,

@@ -46,7 +46,7 @@ import type {
   WorkflowRunReadResponse,
   WorkflowRunSummary,
 } from "@ai-sidekicks/contracts/workflow/run/records";
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
 import { WORK_ACCOUNT } from "../../settings-page-replies.js";
 

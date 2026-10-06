@@ -7,7 +7,7 @@
 // Where a held id meets a request, `heldIdAsWireId` widens it instead: `callDaemon` parses the
 // whole request through the schema that owns the brand, so a malformed id is refused there.
 
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts/run/state";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import { WorkspaceIdSchema, type WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";

@@ -4,7 +4,7 @@
 // rejected call propagates to whoever awaited it. Scheduling lives in `read-schedule.ts`
 // and the acts in `row-actions.ts`.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";

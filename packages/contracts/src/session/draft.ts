@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { McpServerNameSchema } from "../mcp/server.js";
-import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";

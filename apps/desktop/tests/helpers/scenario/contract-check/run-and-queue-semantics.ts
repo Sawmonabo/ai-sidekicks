@@ -11,7 +11,7 @@
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
 //   `priority` and `createdAt`, which only the queue rows' own read supplies.
 
-import { RunIdSchema } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
 import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
 import { RunRecoveryResolvedPayloadSchema } from "@ai-sidekicks/contracts/run/control";
 import {

@@ -6,7 +6,7 @@
 // navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
 import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";

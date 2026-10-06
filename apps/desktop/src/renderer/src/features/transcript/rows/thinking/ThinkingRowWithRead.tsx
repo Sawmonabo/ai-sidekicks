@@ -3,7 +3,7 @@
 
 import { ThinkingRow } from "./ThinkingRow.js";
 import { useReasoningRead } from "./hooks/useReasoningRead.js";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 /** The props of a reasoning row with its read. */
 export interface ThinkingRowWithReadProps {

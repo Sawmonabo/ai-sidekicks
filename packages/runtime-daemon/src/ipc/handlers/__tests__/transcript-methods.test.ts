@@ -9,7 +9,7 @@ import type {
   TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {

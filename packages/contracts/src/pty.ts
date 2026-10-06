@@ -16,7 +16,7 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
-import { RunIdSchema, type RunId } from "./provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "./run/id.js";
 import { wireFreeFormString } from "./free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 

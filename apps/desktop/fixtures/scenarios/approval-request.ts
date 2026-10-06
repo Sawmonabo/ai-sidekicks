@@ -20,7 +20,7 @@ import {
   type UserId,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

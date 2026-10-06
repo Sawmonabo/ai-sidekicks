@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { JsonRpcNotification, JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";

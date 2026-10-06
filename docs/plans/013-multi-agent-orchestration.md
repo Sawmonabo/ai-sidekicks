@@ -134,7 +134,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - **T1.1 — `orchestration.ts` contract core + event payload schemas + union registration.**
   - **Files:** `packages/contracts/src/orchestration.ts` (NEW); `packages/contracts/src/event/session-event.ts` (EXTEND).
   - **Provides:** `AgentId` brand, `ChildRunProvenance` (`provider_subagent` | `bridge_run` | `workflow_step`, D-013-12), `InterruptReason` (`step_limit` | `spend_limit` | `token_limit` | `workflow_phase_canceled`), `OrchestrationRunConfig` (strict Zod schemas); payload schemas for the owned event types this task authors per the [Spec-005 per-type shapes](../specs/005-session-event-taxonomy-and-audit-log.md) — `orchestration.rejected`, `session.spend_limit_reached` (`{sessionId, spendLimitUsdMicros}`) and `run.token_limit_reached` (`{sessionId, runId, tokenLimit}`) — the owned set gaining the `session.goal_*` events T1.2 registers and the provider-binding events T1.4 registers; `event/session-event.ts` union registration for the new variants.
-  - **Consumes:** branded-id factory (Plan-001, shipped); `RunId` (Plan-003 `provider/driver/intervention.ts` contracts per CP-003-4).
+  - **Consumes:** branded-id factory (Plan-001, shipped); `RunId` (`run/id.ts`, shipped by Plan-003 per CP-003-4).
   - **Spec coverage:** Spec-014 §Interfaces And Contracts (typed configs, how a child was reached, agent surface); Spec-005 §Event Type Summary.
   - **Verifies invariant:** I-013-1, I-013-2, I-013-13.
   - **Tests:** schema acceptance/rejection rows per type; strict unknown-key rejection; `InterruptReason` discriminates each member; the union discriminates each type, T1.2's and T1.4's once they register theirs.

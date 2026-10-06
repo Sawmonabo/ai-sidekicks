@@ -12,7 +12,7 @@ import {
 } from "../agent/methods.js";
 import { countSchema } from "../internal/wire-scalars.js";
 import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/methods.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { RunIdSchema, type RunId } from "./id.js";
 import { QueueItemIdSchema, type QueueItemId } from "./queue.js";
 import { RunStateSchema, type RunState } from "./state.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";

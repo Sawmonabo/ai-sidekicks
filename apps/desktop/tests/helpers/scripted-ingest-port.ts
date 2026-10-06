@@ -7,7 +7,7 @@
 // mid-call can put an abandonment inside an await. The recorded shapes are derived from
 // `AttachmentIngestPort`, so a request that drops or invents a member fails to compile here.
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { manualGate } from "./held-calls.js";

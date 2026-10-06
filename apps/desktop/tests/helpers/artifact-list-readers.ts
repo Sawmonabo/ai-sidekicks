@@ -6,8 +6,8 @@
 import { act } from "@testing-library/react";
 import { type Mock, vi } from "vitest";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ArtifactManifest } from "@ai-sidekicks/contracts/artifacts/manifest";
 import type {
   ArtifactPayloadEncoding,

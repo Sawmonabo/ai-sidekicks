@@ -1,7 +1,7 @@
 // Type-level test of the `steer` arm's `ArtifactId[]` attachments in `run/control.ts`.
 
-import type { ArtifactId } from "../provider/driver/intervention.js";
-import type { RunId } from "../provider/driver/intervention.js";
+import type { ArtifactId } from "../artifacts/id.js";
+import type { RunId } from "./id.js";
 import type { InterventionRequestPayload } from "./control.js";
 
 // A producer composing the payload in TypeScript never reaches the parser, so the type has to

@@ -37,7 +37,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,

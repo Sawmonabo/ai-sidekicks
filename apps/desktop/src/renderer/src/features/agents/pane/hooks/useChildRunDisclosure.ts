@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";

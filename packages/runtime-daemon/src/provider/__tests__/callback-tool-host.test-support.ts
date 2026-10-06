@@ -2,7 +2,7 @@
 // responder's tests.
 
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import {

@@ -6,7 +6,7 @@ import {
   type DriverCapabilities,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { type RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../../diagnostics.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";

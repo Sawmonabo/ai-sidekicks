@@ -3,7 +3,7 @@
 // `TranscriptEventRow` is a discriminated union whose `run` arm requires three members that are
 // all-or-none; a literal could write a row the projector never emits.
 
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 

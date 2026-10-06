@@ -1,29 +1,11 @@
-// How a caller acts on a live run through its driver: the run and artifact ids its params carry,
-// the interrupt params, the intervention types and their payloads, and the driver's result, parsed
-// because it comes from provider output.
+// How a caller acts on a live run through its driver: the interrupt params, the intervention types
+// and their payloads, and the driver's result, parsed because it comes from provider output.
 import { z } from "zod";
 
 import { wireFreeFormString } from "../../free-form-string.js";
-import { brandedUuidIdSchema } from "../../internal/branded.js";
+import type { ArtifactId } from "../../artifacts/id.js";
+import type { RunId } from "../../run/id.js";
 import { DRIVER_FALLBACK_ACTION_MAX_LEN } from "./caps.js";
-
-/** Branded run identifier: a plain UUID string at runtime. */
-export type RunId = string & { readonly __brand: "RunId" };
-
-/**
- * Validates a caller-supplied run id; the only place a string becomes a `RunId`. A non-UUID is
- * refused, so a path or SQL fragment never reaches a store lookup.
- */
-export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("RunId");
-
-/**
- * Identifier of an artifact manifest and the element type of every attachment list. It names the
- * manifest, never its content, which carries a separate SHA-256 `digest`.
- */
-export type ArtifactId = string & { readonly __brand: "ArtifactId" };
-/** Validates a caller-supplied artifact id. */
-export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
-  brandedUuidIdSchema<ArtifactId>("ArtifactId");
 
 /** Asks a driver to interrupt one run, with an optional reason. */
 export interface InterruptRunParams {

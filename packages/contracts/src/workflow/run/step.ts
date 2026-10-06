@@ -23,7 +23,7 @@ import {
   type ProviderAccountId,
 } from "../../provider/account/record.js";
 import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
-import { ArtifactIdSchema, type ArtifactId } from "../../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../../trust-statement.js";

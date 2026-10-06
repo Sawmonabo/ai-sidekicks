@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 
-import type { ArtifactId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import {
   WorkflowItemSchema,
   type WorkflowItem,

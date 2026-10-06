@@ -4,7 +4,7 @@
  */
 
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
-import type { RunId } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
 import { boundFailureDetail } from "../../contract.js";

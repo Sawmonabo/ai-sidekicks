@@ -30,8 +30,8 @@ import {
   type InterruptRunParams,
 } from "./intervention.js";
 import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "./caps.js";
-import { ArtifactIdSchema } from "./intervention.js";
-import { RunIdSchema, type RunId } from "./intervention.js";
+import { ArtifactIdSchema } from "../../artifacts/id.js";
+import { RunIdSchema, type RunId } from "../../run/id.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import { countSchema } from "../../internal/wire-scalars.js";

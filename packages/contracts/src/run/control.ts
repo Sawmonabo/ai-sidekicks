@@ -18,8 +18,8 @@ import {
 import { type ExecutionPosture } from "../provider/driver/capabilities.js";
 import { InterventionTypeSchema, type InterventionType } from "../provider/driver/intervention.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/caps.js";
-import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
-import { RunIdSchema, type RunId } from "../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
+import { RunIdSchema, type RunId } from "./id.js";
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,

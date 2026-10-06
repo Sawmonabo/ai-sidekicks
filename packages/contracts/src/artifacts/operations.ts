@@ -4,7 +4,7 @@
 import { z } from "zod";
 
 import { composedTextSchema, countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { ArtifactIdSchema, type ArtifactId } from "../provider/driver/intervention.js";
+import { ArtifactIdSchema, type ArtifactId } from "./id.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "./ingest.js";
