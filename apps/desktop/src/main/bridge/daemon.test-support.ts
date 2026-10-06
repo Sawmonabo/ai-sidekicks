@@ -18,6 +18,7 @@ import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
 import type { DaemonConnection, MainProcessState } from "#shared/daemon/daemon-status-topic.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { DaemonLink } from "../services/daemon/daemon-link.js";
+import type { WindowHandlerContext } from "./window-handlers.js";
 
 /** An in-memory daemon connection: it answers each request from a script, and can be closed. */
 export interface ScriptedConnection extends ClientTransport {
@@ -107,13 +108,29 @@ export async function bridgeOver(connection: ScriptedConnection): Promise<Preloa
   return bridgeOverLink(await linkOver(connection));
 }
 
+/** A window context whose every member is a stand-in that answers nothing. */
+export function idleWindowContext(): WindowHandlerContext {
+  return {
+    appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
+    openWindows: {
+      windowWithId: vi.fn(),
+      isConsoleDocument: vi.fn(),
+      windowUsedLast: vi.fn(),
+      setDefaultSizes: vi.fn(),
+      endSafeStart: vi.fn(),
+    },
+  };
+}
+
 /**
  * Main with its bridge installed over `link`, and the bridge the page holds. Main's own files go
- * under `userData`; a suite that writes one passes a folder of its own.
+ * under `userData`; a suite that writes one passes a folder of its own, and a suite that drives
+ * the `window` members passes the context they act on.
  */
 export async function bridgeOverLink(
   link: DaemonLink,
   userData = "/sidekicks-electron-mock/userData",
+  windowContext: WindowHandlerContext = idleWindowContext(),
 ): Promise<PreloadApi> {
   const { DaemonForwarding } = await import("./daemon.js");
   const { installBridgeHandlers } = await import("./install-bridge-handlers.js");
@@ -135,16 +152,7 @@ export async function bridgeOverLink(
     supervisor: { requestStart: vi.fn() },
     daemonLink: link,
     log,
-    windowContext: {
-      appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
-      openWindows: {
-        windowWithId: vi.fn(),
-        isConsoleDocument: vi.fn(),
-        windowUsedLast: vi.fn(),
-        setDefaultSizes: vi.fn(),
-        endSafeStart: vi.fn(),
-      },
-    },
+    windowContext,
   });
   return createPreloadApi([
     ...appFactsSwitches({
