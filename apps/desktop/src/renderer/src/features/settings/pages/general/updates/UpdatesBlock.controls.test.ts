@@ -1,6 +1,7 @@
 // What the updates block's controls do: a found update downloads on a press, the restart is not
-// offered before the download finishes and needs no confirmation, a refused control is drawn
-// under them, and the automatic-check switch. The doubles are in `updates-block.test-support.tsx`.
+// offered before the download finishes and needs no confirmation, a call main does not answer is
+// drawn in the block's own words, and the automatic-check switch. The doubles are in
+// `updates-block.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -49,17 +50,16 @@ describe("the updates block — nothing restarts without a press", () => {
   });
 });
 
-describe("the updates block — a refused control is drawn, never dropped", () => {
-  it("draws the rejection of a control main does not answer under the controls", async () => {
-    // Electron rejects a call on a channel main has no handler for; the press must show it.
-    const requestCheck = vi.fn(() =>
-      Promise.reject(
-        new Error(
-          "Error invoking remote method 'update.requestCheck': " +
-            "Error: No handler registered for 'update.requestCheck'",
-        ),
-      ),
-    );
+/** What Electron rejects a call with when main has no handler on its channel. */
+function noHandlerFor(channel: string): Error {
+  return new Error(
+    `Error invoking remote method '${channel}': Error: No handler registered for '${channel}'`,
+  );
+}
+
+describe("the updates block — a call main does not answer is drawn in the block's words", () => {
+  it("draws a refused check under the controls, never the message that crossed IPC", async () => {
+    const requestCheck = vi.fn(() => Promise.reject(noHandlerFor("update.requestCheck")));
     const { block } = await renderSettled(updaterReporting({ status: "idle" }, { requestCheck }));
     expect(block.querySelector("[data-refusal-code]")).toBeNull();
 
@@ -68,9 +68,26 @@ describe("the updates block — a refused control is drawn, never dropped", () =
     expect(requestCheck).toHaveBeenCalledTimes(1);
     const refusal = block.querySelector("[data-refusal-code]");
     expect(refusal?.getAttribute("data-refusal-code")).toBe("updater-control-failed");
-    expect(refusal?.textContent).toContain("No handler registered");
+    expect(refusal?.textContent).toBe(
+      "The update check could not start. The updater runs in the main process, and this " +
+        "window could not reach it.",
+    );
+    expect(block.textContent).not.toContain("update.requestCheck");
     const labels = [...block.querySelectorAll("button")].map((button) => button.textContent);
     expect(labels).toContain("Check now");
+  });
+
+  it("draws a refused read in place of the state, never the message that crossed IPC", async () => {
+    const { block } = await renderSettled({
+      ...updaterReporting({ status: "idle" }),
+      getState: () => Promise.reject(noHandlerFor("update.getState")),
+    });
+
+    expect(block.querySelector("[data-refusal-code]")?.textContent).toBe(
+      "The update state could not be read. The updater runs in the main process, and this " +
+        "window could not reach it.",
+    );
+    expect(block.textContent).not.toContain("update.getState");
   });
 });
 

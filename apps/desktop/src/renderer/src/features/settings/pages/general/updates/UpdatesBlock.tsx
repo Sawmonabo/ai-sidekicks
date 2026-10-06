@@ -4,22 +4,22 @@
 // Nothing downloads or restarts without a press: the download control exists only on the
 // `available` arm and the restart control only on `ready`, the updater's word that the
 // download completed. The console never derives readiness from a percent, and only
-// `downloading` carries one and renders a bar. A control the updater refuses draws the
-// updater's own words under the controls, which stay drawn. Under the read-out sits the switch
-// for the machine setting `updatesAutomatic`, which draws a refused write the same way.
+// `downloading` carries one and renders a bar. A control whose call fails draws a fixed sentence
+// for that control under the controls, which stay drawn. Under the read-out sits the switch for
+// the machine setting `updatesAutomatic`, which draws a refused write the same way.
 
 import type { UpdateState } from "#shared/preload-api.js";
 import { useState, type ReactNode } from "react";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/announce/useSettlementAnnouncement.js";
-import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
-import type { Refusal } from "#renderer/lib/refusal/refusal.js";
+import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import { PreferenceToggleRow } from "#renderer/features/settings/components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "#renderer/features/settings/machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
 import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "./updater-unreachable.js";
 
 /**
  * What each settled arm of the updater's read says, for the person who cannot see it.
@@ -41,7 +41,7 @@ const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>>
 /** The subsystem a refused updater control names as its author. */
 const UPDATER_CONTROL_ORIGIN = "updater-control";
 
-/** The code a rejected updater control that carried none of its own is reported under. */
+/** The code a rejected updater control is reported under. */
 const UPDATER_CONTROL_FAILED = "updater-control-failed";
 
 /** What the update block is handed. */
@@ -62,10 +62,10 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const status = reading.kind === "state" ? reading.state.status : undefined;
   const [controlRefusal, setControlRefusal] = useState<Refusal | undefined>(undefined);
-  const press = (request: () => Promise<void>): void => {
+  const press = (request: () => Promise<void>, failedDetail: string): void => {
     setControlRefusal(undefined);
-    request().catch((error: unknown) => {
-      setControlRefusal(coerceToRefusal(error, UPDATER_CONTROL_ORIGIN, UPDATER_CONTROL_FAILED));
+    request().catch(() => {
+      setControlRefusal(refuse(UPDATER_CONTROL_ORIGIN, UPDATER_CONTROL_FAILED, failedDetail));
     });
   };
   const preferenceRefusal = preferences.refusalFor("updatesAutomatic");
@@ -81,7 +81,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
           type="button"
           className="meridian-settings-page__action meridian-action-button"
           onClick={() => {
-            press(() => updater.requestCheck());
+            press(() => updater.requestCheck(), UPDATER_UNREACHABLE_DETAIL.check);
           }}
         >
           Check now
@@ -91,7 +91,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
             type="button"
             className="meridian-settings-page__action meridian-action-button"
             onClick={() => {
-              press(() => updater.requestDownload());
+              press(() => updater.requestDownload(), UPDATER_UNREACHABLE_DETAIL.download);
             }}
           >
             Download
@@ -103,7 +103,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
             className="meridian-settings-page__action meridian-action-button"
             aria-label="Restart to apply the downloaded update"
             onClick={() => {
-              press(() => updater.requestRestart());
+              press(() => updater.requestRestart(), UPDATER_UNREACHABLE_DETAIL.restart);
             }}
           >
             Restart to apply

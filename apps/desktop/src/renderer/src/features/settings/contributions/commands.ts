@@ -9,6 +9,7 @@
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { CommandDefinition } from "#renderer/registries/commands/types.js";
+import { UPDATER_UNREACHABLE_DETAIL } from "#renderer/features/settings/pages/general/updates/updater-unreachable.js";
 
 /** Why a bridge-backed command could not complete. */
 export type BridgeCommandRefusalCode = "clipboard-unavailable" | "update-check-unavailable";
@@ -54,7 +55,7 @@ export function buildBridgeCommands(
         // Requests the check and returns: the updater's state arrives through
         // `update.subscribe` to whichever view renders it, and awaiting an outcome here would be
         // a second reader of it.
-        await settle(onRefusal, "update-check-unavailable", UPDATE_REFUSAL_DETAIL, () =>
+        await settle(onRefusal, "update-check-unavailable", UPDATER_UNREACHABLE_DETAIL.check, () =>
           bridge.update.requestCheck(),
         );
       },
@@ -79,10 +80,6 @@ export function buildColorSchemeCommand(chooseNextScheme: () => void): CommandDe
 const CLIPBOARD_REFUSAL_DETAIL =
   "The build details could not be copied. The clipboard belongs to " +
   "the main process, and this window could not reach it.";
-
-const UPDATE_REFUSAL_DETAIL =
-  "The update check could not start. The updater runs in the main " +
-  "process, and this window could not reach it.";
 
 /**
  * Perform one act, and route either kind of failure to the sink.
