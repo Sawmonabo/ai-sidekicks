@@ -162,7 +162,6 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   // artifact_publication
   "artifact.published": "artifact_publication",
   "artifact.superseded": "artifact_publication",
-  "diff.created": "artifact_publication",
   "git.settled": "artifact_publication",
   // session_lifecycle
   "session.created": "session_lifecycle",

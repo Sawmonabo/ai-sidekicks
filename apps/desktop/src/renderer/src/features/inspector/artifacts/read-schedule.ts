@@ -28,7 +28,7 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  *
  * Derived from `SESSION_EVENT_CATEGORY_BY_TYPE`, so a newly registered artifact kind is
  * watched without an edit here. Selected by namespace, not category: `artifact_publication`
- * also holds `diff.created` and `git.settled`, which change neither read.
+ * also holds `git.settled`, which changes neither read.
  */
 export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
   ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),

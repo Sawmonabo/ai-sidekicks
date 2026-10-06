@@ -59,7 +59,6 @@ export type SessionEventType =
   // artifact_publication
   | "artifact.published"
   | "artifact.superseded"
-  | "diff.created"
   | "git.settled"
   // session_lifecycle
   | "session.created"
