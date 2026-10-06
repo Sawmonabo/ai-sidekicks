@@ -12,7 +12,6 @@ import { overlayClassName } from "./overlay-class-name.js";
 export interface OverlayPopoverPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` is its own window's body. */
   readonly container?: HTMLElement | null | undefined;
-  readonly positionerClassName?: string | undefined;
   /** Distance from the anchor, in pixels, as the positioner takes it. */
   readonly sideOffset?: number | undefined;
   /** The popup's own id, where a trigger names it. */
@@ -27,10 +26,7 @@ export function OverlayPopoverPopup(props: OverlayPopoverPopupProps): React.JSX.
   const airspaceRef = useAirspaceRegistration();
   return (
     <Popover.Portal container={props.container ?? ownerWindow.document.body}>
-      <Popover.Positioner
-        className={overlayClassName(props.positionerClassName)}
-        sideOffset={props.sideOffset}
-      >
+      <Popover.Positioner className={overlayClassName(undefined)} sideOffset={props.sideOffset}>
         <Popover.Popup
           ref={airspaceRef}
           id={props.popupId}
