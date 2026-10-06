@@ -15,6 +15,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "#test/helpers/electron/mock/electron-mock.js";
+import { handedDocument, windowOpenHandlerOf } from "#test/helpers/window-test-harness.js";
 import type { MainDiagnosticEntry, MainDiagnosticLog } from "./services/diagnostic-log.js";
 
 // The mock's `app.whenReady()` is a deferred the test releases by hand: awaiting the dynamic
@@ -184,8 +185,17 @@ describe("main-process startup composition", () => {
 
   it("keeps running on macOS when the last window closes, and quits after the service's flush", async () => {
     await startMain("darwin");
+    const consoleWindow = electronMock.constructed.at(-1) ?? expect.fail("no console window");
+    const answer = windowOpenHandlerOf({
+      baseWindow: consoleWindow,
+      view: consoleWindow.contentView.children[0],
+    })({ url: "about:blank", frameName: "window/w-1" }) as {
+      createWindow: (options: object) => unknown;
+    };
+    answer.createWindow({ webContents: handedDocument() });
+    const onlyWindow = electronMock.constructed.at(-1) ?? expect.fail("no window a person sees");
 
-    electronMock.emitAppEvent("window-all-closed");
+    onlyWindow.close();
     expect(electronMock.operations, "closing the last window quit the app on macOS").not.toContain(
       "app.quit",
     );

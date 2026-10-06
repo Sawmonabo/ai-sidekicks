@@ -2,10 +2,11 @@
 //
 // Every namespace and `app` member is `readonly`, so a compromised renderer cannot reassign
 // `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
-// `preload-api.test-d.ts` fails the typecheck when any property name at any depth matches
-// /token|dpop|secret/i. Paths reach the renderer only as opaque `FilePathRef` values, which
-// main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
-// never appear.
+// `preload-api.test-d.ts` fails the typecheck when a property name the page can reach, daemon
+// results and delivered values included, matches /token|dpop|secret/i and is not one of the
+// credential-free names or the two credentials the design shows the person once. Paths reach the
+// renderer only as opaque `FilePathRef` values, which main mints and dereferences. Raw
+// `ipcRenderer`, `require`, `process` and Node built-ins never appear.
 //
 // The daemon's calls and subscriptions are typed by the daemon's method map in
 // `@ai-sidekicks/contracts`. Every other shape is declared here or beside this file in
