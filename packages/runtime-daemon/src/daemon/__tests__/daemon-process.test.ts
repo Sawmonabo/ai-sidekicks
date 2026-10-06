@@ -2,7 +2,8 @@
 // terminals, and still closes the database when a step before it fails; a start refuses a data
 // folder another daemon holds, a socket another daemon answers on, a run folder other accounts can
 // reach, and, before the bind, a socket path longer than the platform binds, while a path at that
-// limit binds and answers a hello; of two starts racing, the token file holds the winner's token.
+// limit binds and answers a hello; a data folder other accounts could read becomes the person's
+// alone; of two starts racing, the token file holds the winner's token.
 // Over the socket, the status read reports the running service and its process, a flush leaves
 // it running, a stop or restart ends it with another client still connected, and a connection
 // whose handshake was incompatible cannot stop it. The machine's settings file is read and written
@@ -214,6 +215,16 @@ describe("DaemonProcess.start", () => {
     await expect(startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) })).rejects.toThrow(
       "it must be 700",
     );
+  });
+
+  it("makes a data folder other accounts could read readable by the person alone", async () => {
+    // The data folder holds the database, the settings and the service log.
+    const dataFolder = path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME);
+    await mkdir(dataFolder);
+    await chmod(dataFolder, 0o755);
+
+    await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+    expect((await lstat(dataFolder)).mode & 0o777).toBe(0o700);
   });
 });
 

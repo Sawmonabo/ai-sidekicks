@@ -6,7 +6,7 @@
 // stop, asked for over the socket or by a terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 
 import type { Database } from "better-sqlite3";
@@ -188,7 +188,9 @@ export class DaemonProcess {
     bootstrap({ localIpcPath: options.runFolder.socketPath });
 
     const dataFolder = resolveDataFolder(options.homeDirectory);
+    // Readable by the person alone. An existing folder keeps its own mode, so the mode is set again.
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
+    await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);
     try {
       const database = openDatabase(path.join(dataFolder, DATABASE_FILE_NAME));
