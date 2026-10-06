@@ -32,12 +32,12 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 ## Target Areas
 
-- `packages/contracts/src/users/` (CREATE — T1.1, T1.2)
-- `packages/control-plane/src/users/user-account-service.ts` (CREATE — T2.1)
+- `packages/contracts/src/account.ts` (EXTEND — T1.1, T1.2)
+- `packages/control-plane/src/users/account-service.ts` (CREATE — T2.1)
 - `packages/control-plane/src/users/account-read-service.ts` (CREATE — T3.1)
 - `packages/control-plane/src/users/account-name-update-service.ts` (CREATE — T3.2)
 - `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE — Plan-015-owned relay connection-token custody, T4.3)
-- `packages/client-sdk/src/account-client.ts` (CREATE — T4.1)
+- `packages/client-sdk/src/account.ts` (CREATE — T4.1)
 - `apps/cli/src/users/` (CREATE — T4.2)
 - `packages/control-plane/src/account/` (CREATE — T5.4 hosted-account sign-in and token family, T5.5 `account.delete` and `account.export`)
 - `packages/contracts/src/account.ts` (CREATE — T5.4 and T5.5: the hosted-account routes' request and response shapes, which the command line and the daemon read) and `packages/contracts/src/error.ts` (EXTEND — their refusal codes)
@@ -45,7 +45,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/daemon/process.ts` (EXTEND — T5.3 composition-root injection, a wiring call into Plan-005's daemon composition root)
 - `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE — T6.2/T6.3 registration + authentication ceremony halves)
 - `packages/control-plane/src/users/webauthn-challenge-store.ts` (CREATE — T6.4 single-use challenge fence)
-- `packages/contracts/src/users/webauthn-ceremony.ts` (CREATE — T6.2/T6.3 ceremony request/response schemas)
+- `packages/contracts/src/webauthn-ceremony.ts` (CREATE — T6.2/T6.3 ceremony request/response schemas)
 - The control plane's one schema (EXTEND — T6.1 `webauthn_credentials` + `webauthn_challenges`)
 
 ## Data And Storage Changes
@@ -124,13 +124,13 @@ Shared Zod/TypeScript contracts. No control-plane logic; pure schema. All consum
 #### Tasks
 
 - **T1.1 — The account read.**
-  - Files: `packages/contracts/src/account/read.ts` (CREATE — reached at its own subpath, `@ai-sidekicks/contracts/account/read`, with nothing to re-export); `account.read` takes `AccountReadRequest {}` and returns `AccountReadResponse { userId; displayName }`
+  - Files: `packages/contracts/src/account.ts` (EXTEND — reached at its own subpath, `@ai-sidekicks/contracts/account`); `account.read` takes `AccountReadRequest {}` and returns `AccountReadResponse { userId; displayName }`
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (`account.read`), Spec-016 §Required Behavior (the account read = id + name)
   - **Verifies invariant:** none
   - Consumes: `UserId` from `packages/contracts/src/session/id.ts` (shipped)
   - Note: the account read carries only the user id and the name (CP-015-4), with no presence, as [Spec-016 §Required Behavior](../specs/016-hosted-account-and-identity.md#required-behavior) states.
 - **T1.2 — The name update.**
-  - Files: `packages/contracts/src/account/name-update.ts` (CREATE — reached at its own subpath, `@ai-sidekicks/contracts/account/name-update`, with nothing to re-export); `account.nameUpdate` takes `AccountNameUpdateRequest { displayName }`, which names no user
+  - Files: `packages/contracts/src/account.ts` (EXTEND — reached at its own subpath, `@ai-sidekicks/contracts/account`); `account.nameUpdate` takes `AccountNameUpdateRequest { displayName }`, which names no user
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (`account.nameUpdate`), Spec-016 §Required Behavior
   - **Verifies invariant:** I-015-2
   - Consumes: `UserId` (session/id.ts, shipped)
@@ -145,14 +145,14 @@ Control-plane service that writes the account's one user record and resolves a s
 #### Tasks
 
 - **T2.1 — The account's one user record.**
-  - Files: `packages/control-plane/src/users/user-account-service.ts` (CREATE); the control plane's one schema (EXTEND — `users` gains `display_name`, `identity_ref` and `metadata`); the schema's test (EXTEND)
+  - Files: `packages/control-plane/src/users/account-service.ts` (CREATE); the control plane's one schema (EXTEND — `users` gains `display_name`, `identity_ref` and `metadata`); the schema's test (EXTEND)
   - **Spec coverage:** Spec-016 §Required Behavior (one account, one user), Spec-016 §State And Data Implications (the user record in shared control-plane storage; `identity_ref` is the passkey user handle)
   - **Verifies invariant:** I-015-1
   - Consumes: `users` rows; `UserId` (contracts).
   - Behavior: at `Create an account` (T5.4) the creation options leg mints `identity_ref`, and the approval's creation arm writes the account's one `users` row with it and the typed name as `display_name`, in the same transaction as the first passkey and the approval; a sign-in resolves its passkey to that user through `webauthn_credentials` and writes no second row.
   - Decided: D-015-1 (the identity comes from T5.4's device-code page, CP-015-2) + D-015-2 (`identity_ref` = the account's random WebAuthn user handle). Uniqueness keys: `users.identity_ref UNIQUE` and `webauthn_credentials.credential_id UNIQUE` (T6.1).
 - **T2.2 — The display name from the typed `Name`.**
-  - Files: `user-account-service.ts` (same)
+  - Files: `users/account-service.ts` (same)
   - **Spec coverage:** Spec-016 §Default Behavior (the display name is the one typed when the account is created, changed later by the person, never read from a profile)
   - **Verifies invariant:** I-015-1
   - Consumes: `users.display_name` / `metadata` columns; the `Name` T5.4's `Create an account` takes (CP-015-2 / D-015-1)
@@ -184,8 +184,8 @@ Typed SDK (daemon-as-gateway), CLI commands, and the service-layer authz binding
 
 #### Tasks
 
-- **T4.1 — `account-client.ts` SDK (daemon-as-gateway).**
-  - Files: `packages/client-sdk/src/account-client.ts` (CREATE), `packages/client-sdk/src/index.ts` (EXTEND — named exports)
+- **T4.1 — `client-sdk/src/account.ts` SDK (daemon-as-gateway).**
+  - Files: `packages/client-sdk/src/account.ts` (CREATE), `packages/client-sdk/src/index.ts` (EXTEND — named exports)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (the read and the update)
   - **Verifies invariant:** I-015-3
   - Consumes: the T1.1 and T1.2 contracts; `JsonRpcClient` (shipped Plan-005 substrate); `account.*` method strings (CP-015-3)
@@ -194,7 +194,7 @@ Typed SDK (daemon-as-gateway), CLI commands, and the service-layer authz binding
   - Files: `apps/cli/src/users/` (CREATE)
   - **Spec coverage:** Spec-016 §Required Behavior (partial), Spec-016 §Default Behavior
   - **Verifies invariant:** I-015-3
-  - Consumes: T4.1's `account-client.ts`; the `apps/cli` scaffold (Plan-005 Phase R3, T-005r-3-1)
+  - Consumes: T4.1's `client-sdk/src/account.ts`; the `apps/cli` scaffold (Plan-005 Phase R3, T-005r-3-1)
   - Waits on: Plan-005 Phase R3's `apps/cli` scaffold.
 - **T4.3 — `RelayConnectionTokenIssuer` (relay connection-token custody, Plan-015-owned).**
   - Files: `packages/control-plane/src/identity/relay-connection-token-issuer.ts` (CREATE) + `packages/control-plane/src/identity/__tests__/relay-connection-token-issuer.test.ts` (CREATE — `FixtureRelayConnectionTokenIssuer` test double)
@@ -205,12 +205,12 @@ Typed SDK (daemon-as-gateway), CLI commands, and the service-layer authz binding
   - Note: independent of T4.1 and T4.2 (no intra-phase dependency — consumes only the crypto-paseto package and the relay claim shape); lands so Plan-015 ships the issuer before its Plan-025 relay consumer.
   - Decided: the issuer surface is Plan-015-owned; signing key + custody stay entirely within Plan-015.
 - **T4.4 — `account.*` daemon-side IPC handlers (daemon-as-gateway proxy).**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/account-read.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/account-name-update.ts` (CREATE) + register on the Plan-005 namespace `registry.ts` (EXTEND — `account.*` namespace) + `packages/runtime-daemon/src/ipc/handlers/__tests__/account-*.test.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/ipc/handlers/account/read.ts` (CREATE), `packages/runtime-daemon/src/ipc/handlers/account/name-update.ts` (CREATE) + register on the Plan-005 namespace `registry.ts` (EXTEND — `account.*` namespace) + `packages/runtime-daemon/src/ipc/handlers/account/__tests__/*.test.ts` (CREATE)
   - **Spec coverage:** Spec-016 §Interfaces And Contracts (the read and the update the handlers answer), Spec-016 §State And Data Implications (daemon-as-gateway transport boundary, ADR-008)
-  - **Verifies invariant:** I-015-3 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `account.*` calls T4.1's `account-client.ts` makes)
+  - **Verifies invariant:** I-015-3 (daemon-as-gateway single transport — the **daemon-side** half: the handlers that ANSWER the `account.*` calls T4.1's `client-sdk/src/account.ts` makes)
   - Consumes: `account.*` method strings (CP-015-3); Plan-005's `registry.ts` namespace registry + `MethodRegistry` (shipped substrate); the control-plane account read and name update services (Phase-1/Phase-3 tasks — the daemon proxies to them per I-015-3); `AuthenticatedIdentityContext` (D-015-1) for gateway identity resolution; the `DaemonCredentialProvider` (T5.1 to T5.3) for each call to the control plane
   - Provides: the daemon-side `account.read` / `account.nameUpdate` handlers — the counterpart T4.1's client invokes, closing the daemon-as-gateway loop (client → daemon handler → control-plane service); registered under Plan-005's `ipc/handlers/`
-  - Note: mirrors the shipped `presence.*` handler-registration precedent (`packages/runtime-daemon/src/ipc/handlers/{presence-subscribe,presence-read}.ts`) — each plan that adds a daemon-proxied namespace registers explicit handler files under `handlers/`. **Without this task the `account.*` method strings T4.1 registers (CP-015-3) have no daemon-side responder — the SDK call resolves to `method-not-found` at runtime**. Independent of T4.1, T4.2 and T4.3 for unit-test purposes (handlers test against a stubbed control-plane service), but completes the runtime transport loop the client half assumes.
+  - Note: mirrors the shipped `presence.*` handler-registration precedent (`packages/runtime-daemon/src/ipc/handlers/presence/{subscribe,read}.ts`) — each plan that adds a daemon-proxied namespace registers explicit handler files under `handlers/`. **Without this task the `account.*` method strings T4.1 registers (CP-015-3) have no daemon-side responder — the SDK call resolves to `method-not-found` at runtime**. Independent of T4.1, T4.2 and T4.3 for unit-test purposes (handlers test against a stubbed control-plane service), but completes the runtime transport loop the client half assumes.
   - Decided: daemon-side handler home `packages/runtime-daemon/src/ipc/handlers/account-*.ts` follows the `ipc/` per-namespace-handler convention, per D-015-3.
 
 ### Phase 5 — Daemon Credential Seam & Account
@@ -252,7 +252,7 @@ PASETO wiring — the decomposition CP-015-7 schedules here: the real `DaemonCre
   - Behavior: the device-authorization route returns a device code, a user code and the verification address; the command line prints the code and the address, opens the address in the browser where one exists, and polls. The verification address serves the device-code page, which shows the user code for the person to compare with the one the command line printed, calls `WebAuthnAuthenticationOptionsIssue`, runs the platform's passkey sheet, and sends `{userCode, transactionId, assertion}` to the approval route. That route checks the assertion as `WebAuthnAuthenticationVerify` does (T6.3's verifier), consuming the challenge and answering `user.webauthn_challenge_invalid` or `user.webauthn_verification_failed` as the verify leg does, and approves the code for the account the passkey belongs to; it issues no token, so the page keeps nothing in the browser and a computer the person has never used signs in without any machine of theirs. The page offers that path as `Sign in with a passkey` beside `Create an account`, the way in the first time the person runs `sidekicks sign-in` with no account yet: `Create an account` asks for `Name` once and calls `WebAuthnRegistrationOptionsIssue` with `{userCode, displayName}` in place of a session, which mints the account's `identity_ref`, holds it and the name on the device-code transaction and returns the creation options with a `transactionId`; the platform's own passkey sheet makes the account's first passkey carrying that `identity_ref` as its user handle; the approval route's creation arm takes `{userCode, transactionId, attestation}`, verifies the attestation, and in one transaction writes the user record (T2.1) with the typed name, its first passkey and the code's approval, so a failed or abandoned creation writes nothing. That registration needs no sign-in, because it makes a new account and adds nothing to one that exists: it is bound to the device-code transaction the page was opened with, good once, and limited per source address under the same `auth.endpoint` row as the passkey sign-in (T6.2). No GitHub or other outside sign-in makes or finds the account. An unknown or expired user code is refused under the code this unit registers with its refusal set. Once the code is approved, the token route issues a refresh token bound to the DPoP key the command line proves for this machine (`cnf.jkt`, computed as that key's JWK SHA-256 thumbprint) and writes the family's `refresh_token_families` row with that token's `jti` as its `current_jti`. Once the refresh token is issued, the command line enrolls the machine through the enrollment route: with an access token and a DPoP proof it sends the machine's id, the identity key's public half, its name, its platform and the installed service's version, and the route writes the machine's `runtime_nodes` row under the account, refusing a different key for a machine already enrolled unless a later `runtimenode.added` for that machine id is on the chain; a removed machine linked again re-enrolls the new key it mints once its new `runtimenode.added` is on the chain. The service's `runtimenode.register` at its start is accepted only for the enrolled key and refreshes the name, platform and version (Plan-025 Phase 3), and the key enters the account's statement chain with its `runtimenode.added` (Plan-025 Phase 2). The trade route takes a refresh token with a DPoP proof under the same key and returns a short-lived PASETO v4.public access token and a new refresh token of the same family through one compare-and-swap on the family's row: it sets `current_jti` to the new token's `jti` only where the row still holds the presented one, and every other `jti` of that family is spent. When no row is updated while the family's row exists, the presented token is spent and this is reuse: in one transaction the route deletes the family's row and writes its `revoked_token_families` row, revoking the whole family. A token whose family has neither row is refused. Sign-out revokes the family the same way. The refresh token has no expiry of its own; it lasts until sign-out or revocation.
   - Tests: a completed device-code flow yields a refresh token whose `cnf.jkt` is the proved key's thumbprint; `Create an account` writes one user record carrying the typed name and one passkey, and approves the code for that account, and a creation whose attestation fails verification writes no user record, and a later `Sign in with a passkey` with that passkey resolves to the same user and writes no second; a second creation registration under the same device-code transaction is refused, and a creation registration with no pending device-code transaction is refused; a code approved on the page after a verified passkey completes the flow, and a code whose assertion fails verification stays unapproved, the token route answering `authorization_pending` until the code expires; the approval route's reply carries no token; a trade returns a new pair and a second trade with the old refresh token revokes the family, after which the newest refresh token is refused too; a spent refresh token replayed after the access token's lifetime has passed still revokes the family; two trades racing with one token leave one good trade, and the other revokes the family; a token whose family has neither a live nor a revoked row is refused; a trade with a proof under a different key is refused; enrollment writes the machine's row with its key, a second enrollment with a different key for that machine is refused, and a registration whose key is not the enrolled one is refused; sign-out revokes the family.
 - **T5.5 — `account.delete` and `account.export`.**
-  - Files: `packages/control-plane/src/account/account-delete.ts` (CREATE), `packages/control-plane/src/account/account-export.ts` (CREATE) + tests; `packages/contracts/src/account.ts` (EXTEND — both routes' shapes)
+  - Files: `packages/control-plane/src/account/delete.ts` (CREATE), `packages/control-plane/src/account/export.ts` (CREATE) + tests; `packages/contracts/src/account.ts` (EXTEND — both routes' shapes)
   - **Spec coverage:** [Spec-020 §Path 2 — Postgres PII rows (hard DELETE)](../specs/020-data-retention-and-gdpr.md#path-2--postgres-pii-rows-hard-delete); Spec-016 §State And Data Implications
   - **Verifies invariant:** none (the Path-2 closure is Plan-019's I-019-3, reached through CP-015-6)
   - Consumes: the Spec-020 Path-2 fan-out driver ← [Plan-019](./019-data-retention-and-gdpr.md) (CP-015-6 ⇄ CP-019-3); T5.4's family revocation
@@ -286,7 +286,7 @@ The relying party for the owner's passkeys, which the web client, the phone apps
   - Behavior: `webauthn_credentials(user_id UUID NOT NULL REFERENCES users(id), credential_id TEXT NOT NULL UNIQUE, public_key BYTEA NOT NULL, signature_counter BIGINT NOT NULL DEFAULT 0, transports TEXT[], registered_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_used_at TIMESTAMPTZ)` with a `user_id` index; `webauthn_challenges(challenge TEXT PRIMARY KEY, transaction_id UUID NOT NULL UNIQUE, user_id UUID REFERENCES users(id), ceremony TEXT NOT NULL CHECK (ceremony IN ('registration','authentication')), expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())` with an `expires_at` index for the sweep. `challenge` is the primary key because the challenge IS the selector a verification presents — a surrogate id would need a second lookup and would let two rows carry one challenge. `transaction_id` sits beside it as the correlator an **unauthenticated** caller quotes (I-015-6): the challenge is the cryptographic input the response signs over and the transaction id is the request-correlation handle, and keeping them distinct means the correlator can appear in a log or an error path without publishing the value the signature is bound to. `webauthn_challenges.user_id` is deliberately NULLABLE: a discoverable-credential sign-in issues options before any user is known, and the user is resolved from the verified response's credential id.
   - Note: `credential_id UNIQUE` is global rather than per-user. WebAuthn credential ids are authenticator-minted and unique by construction, and a global constraint additionally refuses the case a per-user one would admit — the same credential enrolled under two users, which would make a sign-in's user resolution ambiguous.
 - **T6.2 — Registration ceremony (options issue + response verification).**
-  - Files: `packages/contracts/src/users/webauthn-ceremony.ts` (CREATE — the five operations' request/response schemas, reached at its own subpath, `@ai-sidekicks/contracts/users/webauthn-ceremony`, with nothing to re-export); `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE) + the procedure registration on the control plane's tRPC router + tests
+  - Files: `packages/contracts/src/webauthn-ceremony.ts` (CREATE — the five operations' request/response schemas, reached at its own subpath, `@ai-sidekicks/contracts/webauthn-ceremony`, with nothing to re-export); `packages/control-plane/src/users/webauthn-ceremony-service.ts` (CREATE) + the procedure registration on the control plane's tRPC router + tests
   - **Spec coverage:** Spec-016 §Required Behavior (server-issued single-use options; verification runs through a maintained library), Spec-016 §Interfaces And Contracts (`WebAuthnRegistrationOptionsIssue` / `WebAuthnRegistrationVerify`)
   - **Verifies invariant:** I-015-6, I-015-7
   - Consumes: `webauthn_credentials` + `webauthn_challenges` rows (T6.1); the T6.4 challenge fence; the pinned verification dependency's `generateRegistrationOptions` / `verifyRegistrationResponse`; the control plane's tRPC router (shipped); `user.webauthn_challenge_invalid` + `user.webauthn_verification_failed` (registered in `error-contracts.md`)
@@ -311,7 +311,7 @@ The relying party for the owner's passkeys, which the web client, the phone apps
   - Behavior: `issue` inserts one row with a 5-minute `expires_at`, minting the `transaction_id` the caller quotes back; `consume` is a single `DELETE FROM webauthn_challenges WHERE challenge = $1 AND transaction_id = $2 AND expires_at > now() RETURNING *`, so consumption is atomic, an expired row is never returned, a response presented under the wrong transaction is refused with the same statement, and two concurrent verifications of one challenge cannot both succeed — at most one `DELETE` finds a row. Expired rows are swept on a periodic pass; the sweep is hygiene, not the correctness mechanism, because the `expires_at > now()` predicate already refuses a stale row the sweep has not yet reached.
   - Note: **the storage choice is decided here rather than left open.** A sealed stateless challenge — a self-contained token carrying the challenge and its expiry, verified on return — needs no round trip and is attractive against `workerd`. It was rejected because single-use is the property that matters: a stateless token is replayable until it expires unless a durable fence records its consumption, and that fence is itself a row in the same Postgres. The stateless design therefore does not remove the write; it adds a second signing secret to rotate beside a write it still has to perform. The table is one insert and one conditional delete against a database the control plane already binds.
 - **T6.5 — Credential revocation (`WebAuthnCredentialRevoke`).**
-  - Files: `webauthn-ceremony-service.ts` (EXTEND own file) + the procedure registration on the control plane's tRPC router + tests; `packages/contracts/src/users/webauthn-ceremony.ts` (EXTEND — the fifth operation's request/response schemas)
+  - Files: `webauthn-ceremony-service.ts` (EXTEND own file) + the procedure registration on the control plane's tRPC router + tests; `packages/contracts/src/webauthn-ceremony.ts` (EXTEND — the fifth operation's request/response schemas)
   - **Spec coverage:** Spec-016 §Required Behavior (revocation is server-side and is what makes a removal real), Spec-016 §Interfaces And Contracts (`WebAuthnCredentialRevoke`, the one authenticated non-ceremony operation in the registry)
   - **Verifies invariant:** I-015-10
   - Consumes: `webauthn_credentials` rows (T6.1/T6.2); the authenticated session the caller already holds

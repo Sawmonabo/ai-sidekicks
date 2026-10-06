@@ -85,7 +85,7 @@ features/<feature>/
 ## Fixtures
 
 - **`fixtures/`** holds `scenarios/<scenario>.ts`, one file per named scenario; shared `data/`; and `index.ts`, the scenario catalog.
-- **Fixture implementations** are `services/<service>/<service>.fixture.ts`, a feature's `fixtures/` folder, or the store's owner where the store boundary itself is replaced. The release build drops every `features/**/fixtures/` by path.
+- **Fixture implementations** are `services/<service>/<module>.fixture.ts` beside the module they replace, a feature's `fixtures/` folder, or the store's owner where the store boundary itself is replaced. The release build drops every `features/**/fixtures/` by path.
 
 ## Mechanical Gates
 

@@ -37,7 +37,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/attention/` (the projector, the gate at entry write, the windowless start, the per-device push decision and seal)
 - `packages/runtime-daemon/src/attention/delivery/` (new in T3.3: the web-address sender, the digest scheduler and sender, the outcome table, the delivery verbs' handlers)
 - `packages/runtime-daemon/src/ipc/handlers/` (the `attention.*` handlers)
-- `packages/client-sdk/src/attention-client.ts` (new in T3.2: every attention verb the main process and the renderer call)
+- `packages/client-sdk/src/attention.ts` (new in T3.2: every attention verb the main process and the renderer call)
 - The desktop main process's notifications service: the poster, the withdrawal, the app-icon count and banner mode
 - The desktop renderer: the Notifications list in `layout/NotificationsList/`, opened from the rail's bell, with its projection, count and notifier in `store/attention/`; the Notifications settings page in `features/settings/` (T3.7), which on the machine reads and writes the machine's settings file and on a phone app or the web client keeps its switches and kinds on the device and hands them to each machine through `device.notificationSettingsSet`; the muted row mark in `features/sessions/` and the inspector's `Notifications` fact in `features/inspector/`
 
@@ -72,7 +72,7 @@ Plan-016 keeps no control-plane table, so it owes no Path-2 account-deletion rec
 ## API And Transport Changes
 
 - Add the attention contracts to `packages/contracts/src/attention.ts` and the typed client SDK. `attention.projectionRead` rides the daemon JSON-RPC transport only (the projection is daemon-local per [ADR-016](../decisions/016-shared-event-sourcing-scope.md), the `transcript.*` posture) and is served live: the whole projection, then every change, the way `command.list` is served, so no `attention.subscribe` exists. `attention.bannerSettle {entryId, state}` (main process only; a no-op once the entry is past `pending`) and `attention.seenUpdate {sessionId}` ride the same transport. Their wire strings are registered in the [Attention Method-Name Registry](../architecture/contracts/api-payload-contracts.md#attention-method-name-registry) (D-016-3).
-- No preference methods. On the machine the switches and the kinds are the machine's settings file's `notifications` keys, written through `machineSettings.write(change)`, which the main process hands to the daemon, the file's one writer, as `daemon.machineSettingsUpdate {change}` (its contract beside `MachineSettings` in `packages/contracts`); the daemon reads the file when it writes an entry or sends. The SDK client `packages/client-sdk/src/attention-client.ts`, new in T3.2, covers every attention verb the main process and the renderer call: `attention.projectionRead`, `attention.bannerSettle`, `attention.seenUpdate` and the delivery verbs.
+- No preference methods. On the machine the switches and the kinds are the machine's settings file's `notifications` keys, written through `machineSettings.write(change)`, which the main process hands to the daemon, the file's one writer, as `daemon.machineSettingsUpdate {change}` (its contract beside `MachineSettings` in `packages/contracts`); the daemon reads the file when it writes an entry or sends. The SDK client `packages/client-sdk/src/attention.ts`, new in T3.2, covers every attention verb the main process and the renderer call: `attention.projectionRead`, `attention.bannerSettle`, `attention.seenUpdate` and the delivery verbs.
 - Require every entry to reference the underlying canonical event or derived blocking state that caused it.
 - **Delivery verbs**, in the `attention` domain, on the daemon transport: `attention.deliveryRead`, `attention.mailPasswordSave`, `attention.mailPasswordRemove`, `attention.webAddressSave`, `attention.webAddressSecretRotate`, `attention.webAddressRemove` and `attention.deliveryTest`, with the refusals `attention.delivery_store_unavailable` and `attention.delivery_not_configured`, as [Spec-017 §Interfaces And Contracts](../specs/017-notifications-and-attention-model.md#interfaces-and-contracts) gives their shapes.
 - **Web address.** `Send to a web address`, off by default: one [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks)-signed JSON `POST` for each moment of the kinds picked for it, never for a muted session's `Finished` or `Failed`; whatever the person types, saved as typed with nothing refused; text with no scheme and host reads masked with no host, and each message to it fails and counts as undelivered; a 15-second timeout; retries at 5 seconds, 5 minutes and 30 minutes, at most 100 waiting; the address and its signing secret sealed in the keychain. It sends only while no app window is in front on any of the person's devices, and a workflow's Notify step always sends.
@@ -159,9 +159,9 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 #### Tasks
 
-##### T2.1 — `attention-projector.ts`: entries from canonical events
+##### T2.1 — `attention/projector.ts`: entries from canonical events
 
-- **Files:** `packages/runtime-daemon/src/attention/attention-projector.ts` (new) plus co-located tests.
+- **Files:** `packages/runtime-daemon/src/attention/projector.ts` (new) plus co-located tests.
 - **Step:** Derive entries by rebuilding from canonical session and run events: on Claude Code the held permission or question request and the turn's `result`; on Codex the thread status flags `waitingOnApproval` and `waitingOnUserInput` and `turn/completed`; a waiting plan card; a session's or workflow run's finish and failure; and a Notify step's entry, whose moment id comes from the run, the node and the execution index. Map each to its trigger and default severity. The projector reads canonical state only and accepts no client-supplied attention input, and never reads a provider's own notification feature.
 - **Test:** one case per trigger asserting the derived entry's trigger, severity and `sourceEventId`; a rebuild-equivalence case asserting that projecting the same event log twice, and projecting it from cold, yield identical entries; a case asserting an entry resolves only when the underlying state resolves.
 - **Spec coverage:** Spec-017 §State And Data Implications; Spec-017 §Required Behavior
@@ -169,7 +169,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.2 — Session-scoped aggregate projection and the D-016-2 carrier rule
 
-- **Files:** `packages/runtime-daemon/src/attention/attention-projector.ts` plus co-located tests.
+- **Files:** `packages/runtime-daemon/src/attention/projector.ts` plus co-located tests.
 - **Step:** Derive the session-scoped aggregate as an `AttentionItem` with `runId` absent, applying the derivation rule in §API And Transport Changes: severity is actionable while any unresolved contributor is actionable; `trigger` and `sourceEventId` come from the representative contributor selected by highest severity, then earliest `createdAt`, then lexicographically smallest `id`. Serve it from `attention.projectionRead`; expose no partial input from which a client could assemble its own.
 - **Test:** the two-concurrent-runs case asserting the aggregate stays actionable until both underlying entries clear; a determinism case asserting two projections over the same contributor set in different insertion orders select the same representative, including a tie on severity and a further tie on `createdAt`.
 - **Spec coverage:** Spec-017 §Default Behavior; Spec-017 §Example Flows
@@ -177,7 +177,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.3 — The gate at entry write
 
-- **Files:** `packages/runtime-daemon/src/attention/attention-gate.ts` (new) plus co-located tests.
+- **Files:** `packages/runtime-daemon/src/attention/gate.ts` (new) plus co-located tests.
 - **Step:** When the daemon writes an entry, read the machine's settings file right then (no copy, no watcher) and write `bannerState: withheld` for a kind switched off, the master switch off, or a muted session's `Finished` or `Failed`; otherwise `pending`. A missing key reads `true`. The gate never touches the entry's place in the list or the count, and no preference gates a withdrawal. Moments that resolve within half a second of the first are merged by the subject they belong to, so one subject is posted once and two subjects each get their own notification; a later moment of the same subject replaces its notification rather than stacking a second; the list keeps every entry.
 - **Test:** a muted session's `Waiting on you` entry is written `pending` and counted while its `Finished` entry is written `withheld`; a kind switched off writes `withheld` and the entry is still listed and, when waiting, counted; a mutation that lets the mute withhold `Waiting on you` fails the test; two moments of one session within half a second post one notification while two sessions post two, and both sessions' entries stay listed.
 - **Spec coverage:** Spec-017 §Required Behavior (one decision at entry write); Spec-017 §Fallback Behavior
@@ -185,7 +185,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.4 — The live read, the settle and seen verbs, and the mute's withdrawal
 
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/attention-projection-read.ts`, `attention-banner-settle.ts` and `attention-seen-update.ts` (new), registered against the daemon `MethodRegistry`; the `session.muted` listener in `packages/runtime-daemon/src/attention/`; plus co-located tests.
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/attention/projection-read.ts`, `attention/banner-settle.ts` and `attention/seen-update.ts` (new), registered against the daemon `MethodRegistry`; the `session.muted` listener in `packages/runtime-daemon/src/attention/`; plus co-located tests.
 - **Step:** Serve `attention.projectionRead` live (the whole projection, then every change). Serve `attention.bannerSettle`, callable by the main process only and a no-op once the entry is past `pending`, and `attention.seenUpdate`, which sets the one seen-or-unseen fact. On `session.muted`, withdraw the session's `Finished` and `Failed` notifications still standing, by moment id.
 - **Test:** a second `attention.bannerSettle` for an entry already `posted` changes nothing, so a notification is never posted twice; after a daemon restart a muted session still reads `muted: true`, rebuilt from its events.
 - **Spec coverage:** Spec-017 §Interfaces And Contracts
@@ -218,7 +218,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T3.2 — The renderer's attention surfaces and the click
 
-- **Files:** the Notifications list in `layout/NotificationsList/` and its projection, count and notifier in `store/attention/`; the muted row mark in `features/sessions/` and the inspector's `Notifications` fact in `features/inspector/`, and the click's landing in `routing/`; `packages/client-sdk/src/attention-client.ts` (new), which exposes `attention.projectionRead`, `attention.bannerSettle`, `attention.seenUpdate` and the delivery verbs, the attention verbs the main process and the renderer call.
+- **Files:** the Notifications list in `layout/NotificationsList/` and its projection, count and notifier in `store/attention/`; the muted row mark in `features/sessions/` and the inspector's `Notifications` fact in `features/inspector/`, and the click's landing in `routing/`; `packages/client-sdk/src/attention.ts` (new), which exposes `attention.projectionRead`, `attention.bannerSettle`, `attention.seenUpdate` and the delivery verbs, the attention verbs the main process and the renderer call.
 - **Step:** Draw the bell's list (`Waiting on you` with its count, then `Earlier`; no empty group; with no entries, the heading and nothing under it), landing a line on the session's place; draw the muted row mark and the inspector fact; route a notification click from the main process's navigation member to the session's place. The client returns the server's aggregate as received and computes none of its own.
 - **Test:** a muted session still shows a blocking approval-required entry in-app; a session badge stays actionable while any contributing run entry is actionable and clears only with the last one.
 - **Spec coverage:** Spec-017 §The Console's Attention Surfaces; Spec-017 §Default Behavior; Spec-017 AC3

@@ -18,7 +18,7 @@ Ship Spec-019's count on the person's own relay — the Workers relay in their o
 
 ## Scope
 
-- `RateLimiter` contract owned by this plan at `packages/control-plane/src/rate-limit/rate-limiter.ts`, with the typed `RateLimitEndpointGroup` key union derived from the [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) and the check request/response types: only the relay's control plane checks a limit, and the daemon never does. The wire devices read lives in `packages/contracts`: the canonical `RateLimitResponse` envelope + Zod schema (D-018-3) in `rate-limiter.ts`.
+- `RateLimiter` contract owned by this plan at `packages/control-plane/src/rate-limit/limiter.ts`, with the typed `RateLimitEndpointGroup` key union derived from the [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) and the check request/response types: only the relay's control plane checks a limit, and the daemon never does. The wire devices read lives in `packages/contracts`: the canonical `RateLimitResponse` envelope + Zod schema (D-018-3) in `rate-limiter.ts`.
 - The `RateLimiter` implementations:
   - `CloudflareWorkersRateLimiter` — the per-identity `RateLimitIdentityDO` is the counter: one atomic check-and-consume per request, one global count per source address (D-018-1).
   - `InMemoryRateLimiter` — the self-hosted relay's counter, a sliding window per source address in the relay process's memory (D-018-2).
@@ -47,14 +47,14 @@ The plan builds on:
 
 - `packages/contracts/src/rate-limiter.ts` — **created by this plan.** The wire devices read: the `RateLimitResponse` 429 envelope + `RateLimitResponseSchema` (Zod).
 - `packages/control-plane/src/rate-limit/` — **created by this plan.**
-  - `rate-limiter.ts` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse` and the `RateLimiter` interface; the control plane and the self-host relay node, which imports the control plane's limiter, are their only users.
-  - `endpoint-limits.ts` — canonical endpoint-group → `{ limit, periodSeconds }` config module transcribed from the Spec-019 registry — the one source of the limit for both implementations (T21.2-1).
-  - `cloudflare-rate-limiter.ts` — the Workers implementation over the per-identity Durable Object (D-018-1).
+  - `limiter.ts` — `RateLimitEndpointGroup`, `RateLimitCheckRequest`/`RateLimitCheckResponse` and the `RateLimiter` interface; the control plane and the self-host relay node, which imports the control plane's limiter, are their only users.
+  - `endpoint-groups.ts` — canonical endpoint-group → `{ limit, periodSeconds }` config module transcribed from the Spec-019 registry — the one source of the limit for both implementations (T21.2-1).
+  - `cloudflare-limiter.ts` — the Workers implementation over the per-identity Durable Object (D-018-1).
   - `identity-durable-object.ts` — the `RateLimitIdentityDO` class and its Worker-side stub resolver (Workers only).
   - the self-hosted relay's in-memory counter (T21.2-4).
   - `factory.ts` — the implementation selector.
   - `enforcement-pipeline.ts` — `createAdmissionCheck`, which returns `checkAdmission` (D-018-1).
-  - `rate-limiter-contract-suite.ts` — exported shared contract suite (`describeRateLimiterContract`), the I-018-2 parity proof the self-host relay node re-runs.
+  - `limiter-contract-suite.ts` — exported shared contract suite (`describeRateLimiterContract`), the I-018-2 parity proof the self-host relay node re-runs.
 - `packages/control-plane/src/middleware/rate-limit.ts` — **created by this plan.** tRPC middleware `rateLimitProcedure`.
 - `packages/control-plane/src/server/host.ts` — **extended by this plan (export-only edit):** re-export `RateLimitIdentityDO` from the Worker entry module (Cloudflare requires DO classes exported from the deployed script), inside the CP-018-1 stable-mount seam.
 - `eslint.config.mjs` — a `no-restricted-imports` entry scoped to `packages/runtime-daemon/**` that keeps the daemon from importing the relay's rate-limit code (T21.3-3).
@@ -95,7 +95,7 @@ Code-level home: `packages/contracts/src/rate-limiter.ts`, which T21.1-1 creates
 ### `RateLimiter` contract (new, owned by this plan)
 
 ```ts
-// packages/control-plane/src/rate-limit/rate-limiter.ts
+// packages/control-plane/src/rate-limit/limiter.ts
 // Union of the Key column of Spec-019 §Canonical Endpoint Group Registry (D-018-3).
 export type RateLimitEndpointGroup = "auth.endpoint";
 
@@ -171,16 +171,16 @@ A 429 response must set:
 | ID | Invariant | Verified by |
 | --- | --- | --- |
 | I-018-1 | Every enforced transport admits through one stage: tRPC procedures and raw routes through `checkAdmission`, whose only stage is the sliding-window counter. The daemon IPC path is reachable by no admission stage. | T21.3-1 pipeline unit tests; the daemon's `no-restricted-imports` lint rule (T21.3-3). |
-| I-018-2 | Both `RateLimiter` implementations enforce the same limit and expose identical `check()` semantics; selection is configuration-only. | `rate-limiter-contract-suite.ts` (T21.2-6) green against both implementations in CI; the self-host relay node re-runs it (CP-018-2). |
+| I-018-2 | Both `RateLimiter` implementations enforce the same limit and expose identical `check()` semantics; selection is configuration-only. | `limiter-contract-suite.ts` (T21.2-6) green against both implementations in CI; the self-host relay node re-runs it (CP-018-2). |
 | I-018-3 | Rate-limit state is ephemeral and bounded by its window: sliding-window counters live in the per-identity DO's window state or in the self-hosted relay's process memory; no table this plan owns holds rate-limit state. | DO restart-persistence and full-expiry eviction tests (T21.2-2); the in-memory counter's window-expiry test (T21.2-4). |
-| I-018-4 | The check request/response and the 429 `RateLimitResponse` envelope have exactly one canonical shape — identical in [Spec-019 §Interfaces And Contracts](../specs/019-rate-limiting-policy.md#interfaces-and-contracts), error-contracts.md, api-payload-contracts.md, and code: the check shapes in `packages/control-plane/src/rate-limit/rate-limiter.ts`, the envelope in `packages/contracts/src/rate-limiter.ts`. | T21.1-2/T21.1-3 parity verification at implementation; T21.1-4 schema tests (the full envelope parses; an envelope missing a field or half-timed is rejected); cross-doc drift checked at review. |
+| I-018-4 | The check request/response and the 429 `RateLimitResponse` envelope have exactly one canonical shape — identical in [Spec-019 §Interfaces And Contracts](../specs/019-rate-limiting-policy.md#interfaces-and-contracts), error-contracts.md, api-payload-contracts.md, and code: the check shapes in `packages/control-plane/src/rate-limit/limiter.ts`, the envelope in `packages/contracts/src/rate-limiter.ts`. | T21.1-2/T21.1-3 parity verification at implementation; T21.1-4 schema tests (the full envelope parses; an envelope missing a field or half-timed is rejected); cross-doc drift checked at review. |
 
 ## Cross-Plan Obligations
 
 | ID | Direction | Counterparty | Obligation | Anchor |
 | --- | --- | --- | --- | --- |
 | CP-018-1 | consumes ← | the control-plane host | The stable tRPC middleware-mount surface that `rateLimitProcedure` mounts onto; the host authors no rate-limit **middleware** task — `rateLimitProcedure` authorship stays here. The DO class export is an export-only edit inside the same stable-mount seam. | [Plan-018 §Target Areas](#target-areas) |
-| CP-018-2 | provides → | [Plan-025](./025-remote-control.md)'s self-host relay node | `RateLimiter` contract + the in-memory implementation + `createAdmissionCheck`, instantiated not re-implemented; the exported contract suite at `packages/control-plane/src/rate-limit/rate-limiter-contract-suite.ts` (the relay node re-runs it). | [Plan-025 §Phase 3 — The relay and the channel](./025-remote-control.md#phase-3--the-relay-and-the-channel) |
+| CP-018-2 | provides → | [Plan-025](./025-remote-control.md)'s self-host relay node | `RateLimiter` contract + the in-memory implementation + `createAdmissionCheck`, instantiated not re-implemented; the exported contract suite at `packages/control-plane/src/rate-limit/limiter-contract-suite.ts` (the relay node re-runs it). | [Plan-025 §Phase 3 — The relay and the channel](./025-remote-control.md#phase-3--the-relay-and-the-channel) |
 
 ### Endpoint wiring ownership (D-018-3)
 
@@ -212,7 +212,7 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T21.1-1 — `packages/control-plane/src/rate-limit/rate-limiter.ts` and `packages/contracts/src/rate-limiter.ts`.** In the control plane's file, author `RateLimitEndpointGroup` (registry-key union, D-018-3), `RateLimitCheckRequest`, `RateLimitCheckResponse` and the `RateLimiter` interface. In contracts, author the `RateLimitResponse` wire envelope + `RateLimitResponseSchema` (Zod; both timing fields required, [Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); the module is reached at its own subpath, `@ai-sidekicks/contracts/rate-limiter`, with nothing to re-export.
+- **T21.1-1 — `packages/control-plane/src/rate-limit/limiter.ts` and `packages/contracts/src/rate-limiter.ts`.** In the control plane's file, author `RateLimitEndpointGroup` (registry-key union, D-018-3), `RateLimitCheckRequest`, `RateLimitCheckResponse` and the `RateLimiter` interface. In contracts, author the `RateLimitResponse` wire envelope + `RateLimitResponseSchema` (Zod; both timing fields required, [Spec-019 §Overflow Response](../specs/019-rate-limiting-policy.md#overflow-response)); the module is reached at its own subpath, `@ai-sidekicks/contracts/rate-limiter`, with nothing to re-export.
   - **Spec coverage:** Spec-019 §Interfaces And Contracts (RateLimitCheck shape), Spec-019 §Deployment-Aware Abstraction (same programmatic interface in both deployments), Spec-019 §Implementation Notes (single RateLimiter interface), Spec-019 §Overflow Response (standard RateLimitResponse envelope)
   - **Verifies invariant:** I-018-4
   - **Consumes:** [Spec-019 §Canonical Endpoint Group Registry](../specs/019-rate-limiting-policy.md#canonical-endpoint-group-registry) (a doc contract); zod (workspace dep).
@@ -237,7 +237,7 @@ The phase builds on the shipped contracts package.
 
 #### Tasks
 
-- **T21.2-1 — `endpoint-limits.ts`.** Canonical endpoint-group → `{ limit, periodSeconds }` table transcribed from the Spec-019 registry; exported as the single config source for both implementations and for header values.
+- **T21.2-1 — `endpoint-groups.ts`.** Canonical endpoint-group → `{ limit, periodSeconds }` table transcribed from the Spec-019 registry; exported as the single config source for both implementations and for header values.
   - **Spec coverage:** Spec-019 §Canonical Endpoint Group Registry (registry table header — single enumeration), Spec-019 §Deployment-Aware Abstraction (the same limit)
   - **Verifies invariant:** I-018-2
   - **Consumes:** `RateLimitEndpointGroup` ← T21.1-1.
@@ -245,19 +245,19 @@ The phase builds on the shipped contracts package.
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (sign-in routes counted once in the per-identity Durable Object), Spec-019 §State And Data Implications (counters not persisted beyond their window)
   - **Verifies invariant:** I-018-3
   - **Consumes:** Cloudflare DO runtime (`@cloudflare/workers-types` for types); wrangler DO binding + migration declaration (§Target Areas wrangler deliverable).
-- **T21.2-3 — `cloudflare-rate-limiter.ts`.** `CloudflareWorkersRateLimiter implements RateLimiter` (D-018-1): call the address's DO `checkAndConsume({ group, limit, windowSeconds })` — the Worker passes the registry threshold and the DO atomically evaluates and consumes the group's window, refusing over-threshold with authoritative `remaining`/`resetAt`. Because the DO for an address is one object worldwide, this is one global count. A DO round-trip failure is thrown from `check()`, so it fails that one request.
+- **T21.2-3 — `cloudflare-limiter.ts`.** `CloudflareWorkersRateLimiter implements RateLimiter` (D-018-1): call the address's DO `checkAndConsume({ group, limit, windowSeconds })` — the Worker passes the registry threshold and the DO atomically evaluates and consumes the group's window, refusing over-threshold with authoritative `remaining`/`resetAt`. Because the DO for an address is one object worldwide, this is one global count. A DO round-trip failure is thrown from `check()`, so it fails that one request.
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (Workers = the per-identity Durable Object), Spec-019 §Fallback Behavior (a counter error fails that one request), Spec-019 §Acceptance Criteria (one global count on the sign-in routes)
   - **Verifies invariant:** I-018-2
-  - **Consumes:** `RateLimiter` ← T21.1-1; `endpoint-limits.ts` ← T21.2-1; `RateLimitIdentityDO` ← T21.2-2.
-- **T21.2-4 — `InMemoryRateLimiter`.** The self-hosted relay's implementation of `RateLimiter` for the self-hosted relay's one process (D-018-2): one sliding window per source address in memory, its limit and period from `endpoint-limits.ts`. Each check consumes one; a trip denies with `remaining: 0` and the window's `resetAt`; an address's window is dropped once it has passed. The self-host relay node is its production instantiator (CP-018-2). Its tests: the window-expiry row (an address's state is gone once its window has passed — I-018-3).
+  - **Consumes:** `RateLimiter` ← T21.1-1; `endpoint-groups.ts` ← T21.2-1; `RateLimitIdentityDO` ← T21.2-2.
+- **T21.2-4 — `InMemoryRateLimiter`.** The self-hosted relay's implementation of `RateLimiter` for the self-hosted relay's one process (D-018-2): one sliding window per source address in memory, its limit and period from `endpoint-groups.ts`. Each check consumes one; a trip denies with `remaining: 0` and the window's `resetAt`; an address's window is dropped once it has passed. The self-host relay node is its production instantiator (CP-018-2). Its tests: the window-expiry row (an address's state is gone once its window has passed — I-018-3).
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the self-hosted relay counts in its process's memory), Spec-019 §Implementation Notes (sliding window), Spec-019 §Acceptance Criteria (the same limit, via the shared suite)
   - **Verifies invariant:** I-018-2, I-018-3
-  - **Consumes:** `RateLimiter` ← T21.1-1; `endpoint-limits.ts` ← T21.2-1.
+  - **Consumes:** `RateLimiter` ← T21.1-1; `endpoint-groups.ts` ← T21.2-1.
 - **T21.2-5 — `factory.ts`.** `createRateLimiterFactory(config)` with the discriminated config (`{ kind: 'workers'; env } | { kind: 'node' }`), returning `{ forEndpoint(endpoint: RateLimitEndpointGroup): RateLimiter }`: `workers` → `CloudflareWorkersRateLimiter` over the injected `env`, never `process.env`; `node` → `InMemoryRateLimiter`. Table-driven tests: each kind yields its implementation.
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (swap via deployment configuration), Spec-019 §Implementation Notes (configuration selects the implementation at startup)
   - **Verifies invariant:** I-018-2
   - **Consumes:** T21.2-3 + T21.2-4 (same Phase).
-- **T21.2-6 — `rate-limiter-contract-suite.ts` + runners.** Export `describeRateLimiterContract(makeLimiter: () => Promise<RateLimiter>)` — scenario set: under-limit allow; at-limit deny; header-source fields present + internally consistent; a denial reports the window's `resetAt` and the first check after it is allowed; window expiry re-allow; per-address isolation. Runners: one against the in-memory counter, and `cloudflare-rate-limiter.contract.test.ts` (DO-storage fake — `@cloudflare/workers-types` is types-only; fidelity caveat recorded: local emulation does not reproduce production edge distribution; I-018-2 parity is asserted at the contract level, not edge-distribution level).
+- **T21.2-6 — `limiter-contract-suite.ts` + runners.** Export `describeRateLimiterContract(makeLimiter: () => Promise<RateLimiter>)` — scenario set: under-limit allow; at-limit deny; header-source fields present + internally consistent; a denial reports the window's `resetAt` and the first check after it is allowed; window expiry re-allow; per-address isolation. Runners: one against the in-memory counter, and `cloudflare-rate-limiter.contract.test.ts` (DO-storage fake — `@cloudflare/workers-types` is types-only; fidelity caveat recorded: local emulation does not reproduce production edge distribution; I-018-2 parity is asserted at the contract level, not edge-distribution level).
   - **Spec coverage:** Spec-019 §Deployment-Aware Abstraction (the same limit — the parity proof), Spec-019 §Acceptance Criteria
   - **Verifies invariant:** I-018-2
   - **Consumes:** all Phase-2 tasks; the self-host relay node re-runs this suite (CP-018-2).
@@ -310,7 +310,7 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 
 - **Unit (`packages/control-plane/src/rate-limit/__tests__/`, `src/middleware/__tests__/`):** factory rows; DO single-alarm re-arm, restart persistence, full-expiry eviction and the counter; the in-memory counter's window expiry; pipeline rows; middleware address and header rows.
 - **Contracts (`packages/contracts/src/__tests__/`):** full envelope acceptance / rejection of an envelope missing a field or half-timed (T21.1-4). The registry-key union snapshot runs with the control plane's rate-limit tests (T21.1-4).
-- **Contract parity suite (`rate-limiter-contract-suite.ts`):** the I-018-2 proof, run against both implementations in CI and re-run by the self-host relay node (T21.2-6; CP-018-2).
+- **Contract parity suite (`limiter-contract-suite.ts`):** the I-018-2 proof, run against both implementations in CI and re-run by the self-host relay node (T21.2-6; CP-018-2).
 - **Integration (`packages/control-plane/src/rate-limit/__tests__/`):** the AC-anchored rows of T21.4-1.
 - **Structural:** the daemon's import boundary is an ESLint `no-restricted-imports` rule (T21.3-3), checked by `pnpm lint`; no test parses sources for it.
 
@@ -333,8 +333,8 @@ The per-task test obligations live in each `#### Tasks` row above. Summary by la
 
 ## Done Checklist
 
-- The `RateLimiter` interface, its check types and `RateLimitEndpointGroup` live in `packages/control-plane/src/rate-limit/rate-limiter.ts`; `RateLimitResponse`/`RateLimitResponseSchema` live in `packages/contracts/src/rate-limiter.ts`; all with the shapes defined in §API And Transport Changes.
-- `CloudflareWorkersRateLimiter` and the in-memory counter both pass the shared contract suite (`rate-limiter-contract-suite.ts`).
+- The `RateLimiter` interface, its check types and `RateLimitEndpointGroup` live in `packages/control-plane/src/rate-limit/limiter.ts`; `RateLimitResponse`/`RateLimitResponseSchema` live in `packages/contracts/src/rate-limiter.ts`; all with the shapes defined in §API And Transport Changes.
+- `CloudflareWorkersRateLimiter` and the in-memory counter both pass the shared contract suite (`limiter-contract-suite.ts`).
 - `RateLimiterFactory` selects the implementation from the deployment's configuration.
 - `RateLimitIdentityDO` is exported from the Worker entry module, declared in wrangler `[[durable_objects.bindings]]` + `[[migrations]]`, holds the per-group windows with single-alarm scheduling and full-expiry `deleteAll` self-eviction (I-018-3), and counts each source address once worldwide (Spec-019 §Acceptance Criteria).
 - Every enforced transport admits through one stage (I-018-1): tRPC procedures and raw routes through `checkAdmission`.

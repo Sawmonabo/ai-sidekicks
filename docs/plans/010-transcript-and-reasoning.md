@@ -64,7 +64,7 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `packages/contracts/src/transcript/`
 - `packages/contracts/src/jsonrpc/message.ts` — owned by Plan-005; this plan adds the UTF-8 byte measure the page bound uses, beside the declared message-size limit the gateway re-exports unchanged (CP-005-8)
 - `packages/runtime-daemon/src/ipc/handlers/transcript-methods.ts` — this plan's registration seam against Plan-005's `MethodRegistry` and `StreamingPrimitive`, both consumed and neither authored (CP-005-8)
-- `packages/runtime-daemon/src/transcript/transcript-projector.ts`
+- `packages/runtime-daemon/src/transcript/projector.ts`
 - `packages/runtime-daemon/src/transcript/reasoning-surface-service.ts`
 - `packages/runtime-daemon/src/transcript/child-run-summary-service.ts`
 - the transcript feature (`features/transcript/`): the rows, the plan document and its verdict rows (T4.22), the provider-limit rows (T4.23), the reasoning placeholders, the superseded treatment, the binding system messages, the rows for Codex's own reviewer's warning and required review (T4.8), the blocked tool row with `Allow once` (T4.9), the `Model switched` and `Refused` rows (T4.13), the `Refused` row's retry-or-edit choice (T4.17), the switch-or-credits row on a Fable turn (T4.18), loading earlier and later history (T4.10), run groups windowed per row (T4.11) and the message row's place for the pencil
@@ -130,7 +130,7 @@ Plan-010 is built in phases, each one slice of the plan's vertical with a `**Pre
 
 #### Tasks
 
-- **T2.1** — Implement `packages/runtime-daemon/src/transcript/transcript-projector.ts` (CREATE) building ordered rows from canonical events, stamping each run-scoped row's `runId` + `position` + `epoch` at emission, and preserving provenance to canonical event ids and run ids. A message the wire delivered in two pieces is rejoined here, where grouping is decided and before any row is emitted, so the transcript carries one message with one time and one copy.
+- **T2.1** — Implement `packages/runtime-daemon/src/transcript/projector.ts` (CREATE) building ordered rows from canonical events, stamping each run-scoped row's `runId` + `position` + `epoch` at emission, and preserving provenance to canonical event ids and run ids. A message the wire delivered in two pieces is rejoined here, where grouping is decided and before any row is emitted, so the transcript carries one message with one time and one copy.
   - **Spec coverage:** Spec-011 §State And Data Implications; Spec-011 §Required Behavior (grouping comes from the daemon's own run boundaries)
   - **Verifies invariant:** I-010-1
   - **Tests:** an agent message the provider delivered as two pieces projects as one row carrying one time and the joined text, and the same pieces read back by `transcript.read` after a rebuild give the same single row.

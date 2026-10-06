@@ -100,10 +100,10 @@ The Phase 5 desktop MCP panel views consume daemon state only through the render
 ## Target Areas
 
 - `packages/contracts/src/mcp/governance.ts` (CREATE) — operation payload schemas (incl. the `McpServerConfigInput` transport-discriminated union with provider-conditional refinements and the Codex auth references `envHttpHeaders`/`oauthScopes`/`oauthResource`, the `McpServerBindingRef` scope-discriminated union with `local` on both providers, `scope` and `scopeRef` on upsert and remove, the redacted `McpServerConfigView` with the query-redacted URL, the entry's `failedReason: commandNotRunnable`, the discriminated degraded inventory arm, the mandatory `clientIdempotencyKey` on every mutation and on both sign-in operations, the ≥ 1-facet override refinement, `mcp.registrySearch {query, cursor?}` → `{servers, nextCursor?}`, `mcp.oauthLogout {serverId}`, and the session-feed `bindingId` conditionality on the status payload), the `session.mcpServerList` / `session.mcpServerUpdate` / `session.mcpResourceList` schemas, event payload schemas, error-code consts, `McpApplicationGrade` (`live_reconcile | user_config_write | next_run | daemon_enforced`), override facet + per-facet application types, per-leg `McpServerLegStatus` / `McpLiveApplicationResult`.
-- `packages/runtime-daemon/src/mcp/` (CREATE) — `McpGovernanceService`, `McpInventoryService`, provider adapters (`claudeMcpConfigAdapter`, `codexMcpConfigAdapter`, the Codex project-file writer and `local` emulation), `McpStatusNormalizer`, the sign-in service (the daemon's own OAuth client, the provider-admitted takeover, DPoP keys, the credential-store custody and the header-helper answerer on the daemon's same-user socket), the daemon's own MCP client in `mcp/client/` and its fronted route, the registry search, binding + override stores, the typed `mcp.*` refusal classes in `mcp-errors.ts` (T28.1.5 — subclasses in their own file over Plan-005's `DaemonDomainError` base), plus the startup receipt-intent reconciler.
+- `packages/runtime-daemon/src/mcp/` (CREATE) — `McpGovernanceService`, `McpInventoryService`, provider adapters (`claudeMcpConfigAdapter`, `codexMcpConfigAdapter`, the Codex project-file writer and `local` emulation), `McpStatusNormalizer`, the sign-in service (the daemon's own OAuth client, the provider-admitted takeover, DPoP keys, the credential-store custody and the header-helper answerer on the daemon's same-user socket), the daemon's own MCP client in `mcp/client/` and its fronted route, the registry search, binding + override stores, the typed `mcp.*` refusal classes in `mcp/errors.ts` (T28.1.5 — subclasses in their own file over Plan-005's `DaemonDomainError` base), plus the startup receipt-intent reconciler.
 - The daemon's one schema (EXTEND) — the tables per [local-sqlite-schema.md §MCP Governance Tables (Plan-022)](../architecture/schemas/local-sqlite-schema.md#mcp-governance-tables-plan-022), with the schema's test (EXTEND) covering them.
 - `packages/runtime-daemon/src/ipc/handlers/` (EXTEND) — the `mcp.*` namespace handler files per CP-022-3.
-- `packages/client-sdk/src/mcp-client.ts` (CREATE) + the client's named export line in the package's entry point `packages/client-sdk/src/index.ts` — typed `mcp.*` client methods.
+- `packages/client-sdk/src/mcp.ts` (CREATE) + the client's named export line in the package's entry point `packages/client-sdk/src/index.ts` — typed `mcp.*` client methods.
 - `apps/desktop/src/renderer/src/features/settings/pages/mcp-servers/` (EXTEND) — MCP panel views over the renderer's `services/daemon/` client.
 - `apps/cli/src/commands/` `mcp-*.ts` (CREATE) + the `main.ts` `.register()` EXTENDs — the `sidekicks mcp` command group (`list` / `add` / `remove` / `override` / `login` / `watch` — `watch` tails `mcp.subscribe`) under the Plan-005 registered bin name (`bin: { "sidekicks": … }`, the Plan-013 command precedent; per-subcommand filenames: `mcp-list.ts`, `mcp-add.ts`, `mcp-remove.ts`, `mcp-override.ts`, `mcp-login.ts`, `mcp-watch.ts`).
 
@@ -188,7 +188,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** the `mcp.*` type literals + the `mcp_governance` category ← Plan-004 T1.9 (shipped); `EventEnvelope` ← Plan-004 Phase 1 (shipped).
 
 - **T28.1.5 — Error-code constants and typed daemon error classes.**
-  - Files: `packages/contracts/src/mcp/governance.ts` (EXTEND) + `packages/runtime-daemon/src/mcp/mcp-errors.ts` (CREATE)
+  - Files: `packages/contracts/src/mcp/governance.ts` (EXTEND) + `packages/runtime-daemon/src/mcp/errors.ts` (CREATE)
   - The `mcp.*` codes as typed constants matching error-contracts.md §MCP Governance byte-for-byte, plus the typed refusal classes subclassing `DaemonDomainError` in this Plan-022-owned module — keeping per-namespace classes out of the Plan-005 substrate (no per-namespace mapping-table maintenance; the Plan-007 `git/worktree/errors.ts` precedent), so each refusal reaches the wire as `data.type` with sanitized `data.fields` through the existing discriminator branch and `packages/runtime-daemon/src/ipc/domain-error.ts` is never edited.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (contract-registration task; the reachability assertion is T28.5.8's)
@@ -218,14 +218,14 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 #### Tasks
 
 - **T28.2.1 — Claude config reader across user, project, and local scopes.**
-  - Files: `packages/runtime-daemon/src/mcp/claude-mcp-config-adapter.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/mcp/claude-config-adapter.ts` (CREATE)
   - Read `~/.claude.json` user scope + the project-keyed `local` scope + `.mcp.json`, yielding scope-qualified declarations, and the project's entry of servers the person rejected in Claude Code (the per-project rejected list in `~/.claude.json`), which T28.3.3 leaves out. Credential-bearing values are handled transiently in memory and never persisted, logged, or served (Spec-024 §Implementation Notes transient-secret rule).
   - **Spec coverage:** Spec-024 §Unified Inventory
   - **Verifies invariant:** I-022-1
   - **Consumes:** `McpServerConfigView` ← T28.1.2 (Phase 1, merged).
 
 - **T28.2.2 — Codex config reader with layer attribution.**
-  - Files: `packages/runtime-daemon/src/mcp/codex-mcp-config-adapter.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/mcp/codex-config-adapter.ts` (CREATE)
   - `config/read` yielding user-scope (`$CODEX_HOME/config.toml`) and project-local rows with layer attribution, and the emulated `local` bindings from their governance rows.
   - **Spec coverage:** Spec-024 §Unified Inventory
   - **Verifies invariant:** I-022-1
@@ -239,14 +239,14 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** declarations ← T28.2.1 + T28.2.2 (same phase); the installed plugins in the daemon's plugin homes ← Plan-024 T6.1.
 
 - **T28.2.4 — `McpInventoryService.list/get` four-source merge and degraded arm.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-inventory-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (CREATE — registers `mcp.list` and `mcp.get`)
+  - Files: `packages/runtime-daemon/src/mcp/inventory-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (CREATE — registers `mcp.list` and `mcp.get`)
   - Merge declared config + normalized status + binding row + override rows per binding. `refresh: true` forces a provider round-trip; default serves most-recent observations. On binding-store unreachability serve the `bindingStoreUnavailable: true` arm with store-dependent fields structurally absent, provider-observed fields intact.
   - **Spec coverage:** Spec-024 §Unified Inventory, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-022-1
   - **Consumes:** bindings ← T28.2.3 (same phase); binding/override rows ← T28.1.6 (Phase 1, merged).
 
 - **T28.2.5 — `McpStatusNormalizer` over the Plan-003 seam and the Codex wire.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-status-normalizer.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/mcp/status-normalizer.ts` (CREATE)
   - Consume `McpServerStatusUpdate` values from the daemon-injected `onMcpServerStatus` producer and the Codex `mcpServerStatus/list` + `mcpServer/startupStatus/updated` wire; map Claude `pending` → `starting` and Claude `disabled` → `enabled: false` with last-observed status; absence of any source → `unknown`. Attribute each observation to the effective binding (the set the daemon sent that session). For a server the daemon fronts, take the observation from its own client's connection, and read `needs-auth` for a server whose sign-in the daemon holds from the daemon's sign-in state, since a helper-authenticated server reports `authStatus: unknown` on Codex. `serverName` stays `wireFreeFormString`-bounded — untrusted provider output.
   - **Spec coverage:** Spec-024 §Unified Inventory, Spec-024 §Status Observation and Events
   - **Verifies invariant:** none (normalization mapping; the spoof-bound assertion rides T28.5.8)
@@ -282,14 +282,14 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** the subscription ← T28.2.10; per-leg statuses ← T28.2.7 (same phase).
 
 - **T28.2.10 — `mcp.subscribe` live-tail fan-out with the gap-free handshake.**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-subscribe-handler.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp/subscribe.ts` (CREATE)
   - Long-lived subscription the person reads, delivering each `mcp.server_oauth_completed` envelope as the daemon appends it and each status notice (T28.2.9) as it is sent. Registration MUST be live before the first delivery so the subscribe-acknowledgment-then-`mcp.list` handshake is gap-free (the Plan-005 I-005-9 wire-ordering invariant). Live-tail only: nothing sent before the acknowledgment is delivered, and status keeps no history. After each committed edit to a binding — `mcp.upsertServer`, `mcp.removeServer`, `mcp.setEnabled`, `mcp.setToolOverride`, `mcp.clearToolOverride` — it also sends the live notice `McpServerConfigChangedNotice` (`packages/contracts/src/mcp/server.ts`), the binding's address under `type: 'mcp.server_config_changed'`, appended to no log.
   - **Spec coverage:** Spec-024 §Status Observation and Events
   - **Verifies invariant:** none (delivery ordering; the gap-free assertion rides T28.5.8's AC sweep)
   - **Consumes:** the streaming primitive + I-005-9 ordering guarantee ← Plan-005-partial `streaming-primitive.ts` (shipped).
 
 - **T28.2.11 — `failedReason: commandNotRunnable` after a move between Windows and WSL.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-inventory-service.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/inventory-service.ts` (EXTEND)
   - After the background service moves between Windows and a WSL distribution, the move marks every server whose command or arguments name a program on the side the service left; the inventory keeps such a server as it was and serves it reading `failed` with `failedReason: 'commandNotRunnable'`. A bare command name such as `npx` is looked up on the new side and is not marked. No status is added.
   - **Spec coverage:** Spec-024 §Unified Inventory
   - **Verifies invariant:** none (a read-model member; asserted at T28.5.8 against the AC)
@@ -305,7 +305,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 #### Tasks
 
 - **T28.3.1 — Claude durable leg: `claude mcp add-json --scope` at every scope, verified before acknowledgment.**
-  - Files: `packages/runtime-daemon/src/mcp/claude-mcp-config-adapter.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/claude-config-adapter.ts` (EXTEND)
   - `claude mcp add-json <name> <json> --scope <user|project|local>` / `claude mcp remove <name> --scope <scope>`, unconditional on every `mcp.upsertServer` / `mcp.removeServer`; a `project` or `local` write runs with the project root as the working folder, landing in `<project>/.mcp.json` or the project's entry in `~/.claude.json`. Re-read via `claude mcp get` (or observation of that scope) to verify the write took effect **before** the mutation is acknowledged. Upserts are read-modify-write over the observed current declaration so provider fields the input does not model survive byte-identical. The daemon never rewrites `~/.claude.json` or `.mcp.json` bytes directly.
   - **Not built:** the `project` and `local` writes.
   - **Spec coverage:** Spec-024 §Configuration Mutation
@@ -329,7 +329,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the builder, the start-time send and the resend after resume.
 
 - **T28.3.4 — Codex batched user-scope write with optimistic concurrency and reload.**
-  - Files: `packages/runtime-daemon/src/mcp/codex-mcp-config-adapter.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/codex-config-adapter.ts` (EXTEND)
   - `config/batchWrite` (multi-field mutations MUST be batched — one version check, one reload) with `expected_version` from the immediately preceding `config/read`. On `configVersionConflict`: surface `mcp.config_write_conflict` carrying both version tokens, with no retry. Trigger `config/mcpServer/reload` (or per-server `mcpServer/refresh`) after a successful write. Writes are field-granular `config/value` paths, so unmodeled sibling fields stay byte-identical. Grade `user_config_write`. This task writes the user file; the project file and the emulated `local` scope are T28.3.9 and T28.3.10, because Codex rejects project paths for its own config writes.
   - **Spec coverage:** Spec-024 §Configuration Mutation, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-022-2
@@ -374,7 +374,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the writer.
 
 - **T28.3.10 — Codex `local` emulation.**
-  - Files: `packages/runtime-daemon/src/mcp/codex-mcp-config-adapter.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/codex-config-adapter.ts` (EXTEND)
   - Write the server into the user file through `config/value/write` with `enabled = false`; keep one governance row for the binding, removed with the server; switch it on with `mcp_servers.<name>.enabled = true` in the `thread/start` table of each session whose project is that one. The name must be unique across the user file; a clash refuses per T28.3.5.
   - **Spec coverage:** Spec-024 §Configuration Mutation
   - **Verifies invariant:** I-022-2
@@ -390,7 +390,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the expansion.
 
 - **T28.3.12 — `mcp.registrySearch`.**
-  - Files: `packages/runtime-daemon/src/mcp/registry-search.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/registry-search.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (EXTEND)
   - Answer `{query, cursor?}` from the public MCP Registry's `GET /v0/servers?search=<query>&version=latest` with `{servers, nextCursor?}`, mapping each record's package (`runtimeHint`, `runtimeArguments`) or `remotes`, and its environment variables' names, descriptions and required flags, never a value; cache nothing past the call. Budget: one request per search (measured at 1.83 s, answers of 1.3 to 3.3 KB), no background reads.
   - **Spec coverage:** Spec-024 §The MCP servers page, Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (a read)
@@ -406,7 +406,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 #### Tasks
 
 - **T28.4.1 — Register the mutating handlers.**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (EXTEND)
   - Register `mcp.upsertServer`, `mcp.removeServer` and `mcp.setEnabled` against `MethodRegistry.register()` over the Phase 3 engines; each `mcp.*` handler registers in the change that builds it. Every non-read operation is open to this machine's own client or any linked device, and no session, with no policy check and no ownership refusal, and behaves the same whichever transport carried it ([Spec-027 §Parity by construction](../specs/027-remote-control.md#parity-by-construction)).
   - **Spec coverage:** Spec-024 §Authorization
   - **Verifies invariant:** I-022-3
@@ -420,7 +420,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** binding rows ← T28.2.8 (Phase 2, merged); the binding identity ← T28.4.5 (same phase).
 
 - **T28.4.3 — Override service: baseline restore and materialization at every scope.**
-  - Files: `packages/runtime-daemon/src/mcp/tool-override-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND — registers `mcp.setToolOverride` and `mcp.clearToolOverride`)
+  - Files: `packages/runtime-daemon/src/mcp/tool-override-service.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (EXTEND — registers `mcp.setToolOverride` and `mcp.clearToolOverride`)
   - `mcp.setToolOverride` / `mcp.clearToolOverride` over the three optional facets. Codex `enabled`/`approvalMode` materialize into native fields in the file that holds the binding — the user file, or a project's `.codex/config.toml` through T28.3.9's edit (grade `user_config_write`); Claude equivalents are `daemon_enforced`; `idempotencyClass` is always `daemon_enforced`. Clearing restores the cleared facet's portions from the baseline; clearing a binding's last facet restores it verbatim and drops it, so a user's own native entries survive a set → clear round-trip.
   - **Spec coverage:** Spec-024 §Tool-Level Overrides
   - **Verifies invariant:** I-022-4
@@ -450,7 +450,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 #### Tasks
 
 - **T28.5.1 — The daemon's own sign-in, its custody, and the header helper.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-sign-in-service.ts` (CREATE) + `packages/runtime-daemon/src/mcp/header-helper-answerer.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND — registers `mcp.oauthLogin`) + `packages/contracts/src/mcp/governance.ts` (EXTEND — the header helper's token request and its reply, which the command-line tool sends and the daemon answers)
+  - Files: `packages/runtime-daemon/src/mcp/sign-in-service.ts` (CREATE) + `packages/runtime-daemon/src/mcp/header-helper-answerer.ts` (CREATE) + `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (EXTEND — registers `mcp.oauthLogin`) + `packages/contracts/src/mcp/governance.ts` (EXTEND — the header helper's token request and its reply, which the command-line tool sends and the daemon answers)
   - `mcp.oauthLogin` starts the daemon's own sign-in over T28.5.9's client: discovery from the server's protected-resource metadata, registration by the server's metadata document or dynamic registration, PKCE, `resource` set to the server's address; a server whose entry names an owner-issued client (Codex's `oauth.client_id` and `oauth.callback_url`) signs in as that client. The client implements `discoveryState` and `saveDiscoveryState`, binding the callback to its authorization server. The reply carries the sign-in page's address; the idempotency receipt persists the acknowledgment with `authorizationUrl` **structurally omitted**, so an identical-key retry returns a URL-free acknowledgment as its saved result. A new `mcp.oauthLogin` on a server whose sign-in waits ends that wait and starts the next attempt. The refresh token goes into the operating system's credential store under an item the daemon creates, never a file — through `@napi-rs/keyring` 2.1.0, opened with `{linux: {store: "secret-service"}}`, on macOS and Linux, and on Windows, native and WSL alike, through the service's Windows half at `CRED_PERSIST_LOCAL_MACHINE` ([Plan-019](./019-data-retention-and-gdpr.md) `WindowsCredentialStore`, CP-019-5), as every daemon item is, never at a roaming persistence; on Linux with no Secret Service answering it goes into the daemon's one items file, readable only by the person (mode `0600`), never silently; a store that cannot be reached refuses the sign-in — and the daemon renews it itself under its client id, one renewal in flight per server. Each provider process the daemon launches gets a header helper per signed-in server (Codex `http_headers_helper`, Claude Code `headersHelper`) whose command line names the command-line tool by absolute path and carries only a server handle, a session handle and the socket path; the helper asks the daemon over its same-user socket for a current access token and prints the `Authorization` header, and the daemon answers only for a session it launched with that server on. The daemon watches each Claude Code process's stderr for `headersHelper not run` and reports it as a fault on that leg. No token, code, PKCE value or key reaches any egress, CLI stdout and the renderer bridge included.
   - **Tests:** one sign-in lets a Claude Code session and a Codex session reach the server; a rotated access token is renewed by each provider re-running its helper, with no step by the person; a helper asked for a session the daemon did not launch prints nothing; the helper command line carries no credential; the receipt row is URL-free.
   - **Spec coverage:** Spec-024 §OAuth Orchestration
@@ -459,7 +459,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the sign-in service, the custody and the helper answerer.
 
 - **T28.5.2 — The provider-admitted takeover and DPoP servers.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-sign-in-service.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/sign-in-service.ts` (EXTEND)
   - A server that admits only Claude Code's or Codex's own client: run that provider's own flow in a throwaway home the daemon makes for this sign-in (Codex `mcpServer/oauth/login` with `mcp_oauth_credentials_store = "file"`, no ChatGPT sign-in; Claude Code's `mcp_authenticate` control request in a credential folder of its own), take the saved entry (server, issuer, client id, access and refresh tokens, expiry) into the daemon's own item, delete the home, renew under that client id, and hand the sign-in to each provider through its header helper like any signed-in server; Claude Code reaches it directly, and Codex on the route that fronts every Codex server. Learn the admitted client before the browser opens from a refused dynamic registration or pushed-authorization request; otherwise open with the daemon's own client and, when that attempt does not finish, go through the admitted provider's client on the next. Remember the admitted client per server. Never read or renew a sign-in outside a home the daemon made. A server that demands DPoP tokens: sign in with a signing key made for that one sign-in (the client's `DpopSession`), one key per server and never the machine's control-plane key, kept in the credential store beside the refresh token by the same route; front the server for both providers and sign a proof per request.
   - **Tests:** against a local server admitting only one provider's client, the sign-in completes through that provider's flow, the throwaway home is gone afterward, and a later renewal succeeds under that client id; a provider-owned sign-in planted outside the daemon's homes is byte-identical after sign-in and renewal; after a takeover a Claude Code session reaches the server through `headersHelper`, not the route; against a local DPoP server, a `Bearer` or proof-less call is refused and the fronted call succeeds from both providers.
   - **Spec coverage:** Spec-024 §OAuth Orchestration
@@ -475,14 +475,14 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** `EventLogService.append` ← Plan-004 Phase 4 (shipped path).
 
 - **T28.5.4 — `mcp.reconnect` leg-addressable handler.**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp-reconnect-handler.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/ipc/handlers/mcp/reconnect.ts` (CREATE)
   - Claude `reconnectMcpServer()` / Codex `mcpServer/refresh`. Leg-addressable: a `bindingId` reconnects exactly one leg (with `sessionId`, both must name the same leg), a `sessionId` alone reconnects that session's legs, neither reconnects every live leg. Unreceipted; changes no store and no provider config, so it emits **no** governance event — its observable effect is the status notices it induces, and an attempt producing no transition sends none.
   - **Spec coverage:** Spec-024 §Authorization
   - **Verifies invariant:** none (no-event negative control is asserted at T28.5.8)
   - **Consumes:** per-leg statuses ← T28.2.7 (Phase 2, merged).
 
 - **T28.5.5 — Client SDK `mcp.*` surface.**
-  - Files: `packages/client-sdk/src/mcp-client.ts` (CREATE) + `packages/client-sdk/src/index.ts` (EXTEND — the client's named exports)
+  - Files: `packages/client-sdk/src/mcp.ts` (CREATE) + `packages/client-sdk/src/index.ts` (EXTEND — the client's named exports)
   - Typed client methods for every `mcp.*` operation and every `session.mcp*` operation over the `JsonRpcClient` transport, including the `mcp.subscribe` and `session.mcpServerList` stream consumers.
   - **Spec coverage:** Spec-024 §Interfaces And Contracts
   - **Verifies invariant:** none (transport surface)
@@ -530,7 +530,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the route, `task_output`, `task_stop`, delivery and the `delivered` flag.
 
 - **T28.5.11 — `mcp.oauthLogout`.**
-  - Files: `packages/runtime-daemon/src/mcp/mcp-sign-in-service.ts` (EXTEND) + `packages/runtime-daemon/src/ipc/handlers/mcp-handlers.ts` (EXTEND)
+  - Files: `packages/runtime-daemon/src/mcp/sign-in-service.ts` (EXTEND) + `packages/runtime-daemon/src/ipc/handlers/mcp/requests.ts` (EXTEND)
   - Receipted. Delete the daemon's refresh-token item for the server, and its DPoP signing-key item where it has one, and stop answering the helpers for it, so each provider's next call gets no token; each connected leg's transition to `needs-auth` sends its status notice, and the operation mints no event of its own.
   - **Tests:** after sign-out both credential-store items are gone, a helper asked for that server prints nothing, and every leg on both providers reads `needs-auth` on its next call.
   - **Spec coverage:** Spec-024 §OAuth Orchestration, Spec-024 §Authorization
@@ -539,7 +539,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the operation.
 
 - **T28.5.12 — A session's own tool servers.**
-  - Files: `packages/runtime-daemon/src/ipc/handlers/session-mcp-handlers.ts` (CREATE)
+  - Files: `packages/runtime-daemon/src/ipc/handlers/session/mcp-servers.ts` (CREATE)
   - `session.mcpServerList {sessionId}`: a live list of the servers the session was started with, each row from the inventory — name, binding, status and reason, whether it is on for the session, whether a switch waits for the next turn — with only names and statuses, never a config value. `session.mcpServerUpdate {sessionId, serverName, enabled}`: a session-level switch that only narrows what governance allows, kept with the session, applied at the next turn — on Claude Code another full-set `mcp_set_servers` call, on Codex the conversation's `enabled` flag — and sent again after each resume; a new session starts with every server on; no governance event. `session.mcpResourceList {sessionId, serverName}`: what a working server offers, for the composer's attachment row (on Codex through `mcpServer/resource/read`), refused for a server that is off or not working.
   - **Spec coverage:** Spec-024 §A session's own tool servers
   - **Verifies invariant:** none (session reads and a narrowing switch; asserted at T28.5.8)

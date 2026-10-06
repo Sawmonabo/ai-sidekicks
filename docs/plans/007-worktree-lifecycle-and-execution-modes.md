@@ -36,9 +36,9 @@ Target paths below assume the implementation topology defined in [Container Arch
 - `packages/contracts/src/worktree/lifecycle.ts` (D-007-1 — the file's dominant noun is the worktree lifecycle domain)
 - `packages/contracts/src/event/session-event.ts` (EXTEND — event-union registration); each new contracts module is reached at its own subpath, `@ai-sidekicks/contracts/<module>`, with nothing to re-export
 - The daemon's one SQLite schema (EXTEND — the Plan-007 tables, `run_execution_contexts.checkout_root` included, declared in their CREATE statements)
-- `packages/runtime-daemon/src/git/` (Plan-007-owned directory: `worktree/` (`event-emitter.ts`, `service.ts`, `filesystem.ts`, `branch-name.ts`, `projector.ts`, `errors.ts`), `removed-worktree-store.ts`, `turn-snapshot/` (`service.ts`, `capture.ts`, `capture-steps.ts`, `refs.ts`, `filesystem.ts`, `diagnostics.ts`, `retention.ts`), each with its `__tests__/`)
+- `packages/runtime-daemon/src/git/` (Plan-007-owned directory: `worktree/` (`event-emitter.ts`, `service.ts`, `filesystem.ts`, `branch-name.ts`, `projector.ts`, `errors.ts`, `removed-store.ts`), `turn-snapshot/` (`service.ts`, `capture.ts`, `capture-steps.ts`, `refs.ts`, `filesystem.ts`, `diagnostics.ts`, `retention.ts`), each with its `__tests__/`)
 - `packages/runtime-daemon/src/workspace/execution-root-service.ts` + `packages/runtime-daemon/src/workspace/run-setup-gate.ts` (the Plan-007 files in Plan-006-owned `workspace/` — [Plan-006 §Target Areas](./006-repo-attachment-and-workspace-binding.md#target-areas))
-- `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND — the worktree verbs beside Plan-006's)
+- `packages/runtime-daemon/src/ipc/handlers/repo.ts` (EXTEND — the worktree verbs beside Plan-006's)
 
 ## Data And Storage Changes
 
@@ -214,7 +214,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 #### Tasks
 
 - **T3.1 — Moving a session between trees (`session.setWorkingFolder`).** Not built.
-- **Files:** `packages/runtime-daemon/src/workspace/execution-root-service.ts` (EXTEND), `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/workspace/execution-root-service.ts` (EXTEND), `packages/runtime-daemon/src/ipc/handlers/repo.ts` (EXTEND)
 - `session.setWorkingFolder` names any worktree git lists for the repository (or the repository root), one the person made binding `bound-root` as an existing checkout with no provenance of the daemon's; while the session is idle it prepares the session's workspace again in place at once — same session, same history, new execution root — and the provider process reconnects there; asked mid-turn it holds the move as a pending intent on the session row, applied at the run boundary; re-targeting the tree the session is in is the cancel, and a later request supersedes the pending one. `Create and move here` is one `repo.executionRootPrepare` on the session's own workspace.
 - **Tests:** an idle move prepares the workspace again in place with the workspace id unchanged; a mid-turn move applies at the boundary; re-targeting the current tree clears the pending intent; a tree the person made with `git worktree add` binds as an existing checkout and is never stamped as one the daemon provisioned or reused.
 - **Spec coverage:** [Spec-008 §Required Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#required-behavior) (moving between trees), [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (`session.setWorkingFolder`, `Create and move here`)
@@ -229,28 +229,28 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Verifies invariant:** I-007-11, I-007-12, I-007-14
 - **Consumes:** `RunSetupGate` seam (`assertRunReady` + `onRunTerminal`) ← Plan-002 Phase 3 T3.9 (CP-007-8); the run's session and its workspace ← Plan-001; root prepare ← T2.3; `RunId` ← Plan-003 Phase 1 `packages/contracts/src/provider/driver/intervention.ts`
 - **T3.3 — Mutation handlers (prepare, retire, restore, delete kept, setup retry, move).** Not built.
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/repo.ts` (EXTEND)
 - Each registers its D-007-3 string with `{mutating: true}`, request/response schemas from the contracts, domain callback into T2.3, T3.1, T3.8 and T3.9.
 - **Tests:** covered by T3.5.
 - **Spec coverage:** [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (the mutation surfaces)
 - **Verifies invariant:** I-007-15
 - **Consumes:** `MethodRegistry` + `registry.register` ← Plan-005-partial (shipped); services ← T2.3, T3.1, T3.8, T3.9; method strings ← D-007-3
 - **T3.4 — Query and stream handlers (status read, kept list, setup stream, branch list, working-tree stream).** Not built.
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/repo-methods.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/repo.ts` (EXTEND)
 - Each registers `{mutating: false}`. The status read serves T2.4's projection widened by T3.7; the streams serve T3.10's watch and the setup card.
 - **Tests:** covered by T3.5.
 - **Spec coverage:** [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (the read and stream surfaces)
 - **Verifies invariant:** I-007-15
 - **Consumes:** as T3.3; projection ← T2.4, T3.7
 - **T3.5 — Registration + dispatch tests for the worktree handlers.**
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/worktree-handlers.test.ts` (CREATE)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/repo.worktree.test.ts` (CREATE)
 - Per-method: registers under the exact D-007-3 string; a request-schema violation rejects with the substrate validation error BEFORE the domain callback (spy-asserted); the response validates; mutating flags correct (true for every mutation, false for the reads and streams).
 - **Tests:** the file IS the tests.
 - **Spec coverage:** [Spec-008 §Interfaces And Contracts](../specs/008-worktree-lifecycle-and-execution-modes.md#interfaces-and-contracts) (wire surface conforms to the schemas)
 - **Verifies invariant:** I-007-15
 - **Consumes:** binders ← T3.3, T3.4; registry test harness ← Plan-005-partial precedent
 - **T3.6 — Typed error round-trips for the spec-named failure modes.**
-- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/worktree-handlers.test.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/ipc/handlers/__tests__/repo.worktree.test.ts` (EXTEND)
 - Wire-asserts the D-007-4 codes end-to-end: `worktree.branch_collision` (supplied-name collision), `worktree.retire_conflict` with `reason: root_busy` (an agent running in the tree) and `reason: has_changes` (the tree changed since the risks were read), the put-back refusals, `workspace.stale` (stale prepare refusal), `workspace.branch_name_required` (a `provisioned-worktree` wire prepare without a branch, D-007-18). Asserts no path echo in any error message (sanitization).
 - **Tests:** the file extensions ARE the tests.
 - **Spec coverage:** [Spec-008 §Required Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#required-behavior) (no substituted place; removal refused only while an agent runs), [Spec-008 §Fallback Behavior](../specs/008-worktree-lifecycle-and-execution-modes.md#fallback-behavior) (stale refusal observable; removal refusal reasons), [Spec-008 §Acceptance Criteria](../specs/008-worktree-lifecycle-and-execution-modes.md#acceptance-criteria) (creation failure blocks with a typed error, never a mutation)
@@ -267,7 +267,7 @@ Contracts: see [API Payload Contracts](../architecture/contracts/api-payload-con
 - **Tests:** a tree holding only an ignored `.env` never reads clean; a tree that changed after its risks were read refuses `has_changes` and deletes nothing; removal while an agent runs refuses `root_busy` and stops nothing; a discard whose rename is refused because a file in the tree is held open refuses `worktree.retire_folder_held` and removes nothing.
 - **Verifies invariant:** I-007-9, I-007-20
 - **T3.9 — The kept-worktree store.** Not built.
-- **Files:** `packages/runtime-daemon/src/git/removed-worktree-store.ts` (CREATE), the `removed_worktrees` table (D-007-5), `packages/contracts/src/worktree/lifecycle.ts` (EXTEND)
+- **Files:** `packages/runtime-daemon/src/git/worktree/removed-store.ts` (CREATE), the `removed_worktrees` table (D-007-5), `packages/contracts/src/worktree/lifecycle.ts` (EXTEND)
 - `repo.removedWorktreeList {projectId?}`, `repo.worktreeRestore {removedWorktreeId}` (D-007-21; records `worktree.created` with `restoredFrom`) and `repo.removedWorktreeDelete {removedWorktreeId}` (deletes the kept folder and its pins). Nothing else deletes a kept worktree — no age, no sweep and no `Delete old data`.
 - **Tests:** on a linked worktree with a staged change, an ignored `.env`, a sparse checkout and a per-worktree config value, discard then `git gc --prune=now` then `Put back` returns every entry, the staged set, `git status --ignored` and HEAD identical; a moved branch puts back on `<branch>-restored`; each refusal leaves the kept copy in place; the budget of D-007-21 holds on the 54,011-entry fixture.
 - **Verifies invariant:** I-007-17, I-007-20
