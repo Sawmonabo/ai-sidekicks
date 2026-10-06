@@ -471,9 +471,12 @@ describe("browser — dragging a pane to reorder", () => {
     const press = centerOf(firstHead);
     const carried = { x: centerOf(secondPanel).x + 8, y: press.y };
     const homeLeft = firstPanel.getBoundingClientRect().left;
-    await mouse.press(press);
-    await mouse.dragTo(press, carried, 12);
-    await nextFrame(secondWindow);
+    // The lift and the settle re-render the layout, so each gesture runs inside `act`.
+    await act(async () => {
+      await mouse.press(press);
+      await mouse.dragTo(press, carried, 12);
+      await nextFrame(secondWindow);
+    });
     const travel = carried.x - press.x;
     expect(translateXOf(firstPanel)).toBeCloseTo(travel, 2);
     expect(firstPanel.getBoundingClientRect().left).toBeCloseTo(homeLeft + travel, 1);
@@ -494,7 +497,9 @@ describe("browser — dragging a pane to reorder", () => {
       expect(politeText(mount.container)).toBe("Moved the Transcript pane to position 2 of 2.");
     });
     const settledPanels = [...secondWindow.document.querySelectorAll<HTMLElement>("[data-panel]")];
-    await glidesEnded(settledPanels);
+    await act(async () => {
+      await glidesEnded(settledPanels);
+    });
     expect(settledPanels.map((panel) => panel.id)).toStrictEqual([secondPane, firstPane]);
     expect(settledPanels.map((panel) => panel.style.transform)).toStrictEqual(["", ""]);
   });
