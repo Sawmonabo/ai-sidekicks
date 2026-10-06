@@ -30,36 +30,6 @@
   color: var(--meridian-text-muted);
 }
 
-/* The standing facts read as a list: a hairline between rows, no fill and no border box. */
-.meridian-agent-library__rules {
-  display: grid;
-  grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
-  gap: 0 var(--meridian-space-4);
-  margin: 0;
-  max-width: 76ch;
-}
-
-.meridian-agent-library__rule {
-  display: contents;
-}
-
-.meridian-agent-library__rule-term,
-.meridian-agent-library__rule-statement {
-  padding-block: var(--meridian-space-2);
-  border-block-start: 1px solid var(--meridian-edge);
-}
-
-.meridian-agent-library__rule-term {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-agent-library__rule-statement {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-}
-
 .meridian-agent-library__columns {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
