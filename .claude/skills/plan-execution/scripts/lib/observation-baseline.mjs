@@ -2,23 +2,19 @@
  * The gate's own first sighting of a sha as a PR's HEAD, persisted per
  * `(pr, sha)` so it survives across invocations.
  *
- * WHY THIS EXISTS, and why the thing it replaces could not be repaired in place.
  * Every timestamp-bound ack leg needs a floor: an instant the ack must post-date
- * to belong to the current head. Three review rounds attacked that floor and
- * each found a different way under it. The local commit time is written by the
- * author's clock, so the commit-to-push gap is a window (round 2). The earliest
+ * to belong to the current head. The local commit time is written by the
+ * author's clock, so the commit-to-push gap is a window. The earliest
  * `check_suite.created_at` is a server-side sighting of the SHA, not of the head
  * update, so a sha pushed earlier on another branch carries a suite that
- * predates this PR entirely (round 5). Both are proxies for a moment GitHub does
- * not expose, and a proxy that has been predated twice will be predated again.
+ * predates this PR entirely. Both are proxies for a moment GitHub does not
+ * expose.
  *
  * GitHub genuinely does not expose it. `Commit.pushedDate` is null.
- * `PullRequest.timelineItems` `PullRequestCommit` nodes carry no `createdAt` at
- * all — verified on PR #259, all seven commits, 2026-07-27. The REST issue
- * timeline's only sha-bearing event is `committed`, whose timestamp is the same
- * author-controlled committer date round 2 already disproved. There is no
- * `head_ref_updated` event for an ordinary push. So there is nothing to query,
- * and a fourth server-side proxy is not available to try.
+ * `PullRequest.timelineItems` `PullRequestCommit` nodes carry no `createdAt`.
+ * The REST issue timeline's only sha-bearing event is `committed`, whose
+ * timestamp is the same author-controlled committer date. There is no
+ * `head_ref_updated` event for an ordinary push. So there is nothing to query.
  *
  * What IS available is the gate's own observation. The first time this gate sees
  * sha X as PR N's HEAD, X is already HEAD — so that instant is at or after the
@@ -27,18 +23,16 @@
  * or in the author's commit-to-push gap, because none of those are moments this
  * gate observed X as HEAD. That is a floor rather than a stand-in for one.
  *
- * SCOPE, stated honestly in both directions. This closes the anchor class. It
- * does NOT close attribution: an ack that lands after the floor may still be the
- * tail of a run for a previous head, because that run finishes after the push
- * and therefore usually after this baseline too. `deriveStaleRunEvidence` is the
- * predicate for that question and neither one subsumes the other.
+ * SCOPE, in both directions. This closes the anchor question. It does NOT close
+ * attribution: an ack that lands after the floor may still be the tail of a run
+ * for a previous head, because that run finishes after the push and therefore
+ * usually after this baseline too. `deriveStaleRunEvidence` is the predicate
+ * for that question and neither one subsumes the other.
  *
- * And its protective value against CURRENTLY OBSERVED shapes is near zero, which
- * is worth writing down rather than discovering later: every clean verdict Codex
- * has posted since 2026-06-22 carries a `Reviewed commit:` line, and every
- * sha-bound leg bypasses this floor entirely. This exists for the timestamp-only
- * legs — the bare `+1` above all — which are legacy or unobserved today but are
- * the shapes with no other binding to HEAD.
+ * Every sha-bound leg bypasses this floor entirely, and a clean verdict in
+ * Codex's current format carries a `Reviewed commit:` line. This exists for the
+ * timestamp-only legs — the bare `+1` above all — which have no other binding to
+ * HEAD.
  *
  * @module observation-baseline
  */

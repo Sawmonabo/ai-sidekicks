@@ -1,5 +1,5 @@
 // The Codex review gate end to end: payload derivations wired into computeVerdict the way
-// codex-gate.mjs wires them, over the shapes observed live.
+// codex-gate.mjs wires them, over the comment and review shapes Codex posts.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -29,16 +29,15 @@ import {
   thread,
 } from "./codex-signals.test-support.mjs";
 
-// ------------------ end-to-end: the two shapes this repo actually produces
+// ------------------------------------------- end-to-end: the shapes Codex posts
 
 /**
  * Derivations wired together the way codex-gate.mjs wires them, so a change that
  * satisfies one derivation while breaking the composition cannot pass.
  *
- * The shapes below are every one observed in the repo, established by surveying
- * all 48 bot comments rather than the five-PR sample this file used to cite: the
- * clean verdict (36 comments), the findings summary posted as a comment body (5),
- * the usage-limits notice (6), and the findings review with inline threads.
+ * The shapes below are the ones Codex posts: the clean verdict, the findings summary
+ * posted as a comment body, the usage-limits notice, and the findings review with
+ * inline threads.
  */
 function verdictForShape({
   reviews = [],
@@ -48,9 +47,8 @@ function verdictForShape({
   nowMs,
   // Production-normal by default: the gate HAS a usable first sighting, and it
   // coincides with the fallback anchor so nothing is refused for predating it.
-  // Defaulting this to "absent" instead would quietly run every end-to-end case
-  // through the unvouchable branch — the tests would still pass, for the wrong
-  // reason, and would stop modeling the gate they exist to model.
+  // An absent default would run every case through the unvouchable branch, and
+  // the tests would pass for the wrong reason.
   baselineMs = HEAD_COMMITTED_AT_MS,
 }) {
   // Mirrors the gate: the effective floor is the later of the two.
@@ -80,10 +78,9 @@ function verdictForShape({
     freshnessAnchorMs: HEAD_COMMITTED_AT_MS,
     nowMs,
   });
-  // The PUSH anchor, mirroring the gate — deliberately not `ackAnchorMs`. See
-  // the stale-run regression test in codex-signals.anchoring.test.mjs: handing
-  // the raised baseline to this detector clips its window to start at first
-  // sighting and hides a stale run that landed in the push-to-sighting gap.
+  // The PUSH anchor, mirroring the gate, not `ackAnchorMs`: the raised baseline
+  // would clip this detector's window to start at first sighting and hide a stale
+  // run that landed in the push-to-sighting gap.
   const { staleRunLandedAfterPush } = deriveStaleRunEvidence({
     botReviews,
     botComments,
@@ -126,10 +123,9 @@ function verdictForShape({
   });
 }
 
-test("PR #256's clean shape still merges once settled", () => {
+test("the one-comment clean verdict citing HEAD merges once settled", () => {
   // ONE bot comment carrying both the verdict and the sha, and NO review on
-  // HEAD. This is the shape the whole gate has to keep passing; every tightening
-  // of the gate is measured against it.
+  // HEAD. This is the clean shape the gate has to keep passing.
   const result = verdictForShape({
     comments: [
       comment({
@@ -145,7 +141,7 @@ test("PR #256's clean shape still merges once settled", () => {
   assert.equal(result.mergeOk, true);
 });
 
-test("PR #256's clean shape is held inside the settle window", () => {
+test("the one-comment clean verdict citing HEAD is held inside the settle window", () => {
   const result = verdictForShape({
     comments: [
       comment({
@@ -161,7 +157,7 @@ test("PR #256's clean shape is held inside the settle window", () => {
   assert.equal(result.mergeOk, false);
 });
 
-test("PR #259's findings shape still reports ack_with_findings", () => {
+test("a findings review on HEAD with open threads reports ack_with_findings", () => {
   // A review whose commit_id is HEAD, with inline threads open. No bot comment
   // is involved. This is one of the TWO ways findings arrive; the other is a
   // summary comment with no thread at all, covered below.
@@ -175,7 +171,7 @@ test("PR #259's findings shape still reports ack_with_findings", () => {
 });
 
 test("the findings review with its threads not yet materialized is held, not merged", () => {
-  // Same review, zero visible threads — the original race, end to end.
+  // Same review, zero visible threads: the review landed before its threads.
   const result = verdictForShape({
     reviews: [review({ submitted_at: "2026-07-27T16:40:00Z" })],
     threads: [],
@@ -187,9 +183,9 @@ test("the findings review with its threads not yet materialized is held, not mer
 });
 
 test("END TO END: an undatable review on HEAD is held, not merged", () => {
-  // The composition R4-1 actually threatened: deriveReviewAck feeds
-  // computeVerdict, zero threads are visible, and before the fix this scored
-  // ack_clean + merge_ok=1 on a review whose threads could still be in flight.
+  // deriveReviewAck feeds computeVerdict with zero threads visible. Reading the
+  // missing age as "settled" would score ack_clean + merge_ok=1 on a review whose
+  // threads could still be in flight.
   const result = verdictForShape({
     reviews: [review({ submitted_at: undefined })],
     threads: [],
@@ -200,12 +196,11 @@ test("END TO END: an undatable review on HEAD is held, not merged", () => {
   assert.equal(result.mergeOk, false);
 });
 
-// ------------- findings delivered as a comment body (the PR #28 shape)
+// --------------------------------------------- findings delivered as a comment body
 
-test("PR #28's comment-only findings pass reports findings, not no_ack_yet", () => {
-  // The defect end to end. Every ack leg was false for the 8 minutes that sha was
-  // HEAD — no review on it, the only +1 two hours later — so the gate said
-  // "Codex has not looked at this yet" about a commit carrying a filed P1.
+test("a comment-only findings pass reports findings, not no_ack_yet", () => {
+  // No review on HEAD, no +1 and no "Reviewed commit" line: only the findings comment.
+  // Without this leg the gate would say Codex has not looked at a commit carrying a P1.
   const result = verdictForShape({
     comments: [
       comment({
@@ -261,13 +256,11 @@ test("a sha-citing findings comment cannot merge with the window fully expired",
   assert.ok(result.threadBearingAckAgeMs > DEFAULT_SETTLE_WINDOW_MS, "and it IS settled");
 });
 
-// ---------- a clean verdict for the PREVIOUS head, landing after the push (R4-2)
+// ---------------- a clean verdict for the PREVIOUS head, landing after the push
 
 test("END TO END: the delayed clean verdict plus a stale +1 never merges", () => {
-  // The whole of R4-2, composed the way codex-gate.mjs composes it. Before the
-  // fix this scored ack_clean and merge_ok=1 for a commit Codex never read:
-  // `freshCleanVerdictComments` fed BOTH the ack leg and the cleanliness
-  // assertion, and every predicate involved was timestamp-only.
+  // Both acks are fresh by timestamp, but the clean verdict names the previous
+  // commit, so a timestamp-only reading would merge a commit Codex never read.
   const result = verdictForShape({
     comments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
     reactions: [reaction({ created_at: "2026-07-27T16:40:02Z" })],
@@ -278,11 +271,10 @@ test("END TO END: the delayed clean verdict plus a stale +1 never merges", () =>
 });
 
 test("END TO END: the delayed clean verdict ALONE reports no ack of this head", () => {
-  // Deliberately not the new arm. With the +1 absent, nothing acks HEAD at all —
+  // Not `ack_unattributable`. With the +1 absent, nothing acks HEAD at all —
   // Codex reviewed the previous commit and has not reported on this one — so
   // `no_ack_yet` is literally true and its `@codex review` remediation is the
-  // right one. This is distinct from the round-3 defect, where Codex HAD
-  // reviewed HEAD and the gate said it had not.
+  // right one.
   const result = verdictForShape({
     comments: [comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" })],
     nowMs: COMMENT_NOW_MS,
@@ -295,7 +287,7 @@ test("END TO END: the delayed clean verdict ALONE reports no ack of this head", 
 test("END TO END: the race resolves once Codex posts a verdict naming HEAD", () => {
   // Both comments are present — the previous head's tail AND this head's real
   // verdict — which is the state the PR reaches by re-polling. The gate must
-  // merge here, or the fix has converted a false pass into a permanent stall.
+  // merge here, or the attribution guard is a permanent stall.
   const result = verdictForShape({
     comments: [
       comment({ body: PREVIOUS_HEAD_CLEAN_BODY, created_at: "2026-07-27T16:40:00Z" }),
@@ -326,14 +318,13 @@ test("a bare sha citation with no verdict and no findings is still not clean", (
   assert.equal(result.mergeOk, false);
 });
 
-// ------------------------------------------- observation baseline (R5-1)
+// ----------------------------------------------------- observation baseline
 
-test("END TO END R5-1: a +1 for the previous head, in the cross-branch window", () => {
-  // The finding, whole. This sha was pushed on another branch first, so its
-  // earliest check suite — and therefore the old anchor — predates the moment it
-  // became this PR's HEAD. A +1 acking the PREVIOUS head lands in that window,
-  // clears the old anchor, and used to score merge_ok=1 with no review of the
-  // update. The first-sighting floor is what refuses it now.
+test("END TO END: a +1 for the previous head in the cross-branch window is refused", () => {
+  // This sha was pushed on another branch first, so its earliest check suite — the
+  // fallback anchor — predates the moment it became this PR's HEAD. A +1 acking the
+  // PREVIOUS head lands in that window and clears the fallback anchor; the
+  // first-sighting floor is what refuses it.
   const result = verdictForShape({
     reactions: [reaction({ created_at: "2026-07-27T16:40:00Z" })],
     baselineMs: Date.parse("2026-07-27T16:50:00Z"),
@@ -343,7 +334,7 @@ test("END TO END R5-1: a +1 for the previous head, in the cross-branch window", 
   assert.equal(result.mergeOk, false);
 });
 
-test("END TO END R5-1 CONTROL: the same +1 after first sighting merges", () => {
+test("END TO END CONTROL: the same +1 after first sighting merges", () => {
   // Same shape, one timestamp moved. If this did not merge, the floor would be
   // stalling genuine clean passes rather than catching stale ones.
   const result = verdictForShape({
@@ -356,12 +347,11 @@ test("END TO END R5-1 CONTROL: the same +1 after first sighting merges", () => {
 });
 
 test("END TO END: a usage-limits notice in the push-to-sighting gap is still rate_limited", () => {
-  // The third floor-conflation instance, and the reason `freshnessAnchorMs`
-  // exists. A quota notice is not a claim about any commit, so the ack floor is
-  // the wrong question to ask of it. Anchored on first sighting instead, this
-  // notice falls below the floor, `rateLimited` goes false, and the gate tells
-  // the operator to keep waiting for an ack that cannot arrive until the quota
-  // resets — the opposite of the action the notice calls for.
+  // The reason `freshnessAnchorMs` exists. A quota notice is not a claim about any
+  // commit, so the ack floor is the wrong question to ask of it. Anchored on first
+  // sighting instead, this notice falls below the floor, `rateLimited` goes false,
+  // and the gate tells the operator to keep waiting for an ack that cannot arrive
+  // until the quota resets — the opposite of the action the notice calls for.
   const result = verdictForShape({
     comments: [
       {
@@ -378,17 +368,15 @@ test("END TO END: a usage-limits notice in the push-to-sighting gap is still rat
 });
 
 test("END TO END: a stale review in the push-to-sighting gap still blocks a later +1", () => {
-  // The interaction between the two floors, end to end, and the case that made
-  // the anchor split a correctness fix rather than a tidy-up. A run for the
-  // PREVIOUS head finishes seconds after the push; the gate does not run until
-  // an hour later; a bare +1 lands after that first sighting.
+  // The interaction between the two floors, end to end. A run for the PREVIOUS
+  // head finishes seconds after the push; the gate does not run until an hour
+  // later; a bare +1 lands after that first sighting.
   //
   // Each floor on its own says "merge": the +1 clears the baseline, so nothing
   // is refused as pre-baseline. Only the stale-run detector objects, and only
-  // if its window still reaches back to the push. Handing it the raised
-  // baseline instead — which is what the gate did until review caught it —
-  // hides the review below the floor and this merges on a timestamp-only ack
-  // while a previous-head run is demonstrably in flight.
+  // if its window still reaches back to the push. Handed the raised baseline,
+  // it would hide the review below the floor and this would merge on a
+  // timestamp-only ack while a previous-head run is in flight.
   const result = verdictForShape({
     reviews: [
       review({
@@ -406,7 +394,7 @@ test("END TO END: a stale review in the push-to-sighting gap still blocks a late
 });
 
 test("END TO END: a sha-citing clean verdict merges with NO baseline at all", () => {
-  // The escape hatch end to end, on today's clean-verdict format. A broken store
+  // The escape hatch end to end, on the sha-citing clean verdict. A broken store
   // must degrade to the sha-anchored path, not to a stalled gate.
   const result = verdictForShape({
     comments: [

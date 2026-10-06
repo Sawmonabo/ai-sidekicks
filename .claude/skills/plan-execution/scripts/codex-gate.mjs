@@ -2,24 +2,23 @@
 /**
  * codex-gate.mjs — single-shot Codex review verdict for one PR.
  *
- * Exists because the correct ack predicate has been hand-rolled wrong five times
- * (PR #171, #172, #199 r13, #255, #257). Every one of those monitors watched
- * `pulls/N/reviews` (± issue comments) and treated a zero there as "Codex has not
- * reviewed". A zero on the reviews endpoint is the NORMAL shape of a CLEAN pass:
- * a no-findings verdict arrives as a THUMBS_UP reaction on the PR ISSUE and
- * frequently produces no review object at all.
- *
- * The terminal states are modeled here so a caller cannot miss one:
- *   1. findings     — review object whose .commit_id is HEAD, with open threads
- *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
- *   3. clean        — "Didn't find any major issues" comment, same freshness bind
- *   4. rate-limited — fresh bot comment matching /usage limits for code reviews/
- *                     (NON-ack; stop polling)
+ * A zero on the `pulls/N/reviews` endpoint does not mean "Codex has not
+ * reviewed": it is the NORMAL shape of a CLEAN pass, which arrives as a `+1`
+ * reaction or a clean-verdict comment on the PR ISSUE and frequently produces no
+ * review object at all. So the gate reads every shape Codex answers with:
+ *   - review    — a bot review whose .commit_id is HEAD (findings come with threads)
+ *   - +1        — a bot +1 reaction on the PR issue, at or after the ack anchor
+ *   - clean     — a "Didn't find any major issues" comment, same freshness bind,
+ *                 refused when its `Reviewed commit:` line names another commit
+ *   - cited     — a comment whose `Reviewed commit:` line names HEAD (no time bind)
+ *   - findings  — a findings-summary comment whose permalinks name HEAD
+ *   - limit     — a fresh bot comment matching /usage limits for code reviews/
+ *                 (NON-ack; stop polling)
  *
  * The ack anchor is the latest of three floors: this gate's own first sighting of
  * the sha as this PR's HEAD (lib/observation-baseline.mjs), the earliest check
  * suite for that sha, and the HEAD commit's timestamp — see derivePushAnchor for
- * the last two and why each was insufficient alone. Commit time is
+ * the last two and why neither is enough alone. Commit time is
  * author-controlled, and a check suite dates the sha's first visibility anywhere
  * in the repo rather than the moment it became this PR's head, so both can be
  * predated by an ack of the PREVIOUS head. Only the first sighting cannot.
@@ -31,15 +30,13 @@
  *
  * Which is why only the ACK legs get the first-sighting floor. Two consumers
  * deliberately read the lower push anchor instead — deriveStaleRunEvidence and
- * the usage-limits non-ack — and passing them the raised floor was a live defect
- * caught in review, not a hypothetical. The stale-run detector asks whether a
- * run for an older commit was in flight ACROSS THE PUSH, so a floor starting at
- * first sighting hides any such run that published in the push-to-sighting gap;
- * on this PR that silently turned a detected stale review into no evidence at
- * all once the baseline landed. The quota notice is not a claim about a commit
- * at all, so attribution is the wrong question to ask of it; floored on first
- * sighting, a genuine notice in the same gap disappears and the gate advises
- * polling at the one moment polling cannot work.
+ * the usage-limits non-ack. The stale-run detector asks whether a run for an
+ * older commit was in flight ACROSS THE PUSH, so a floor starting at first
+ * sighting would hide any such run that published in the push-to-sighting gap.
+ * The quota notice is not a claim about a commit at all, so attribution is the
+ * wrong question to ask of it; floored on first sighting, a genuine notice in
+ * the same gap would disappear and the gate would advise polling at the one
+ * moment polling cannot work.
  *
  * This file is the I/O shell only: it fetches, then prints. Every predicate that
  * decides anything lives in lib/codex-signals.mjs, lib/merge-readiness.mjs and
@@ -48,7 +45,9 @@
  *
  * Prints a human block, then a machine-readable final line:
  *   GATE verdict=<...> ack=<0|1> unresolved=<n> ci=<green|red|pending|none> state=<...>
- *     merge_state=<...> merge_ok=<0|1> head_sha=<40-hex>
+ *     merge_state=<...> merge_ok=<0|1> advisory=<0|1> head_sha=<40-hex>
+ *
+ * `advisory` says whether `--advisory` was passed, not whether it excused anything.
  *
  * `head_sha` names the commit every other field on that line was measured
  * against. Pass it to `gh pr merge --match-head-commit` so the merge refuses a
@@ -57,7 +56,7 @@
  * Exit code is always 0 on a successful probe — the verdict is the payload, not
  * the exit status. Exit 1 means the probe itself failed (bad PR, gh error).
  *
- * Usage: node codex-gate.mjs <pr-number> [--repo owner/name]
+ * Usage: node codex-gate.mjs <pr-number> [--repo owner/name] [--advisory]
  */
 
 import { execFileSync } from "node:child_process";
@@ -178,9 +177,9 @@ if (!headSha) {
 const headShaShort = headSha.slice(0, 10);
 
 // One half of the ack anchor. Using the PR's updatedAt instead would let a
-// reaction that predates the latest push masquerade as an ack of it — the PR #70
-// false-pass. The commit timestamp alone is not enough either, because it is
-// author-controlled; derivePushAnchor pairs it with the push observation below.
+// reaction that predates the latest push masquerade as an ack of it. The commit
+// timestamp alone is not enough either, because it is author-controlled;
+// derivePushAnchor pairs it with the push observation below.
 const headCommit = ghJson([
   "api",
   `repos/${repository}/commits/${headSha}`,
@@ -189,12 +188,11 @@ const headCommit = ghJson([
 ]);
 // Validated rather than trusted, because both failure directions are silent and
 // one of them fails OPEN. `new Date(null)` is the EPOCH, not Invalid Date, so a
-// field that resolves to null made every `created_at >= anchor` comparison true
-// and every stale reaction on the PR acked the current HEAD — measured by
-// degrading this very fetch: the gate printed `committed
-// 1970-01-01T00:00:00.000Z` and still exited 0. A wholly failed fetch goes the
-// other way, to NaN, where nothing can ever ack. A probe that cannot establish
-// its own anchor must stop rather than pick a direction to be wrong in.
+// field that resolves to null would make every `created_at >= anchor`
+// comparison true and every stale reaction on the PR ack the current HEAD. A
+// wholly failed fetch goes the other way, to NaN, where nothing can ever ack. A
+// probe that cannot establish its own anchor must stop rather than pick a
+// direction to be wrong in.
 const headCommittedAtMs = new Date(headCommit?.date ?? Number.NaN).getTime();
 if (!Number.isFinite(headCommittedAtMs)) {
   fail(
@@ -220,13 +218,13 @@ const {
 } = derivePushAnchor(headCommittedAtMs, checkSuites);
 
 // The PRIMARY floor: this gate's own first sighting of the sha as this PR's
-// HEAD. Every server-side candidate is a proxy for the head-update moment and
-// each has been predated in review — the author's commit clock, then the
-// earliest check suite, which dates the sha's first visibility ANYWHERE in the
-// repo and so predates this PR entirely for a sha pushed on another branch
-// first. GitHub exposes no head-update timestamp to replace them with
-// (`pushedDate` null, `PullRequestCommit` carries no `createdAt`), so the floor
-// has to come from an observation this gate makes itself.
+// HEAD. Every server-side candidate is a proxy for the head-update moment that
+// can be predated — the author's commit clock, and the earliest check suite,
+// which dates the sha's first visibility ANYWHERE in the repo and so predates
+// this PR entirely for a sha pushed on another branch first. GitHub exposes no
+// head-update timestamp to replace them with (`pushedDate` null,
+// `PullRequestCommit` carries no `createdAt`), so the floor has to come from an
+// observation this gate makes itself.
 //
 // State lives under `.cache/` rather than `.agents/tmp/`, and the difference is
 // load-bearing rather than cosmetic. Both are gitignored, but AGENTS.md directs
@@ -252,10 +250,10 @@ const {
   nowMs: Date.now(),
 });
 
-// `max`, never replacement — the same rule `derivePushAnchor` already applies
+// `max`, never replacement — the same rule `derivePushAnchor` applies
 // internally. The baseline dominates in practice, but a suite timestamp skewed
 // into the future is a later floor than a local clock reading, and handing that
-// back would loosen the gate relative to today's behavior.
+// back would loosen the gate.
 const ackAnchorMs = observationBaselineKnown
   ? Math.max(fallbackAnchorMs, baselineObservedAtMs)
   : fallbackAnchorMs;
@@ -263,8 +261,8 @@ const ackAnchorMs = observationBaselineKnown
 // ---------------------------------------------------- signal 1: review object
 
 // Pagination is mandatory: the reviews endpoint pages at 30 and on a many-round
-// PR the newest review rolls onto page 2+, where an unpaginated `last` returns a
-// permanently stale review (PR #199 r8).
+// PR the newest review rolls onto a later page, where an unpaginated read
+// returns a permanently stale review.
 const allReviews = ghJsonPaginated([
   "api",
   `repos/${repository}/pulls/${pullRequestNumber}/reviews`,
@@ -339,9 +337,7 @@ const {
 // raised floor clips the detector's window to start at first sighting, so a
 // stale review that landed in the gap between the push and that sighting becomes
 // invisible — and a bare `+1` arriving after the sighting then reads as a clean
-// ack with nothing contradicting it. Verified against this PR: the review for
-// 59344aaea9 at 20:56:27Z was detected at a 20:56:24Z push anchor and vanished
-// once the baseline moved the floor to 21:58:10Z, with the reviews unchanged.
+// ack with nothing contradicting it.
 const { staleReviews, staleCitations, staleCitedShas, staleRunLandedAfterPush } =
   deriveStaleRunEvidence({
     botReviews,
@@ -369,13 +365,10 @@ const { preBaselineReactions, preBaselineCleanComments, ackPredatesBaseline } =
 
 // ------------------------------------------------------- unresolved threads
 
-// Drained to completion, not windowed. The old `last:100` window existed because
-// unresolved findings are the MOST RECENT threads, so a leading `first:N` window
-// returns 0 unresolved *falsely* on a thread-heavy PR (PR #174 r22: first:50 of
-// 76 threads reported 0 while 6 findings were open). Full pagination retires that
-// trade-off entirely — every thread is fetched — and any shortfall against
-// totalCount becomes a fail-closed verdict rather than a printed warning that
-// never reached the decision.
+// Drained to completion, not windowed. Unresolved findings are the MOST RECENT
+// threads, so any fixed window can report 0 unresolved falsely on a
+// thread-heavy PR. Every thread is fetched, and any shortfall against
+// totalCount becomes a fail-closed verdict rather than a printed warning.
 const REVIEW_THREAD_QUERY = `
 query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
@@ -411,14 +404,12 @@ const { unresolved: unresolvedBotThreads, outdatedCount: outdatedUnresolvedCount
 // Fetched via GraphQL rather than `gh pr view --json statusCheckRollup` for one
 // field the CLI does not expose: `isRequired(pullRequestNumber:)`. Without it the
 // gate cannot tell a branch-protection-required check from an advisory one, and a
-// transient advisory failure (`lychee — outbound HTTP (advisory)`, which
-// .github/workflows/docs-corpus.yml deliberately excludes from docs-corpus-gate)
-// blocked a merge every required check had already cleared.
+// transient advisory failure would block a merge every required check had
+// already cleared.
 //
-// OID-anchored on the HEAD sha rather than `commits(last:1)`, matching the
-// BASELINE_TS discipline in references/failure-modes.md: the rollup must belong
-// to the commit the ack legs are anchored to, not to whatever the commit
-// connection happens to return.
+// OID-anchored on the HEAD sha rather than `commits(last:1)`, for the same reason
+// the ack legs are anchored to HEAD: the rollup must belong to the commit the
+// gate is judging, not to whatever the commit connection happens to return.
 const CHECK_ROLLUP_QUERY = `
 query($owner:String!, $name:String!, $number:Int!, $headSha:GitObjectID!, $cursor:String) {
   repository(owner:$owner, name:$name) {

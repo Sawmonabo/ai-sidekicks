@@ -20,13 +20,13 @@ import {
 // --------------------------------------------------------- comment signals
 
 test("a fresh clean-verdict comment is an ack leg in its own right", () => {
-  // Ack shape (2), observed on PRs #120 / #121. The gate used to match only
-  // "Reviewed commit" + sha, so a clean-comment ack read as no_ack_yet.
+  // The sha-less clean verdict: "Didn't find any major issues" with no
+  // "Reviewed commit" line. Matching only sha citations would read it as no_ack_yet.
   //
   // It is also the control for refusing a clean verdict that names another
   // commit: this shape carries no citation at all, and a no-findings pass often
   // produces no review object either. Requiring a sha would refuse it and stall
-  // every clean merge in the historical shape.
+  // every clean merge in this shape.
   const result = deriveCommentSignals([comment()], commentAnchors);
   assert.equal(result.commentAcksHead, true);
   assert.equal(result.freshCleanVerdictComments.length, 1);
@@ -49,8 +49,8 @@ test("a clean-verdict comment in the HEAD commit's own second acks it", () => {
 });
 
 test("the clean-verdict match survives a typographic apostrophe", () => {
-  // The live bytes are ASCII 0x27 (hexdumped 2026-07-27), but a quote swap
-  // upstream would silently match zero comments — the failure this guards.
+  // Codex sends an ASCII 0x27 apostrophe, but a quote swap upstream would
+  // silently match zero comments — the failure this guards.
   const result = deriveCommentSignals(
     [comment({ body: "Codex Review: Didn’t find any major issues." })],
     commentAnchors,
@@ -104,11 +104,10 @@ test("a fresh usage-limits comment is a terminal non-ack", () => {
 
 test("a security-review usage-limits comment is NOT a rate-limit terminal", () => {
   // The minimal pair of the test above — same freshness, same author, the other
-  // reviewer's quota. The bot runs two reviewers off separate quotas; observed
-  // on PRs #395 / #396 / #397 (2026-08-31), this exact body posted while the
-  // code review ran to Completed with findings. The bare /usage limits/ pattern
-  // matched it and parked the gate on rate_limited with those findings unread;
-  // only the code-review quota stops the review this gate polls for.
+  // reviewer's quota. The bot runs two reviewers off separate quotas, and this body
+  // can post while the code review completes with findings. A bare /usage limits/
+  // pattern would park the gate on rate_limited with those findings unread; only the
+  // code-review quota stops the review this gate polls for.
   const result = deriveCommentSignals(
     [
       comment({
@@ -124,7 +123,7 @@ test("a security-review usage-limits comment is NOT a rate-limit terminal", () =
 
 test("a usage-limits comment from a PRIOR head does NOT pin the gate", () => {
   // computeVerdict gives rate_limited precedence over every ack leg, so an
-  // unbounded scan let one historic usage-limits comment pin the gate to
+  // unbounded scan would let one old usage-limits comment pin the gate to
   // rate_limited forever — even after a later HEAD collected a clean ack.
   const result = deriveCommentSignals(
     [
@@ -157,12 +156,11 @@ test("comments from anyone but the bot are ignored entirely", () => {
   assert.equal(result.commentAcksHead, false);
 });
 
-// -------------------------- citing a sha is not a verdict (R3-4, guard 2)
+// ------------------------------------------------ citing a sha is not a verdict
 
 test("a sha-citing comment WITH findings acks HEAD but asserts nothing about it", () => {
-  // The hole: `commentAcksHead` was the whole story, so a findings comment
-  // naming HEAD reached ack_clean during the window before its threads
-  // materialized. Naming a commit proves Codex looked; it is not a verdict.
+  // If the ack alone decided, a findings comment naming HEAD would reach ack_clean
+  // before its threads materialize. Naming a commit proves Codex looked; it is not a verdict.
   const result = deriveCommentSignals(
     [comment({ body: `**Reviewed commit:** \`${HEAD_SHA_SHORT}\`\n\n3 issues found.` })],
     commentAnchors,
@@ -172,13 +170,11 @@ test("a sha-citing comment WITH findings acks HEAD but asserts nothing about it"
   assert.equal(result.cleanVerdictShaComments.length, 0);
 });
 
-test("PR #256's real clean shape — ONE comment, both verdict and citation", () => {
-  // Verbatim structure of the only bot comment across PRs #247/#250/#253/#256/
-  // #259 (surveyed 2026-07-27): the clean pass posts a single comment carrying
-  // the verdict AND the sha. Both facts must fire off that one comment, and the
-  // comment, matching both ack legs, is counted once. It is also the control
-  // for a clean verdict naming ANOTHER commit: the cited sha is the only bit
-  // that differs.
+test("the one-comment clean pass carries both verdict and citation", () => {
+  // A clean pass posts a single comment carrying the verdict AND the sha. Both facts
+  // must fire off that one comment, and the comment, matching both ack legs, is
+  // counted once. It is also the control for a clean verdict naming ANOTHER commit:
+  // the cited sha is the only bit that differs.
   const result = deriveCommentSignals(
     [
       comment({
@@ -199,9 +195,8 @@ test("PR #256's real clean shape — ONE comment, both verdict and citation", ()
 });
 
 test("the sha-cited clean verdict asserts clean at ANY age — the sha is the anchor", () => {
-  // Anchor independence is what keeps the escape hatch open when the push
-  // anchor is wrong (see derivePushAnchor's third residual). Tightening the
-  // cleanliness fact must not smuggle a timestamp back onto this leg.
+  // Anchor independence keeps the escape hatch open when the push anchor is wrong,
+  // so the cleanliness fact must not put a timestamp back onto this leg.
   const result = deriveCommentSignals(
     [
       comment({
@@ -217,7 +212,7 @@ test("the sha-cited clean verdict asserts clean at ANY age — the sha is the an
   assert.equal(result.commentAssertsClean, true, "yet the sha-cited verdict still stands");
 });
 
-// ------------------------- age of the acking comment (R3-4, guard 1 input)
+// ------------------------------------------------- age of the acking comment
 
 test("latestCommentAckAgeMs is the age of the NEWEST acking comment", () => {
   // Newest, because the most recent ack is the one whose threads are likeliest
@@ -244,10 +239,9 @@ test("a non-acking comment does not contribute an age", () => {
 
 test("a missing nowMs makes the age UNKNOWN, which reads as brand new", () => {
   // Neither NaN nor Infinity. NaN is fail-OPEN and silent (`NaN <
-  // settleWindowMs` is false, so it reads as settled); Infinity says the same
-  // thing to a `<` test, which is why substituting it did not fix anything — it
-  // just made the false pass deliberate-looking. The leg FIRED, so its unknown
-  // age has to be the conservative reading, and that is 0.
+  // settleWindowMs` is false, so it reads as settled), and Infinity says the same
+  // thing to a `<` test. The leg FIRED, so its unknown age has to be the
+  // conservative reading, and that is 0.
   const result = deriveCommentSignals([comment()], {
     headShaShort: HEAD_SHA_SHORT,
     ackAnchorMs: HEAD_COMMITTED_AT_MS,
@@ -293,9 +287,9 @@ test("one datable ack among undatable ones is what the age follows", () => {
   assert.equal(result.latestCommentAckAgeMs, 300_000);
 });
 
-// ------------- findings delivered as a comment body (the PR #28 shape)
+// --------------------------------------------- findings delivered as a comment body
 
-test("the real PR #28 findings comment is recognized as findings against HEAD", () => {
+test("a real findings-summary comment is recognized as findings against HEAD", () => {
   const result = deriveCommentSignals(
     [comment({ body: PR28_FINDINGS_BODY, created_at: "2026-05-03T02:18:54Z" })],
     pr28Anchors,
@@ -307,9 +301,8 @@ test("the real PR #28 findings comment is recognized as findings against HEAD", 
 });
 
 test("a findings summary naming an OLDER sha is stale and acks nothing", () => {
-  // PR #235's shape: the author pushed 108s before the summary landed, so the
-  // permalink sha is no longer HEAD. Firing here would pin the gate to findings
-  // against a commit that has already been rewritten.
+  // The author pushed before the summary landed, so the permalink sha is not HEAD.
+  // Firing here would pin the gate to findings against a commit already rewritten.
   const result = deriveCommentSignals(
     [comment({ body: PR28_FINDINGS_BODY, created_at: "2026-05-03T02:18:54Z" })],
     { ...pr28Anchors, headShaShort: "0123456789" },
@@ -342,8 +335,7 @@ test("the badge alone is a sufficient findings marker", () => {
 });
 
 test("clean verdicts and usage-limits notices are never findings", () => {
-  // The phantom direction. Surveyed live: neither marker appears on any of the
-  // 36 clean verdicts or the 6 usage-limits notices in the repo.
+  // The phantom direction: neither marker may fire on a clean verdict or a quota notice.
   const clean = deriveCommentSignals([comment()], commentAnchors);
   assert.equal(clean.commentReportsFindings, false);
   const rateLimited = deriveCommentSignals(
@@ -358,9 +350,9 @@ test("clean verdicts and usage-limits notices are never findings", () => {
 });
 
 test("repeated findings summaries dedupe by identity, not by body text", () => {
-  // PR #218 posted three byte-identical summaries 17 seconds apart. They are
-  // three separate comments, so all three are acks; the Set exists to stop ONE
-  // comment counting twice when it lands in two legs at once.
+  // Codex can post byte-identical summaries seconds apart. They are separate
+  // comments, so all are acks; the Set exists to stop ONE comment counting twice
+  // when it lands in two legs at once.
   const body = `### 💡 Codex Review\n\n.../blob/${HEAD_SHA}/x.md#L1\n![P1 Badge](x)`;
   const result = deriveCommentSignals(
     [
@@ -399,7 +391,7 @@ test("an unrecognized comment body asserts nothing — CLEAN fails closed", () =
   assert.equal(result.commentAcksHead, false);
 });
 
-// ---------- a clean verdict for the PREVIOUS head, landing after the push (R4-2)
+// ---------------- a clean verdict for the PREVIOUS head, landing after the push
 
 test("a clean verdict naming ANOTHER commit is not a clean ack of HEAD", () => {
   const result = deriveCommentSignals(

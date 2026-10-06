@@ -16,8 +16,8 @@ function run(name, conclusion, startedAt, extra = {}) {
 }
 
 test("a superseded CANCELLED run beside its real SUCCESS does not make CI red", () => {
-  // Verbatim shape observed on PR #256: a push canceled the in-flight advisory
-  // lychee run, and the rollup then carried both rows for the same check name.
+  // A push cancels the in-flight advisory lychee run, and the rollup then carries
+  // both rows for the same check name.
   const rollup = [
     run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z"),
     run("lychee — outbound HTTP (advisory)", "CANCELLED", "2026-07-27T00:25:10Z"),
@@ -30,7 +30,7 @@ test("a superseded CANCELLED run beside its real SUCCESS does not make CI red", 
 });
 
 test("dedupe does NOT hide a cancellation that is the newest run", () => {
-  // The inverse risk of the fix above: if dedupe suppressed cancellations
+  // The inverse risk of the dedupe above: if it suppressed cancellations
   // generally, the gate would go blind to real failures.
   const rollup = [
     run("flaky-job", "SUCCESS", "2026-07-27T00:25:10Z"),
@@ -92,11 +92,10 @@ test("selectNewestRunPerName keeps exactly one row per name", () => {
 
 // ------------------------------------------- CI conclusion / state coverage
 
-// Every member of the three GraphQL enums this gate can receive, introspected
-// from the live schema 2026-07-27. The classification is INVERTED — anything
-// that is neither success-like nor pending is failed — so an unenumerated member
-// blocks the merge instead of scoring green. ACTION_REQUIRED and STALE are the
-// two that used to pass through as green.
+// Every member of the three GraphQL enums this gate can receive. The
+// classification is INVERTED — anything that is neither success-like nor pending
+// is failed — so an unenumerated member blocks the merge instead of scoring green.
+// ACTION_REQUIRED and STALE are the two a list of failures would miss.
 const CHECK_CONCLUSION_EXPECTATIONS = {
   SUCCESS: "green",
   NEUTRAL: "green",
@@ -182,8 +181,8 @@ test('a check NAMED "(required)" that reports isRequired:false does not gate', (
   // The live trap on this repo: `lychee — inbound anchors (required)` and
   // `lane boundary — plan-title token (required)` both carry "(required)" in
   // their names and both report isRequired:false. Branch protection lists only
-  // ci-gate and docs-corpus-gate (verified 2026-07-27), so isRequired is the
-  // only authority and name-matching would gate on the wrong set.
+  // ci-gate and docs-corpus-gate, so isRequired is the only authority and
+  // name-matching would gate on the wrong set.
   const rollup = [
     run("ci-gate", "SUCCESS", "2026-07-27T00:28:55Z", { isRequired: true }),
     run("lychee — inbound anchors (required)", "FAILURE", "2026-07-27T00:25:59Z", {
@@ -266,11 +265,11 @@ test("a rollup of only advisory FAILURES is red, not green", () => {
 // ------------------------------------------------------------- merge state
 
 test("mergeStateAllowsMerge accepts exactly the three mergeable MergeStateStatus values", () => {
-  // Enumerated against the live MergeStateStatus enum (introspected 2026-07-27).
+  // Every member of GitHub's MergeStateStatus enum.
   const expectations = {
     CLEAN: true,
     HAS_HOOKS: true,
-    UNSTABLE: true, // mergeable with a non-passing ADVISORY status — the F8 case
+    UNSTABLE: true, // mergeable with a non-passing ADVISORY status
     BLOCKED: false,
     BEHIND: false,
     DIRTY: false,

@@ -1,5 +1,5 @@
 // GitHub payload fixtures for the Codex review gate tests: the head commit, bot reviews,
-// reactions, comments and threads, and the verbatim comment bodies observed live.
+// reactions, comments and threads, and real comment bodies kept verbatim.
 
 import { BOT_GRAPHQL_LOGIN, BOT_REST_LOGIN } from "../lib/codex-signals.mjs";
 
@@ -19,7 +19,7 @@ export function reaction(overrides = {}) {
   };
 }
 
-/** The clean-verdict comment, verbatim from PR #120 (ASCII apostrophe, 0x27). */
+/** The sha-less clean-verdict comment as Codex posts it (ASCII apostrophe, 0x27). */
 export const CLEAN_VERDICT_BODY =
   "Codex Review: Didn't find any major issues. What shall we delve next?";
 
@@ -59,14 +59,12 @@ export function review(overrides = {}) {
 }
 
 /**
- * The first 420 bytes of the real PR #28 comment, copied verbatim from the API
- * (comment 4365201840, 2026-05-03T02:18:54Z).
+ * The opening of a real findings-summary comment, kept verbatim from the API.
  *
- * Held as a real payload rather than a hand-written fixture on purpose: a
- * fixture written to match the classifier proves only that the author can copy a
- * regex twice. The emoji is U+1F4A1 and the sha appears solely inside a blob
- * permalink — both are properties of the live comment, and both are what the
- * classifier has to survive.
+ * A real payload rather than a hand-written fixture, because a fixture written to
+ * match the classifier proves only that the author can copy a regex twice. The emoji
+ * is U+1F4A1 and the sha appears solely inside a blob permalink, and both are what
+ * the classifier has to survive.
  */
 export const PR28_FINDINGS_SHA = "f67a7bba0a28b5bdbd6003f649d91fcb0d91e906";
 export const PR28_FINDINGS_BODY =
@@ -77,7 +75,7 @@ export const PR28_FINDINGS_BODY =
   "Parse all declared precondition blocks before gating phases**\n\n" +
   "`gatePreconditions` silently skips dependency checks when the fenced block is not matched.";
 
-/** The comment-signal anchors for the head the PR #28 comment reviewed. */
+/** The comment-signal anchors for the head that findings comment reviewed. */
 export const pr28Anchors = {
   headShaShort: PR28_FINDINGS_SHA.slice(0, 10),
   ackAnchorMs: Date.parse("2026-05-03T02:11:29Z"),

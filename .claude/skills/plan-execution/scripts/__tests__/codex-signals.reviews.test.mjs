@@ -17,8 +17,8 @@ import { cleanSignals } from "./codex-verdict.test-support.mjs";
 
 test("an unresolved thread counts even when the fix push marked it OUTDATED", () => {
   // GitHub's require-conversation-resolution keys on resolution, not on whether
-  // the diff position is outdated. Dropping outdated threads reported
-  // merge_ok=1 while GitHub reported BLOCKED.
+  // the diff position is outdated, so dropping outdated threads would report
+  // merge_ok=1 while GitHub reports BLOCKED.
   const result = selectUnresolvedBotThreads([thread({ isOutdated: true })]);
   assert.equal(result.unresolved.length, 1);
   assert.equal(result.outdatedCount, 1, "outdated survives as diagnostic metadata only");
@@ -74,7 +74,7 @@ test("the newest HEAD-MATCHING bot review is what anchors the review leg", () =>
 });
 
 test("newest is decided by submitted_at, NOT by array position", () => {
-  // The hazard `at(-1)` carried: it trusts the endpoint's ordering and the page
+  // A positional pick like `at(-1)` trusts the endpoint's ordering and the page
   // merge to preserve it. BOTH reviews here name HEAD, so the filter cannot mask
   // a positional pick — the newest is first in the array, and a positional read
   // would take the stale one's age.
@@ -99,7 +99,7 @@ test("selectNewestReview keeps the later position on a tie", () => {
 
 test("selectNewestReview falls back to position when no review carries a stamp", () => {
   // Degenerate payload: without timestamps the documented order is the only
-  // signal left, so this must degrade to the old behavior rather than to an
+  // signal left, so this must degrade to array position rather than to an
   // arbitrary pick.
   const first = review({ submitted_at: undefined, commit_id: "aaaaaaaaaa" });
   const second = review({ submitted_at: undefined, commit_id: "bbbbbbbbbb" });
@@ -118,7 +118,7 @@ test("selectNewestReview is empty-safe", () => {
 });
 
 test("a newest review sitting on a pre-fix commit does not ack HEAD", () => {
-  // PR #250's shape: four reviews, none on the final HEAD. A reviews-only poll
+  // Reviews on earlier commits, none on the final HEAD. A reviews-only poll
   // would wait forever.
   const result = deriveReviewAck(
     [review({ commit_id: "0000000000" })],
@@ -147,11 +147,9 @@ test("no bot review leaves a known Infinite age, which never trips the settle gu
 });
 
 test("a HEAD review with NO submitted_at is undatable, not ancient", () => {
-  // R4-1 at its upstream source. The old ternary keyed on `submitted_at` being
-  // truthy and fell to Infinity when it was not — the same value that means "no
-  // review at all". A review that EXISTS acks HEAD, so the leg fires; what is
-  // missing is its age, and Infinity claimed that age was comfortably outside
-  // the settle window. The two cases share a value no longer.
+  // A review that EXISTS acks HEAD, so the leg fires; what is missing is its age.
+  // Infinity would mean "no review at all" and read as comfortably outside the
+  // settle window, so an undatable review must report 0 instead.
   const result = deriveReviewAck([review({ submitted_at: undefined })], HEAD_SHA, Date.now());
   assert.equal(result.reviewAcksHead, true, "the review still acks HEAD");
   assert.equal(result.latestReviewAgeMs, 0, "but its age is unknown, so it reads as brand new");
@@ -168,9 +166,8 @@ test("a datable HEAD review reports its age as KNOWN", () => {
 });
 
 test("a HEAD review with an UNPARSEABLE submitted_at is undatable too", () => {
-  // The nastier half: `"not a date"` is truthy, so the old ternary took the
-  // arithmetic branch and returned a raw NaN out of the deriver — which then
-  // read as settled at the decision table.
+  // `"not a date"` is truthy, so a truthiness check would do the arithmetic and
+  // return a raw NaN, which reads as settled at the decision table.
   const result = deriveReviewAck([review({ submitted_at: "not a date" })], HEAD_SHA, Date.now());
   assert.equal(result.reviewAcksHead, true);
   assert.equal(result.latestReviewAgeMs, 0);
@@ -182,13 +179,13 @@ test("a missing nowMs cannot date a review either", () => {
   assert.equal(result.latestReviewAgeMs, 0);
 });
 
-// ------------------------- filter to HEAD, THEN take the newest (R3-2)
+// ------------------------------------------ filter to HEAD, THEN take the newest
 
 test("a HEAD review is found even when an older-head review submits LAST", () => {
   // Overlapping review runs, the one started on the PREVIOUS head finishing
   // second. Taking the newest bot review globally and then testing its
-  // commit_id reports NO ack while a review naming HEAD sits in the same
-  // payload — and the settle window took the age of the review just rejected.
+  // commit_id would report NO ack while a review naming HEAD sits in the same
+  // payload, and would feed the settle window the rejected review's age.
   const result = deriveReviewAck(
     [
       review({ commit_id: HEAD_SHA, submitted_at: "2026-07-27T16:40:00Z" }),

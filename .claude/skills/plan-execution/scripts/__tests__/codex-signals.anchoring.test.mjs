@@ -28,8 +28,7 @@ import {
 
 // ---------------------------------------------------------- push anchor
 
-// The real timings from this branch's own c8bcdc1 (measured 2026-07-27), which
-// is what makes the gap concrete rather than hypothetical.
+// A real commit-to-push gap: 112 seconds between the local commit and the first check suite.
 const COMMITTED_AT = "2026-07-27T18:19:07Z";
 const FIRST_SUITE_AT = "2026-07-27T18:20:59Z";
 const COMMITTED_AT_MS = Date.parse(COMMITTED_AT);
@@ -54,9 +53,8 @@ test("STALE ACK: a +1 for the previous head lands inside the commit-to-push gap"
 });
 
 test("one anchor binds all three timestamp-bound legs at once", () => {
-  // Confirmed by construction rather than assumed. The two sha-anchored legs are
-  // deliberately absent: a review's commit_id and a "Reviewed commit: <sha>"
-  // comment both name their commit, so no timestamp can stale them.
+  // The two sha-anchored legs are absent on purpose: a review's commit_id and a
+  // "Reviewed commit: <sha>" comment both name their commit, so no timestamp can stale them.
   const stale = "2026-07-27T18:20:00Z";
   const reactions = [botReaction(stale)];
   const comments = [
@@ -98,7 +96,7 @@ test("the earliest suite wins, not the latest", () => {
 
 test("the anchor never moves earlier than the commit time", () => {
   // A suite predating the commit means the sha was already on the server from an
-  // earlier branch. `max` keeps the previous behavior as the floor.
+  // earlier branch. `max` keeps the commit time as the floor.
   const { anchorMs, pushAnchorKnown } = derivePushAnchor(COMMITTED_AT_MS, [
     { created_at: "2026-07-27T17:00:00Z" },
   ]);
@@ -137,10 +135,9 @@ test("suites that are ALL unparseable leave the push time unknown", () => {
 // ------------------------------------------------------- freshness predicate
 
 test("freshness is INCLUSIVE: an ack in the commit's own second counts", () => {
-  // GitHub timestamps are second-granular, so a fast ack carries exactly the
-  // HEAD commit's `created_at`. A strict `>` dropped it and the poll waited out
-  // its budget on an ack that had already landed. failure-modes.md documents the
-  // predicate as `created_at >= BASELINE_TS`.
+  // Freshness is `created_at >= anchor`. GitHub timestamps are second-granular, so a fast
+  // ack carries exactly the HEAD commit's stamp, and a strict `>` would wait on an ack
+  // that has already landed.
   assert.equal(isAtOrAfter(HEAD_COMMITTED_AT, HEAD_COMMITTED_AT_MS), true);
 });
 
@@ -201,7 +198,7 @@ test("no reactions at all is not an ack and does not throw", () => {
   assert.equal(deriveReactionAck(null, HEAD_COMMITTED_AT_MS).reactionAcksHead, false);
 });
 
-// ------------------------------------------------- stale-run evidence (R4-2)
+// ------------------------------------------------------- stale-run evidence
 
 test("a review for a NON-head commit submitted after the anchor is evidence", () => {
   const result = deriveStaleRunEvidence({
@@ -216,10 +213,9 @@ test("a review for a NON-head commit submitted after the anchor is evidence", ()
 });
 
 test("CONTROL: the ordinary findings-then-fix flow is NOT evidence", () => {
-  // The false-positive that would stall every round-trip PR in the repo. There,
-  // the review causes the push, so it predates the anchor by construction; only
-  // a review landing AFTER the push has the cross-push signature. If this test
-  // ever fails, the gate has started blocking normal work.
+  // The review causes the push, so it predates the anchor by construction; only a review
+  // landing AFTER the push has the cross-push signature. Failing here means the gate
+  // blocks every findings-then-fix PR.
   const result = deriveStaleRunEvidence({
     botReviews: [review({ commit_id: "0000000000", submitted_at: "2026-07-27T09:00:00Z" })],
     botComments: [],
@@ -326,7 +322,7 @@ test("empty inputs are not evidence and do not throw", () => {
   assert.equal(result.staleRunLandedAfterPush, false);
 });
 
-// ------------------------------------------- observation baseline (R5-1)
+// ----------------------------------------------------- observation baseline
 
 const PRE_BASELINE_ANCHORS = {
   headShaShort: HEAD_SHA_SHORT,
@@ -337,10 +333,9 @@ const PRE_BASELINE_ANCHORS = {
   baselineMs: Date.parse("2026-07-27T16:30:00Z"),
 };
 
-test("R5-1: a +1 between the suite sighting and first sight of HEAD is refused", () => {
-  // The exact cross-branch shape. The reaction clears the check-suite anchor —
-  // which is why round 5 filed this — and predates the moment this gate first
-  // saw the sha as HEAD, so it cannot be a verdict on this head.
+test("a +1 between the check-suite sighting and the gate's first sighting is refused", () => {
+  // The cross-branch shape. The reaction clears the check-suite anchor but predates the
+  // moment this gate first saw the sha as HEAD, so it cannot be a verdict on this head.
   const result = derivePreBaselineAcks({
     reactions: [reaction({ created_at: "2026-07-27T16:15:00Z" })],
     comments: [],
@@ -360,9 +355,8 @@ test("CONTROL: the same +1 AFTER first sight is not refused", () => {
 });
 
 test("a +1 older than the FALLBACK anchor is not blamed on the baseline", () => {
-  // It was already stale under the previous behavior, so reporting it here
-  // would send the operator to re-trigger over a floor that is not what
-  // rejected it. `ack_predates_baseline` has to mean the baseline, and only it.
+  // The fallback anchor already rejects it, so reporting it here would blame a floor that
+  // is not what rejected it. `ack_predates_baseline` has to mean the baseline, and only it.
   const result = derivePreBaselineAcks({
     reactions: [reaction({ created_at: "2026-07-27T09:00:00Z" })],
     comments: [],
@@ -383,9 +377,8 @@ test("a sha-less clean verdict in the same window is refused too", () => {
 });
 
 test("a clean verdict NAMING HEAD is never refused — the sha binds it, not the floor", () => {
-  // The escape hatch, at the reconstruction layer. Today's clean-verdict format
-  // is this one, so over-reporting here would manufacture stalls on the modern
-  // shape while claiming the baseline caused them.
+  // The escape hatch, at the reconstruction layer. A clean verdict citing HEAD needs no
+  // floor, so reporting it here would invent a stall and blame the baseline for it.
   const result = derivePreBaselineAcks({
     reactions: [],
     comments: [
@@ -402,7 +395,7 @@ test("a clean verdict NAMING HEAD is never refused — the sha binds it, not the
 });
 
 test("a clean verdict naming ANOTHER commit is not reported as a baseline refusal", () => {
-  // It is disqualified by its own words (the R4-2 leg), so attributing it to the
+  // Its own citation of another commit disqualifies it, so attributing it to the
   // baseline would print the wrong remediation for the right refusal.
   const result = derivePreBaselineAcks({
     reactions: [],
@@ -434,18 +427,14 @@ test("non-bot rows never count as refused acks", () => {
   assert.equal(result.ackPredatesBaseline, false);
 });
 
-test("REGRESSION: the stale-run window is anchored on the push, not the baseline", () => {
-  // The shape that made this a bug rather than a preference, taken from PR #259
-  // and reduced. A review for the PREVIOUS head lands 3s after the push; the
-  // gate's first sighting is an hour later; a bare +1 arrives after that
-  // sighting. If the stale-run detector is handed the raised baseline instead
-  // of the push anchor, the review falls below its floor and disappears, the +1
-  // clears the floor untouched, and the gate merges on a timestamp-only ack
-  // while a run for the previous commit is demonstrably still in flight.
+test("the stale-run window is anchored on the push, not the baseline", () => {
+  // A review for the PREVIOUS head lands 3s after the push; the gate's first sighting is
+  // an hour later; a bare +1 arrives after that sighting. Handed the raised baseline,
+  // the detector drops the review below its floor and the gate merges on a
+  // timestamp-only ack while a run for the previous commit is still in flight.
   //
-  // Asserted through the detector directly rather than through computeVerdict,
-  // because the defect was in which anchor the CALLER passed — a verdict-level
-  // test would have kept passing while the gate shipped the wrong argument.
+  // Asserted through the detector rather than computeVerdict, because what matters is
+  // which anchor the caller passes, and a verdict-level test cannot see that.
   const pushAnchorMs = HEAD_COMMITTED_AT_MS;
   const baselineMs = pushAnchorMs + 60 * 60 * 1000;
   const staleReviewAtMs = pushAnchorMs + 3_000;
@@ -468,8 +457,7 @@ test("REGRESSION: the stale-run window is anchored on the push, not the baseline
   });
   assert.equal(atPushAnchor.staleRunLandedAfterPush, true);
 
-  // The negative control: the same reviews, read against the raised floor,
-  // report nothing. This is what the gate was doing.
+  // The negative control: the same reviews, read against the raised floor, report nothing.
   const atBaseline = deriveStaleRunEvidence({
     botReviews: staleReviewForPreviousHead,
     botComments: [],

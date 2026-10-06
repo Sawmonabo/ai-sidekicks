@@ -91,14 +91,13 @@ test("a non-firing comment leg contributes Infinity, not its age", () => {
   assert.equal(result.mergeOk, true);
 });
 
-// ------------- an ack of HEAD is not a verdict on HEAD (R3-4, guard 2)
+// ------------------------------------------- an ack of HEAD is not a verdict on HEAD
 
 test("a sha-citing comment alone never reaches ack_clean, even with 0 threads", () => {
-  // The false pass this closes: a findings comment naming HEAD satisfied the ack
-  // leg, and in the window before its inline threads materialized the gate saw
-  // an ack with zero open threads and reported merge_ok=1 on a commit with open
-  // findings. Settled here on purpose — the settle window must NOT be what saves
-  // it, or the two guards would be one guard.
+  // A findings comment naming HEAD satisfies the ack leg, and before its inline
+  // threads materialize the gate sees an ack with zero open threads. Settled here
+  // on purpose: the settle window must NOT be what refuses it, or the two guards
+  // would be one guard.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -136,10 +135,9 @@ test("CONTROL: a settled comment ack asserting CLEAN merges on its own", () => {
 });
 
 test("a review on HEAD needs no explicit clean assertion — resolve-then-merge", () => {
-  // A clean pass posts no HEAD review at all (PR #256: four bot reviews, none on
-  // HEAD), so a review naming HEAD whose threads are every one resolved is the
-  // ordinary post-fix state. Demanding an assertion here would refuse a merge
-  // that should go — a false NEGATIVE introduced by over-tightening.
+  // A clean pass posts no HEAD review at all, so a review naming HEAD whose
+  // threads are every one resolved is the ordinary post-fix state. Demanding an
+  // assertion here would refuse a merge that should go.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -153,11 +151,11 @@ test("a review on HEAD needs no explicit clean assertion — resolve-then-merge"
   assert.equal(result.mergeOk, true);
 });
 
-// ------------------ the settle window covers BOTH thread-bearing legs (R3-4)
+// ------------------------- the settle window covers BOTH thread-bearing legs
 
 test("RACE: a fresh comment ack with no visible threads is NOT clean", () => {
-  // Same race as the review leg, reached through the comment leg. Scoping the
-  // window to `reviewAcksHead` left this side wide open.
+  // Same race as the review leg, reached through the comment leg. A window scoped
+  // to `reviewAcksHead` alone would leave this side open.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -191,12 +189,10 @@ test("the youngest FIRING leg decides the window, and names itself", () => {
 });
 
 test("a NaN age on a FIRING leg is unsettled, not 'safely settled'", () => {
-  // The R4-1 false pass, at the decision table. This case used to normalize to
-  // Infinity and score ack_clean + merge_ok=1: an ack whose age cannot be
-  // measured was read as an ack comfortably OUTSIDE the settle window, which is
-  // the one reading the evidence does not support. Unknown recency is the
-  // absence of evidence about when the ack landed, so the window must hold it —
-  // exactly as if it had landed this instant.
+  // Normalized to Infinity, an ack whose age cannot be measured would read as
+  // comfortably OUTSIDE the settle window and score ack_clean + merge_ok=1.
+  // Unknown recency is the absence of evidence about when the ack landed, so the
+  // window must hold it — exactly as if it had landed this instant.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -209,15 +205,13 @@ test("a NaN age on a FIRING leg is unsettled, not 'safely settled'", () => {
   assert.equal(result.unsettled, true);
   assert.equal(result.ackAgeUnknown, true, "and the caller is told WHY, so it can say so");
   assert.equal(result.verdict, "ack_unsettled");
-  assert.equal(result.mergeOk, false, "the false merge R4-1 named");
+  assert.equal(result.mergeOk, false, "an undatable ack never merges inside the window");
 });
 
 test("CONTROL: the same NaN on a NON-firing leg still contributes Infinity", () => {
-  // The half of the old behavior that was CORRECT and must survive the fix. A
-  // leg the gate rejected has no standing to shorten the window, so its age —
-  // measurable or not — must not pull the minimum down. Collapsing these two
-  // cases together is what produced R4-1; this is the control that proves they
-  // are still apart.
+  // A leg the gate rejected has no standing to shorten the window, so its age —
+  // measurable or not — must not pull the minimum down. This control proves the
+  // non-firing and undatable-firing cases stay apart.
   const result = computeVerdict(
     cleanSignals({ commentAcksHead: false, latestCommentAckAgeMs: Number.NaN }),
   );
@@ -228,8 +222,8 @@ test("CONTROL: the same NaN on a NON-firing leg still contributes Infinity", () 
 });
 
 test("an undatable REVIEW ack is held by the window too", () => {
-  // Same defect, reached through the other thread-bearing leg. Both are fed by
-  // `firingLegAgeMs`, so a fix applied to one and not the other would leave this
+  // Same hazard through the other thread-bearing leg. Both are fed by
+  // `firingLegAgeMs`, so applying it to one and not the other would leave this
   // side open.
   const result = computeVerdict(
     cleanSignals({
@@ -244,13 +238,11 @@ test("an undatable REVIEW ack is held by the window too", () => {
   assert.equal(result.mergeOk, false);
 });
 
-test("Infinity on a FIRING leg is unsettled too — it is the old missing-value sentinel", () => {
-  // Not a corner case: the deriver this gate shipped with returned Infinity for
-  // a review it could not date, so a caller still on that convention hands one
-  // in here. Reading it as "infinitely old, therefore settled" is R4-1 arriving
-  // through the front door. Infinity stays meaningful only for a leg that did
-  // NOT fire, where computeVerdict supplies it directly and never consults the
-  // caller's number at all — the control below.
+test("Infinity on a FIRING leg is unsettled too — no ack is infinitely old", () => {
+  // A caller that uses Infinity as a missing-value sentinel hands one in here, and
+  // reading it as "infinitely old, therefore settled" would merge inside the window.
+  // Infinity stays meaningful only for a leg that did NOT fire, where computeVerdict
+  // supplies it directly and never consults the caller's number — the control below.
   const firing = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -284,7 +276,7 @@ test("an undatable ack is reported as such, not as an age of zero seconds", () =
   assert.equal(measured.verdict, "ack_unsettled");
 });
 
-// ------------------------------- HEAD moved mid-probe (R3-3)
+// ---------------------------------------------------------- HEAD moved mid-probe
 
 test("a HEAD that moved mid-probe is never mergeable, and says so", () => {
   // Every signal in the object was gathered against a sha that is no longer
@@ -381,8 +373,7 @@ test("advisory mode lets a red CI merge only when no check is marked required", 
 for (const truncatedSignal of ["threadWindowTruncated", "checkWindowTruncated"]) {
   test(`${truncatedSignal} makes an otherwise-clean PR non-mergeable`, () => {
     // A count the gate cannot vouch for is indistinguishable from a hidden
-    // unresolved finding. Detecting truncation and then not feeding it into the
-    // verdict is what let a warning print while merge_ok stayed 1.
+    // unresolved finding, so truncation feeds the verdict, not just a warning.
     const result = computeVerdict(cleanSignals({ [truncatedSignal]: true }));
     assert.equal(result.verdict, "signal_truncated");
     assert.equal(result.signalTruncated, true);
@@ -435,8 +426,8 @@ test("an absent or UNKNOWN merge state fails closed", () => {
 // ----------------------------------------------------------------- PR state
 
 test("a MERGED PR with an otherwise-perfect clean ack is NOT mergeable", () => {
-  // The false pass this closes: ack legs satisfied, CI green, no threads. Only
-  // `isOpen` distinguishes "ready to merge" from "already merged".
+  // Ack legs satisfied, CI green, no threads. Only `isOpen` distinguishes
+  // "ready to merge" from "already merged".
   const result = computeVerdict(cleanSignals({ isOpen: false }));
   assert.equal(result.verdict, "ack_clean");
   assert.equal(result.ackOfHead, true);
@@ -444,8 +435,8 @@ test("a MERGED PR with an otherwise-perfect clean ack is NOT mergeable", () => {
 });
 
 test("isOpen does NOT lean on a merged PR happening to report UNKNOWN", () => {
-  // Live #256 (merged) reports mergeStateStatus=UNKNOWN, which the merge-state
-  // conjunct already refuses — but that is observed behavior, not a contract.
+  // A merged PR reports mergeStateStatus=UNKNOWN, which the merge-state conjunct
+  // already refuses — but that is GitHub's behavior, not a documented contract.
   // Pinning CLEAN against a closed PR proves the state check does the work on
   // its own, so the gate stays correct if GitHub ever reports CLEAN there.
   assert.equal(
@@ -470,13 +461,12 @@ test("an absent pushAnchorKnown signal fails closed", () => {
   assert.equal(computeVerdict(cleanSignals({ pushAnchorKnown: undefined })).mergeOk, false);
 });
 
-// -------------------- the ack that cannot be attributed to HEAD (R4-2 verdict)
+// ---------------------------------------- the ack that cannot be attributed to HEAD
 
 test("a +1 alone cannot be trusted while an older run landed after the push", () => {
   // The reaction leg carries no body at all, so nothing in it distinguishes a
-  // pass for THIS commit from the tail of a run for the previous one. Codex
-  // flagged only the comment leg; the +1 has identical exposure and is the more
-  // common clean ack, so the binding has to cover it.
+  // pass for THIS commit from the tail of a run for the previous one. It has the
+  // same exposure as the sha-less clean comment, so the binding covers both.
   const result = computeVerdict(cleanSignals({ staleRunLandedAfterPush: true }));
   assert.equal(result.verdict, "ack_unattributable");
   assert.equal(result.ackOfHead, true, "it IS an ack — the gate just cannot attribute it");
@@ -499,10 +489,9 @@ test("a sha-less clean verdict alone cannot be trusted either", () => {
 });
 
 test("CONTROL: a HEAD-CITING ack clears the ambiguity and merges", () => {
-  // The false-NEGATIVE control, and the one this design most needs: a PR that
-  // saw a cross-push race must still be mergeable once Codex publishes a verdict
-  // naming THIS commit. Without it the new arm could be stalling every such PR
-  // permanently and no test would notice.
+  // The false-NEGATIVE control: a PR that saw a cross-push race must still be
+  // mergeable once Codex publishes a verdict naming THIS commit. Without it the
+  // attribution arm could stall every such PR permanently and no test would notice.
   const result = computeVerdict(
     cleanSignals({
       reactionAcksHead: false,
@@ -567,7 +556,7 @@ test("no ack at all stays no_ack_yet — the evidence alone invents nothing", ()
   assert.equal(result.verdict, "no_ack_yet");
 });
 
-// ------------------------------- baseline verdicts in the ladder (R5-1)
+// ------------------------------------------------ baseline verdicts in the ladder
 
 test("a refused ack reports ack_predates_baseline, NOT no_ack_yet", () => {
   // The whole point of reconstructing the refused set. `no_ack_yet` tells the
@@ -598,15 +587,10 @@ test("a surviving ack outranks a refused one — the refusal is not sticky", () 
     }),
   );
   assert.equal(result.verdict, "ack_clean");
-  // ...and it MERGES. This assertion was inverted in review, and the inversion
-  // is the interesting part. Refusing the merge here sounds like the
-  // conservative choice, but it produced a state the operator cannot act on:
-  // verdict `ack_clean`, merge blocked, and no remediation printed, because
-  // both remediation blocks key on the two baseline verdict names and neither
-  // fires for `ack_clean`. That is a silent block, which this gate treats as a
-  // defect regardless of which direction it errs in. The substance is that a
-  // review naming THIS commit is dispositive evidence Codex reviewed it, and a
-  // discarded `+1` from before the first sighting is not evidence against that.
+  // ...and it MERGES. Refusing here would be a silent block: verdict `ack_clean`,
+  // merge blocked, and no remediation printed, because both remediation blocks key
+  // on the two baseline verdict names. A review naming THIS commit is dispositive,
+  // and a discarded `+1` from before the first sighting is not evidence against it.
   assert.equal(result.mergeOk, true);
 });
 
@@ -627,9 +611,8 @@ test("an ABSENT baseline signal fails closed exactly as a false one does", () =>
 
 test("ESCAPE HATCH: a sha-bound ack merges even with no baseline at all", () => {
   // This is what keeps the strict floor from being a blanket stall. A review on
-  // HEAD needs no floor, and every clean verdict Codex has posted since
-  // 2026-06-22 carries the sha — so a broken store degrades to the sha-anchored
-  // path rather than to nothing.
+  // HEAD needs no floor, and neither does a clean verdict citing the sha — so a
+  // broken store degrades to the sha-anchored path rather than to nothing.
   const result = computeVerdict(
     cleanSignals({
       observationBaselineKnown: false,

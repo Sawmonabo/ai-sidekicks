@@ -15,10 +15,8 @@
  *     `ACTION_REQUIRED`, `STALE`, `NEUTRAL` or `SKIPPED`;
  *   - the second-granular timestamp collision the freshness predicate turns on,
  *     which no live payload has yet exhibited.
- * Isolating this logic makes every one of them directly constructible. The ack
- * predicate specifically has been hand-rolled wrong five times (PR #171, #172,
- * #199 r13, #255, #257) — keeping it in an unimportable script is what let each
- * of those ship untested.
+ * Isolating this logic makes every one of them directly constructible, and keeps
+ * the ack predicate importable so it is tested rather than re-written per caller.
  */
 
 import { firingLegAgeMs } from "./codex-signals.mjs";
@@ -73,10 +71,11 @@ export const DEFAULT_SETTLE_WINDOW_MS = 120_000;
 
 /**
  * @param {CodexSignals} signals
- * @param {{advisory?: boolean}} [options] `advisory: true` drops the CI
- *   conjunct when no check on the branch is marked required — every check is
- *   then informational, so a red one is read and fixed forward rather than
- *   blocking the merge. It never excuses a check a required check gates.
+ * @param {{advisory?: boolean}} [options] `advisory: true` lets a RED CI status
+ *   pass the CI conjunct when no check on the branch is marked required — every
+ *   check is then informational, so a red one is read and fixed forward rather
+ *   than blocking the merge. It never excuses pending or absent CI, nor a red
+ *   status while a required check exists.
  * @returns {{verdict: string, ackOfHead: boolean, cleanAssertingAck: boolean, mergeOk: boolean,
  *     unsettled: boolean, unsettledAckLeg: "review"|"comment"|null, threadBearingAckAgeMs: number,
  *     ackAgeUnknown: boolean, shaBoundAckOfHead: boolean, ackAttributionAmbiguous: boolean,
@@ -92,15 +91,13 @@ export function computeVerdict(signals, options = {}) {
   // sha — or filing findings against it — proves Codex read this commit and is
   // silent on what it found, so by itself it can never reach `ack_clean`.
   //
-  // Written as a single named exclusion rather than as a general "an ack must
-  // assert clean" rule, and the difference is not stylistic. The general form
-  // silently drops any ack leg nobody remembers to re-add to it, and the live
-  // example is the bare `+1`: Codex uses it to mean "no suggestions", so a
-  // general rule would stop every reaction-only clean pass reaching `ack_clean`
-  // and stall those merges — a worse regression than the false pass being
-  // closed. The review leg is outside the exclusion for the same reason: a clean
-  // pass posts no HEAD review at all, so a review ON head whose threads are every
-  // one resolved is the ordinary fix-then-resolve-then-merge state.
+  // A single named exclusion rather than a general "an ack must assert clean"
+  // rule, because the general form silently drops any ack leg nobody remembers
+  // to add to it. The bare `+1` is the example: Codex uses it to mean "no
+  // suggestions", so a general rule would stop every reaction-only clean pass
+  // reaching `ack_clean`. The review leg is outside the exclusion for the same
+  // reason: a clean pass posts no HEAD review at all, so a review ON head whose
+  // threads are all resolved is the ordinary fix-then-resolve-then-merge state.
   const unverdictedCommentIsTheOnlyAck =
     ackOfHead &&
     signals.reviewAcksHead !== true &&
@@ -110,23 +107,21 @@ export function computeVerdict(signals, options = {}) {
 
   // The settle window covers every ack leg that can be FOLLOWED by inline
   // threads — the review object and the acking comment — because the race it
-  // guards is thread materialization lagging the ack that announces it. Scoping
-  // it to the review leg let a findings-bearing comment slip through the same
-  // window on the comment side. The reaction leg stays out on purpose — a +1
-  // means "no suggestions", so nothing is pending behind it, and gating it would
-  // stall every clean merge.
+  // guards is thread materialization lagging the ack that announces it; a
+  // findings-bearing comment can be followed by threads just as a review can.
+  // The reaction leg stays out on purpose — a +1 means "no suggestions", so
+  // nothing is pending behind it, and gating it would stall every clean merge.
   //
   // The two ways a leg fails to contribute a real age are OPPOSITE and are the
   // reason `firingLegAgeMs` is not applied uniformly. A leg that did NOT fire
   // contributes Infinity, supplied here rather than derived: feeding in the age
   // of a leg the gate REJECTED would let it shorten a window it has no standing
   // in. A leg that DID fire but carries no usable age contributes 0, because an
-  // undatable ack is the absence of evidence about recency, not evidence of it —
-  // mapping it to Infinity read as "safely outside the window" and produced
-  // `ack_clean` + `merge_ok=1` before any delayed thread could appear. Applying
-  // `firingLegAgeMs` on the firing branch alone is what keeps those apart, and
-  // it is defense in depth: the derivers already normalize, and a caller that
-  // hands in a NaN anyway still fails closed here.
+  // undatable ack is the absence of evidence about recency, not evidence of it;
+  // Infinity there would read as "safely outside the window" and score
+  // `ack_clean` + `merge_ok=1` before a delayed thread could appear. The
+  // derivers already normalize, so this is defense in depth: a caller that hands
+  // in a NaN anyway still fails closed here.
   const reviewAckAgeMs = signals.reviewAcksHead
     ? firingLegAgeMs(signals.latestReviewAgeMs)
     : Number.POSITIVE_INFINITY;
@@ -139,13 +134,13 @@ export function computeVerdict(signals, options = {}) {
   // Reported because an ack of unknown age is held by the window FOREVER, and
   // the caller must not print "re-poll" at an operator whose re-polls can never
   // clear it. A real 0ms age is possible (second-granular stamps), so the
-  // distinction cannot be read off `threadBearingAckAgeMs === 0` — which is
-  // exactly why the derivers report the fact rather than leaving it to be
-  // inferred from the number they already clamped.
+  // distinction cannot be read off `threadBearingAckAgeMs === 0`, which is why
+  // the derivers report the fact rather than leaving it to be inferred from the
+  // number they already clamped.
   //
   // The `!Number.isFinite` half is not redundant with the flag: it catches a
-  // caller that hands in a raw NaN without one, which is every hand-rolled
-  // caller and the exhaustive sweep in the tests.
+  // caller that hands in a raw NaN without one, such as a hand-built signal
+  // object or the exhaustive sweep in the tests.
   const legAgeUnknown = (legFired, unknownFlag, ageMs) =>
     Boolean(legFired) && (unknownFlag === true || !Number.isFinite(ageMs));
   const ackAgeUnknown =
@@ -184,8 +179,8 @@ export function computeVerdict(signals, options = {}) {
   //
   // Sha-bound acks are exempt by construction and that exemption is what keeps
   // this from being a blanket stall: a review whose `commit_id` is HEAD, or a
-  // comment naming the sha, needs no floor at all. Every clean verdict Codex has
-  // posted since 2026-06-22 is in that set, so a broken store degrades to the
+  // comment naming the sha, needs no floor at all. A clean verdict in Codex's
+  // current format names the sha, so a broken store degrades to the
   // sha-anchored path rather than to nothing.
   const timestampOnlyAckUnvouchable =
     Boolean(ackOfHead) && !shaBoundAckOfHead && signals.observationBaselineKnown !== true;
@@ -280,8 +275,8 @@ export function computeVerdict(signals, options = {}) {
     // Reached only by a citation with no recognizable body, so it is also where
     // an UNRECOGNIZED comment shape lands — which is the fail-closed direction
     // and the reason this branch sits ahead of `ack_clean` rather than falling
-    // through to it. Zero live instances across the 48-comment corpus survey;
-    // every real findings pass carries a marker and lands on the branch above.
+    // through to it. A findings pass carries a marker and lands on the branch
+    // above.
     verdict = "ack_without_verdict";
   } else if (ackOfHead) {
     verdict = "ack_clean";
@@ -291,19 +286,18 @@ export function computeVerdict(signals, options = {}) {
     // first moment this gate saw the sha as HEAD.
     //
     // Last before `no_ack_yet` because it is a strictly more specific account of
-    // the same observable state — zero surviving acks — and reporting the
-    // general one would be a lie of exactly the kind round 3 was about.
-    // `no_ack_yet` says Codex has not looked; here Codex looked and published,
-    // and the gate refused to bind it. Those demand different actions: one is to
-    // keep waiting, the other is that waiting will never help, because Codex does
-    // not re-ack a head it has already acked and no future poll moves that
-    // timestamp. Only a re-trigger produces an ack this floor can accept.
+    // the same observable state — zero surviving acks — and the general one
+    // would misreport it. `no_ack_yet` says Codex has not looked; here Codex
+    // looked and published, and the gate refused to bind it. Those demand
+    // different actions: one is to keep waiting, the other is that waiting will
+    // never help, because Codex does not re-ack a head it has already acked and
+    // no future poll moves that timestamp. Only a re-trigger produces an ack this
+    // floor can accept.
     //
-    // This is the accepted cost of the strict floor, and it is the acceptable
-    // branch of the trade rather than an oversight: the alternative — seeding the
-    // baseline from the fallback anchor on first sight — trades this loud,
-    // diagnosable stall for a silent merge on an ack for another commit. See the
-    // mergeOk note for why that direction is refused.
+    // This stall is the accepted cost of the strict floor: seeding the baseline
+    // from the fallback anchor on first sight would trade this loud, diagnosable
+    // stall for a silent merge on an ack for another commit. See the mergeOk note
+    // for why that direction is refused.
     verdict = "ack_predates_baseline";
   } else {
     verdict = "no_ack_yet";
@@ -325,21 +319,21 @@ export function computeVerdict(signals, options = {}) {
   // transient one into a merge two minutes early. The permanent cases get the
   // belt-and-braces conjunct.
   //
-  // `isOpen` is NOT redundant against mergeStateStatus. A merged PR happens to
-  // report UNKNOWN today, which the last conjunct already refuses — but that is
-  // an observed GitHub behavior, not a documented contract, and nothing
-  // promises a merged PR will never report CLEAN. Asking the question directly
-  // also lets the caller name the real reason instead of blaming a phantom
-  // merge requirement. Compared `=== true` so an absent signal fails closed,
-  // matching how `mergeStateAllowsMerge` treats an absent merge state.
+  // `isOpen` is NOT redundant against mergeStateStatus. A merged PR reports
+  // UNKNOWN, which the last conjunct already refuses, but that is observed GitHub
+  // behavior rather than a documented contract, and nothing promises a merged PR
+  // will never report CLEAN. Asking the question directly also lets the caller
+  // name the real reason instead of blaming a phantom merge requirement.
+  // Compared `=== true` so an absent signal fails closed, matching how
+  // `mergeStateAllowsMerge` treats an absent merge state.
   //
   // `pushAnchorKnown` is the same shape of question about the freshness anchor.
   // Without a check suite to date the push, the anchor falls back to the
   // author-controlled commit time, and every timestamp-bound ack leg — the +1,
   // the clean-verdict comment, and the usage-limits non-ack — rests on it. A
-  // window with no server-side sighting of the sha is already unmergeable for
-  // other reasons today, but only incidentally, and this gate has been wrong
-  // once already by blocking for a cause it could not name.
+  // window with no server-side sighting of the sha is usually unmergeable for
+  // other reasons too, but only incidentally, so the gate names this cause
+  // directly.
   //
   // The two baseline conjuncts are kept on the same permanent-uncertainty
   // rule. Neither clears itself: a broken store stays broken until someone fixes
@@ -347,30 +341,21 @@ export function computeVerdict(signals, options = {}) {
   // redundant against `verdict === "ack_clean"` today and both survive a
   // reordering that shadows their arm.
   //
-  // `refusedAckIsTheOnlyAck` carries the `!ackOfHead` qualifier for a reason
-  // found in review, and the unqualified form was a real defect rather than a
-  // stylistic one. A refused pre-baseline ack only matters when it is WHY no ack
-  // survives. If an ack of HEAD did survive — a review whose `commit_id` is this
-  // commit, say — that ack is dispositive, and an unrelated stale `+1` sitting
-  // nearby is not evidence against it. Blocking on it anyway produced a state
-  // with no way out: verdict `ack_clean`, merge refused, and neither remediation
-  // block firing because both key on the other two verdict names. The operator
-  // would read a clean verdict, a blocked merge, and no stated cause — which is
-  // the exact failure round 3 was convened to remove, wearing a new name.
+  // `refusedAckIsTheOnlyAck` carries the `!ackOfHead` qualifier because a
+  // refused pre-baseline ack only matters when it is WHY no ack survives. If an
+  // ack of HEAD did survive — a review whose `commit_id` is this commit, say —
+  // that ack is dispositive, and an unrelated stale `+1` nearby is not evidence
+  // against it. Blocking on it anyway would leave a state with no way out:
+  // verdict `ack_clean`, merge refused, and neither remediation block firing,
+  // because both key on the other two verdict names.
   //
-  // REJECTED ALTERNATIVE, recorded because a future reader will propose it and
-  // the reason it loses is the load-bearing part. Seed the baseline from the
-  // existing anchor on first observation and let it only ratchet forward
-  // afterwards. That removes the `ack_predates_baseline` stall entirely, and it
-  // was the first recommendation on this design. It loses because the two
-  // failure modes are not comparable under this repo's fail-closed doctrine.
-  // Seeding fails by admitting a stale ack on the first gate call for a sha —
-  // a SILENT false merge, nothing surfaces, and the commit lands carrying a
-  // verdict Codex never gave it, which is the precise outcome this whole gate
-  // exists to prevent. The strict floor fails by refusing a genuine ack that
-  // predates first sight — a LOUD stall that prints its own remediation. A gate
-  // that occasionally says "I cannot vouch for this ack" is strictly better than
-  // one that occasionally merges on an ack for a different commit.
+  // The alternative, seeding the baseline from the existing anchor on first
+  // observation and letting it only ratchet forward, would remove the
+  // `ack_predates_baseline` stall entirely, and is refused because the two
+  // failure modes are not comparable. Seeding fails by admitting a stale ack on
+  // the first gate call for a sha: a SILENT false merge carrying a verdict Codex
+  // never gave. The strict floor fails by refusing a genuine ack that predates
+  // first sight: a LOUD stall that prints its own remediation.
   //
   // `headUnchanged` is compared `=== true` while the verdict branch above tests
   // `=== false`, and the asymmetry is the point: a caller that never re-read

@@ -9,20 +9,17 @@ import { MERGEABLE_MERGE_STATES } from "../lib/merge-readiness.mjs";
 /**
  * Every combination of the named dimensions, STREAMED rather than materialized.
  *
- * The `flatMap` form this replaces built the whole space as one array, so each
- * dimension added multiplied resident memory as well as time. The space is now
- * millions of objects wide and only one of them is ever live at a time, which is
- * what keeps a dimension affordable to add — and adding dimensions is the entire
- * mechanism by which the two invariants below stay honest.
+ * The space is millions of objects wide; building it as one array would multiply
+ * resident memory with each dimension. Streaming keeps one combination live at a
+ * time, which keeps a dimension affordable to add — and adding dimensions is how
+ * the two invariants below stay honest.
  */
 function* cartesianProduct(dimensions) {
   const dimensionEntries = Object.entries(dimensions);
-  // An odometer rather than recursive `yield*` delegation, which is not a
-  // premature optimization at this width: delegation spreads a fresh partial at
-  // every one of the ~19 levels, so it allocates ~19 objects per combination and
-  // bubbles each result back up through as many generator frames. The odometer
-  // allocates exactly one. Measured on this suite, recursion cost 2.3x the
-  // materialized array it replaced; this pays that back and then some.
+  // An odometer rather than recursive `yield*` delegation: delegation spreads a
+  // fresh partial at every one of the ~19 levels, so it allocates ~19 objects per
+  // combination and bubbles each result up through as many generator frames. The
+  // odometer allocates exactly one.
   const odometer = new Array(dimensionEntries.length).fill(0);
   for (;;) {
     const combination = {};
@@ -50,9 +47,9 @@ function* cartesianProduct(dimensions) {
  * unknown input" apart from "was never asked".
  *
  * Both age dimensions carry `NaN` for the same reason. An age that cannot be
- * measured is the R4-1 defect's input, and it is invisible to a space built
- * only from measurable ages — the sweep would range over "fresh" and "settled"
- * and never over "unknown", which is the third state and the one that merged.
+ * measured is invisible to a space built only from measurable ages — the sweep
+ * would range over "fresh" and "settled" and never over "unknown", the third
+ * state and the one that can fail open.
  * It also makes the mergeOk invariant below self-enforcing: `NaN >= X` is false,
  * so any combination that reaches a merge on an unmeasurable age fails the
  * settle-window assertion rather than passing silently.
@@ -83,10 +80,9 @@ const VERDICT_SIGNAL_DIMENSIONS = {
  * A SECOND, focused space for the two observation-baseline signals, chained onto
  * the one above rather than folded into it.
  *
- * Folding them in was the obvious move and it costs too much to be worth it: two
- * more booleans take the primary space from 8,847,360 combinations to 35,389,440
- * and the suite from about 6 seconds to about 22, on every run, forever. The
- * signals do not need that reach. Everything they interact with is an ack-leg
+ * Folding them in would take the primary space from 8,847,360 combinations to
+ * 35,389,440 and roughly quadruple the suite's run time. The signals do not need
+ * that reach. Everything they interact with is an ack-leg
  * dimension plus the settle inputs, so a full cartesian over exactly those —
  * 9,216 combinations — covers the interaction completely, and the primary sweep
  * still ranges over CI, merge state, drafts and truncation independently.
@@ -96,7 +92,7 @@ const VERDICT_SIGNAL_DIMENSIONS = {
  * merge, so the mergeOk invariant would pass over it vacuously — the one thing
  * this space exists to prevent.
  *
- * Note what the PRIMARY space now proves as a side effect: it never sets
+ * Note what the PRIMARY space proves as a side effect: it never sets
  * `observationBaselineKnown` at all, so every one of its 8.8M combinations
  * carries an ABSENT baseline signal. That is the fail-closed direction asserted
  * across the whole space for free — a caller that never consulted the store
@@ -199,18 +195,16 @@ test("invariant: mergeOk implies ack, no threads, green CI, no truncation, merge
     // review on HEAD is not a reason to block — the review is dispositive and
     // the refusal is about a different, irrelevant signal. What must hold is
     // that some ack of HEAD actually survived, so the refused one is never
-    // load-bearing. Asserting the unscoped form instead would have pinned the
-    // over-blocking bug in place as though it were the specification.
+    // load-bearing. The unscoped form would require blocking that merge.
     assert.equal(result.ackOfHead, true, where);
 
     // The settle window covers BOTH thread-bearing legs, so whichever of them
-    // fired has to be outside it. Scoping the window to the review leg let a
-    // fresh comment ack merge at age 1_000 — this is the assertion that fails.
+    // fired has to be outside it. A window scoped to the review leg alone would let
+    // a fresh comment ack merge at age 1_000, and this assertion would fail.
     //
-    // These two also carry the R4-1 tripwire at no extra cost, because `NaN >=
-    // X` is false: a firing leg whose age is unmeasurable can only satisfy them
-    // by never reaching a merge in the first place. Normalizing an undatable
-    // firing leg back to Infinity fails here rather than passing quietly.
+    // These two also catch an undatable firing leg, because `NaN >= X` is false:
+    // a firing leg whose age is unmeasurable can only satisfy them by never
+    // reaching a merge. Normalizing it to Infinity fails here rather than passing.
     if (signals.reviewAcksHead) {
       assert.ok(signals.latestReviewAgeMs >= DEFAULT_SETTLE_WINDOW_MS, where);
     }
@@ -262,8 +256,7 @@ test("every verdict arm is reachable, and none falls outside the known set", () 
 
   // An if/else ladder is exactly where a reordering shadows a branch, and a
   // shadowed arm is indistinguishable from a working one without this check —
-  // it simply never fires. The risk is not hypothetical here: the header of
-  // codex-verdict.test.mjs records that this decision table's highest-risk branches are unreachable
+  // it simply never fires. This table's highest-risk branches are unreachable
   // from any real PR, so live traffic will never be the thing that notices.
   assert.deepEqual(
     [...KNOWN_VERDICTS].filter((verdict) => !observedVerdicts.has(verdict)),

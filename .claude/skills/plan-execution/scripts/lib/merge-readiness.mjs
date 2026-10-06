@@ -9,12 +9,11 @@
  * Enumerated rather than derived because the classification is INVERTED:
  * anything that is neither success-like nor pending is failed. That is the
  * fail-closed direction — a conclusion GitHub adds after this was written, or
- * one nobody thought about, blocks the merge instead of scoring green. The
- * previous shape listed failures explicitly, so `ACTION_REQUIRED` and `STALE`
- * (in neither list) passed through as green on a PR that could not merge.
+ * one nobody thought about, blocks the merge instead of scoring green. A list
+ * of failures instead would let an unlisted state such as `ACTION_REQUIRED` or
+ * `STALE` pass as green on a PR that cannot merge.
  *
- * Membership, against the three GraphQL enums introspected 2026-07-27 from the
- * live schema:
+ * Membership, against GitHub's three GraphQL check-state enums:
  *   - `SUCCESS` — CheckConclusionState and StatusState. Passing.
  *   - `NEUTRAL` — CheckConclusionState. The run completed and declined to
  *     assert failure; GitHub's own branch protection treats it as passing.
@@ -70,8 +69,8 @@ const PENDING_STATES = new Set([
  * GitHub reports `BLOCKED` in both. This conjunct is therefore load-bearing on
  * the common path, not a guard against a rare misconfiguration.
  *
- * MergeStateStatus, introspected 2026-07-27: `BEHIND`, `BLOCKED`, `CLEAN`,
- * `DIRTY`, `HAS_HOOKS`, `UNKNOWN`, `UNSTABLE`.
+ * MergeStateStatus: `BEHIND`, `BLOCKED`, `CLEAN`, `DIRTY`, `HAS_HOOKS`,
+ * `UNKNOWN`, `UNSTABLE`.
  *   - `CLEAN` / `HAS_HOOKS` — mergeable, commit status passing.
  *   - `UNSTABLE` — mergeable, commit status NOT passing. This is exactly the
  *     advisory-check-red case that required-only filtering exists to let
@@ -80,10 +79,9 @@ const PENDING_STATES = new Set([
  *   - `UNKNOWN` — GitHub is still computing mergeability. Absence of evidence,
  *     exactly like an empty check rollup; the caller re-polls.
  *
- * Reachability of `CLEAN` on this repo was verified against
- * `branches/develop/protection` (2026-07-27): `required_approving_review_count`
- * is 0, so no human approval is needed and this conjunct cannot pin the gate
- * to `merge_ok=0` forever.
+ * `CLEAN` is reachable on this repo because `develop`'s branch protection
+ * requires no approving review, so this conjunct cannot pin the gate to
+ * `merge_ok=0` forever.
  */
 export const MERGEABLE_MERGE_STATES = new Set(["CLEAN", "HAS_HOOKS", "UNSTABLE"]);
 
@@ -136,8 +134,6 @@ function startedAtMs(check) {
  * and the rollup then carries `CANCELLED` alongside the real `SUCCESS` for the
  * same check name. Counting every row makes a fully green PR read as red, which
  * blocks a legitimate merge and sends the reader chasing a phantom failure.
- * Observed live on PR #256: `lychee — outbound HTTP (advisory)` CANCELLED at
- * 00:25:10, SUCCESS at 00:25:59.
  */
 export function selectNewestRunPerName(checks) {
   const newestByName = new Map();
@@ -164,21 +160,17 @@ export function selectNewestRunPerName(checks) {
  * Split rollup rows into the ones that gate the merge and the ones that are
  * advisory.
  *
- * `isRequired(pullRequestNumber:)` is the ONLY authority. Verified 2026-07-27
- * against `branches/develop/protection`, whose required contexts (`ci-gate`,
- * `docs-corpus-gate`) matched the `isRequired: true` rows exactly. Name-matching
- * would be wrong on this repo in the direction that matters: `lychee — inbound
- * anchors (required)` and `lane boundary — plan-title token (required)` both
- * carry "(required)" in their names and both report `isRequired: false`.
+ * `isRequired(pullRequestNumber:)` is the ONLY authority; it matches the branch
+ * protection's required contexts. Name-matching would be wrong in the direction
+ * that matters: a check can carry "(required)" in its name and still report
+ * `isRequired: false`.
  *
  * Degradation is deliberate, never silent, and NOT rare. Its dominant cause is
  * timing rather than misconfiguration: a required check that is an aggregator
- * job gets no check run until its `needs:` clear, so it is absent from the rollup
- * for the opening minutes of every run. Measured on PR #259 against the Actions
- * jobs API (2026-07-27): leaf jobs were created 1s after the workflow run,
- * `docs-corpus-gate` at +42s, `ci-gate` at +178s. Any gate polled inside that
- * window sees zero required rows. An unprotected branch, a rollup fetched without
- * the field, or a schema change land here too.
+ * job gets no check run until its `needs:` clear, so it is absent from the
+ * rollup for the opening minutes of every run, and a gate polled inside that
+ * window sees zero required rows. An unprotected branch, a rollup fetched
+ * without the field, or a schema change land here too.
  *
  * Every row then gates. That is the conservative direction but not a safe one on
  * its own: if the rows that happen to exist are all green advisories, this
