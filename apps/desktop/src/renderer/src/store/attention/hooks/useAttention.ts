@@ -12,7 +12,7 @@ export interface WindowAttention {
   /** The service's session list, as the read settled it. */
   readonly directory: SessionDirectoryState;
   readonly reading: AttentionReading;
-  /** Declare the session list stale, so it is read again. */
+  /** Ask for the session list again, as it now stands. */
   readonly recheckDirectory: () => void;
 }
 

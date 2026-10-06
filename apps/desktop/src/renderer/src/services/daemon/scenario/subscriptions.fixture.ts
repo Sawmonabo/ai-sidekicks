@@ -15,7 +15,7 @@ import { FixtureBridgeError } from "../refusal.fixture.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import { projectRunStreamDelivery } from "../../run-streams/projection.fixture.js";
 import { ScenarioEngine } from "../engine.fixture.js";
-import { assertNoticeOnContract, requestStampReaderFor } from "../scripted/reply.fixture.js";
+import { assertOpeningOnContract, requestStampReaderFor } from "../scripted/reply.fixture.js";
 import {
   composeScenarioEventEnvelope,
   composeScenarioSessionFrames,
@@ -62,7 +62,7 @@ export function subscribeToScenario(
           (...calls) => engine.answeredRequests(...calls),
           requestStampReaderFor(opening.stream),
         );
-        deliver(assertNoticeOnContract(subscriptionName, opening.stream, payload));
+        deliver(assertOpeningOnContract(opening.stream, payload));
       }
     }
     return unsubscribe;

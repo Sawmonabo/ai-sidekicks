@@ -83,11 +83,8 @@ export function McpFixtureBody(props: {
   readonly operations: McpServerOperations;
   /** Injected so a suite can assert that one press reused one key. */
   readonly mintKey?: IdempotencyKeyMinter;
-  /**
-   * The service's sessions, which name each running session on the page; absent, every one
-   * reads `A session`.
-   */
-  readonly sessionDirectory?: SessionDirectoryState | undefined;
+  /** The service's sessions, which name each running session on the page. */
+  readonly sessionDirectory: SessionDirectoryState;
 }): ReactNode {
   const { bridge, operations, sessionDirectory } = props;
   const mintKey = props.mintKey ?? mintIdempotencyKey;

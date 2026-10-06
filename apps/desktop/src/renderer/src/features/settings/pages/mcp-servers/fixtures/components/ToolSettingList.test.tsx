@@ -51,7 +51,7 @@ function renderTools(onChangeTool: Parameters<typeof ToolSettingList>[0]["onChan
       tools={TOOLS}
       outcomeFor={() => IDLE_MCP_MUTATION}
       onChangeTool={onChangeTool}
-      sessionDirectory={undefined}
+      sessionDirectory={{ status: "reading" }}
       clock={new ManualClock(0)}
     />,
   );

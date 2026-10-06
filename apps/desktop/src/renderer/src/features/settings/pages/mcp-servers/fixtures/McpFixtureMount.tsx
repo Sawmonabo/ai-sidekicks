@@ -1,8 +1,8 @@
 // The MCP fixture body over this window's bridge. Its inventory read and its changes go through
 // `callDaemon`, so each reply is parsed against the method's registered shape, and its live-status
 // signal is the governance stream, opened before the first read and opened again when it ends,
-// with a read after each re-open for what the gap hid. No session directory read reaches this
-// mount yet, so the body is handed none and every running session on the page reads `A session`.
+// with a read after each re-open for what the gap hid. The running sessions are named from the
+// window's session list feed, which the sessions list shares.
 
 import { useMemo, type ReactNode } from "react";
 
@@ -12,6 +12,8 @@ import { unwrapDaemonReply } from "#renderer/services/daemon/reply.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { openReopeningSubscription } from "#renderer/services/transport/reopening-subscription.js";
+import { sessionDirectoryFeedFor } from "#renderer/services/daemon/session/list-feed.js";
+import { useSessionDirectory } from "#renderer/store/session/directory/useSessionDirectory.js";
 import { McpFixtureBody, type McpServerOperations } from "./McpFixtureBody.js";
 
 /** The MCP fixture body, its verbs answered by the daemon this window's bridge reaches. */
@@ -19,7 +21,10 @@ export function McpFixtureMount(): ReactNode {
   const bridge = usePlatformBridge();
   // Held per bridge: the body restarts its inventory read when the operations change.
   const operations = useMemo(() => mcpServerOperationsOver(bridge), [bridge]);
-  return <McpFixtureBody bridge={bridge} operations={operations} />;
+  const sessionDirectory = useSessionDirectory(sessionDirectoryFeedFor(bridge));
+  return (
+    <McpFixtureBody bridge={bridge} operations={operations} sessionDirectory={sessionDirectory} />
+  );
 }
 
 /**

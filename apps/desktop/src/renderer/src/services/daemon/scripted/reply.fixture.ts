@@ -9,6 +9,7 @@
 
 import { MCP_EVENT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/mcp/event";
 import { PROVIDER_ACCOUNT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/account/methods";
+import { SESSION_DIRECTORY_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/directory";
 import { WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { ZodType } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
@@ -25,6 +26,7 @@ import type { MachineNoticeStreamName } from "../session/event/streams.js";
 import {
   MCP_NOTICE_STREAM,
   PROVIDER_ACCOUNT_NOTICE_STREAM,
+  SESSION_LIST_STREAM,
   WORKFLOW_NOTICE_STREAM,
 } from "#shared/daemon/streams.js";
 
@@ -36,6 +38,17 @@ const MACHINE_NOTICE_EMISSION_SCHEMAS: Readonly<Record<MachineNoticeStreamName, 
       PROVIDER_ACCOUNT_METHOD_DESCRIPTORS[PROVIDER_ACCOUNT_NOTICE_STREAM].emissionSchema,
     [WORKFLOW_NOTICE_STREAM]:
       WORKFLOW_RUN_RECORD_METHOD_DESCRIPTORS[WORKFLOW_NOTICE_STREAM].emissionSchema,
+    [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].emissionSchema,
+  });
+
+/**
+ * The shape each machine stream's opening frame registers: its first emission, except
+ * `session.list`, whose list as it stands is its acknowledgment.
+ */
+const MACHINE_NOTICE_OPENING_SCHEMAS: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>> =
+  Object.freeze({
+    ...MACHINE_NOTICE_EMISSION_SCHEMAS,
+    [SESSION_LIST_STREAM]: SESSION_DIRECTORY_METHOD_DESCRIPTORS[SESSION_LIST_STREAM].responseSchema,
   });
 
 /**
@@ -178,25 +191,14 @@ export function assertScriptedReplyOnContract(method: string, value: unknown): u
 }
 
 /**
- * Hold one machine notice to its stream's registered emission shape, naming `source` (the call
- * that pushed it, or the stream that opened with it) when it is off contract. It asserts and does
- * not substitute: the original payload travels on.
+ * Hold the frame a machine stream opens with to its registered opening shape, naming the stream
+ * when it is off contract. The original payload travels on.
  */
-export function assertNoticeOnContract(
-  source: string,
+export function assertOpeningOnContract(
   stream: MachineNoticeStreamName,
   payload: unknown,
 ): unknown {
-  if (!MACHINE_NOTICE_EMISSION_SCHEMAS[stream].safeParse(payload).success) {
-    throw new FixtureBridgeError(
-      source,
-      "reply-off-contract",
-      `the scenario pushes a ${stream} notice this build does ` +
-        `not register for that stream. Script the registered shape ` +
-        `rather than teaching a view a frame the daemon cannot send.`,
-    );
-  }
-  return payload;
+  return assertOnContract(MACHINE_NOTICE_OPENING_SCHEMAS, stream, stream, payload);
 }
 
 /**
@@ -215,6 +217,37 @@ export function requestStampReaderFor(call: string): RequestStampReader {
     }
     return instant.epochMilliseconds;
   };
+}
+
+/**
+ * Hold one machine notice to its stream's registered emission shape, naming `source` (the call
+ * that pushed it) when it is off contract. It asserts and does not substitute: the original
+ * payload travels on.
+ */
+function assertNoticeOnContract(
+  source: string,
+  stream: MachineNoticeStreamName,
+  payload: unknown,
+): unknown {
+  return assertOnContract(MACHINE_NOTICE_EMISSION_SCHEMAS, source, stream, payload);
+}
+
+function assertOnContract(
+  schemas: Readonly<Record<MachineNoticeStreamName, ZodType<unknown>>>,
+  source: string,
+  stream: MachineNoticeStreamName,
+  payload: unknown,
+): unknown {
+  if (!schemas[stream].safeParse(payload).success) {
+    throw new FixtureBridgeError(
+      source,
+      "reply-off-contract",
+      `the scenario pushes a ${stream} notice this build does ` +
+        `not register for that stream. Script the registered shape ` +
+        `rather than teaching a view a frame the daemon cannot send.`,
+    );
+  }
+  return payload;
 }
 
 /**

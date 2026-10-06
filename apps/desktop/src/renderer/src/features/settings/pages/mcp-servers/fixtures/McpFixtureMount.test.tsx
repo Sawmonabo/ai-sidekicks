@@ -1,5 +1,6 @@
 // The MCP servers page as a fixture launch mounts it: the fixture body registered into the page,
-// its inventory listed, a picked server's changes reaching the scenario's scripted replies
+// its inventory listed, its running sessions named from the scenario's session list, a picked
+// server's changes reaching the scenario's scripted replies
 // through `callDaemon`, and the re-read after a change answering with what was written: a
 // switched-off binding stays off, and a tool's facet cleared back to the server's own leaves its
 // other set.
@@ -48,6 +49,25 @@ describe("McpFixtureMount", () => {
       fixture.scenarioEngine.advance(200);
     });
     expect(container.textContent).toContain("Saved. The next session uses it.");
+  });
+
+  it("names each running session as the session list does, never by its id", async () => {
+    registerMcpFixtureBody();
+    const fixture = createFixtureBridge({ scenario: CONCURRENT_STREAMING_SCENARIO });
+    const { container } = render(
+      <FixtureBridgeProvider fixture={fixture}>
+        <LiveAnnouncerProvider>
+          <McpServersPage />
+        </LiveAnnouncerProvider>
+      </FixtureBridgeProvider>,
+    );
+    await settleScheduledRead(fixture.scenarioEngine.clock);
+
+    selectEntry(container, 1);
+    const names = [...container.querySelectorAll(".meridian-mcp__leg")].map(
+      (line) => line.firstChild?.textContent,
+    );
+    expect(names).toStrictEqual(["Fix login", "Refresh-token expiry"]);
   });
 
   it("keeps a switched-off binding switched off after the inventory is read again", async () => {

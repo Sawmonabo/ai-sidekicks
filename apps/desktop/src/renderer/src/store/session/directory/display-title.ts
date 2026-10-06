@@ -1,8 +1,7 @@
 // What a session is called on screen: its title, or the words an untitled session reads by.
 
+import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
-
-import type { SessionDirectoryEntry } from "./state.js";
 
 /** The words a session is named by on screen, and whether they stand in for a missing title. */
 export interface SessionDisplayTitle {
@@ -11,14 +10,14 @@ export interface SessionDisplayTitle {
 }
 
 /**
- * What a session is called wherever a surface names it: its title, or for an untitled session
+ * What a session is called wherever a surface names it: its name, or for an untitled session
  * `New chat` on a chat and `New session` on a project, which a surface draws faint and italic.
  */
 export function sessionDisplayTitleOf(
-  entry: Pick<SessionDirectoryEntry, "title" | "shape">,
+  entry: Pick<SessionListEntry, "name" | "shape">,
 ): SessionDisplayTitle {
-  if (entry.title !== undefined) {
-    return { text: entry.title, isUntitled: false };
+  if (entry.name !== undefined) {
+    return { text: entry.name, isUntitled: false };
   }
   return { text: UNTITLED_SESSION_WORDS[entry.shape], isUntitled: true };
 }

@@ -22,7 +22,7 @@ import { SessionName } from "./SessionName.js";
 export function MutationOutcomeLine(props: {
   readonly outcome: McpMutationOutcome;
   /** The service's sessions, which name a session the change failed on. */
-  readonly sessionDirectory: SessionDirectoryState | undefined;
+  readonly sessionDirectory: SessionDirectoryState;
   /** The window's clock, which holds `Sending…` back for the short delay. */
   readonly clock: Clock;
 }): ReactNode {

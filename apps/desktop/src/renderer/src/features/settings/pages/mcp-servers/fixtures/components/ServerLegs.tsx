@@ -18,12 +18,12 @@ import { SessionName } from "./SessionName.js";
  * The per-session grain is preserved, not folded: one configuration backs many concurrent
  * sessions, and two can honestly disagree, so one scalar would report a partial outage as fine or
  * broken. Each line is keyed by `(sessionId, bindingId)` through `live-leg-key.ts`, shared with
- * the outcome list. A session the directory does not name reads `A session`, never its id. The
+ * the outcome list. A session is named as the session list names it, never by its id. The
  * aggregate above this list is the daemon's and is never recomputed here.
  */
 export function ServerLegs(props: {
   readonly legs: readonly McpServerLegStatus[] | undefined;
-  readonly sessionDirectory: SessionDirectoryState | undefined;
+  readonly sessionDirectory: SessionDirectoryState;
   /** The instant each reading's age is counted to, in epoch milliseconds. */
   readonly nowMilliseconds: number;
 }): ReactNode {

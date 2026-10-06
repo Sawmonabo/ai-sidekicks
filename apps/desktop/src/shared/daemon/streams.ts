@@ -29,6 +29,9 @@ export const PROVIDER_ACCOUNT_NOTICE_STREAM = "providerAccount.subscribe";
 /** The subscription name for the machine's workflow runs, steps, schedules and start hold. */
 export const WORKFLOW_NOTICE_STREAM = "workflow.subscribe";
 
+/** The subscription name for the sessions on this machine: the list, then each change to it. */
+export const SESSION_LIST_STREAM = "session.list";
+
 /** The subscription name for the machine's settings file: the file, then each written change. */
 export const MACHINE_SETTINGS_STREAM = "daemon.machineSettingsSubscribe";
 
@@ -41,6 +44,7 @@ export type DaemonStream = Extract<
   | typeof MCP_NOTICE_STREAM
   | typeof PROVIDER_ACCOUNT_NOTICE_STREAM
   | typeof WORKFLOW_NOTICE_STREAM
+  | typeof SESSION_LIST_STREAM
   | typeof MACHINE_SETTINGS_STREAM,
   DaemonEvent
 >;
@@ -59,5 +63,6 @@ const OPENED_STREAMS: Readonly<Record<DaemonStream, true>> = {
   [MCP_NOTICE_STREAM]: true,
   [PROVIDER_ACCOUNT_NOTICE_STREAM]: true,
   [WORKFLOW_NOTICE_STREAM]: true,
+  [SESSION_LIST_STREAM]: true,
   [MACHINE_SETTINGS_STREAM]: true,
 };

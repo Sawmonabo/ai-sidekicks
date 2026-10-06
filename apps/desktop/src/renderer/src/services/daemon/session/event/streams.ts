@@ -8,8 +8,8 @@
 // The kind lists for narrowed streams are composed from `stream-kinds.ts`. Rows:
 // `session.subscribe` (the whole session log), `run.subscribeState` and `run.subscribeQueue`
 // (narrowed projections), `presence.subscribe` (the connected devices), and `mcp.subscribe`,
-// `providerAccount.subscribe` and `workflow.subscribe` (the machine's notices). The last four are
-// not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
+// `providerAccount.subscribe`, `workflow.subscribe` and `session.list` (the machine's notices). The
+// last five are not session-event streams, but still `daemon.subscribe` names. The machine settings feed has no
 // row: the settings page reads it through the bridge's own `machineSettings` member. The table and
 // each row are frozen because a mutation would re-route every subscription in the renderer.
 
@@ -21,6 +21,7 @@ import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
   SESSION_EVENT_STREAM,
+  SESSION_LIST_STREAM,
   WORKFLOW_NOTICE_STREAM,
   type DaemonStream,
   type MACHINE_SETTINGS_STREAM,
@@ -73,7 +74,8 @@ export type SessionEventStream =
 export type MachineNoticeStreamName =
   | typeof MCP_NOTICE_STREAM
   | typeof PROVIDER_ACCOUNT_NOTICE_STREAM
-  | typeof WORKFLOW_NOTICE_STREAM;
+  | typeof WORKFLOW_NOTICE_STREAM
+  | typeof SESSION_LIST_STREAM;
 
 /** One stream this table routes: every daemon stream the app opens but the settings feed. */
 export type SessionEventStreamName = Exclude<DaemonStream, typeof MACHINE_SETTINGS_STREAM>;
@@ -105,6 +107,9 @@ export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, Sess
       scope: "machine-notices",
     } satisfies SessionEventStream),
     [WORKFLOW_NOTICE_STREAM]: Object.freeze({
+      scope: "machine-notices",
+    } satisfies SessionEventStream),
+    [SESSION_LIST_STREAM]: Object.freeze({
       scope: "machine-notices",
     } satisfies SessionEventStream),
   });

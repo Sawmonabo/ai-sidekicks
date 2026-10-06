@@ -62,7 +62,7 @@ describe("the two lists that render a live leg", () => {
       render(
         <ServerLegs
           legs={LEGS_SHARING_A_HANDLE}
-          sessionDirectory={undefined}
+          sessionDirectory={{ status: "reading" }}
           nowMilliseconds={0}
         />,
       ),
@@ -75,7 +75,7 @@ describe("the two lists that render a live leg", () => {
       render(
         <MutationOutcomeLine
           outcome={SETTLED_OUTCOME}
-          sessionDirectory={undefined}
+          sessionDirectory={{ status: "reading" }}
           clock={new ManualClock(0)}
         />,
       ),

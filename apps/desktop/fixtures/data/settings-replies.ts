@@ -59,9 +59,12 @@ import {
   type ProviderAccountLoginResponse,
   type ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts/provider/account/sign-in";
+import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import type { SessionListAck, SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   ScenarioNotice,
+  ScenarioOpeningNotice,
   ScenarioRefusalEnvelope,
   ScenarioReply,
 } from "#renderer/services/daemon/scenario/reply.fixture.js";
@@ -308,6 +311,37 @@ export const SETTINGS_REPLIES: readonly ScenarioReply[] = [
   // Computed, so an account whose login is gone is refused with its own remedy.
   { call: "providerAccount.setCurrent", afterMs: 200, resultFor: answerSetCurrent },
 ];
+
+/**
+ * The frame `session.list` opens with: the list as it stands, naming the two running sessions the
+ * inventory's legs belong to.
+ */
+export const SESSION_LIST_OPENING_NOTICES: readonly ScenarioOpeningNotice[] = [
+  {
+    stream: "session.list",
+    payloadAtOpen: (): SessionListAck => ({
+      subscriptionId: "019b79ee-0280-7d11-8510-ada11a5a2300" as SubscriptionId,
+      sessions: [
+        runningChat(SESSION_A, "Fix login"),
+        runningChat(SESSION_B, "Refresh-token expiry"),
+      ],
+    }),
+  },
+];
+
+function runningChat(sessionId: SessionId, name: string): SessionListEntry {
+  return {
+    sessionId,
+    name,
+    shape: "chat",
+    documentCount: 0,
+    state: "active",
+    activity: "running",
+    activityRenewedAt: OBSERVED_AT,
+    muted: false,
+    lastActivityAt: OBSERVED_AT,
+  };
+}
 
 /**
  * The inventory, with each binding's newest answered `mcp.setEnabled` and every answered tool

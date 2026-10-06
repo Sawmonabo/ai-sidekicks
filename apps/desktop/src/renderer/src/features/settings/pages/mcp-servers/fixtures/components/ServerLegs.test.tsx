@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { McpServerLegStatus } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import { ServerLegs } from "./ServerLegs.js";
 
 afterEach(() => {
@@ -22,8 +23,8 @@ const UNLISTED_SESSION = "019b7892-1a00-7c31-8110-cca0117a0703" as SessionId;
 const DIRECTORY: SessionDirectoryState = {
   status: "served",
   sessions: [
-    { sessionId: TITLED_SESSION, title: "Fix login", shape: "project", state: "active" },
-    { sessionId: UNTITLED_SESSION, shape: "chat", state: "active" },
+    sessionListEntry({ sessionId: TITLED_SESSION, name: "Fix login" }),
+    sessionListEntry({ sessionId: UNTITLED_SESSION, shape: "chat" }),
   ],
 };
 
@@ -49,19 +50,19 @@ describe("ServerLegs", () => {
     expect(lines).toStrictEqual([
       ["Fix login", "·", "Connected", "· updated", "2 minutes ago"],
       ["New chat", "·", "Failed"],
-      ["A session", "·", "Unknown"],
+      ["Loading…", "·", "Unknown"],
     ]);
     expect(container.textContent).not.toContain(UNLISTED_SESSION);
   });
 
-  it("negative control: with no directory each session reads `A session`, never its id", () => {
+  it("negative control: while the list is read each name is drawn loading, never its id", () => {
     const { container } = render(
-      <ServerLegs legs={LEGS} sessionDirectory={undefined} nowMilliseconds={NOW_MS} />,
+      <ServerLegs legs={LEGS} sessionDirectory={{ status: "reading" }} nowMilliseconds={NOW_MS} />,
     );
     const names = [...container.querySelectorAll(".meridian-mcp__leg")].map(
       (line) => line.firstChild?.textContent,
     );
-    expect(names).toStrictEqual(["A session", "A session", "A session"]);
+    expect(names).toStrictEqual(["Loading…", "Loading…", "Loading…"]);
     for (const sessionId of [TITLED_SESSION, UNTITLED_SESSION, UNLISTED_SESSION]) {
       expect(container.textContent).not.toContain(sessionId);
     }

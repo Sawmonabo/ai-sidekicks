@@ -53,7 +53,7 @@ import {
   findScenarioMember,
 } from "../data/opening-entries.js";
 import { WORKFLOW_RUN_DIFF_REPLIES } from "../data/workflow/run/review-diffs.js";
-import { SETTINGS_REPLIES } from "../data/settings-replies.js";
+import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/run/records.js";
 
@@ -552,5 +552,5 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
     ...WORKFLOW_REPLIES,
     ...WORKFLOW_RUN_DIFF_REPLIES,
   ],
-  openingNotices: WORKFLOW_OPENING_NOTICES,
+  openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
 };

@@ -38,7 +38,7 @@ export function ToolSettingList(props: {
     facet: McpToolOverrideFacet,
     change: McpToolFacetChange,
   ) => void;
-  readonly sessionDirectory: SessionDirectoryState | undefined;
+  readonly sessionDirectory: SessionDirectoryState;
   /** The window's clock, which holds an in-flight line back for the short delay. */
   readonly clock: Clock;
 }): ReactNode {

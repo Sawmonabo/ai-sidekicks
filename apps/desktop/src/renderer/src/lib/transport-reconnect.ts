@@ -20,13 +20,3 @@ export interface TransportReconnectObservable {
    */
   subscribe(onReconnect: () => void): Unsubscribe;
 }
-
-/**
- * The signal for a reading that touches no wire, and for a unit probe that drives no outage. It
- * is a named constant, not an optional parameter, so a wire-backed reading cannot quietly default
- * to never re-reading after a reconnect. A case about reconnect drives a real
- * `TransportReconnectSignal` instead.
- */
-export const NO_TRANSPORT_RECONNECT: TransportReconnectObservable = {
-  subscribe: () => () => undefined,
-};

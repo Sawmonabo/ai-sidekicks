@@ -2,23 +2,12 @@
 // question from the set this window has open (`useOpenSessionIds`): a service with six sessions
 // and a window that opened none is not empty.
 
-import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+import type {
+  SessionListChange,
+  SessionListEntry,
+} from "@ai-sidekicks/contracts/session/directory";
 
-/**
- * One session the service lists. A session with no title reads by its shape, `New chat` or
- * `New session` (see `sessionDisplayTitleOf` in `display-title.ts`).
- */
-export interface SessionDirectoryEntry {
-  readonly sessionId: string;
-  readonly title?: string;
-  readonly shape: SessionShape;
-  readonly state: string;
-}
-
-/** The call that lists the service's sessions. */
-export type SessionDirectoryReadCall = (
-  signal: AbortSignal,
-) => Promise<readonly SessionDirectoryEntry[]>;
+import type { Unsubscribe } from "#shared/preload-api.js";
 
 /**
  * What a view knows about the service's sessions at one moment. `failed` carries no cause: the
@@ -26,5 +15,20 @@ export type SessionDirectoryReadCall = (
  */
 export type SessionDirectoryState =
   | { readonly status: "reading" }
-  | { readonly status: "served"; readonly sessions: readonly SessionDirectoryEntry[] }
+  | { readonly status: "served"; readonly sessions: readonly SessionListEntry[] }
   | { readonly status: "failed" };
+
+/**
+ * One delivery on the service's session list feed: the list as it stands, one change to it, or
+ * word that the feed lost its place, so the list is not to be trusted until it is restated.
+ */
+export type SessionDirectoryFrame =
+  | { readonly kind: "list"; readonly sessions: readonly SessionListEntry[] }
+  | { readonly kind: "change"; readonly change: SessionListChange }
+  | { readonly kind: "lost" };
+
+/**
+ * Open the service's session list feed, handing each frame on, until the handle releases it. The
+ * composition supplies it, held stable per window, so `store/` stays below `services/`.
+ */
+export type SessionDirectoryFeed = (onFrame: (frame: SessionDirectoryFrame) => void) => Unsubscribe;

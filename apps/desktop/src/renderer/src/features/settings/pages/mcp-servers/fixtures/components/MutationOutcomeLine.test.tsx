@@ -12,6 +12,7 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import type { McpMutationOutcome } from "../mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
 
@@ -28,10 +29,10 @@ const APPLIED_SESSION = "019b7892-1a00-7c31-8110-cca0117a0605" as SessionId;
 const DIRECTORY: SessionDirectoryState = {
   status: "served",
   sessions: [
-    { sessionId: TITLED_SESSION, title: "Refresh-token expiry", shape: "project", state: "active" },
-    { sessionId: UNTITLED_CHAT, shape: "chat", state: "active" },
-    { sessionId: UNTITLED_PROJECT, shape: "project", state: "active" },
-    { sessionId: APPLIED_SESSION, title: "Tidy the docs", shape: "project", state: "active" },
+    sessionListEntry({ sessionId: TITLED_SESSION, name: "Refresh-token expiry" }),
+    sessionListEntry({ sessionId: UNTITLED_CHAT, shape: "chat" }),
+    sessionListEntry({ sessionId: UNTITLED_PROJECT }),
+    sessionListEntry({ sessionId: APPLIED_SESSION, name: "Tidy the docs" }),
   ],
 };
 
@@ -102,7 +103,7 @@ describe("MutationOutcomeLine", () => {
       "Refresh-token expiry is still running with the old setting.",
       "New chat is still running with the old setting.",
       "New session is still running with the old setting.",
-      "A session is still running with the old setting.",
+      "Loading… is still running with the old setting.",
     ]);
     const untitledNames = [...container.querySelectorAll(".meridian-mcp__untitled-session")].map(
       (name) => name.textContent,

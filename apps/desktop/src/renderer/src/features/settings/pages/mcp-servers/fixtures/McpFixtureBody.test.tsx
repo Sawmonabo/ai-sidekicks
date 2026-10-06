@@ -19,6 +19,8 @@ import type {
 } from "@ai-sidekicks/contracts/mcp/server";
 import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
+import { sessionListEntry } from "#renderer/store/session/directory/state.test-support.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
 import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
@@ -36,6 +38,15 @@ afterEach(() => {
 
 const SESSION_A = "11111111-1111-4111-8111-111111111111" as SessionId;
 const SESSION_B = "22222222-2222-4222-8222-222222222222" as SessionId;
+
+// The service's sessions, naming both running sessions as the session list does.
+const SESSION_DIRECTORY: SessionDirectoryState = {
+  status: "served",
+  sessions: [
+    sessionListEntry({ sessionId: SESSION_A, name: "Fix login" }),
+    sessionListEntry({ sessionId: SESSION_B, name: "Tidy the docs" }),
+  ],
+};
 
 const FILESYSTEM: McpServerInventoryEntry = {
   provider: "claude",
@@ -163,9 +174,18 @@ function MountedMcpPage(props: {
 }): React.JSX.Element {
   const bridge = usePlatformBridge();
   return props.mintKey === undefined ? (
-    <McpFixtureBody bridge={bridge} operations={props.operations} />
+    <McpFixtureBody
+      bridge={bridge}
+      operations={props.operations}
+      sessionDirectory={SESSION_DIRECTORY}
+    />
   ) : (
-    <McpFixtureBody bridge={bridge} operations={props.operations} mintKey={props.mintKey} />
+    <McpFixtureBody
+      bridge={bridge}
+      operations={props.operations}
+      mintKey={props.mintKey}
+      sessionDirectory={SESSION_DIRECTORY}
+    />
   );
 }
 
@@ -370,7 +390,7 @@ describe("McpFixtureBody", () => {
     );
     expect(lines).toStrictEqual([
       "Saved to Claude Code's settings. New sessions use it.",
-      "A session is still running with the old setting.",
+      "Tidy the docs is still running with the old setting.",
     ]);
   });
 

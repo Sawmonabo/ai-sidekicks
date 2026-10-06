@@ -1,27 +1,26 @@
 import type { ReactNode } from "react";
 
+import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatWireString } from "#renderer/lib/wire/figures.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 
-/** What a session the directory does not name reads as: words, never its id. */
-const UNNAMED_SESSION_WORDS = "A session";
-
 /**
- * A running session as the session list names it, an untitled one faint and italic, and one no
- * directory names as `A session`. Its id never reaches the screen.
+ * A running session as the session list names it, an untitled one faint and italic. Until the
+ * list names it, its name is drawn as still loading, as the session header draws an unread title;
+ * its id never reaches the screen.
  */
 export function SessionName(props: {
   readonly sessionId: string;
-  readonly sessionDirectory: SessionDirectoryState | undefined;
+  readonly sessionDirectory: SessionDirectoryState;
 }): ReactNode {
   const { sessionId, sessionDirectory } = props;
   const entry =
-    sessionDirectory?.status === "served"
+    sessionDirectory.status === "served"
       ? sessionDirectory.sessions.find((session) => session.sessionId === sessionId)
       : undefined;
   if (entry === undefined) {
-    return UNNAMED_SESSION_WORDS;
+    return <Nothing kind="not-loaded" placement="inline" title="Loading…" />;
   }
   const title = sessionDisplayTitleOf(entry);
   return title.isUntitled ? (
