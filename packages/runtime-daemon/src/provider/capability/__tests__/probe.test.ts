@@ -12,7 +12,7 @@ import {
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { openDatabase } from "../../../session/migration-runner.js";
-import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
+import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   RecordingCapabilityProbeTransport,
   type DefaultProbeReply,

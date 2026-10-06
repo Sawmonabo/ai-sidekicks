@@ -24,7 +24,7 @@ import { WorkspaceService } from "../service.js";
 import { WorkspaceStaleError } from "../errors.js";
 
 import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
-import { steppingClock } from "../__fixtures__/stepping-clock.js";
+import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import {
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
@@ -153,7 +153,7 @@ beforeEach(async () => {
   );
   const dbPath = join(tmpDir, "test.db");
   const database: DatabaseType = openDatabase(dbPath);
-  const now = steppingClock();
+  const now = makeAdvancingClock();
 
   const disposableMountRoot = join(tmpDir, "disposable-mount-root");
   const provisionedWorktreeRoot = join(tmpDir, "provisioned-worktree");

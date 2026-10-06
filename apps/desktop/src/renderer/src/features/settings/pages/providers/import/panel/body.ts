@@ -9,4 +9,4 @@
 // Named `Body` because `components/LazyBody/loader.ts` fixes the export name a loader
 // resolves.
 
-export { ProviderImportPanel as Body } from "../ProviderImportPanel.js";
+export { ProviderImportPanel as Body } from "./ProviderImportPanel.js";

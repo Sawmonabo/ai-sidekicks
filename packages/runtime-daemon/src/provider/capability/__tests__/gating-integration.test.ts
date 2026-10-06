@@ -9,7 +9,7 @@ import { captureThrow } from "../../../__fixtures__/capture-failure.js";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { openDatabase } from "../../../session/migration-runner.js";
-import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
+import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   CLI_VERSION_REPORT,
   CONTRACT_VERSION,

@@ -20,7 +20,7 @@ import {
   isImportUnderway,
   type ImportProgressReading,
   type ImportProgressSubscribeCall,
-} from "./progress.js";
+} from "../progress.js";
 import { useImportProgress } from "./useImportProgress.js";
 import type {
   ProviderImportProviderRequest,

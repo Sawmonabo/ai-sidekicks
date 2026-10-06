@@ -13,8 +13,8 @@ import type {
   ProviderImportProgress,
 } from "@ai-sidekicks/contracts/provider/import";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
-import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type { ImportProgressStream, ImportProgressSubscribeCall } from "./progress.js";
+import { useProviderImport, type ProviderImportBeginCall } from "../hooks/useProviderImport.js";
+import type { ImportProgressStream, ImportProgressSubscribeCall } from "../progress.js";
 import { chooseProvider } from "./ProviderImportPanel.test-support.js";
 import { settle } from "#test/helpers/settle.js";
 

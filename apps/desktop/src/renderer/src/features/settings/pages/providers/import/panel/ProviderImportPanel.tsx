@@ -18,7 +18,7 @@ import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provi
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
-import type { ProviderImportModel } from "./useProviderImport.js";
+import type { ProviderImportModel } from "../hooks/useProviderImport.js";
 
 /** What the panel draws: the import its caller is holding, running or not. */
 export interface ProviderImportPanelProps {

@@ -1,13 +1,9 @@
-// Which window a component is drawn in. Every window a person sees renders from one document's
-// tree through a portal, so the global `window` and `document` are the hidden document's, never
-// the one a component is in; a listener, a focus check or a portal target reads this instead.
+// The window a component is drawn in, for a listener, a focus check or a portal target, which
+// must read it here rather than from the global `window` and `document`.
 
-import { createContext, useContext, type Context } from "react";
+import { useContext } from "react";
 
-/** The window the tree below is drawn in; `undefined` outside any, where the global is it. */
-export const OwnerWindowContext: Context<Window | undefined> = createContext<Window | undefined>(
-  undefined,
-);
+import { OwnerWindowContext } from "#renderer/components/OwnerWindow/context.js";
 
 /**
  * The window this component is drawn in: the one the app opened it into, or the global window for

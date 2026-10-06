@@ -1,12 +1,12 @@
 // One window a person sees: its frame store, the bindings that keep it live, and the `AppShell`
 // around the routed screen, drawn into the window's own document through a portal from the console
-// document's tree. Everything below reads the window it is in from `OwnerWindowContext`, and runs
+// document's tree. Everything below reads the window it is in from `OwnerWindowProvider`, and runs
 // its frame work on that window's own paint through `WindowClockProvider`.
 
 import { useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { OwnerWindowContext } from "#renderer/hooks/owner-window/useOwnerWindow.js";
+import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
 import { useLocationHash } from "#renderer/routing/hooks/useLocationHash.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { WindowClockProvider } from "#renderer/services/platform/WindowClockProvider.js";
@@ -58,11 +58,11 @@ export interface AppWindowProps {
 export function AppWindow(props: AppWindowProps): React.JSX.Element {
   const ownerWindow = props.openWindow.window;
   return createPortal(
-    <OwnerWindowContext.Provider value={ownerWindow}>
+    <OwnerWindowProvider window={ownerWindow}>
       <WindowClockProvider frames={ownerWindow}>
         <WindowContents {...props} />
       </WindowClockProvider>
-    </OwnerWindowContext.Provider>,
+    </OwnerWindowProvider>,
     windowMountPoint(ownerWindow.document),
     props.openWindow.windowId,
   );

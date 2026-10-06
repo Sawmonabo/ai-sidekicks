@@ -9,7 +9,7 @@
 // body rendered directly so reopening never suspends. While pending it draws nothing.
 
 import { LoaderBackedBody } from "#renderer/components/LazyBody/loader.js";
-import type { ProviderImportPanelProps } from "../ProviderImportPanel.js";
+import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**
  * The import panel, mounted from its own chunk.

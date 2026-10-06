@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureThrow } from "../../__fixtures__/capture-failure.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
+import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {
   composeResumeSessionParams,

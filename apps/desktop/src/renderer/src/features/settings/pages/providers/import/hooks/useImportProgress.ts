@@ -16,7 +16,7 @@ import type {
   ImportProgressReading,
   ImportProgressStream,
   ImportProgressSubscribeCall,
-} from "./progress.js";
+} from "../progress.js";
 
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 

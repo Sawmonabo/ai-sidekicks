@@ -6,11 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { settle as settleReactWork } from "#test/helpers/settle.js";
 import { NO_TRANSPORT_RECONNECT } from "#renderer/lib/transport-reconnect.js";
-import {
-  offeredSessionIds,
-  type SessionDirectoryReadCall,
-  type SessionDirectoryState,
-} from "./state.js";
+import { type SessionDirectoryReadCall, type SessionDirectoryState } from "./state.js";
 import { requestSessionDirectoryRead } from "./staleness.js";
 import { useSessionDirectory } from "./useSessionDirectory.js";
 
@@ -126,19 +122,5 @@ describe("useSessionDirectory — the node's list moves, and so does the read", 
 
     expect(counted.readCount()).toBe(2);
     expect(servedSessionIds(lastState(observed))).toContain("session-read-2");
-  });
-});
-
-describe("offeredSessionIds — the union a view offers", () => {
-  it("puts the node's sessions first and appends what only this window knows", () => {
-    const directory: SessionDirectoryState = {
-      status: "served",
-      sessions: [{ sessionId: "session-node", shape: "project", state: "active" }],
-    };
-
-    expect(offeredSessionIds(directory, ["session-local"])).toStrictEqual([
-      "session-node",
-      "session-local",
-    ]);
   });
 });

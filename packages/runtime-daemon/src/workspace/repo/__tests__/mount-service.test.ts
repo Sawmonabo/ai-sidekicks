@@ -33,7 +33,7 @@ import { WorkspaceEventEmitter } from "../../event-emitter.js";
 import { WorkspaceService } from "../../service.js";
 
 import { bindReadyWorkspace } from "../../__fixtures__/bound-root.js";
-import { steppingClock } from "../../__fixtures__/stepping-clock.js";
+import { makeAdvancingClock } from "../../../__fixtures__/advancing-clock.js";
 import {
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
@@ -299,9 +299,9 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
 
 describe("RepoMountService.detach", () => {
   it("archives every dependent and announces each to the session that bound it", async () => {
-    // A stepping clock: the `updated_at` assertions compare attach and detach stamps, which would
-    // tie on the millisecond-resolution wall clock and fail intermittently.
-    const service = createService({ now: steppingClock() });
+    // An advancing clock: the `updated_at` assertions compare attach and detach stamps, which
+    // would tie on the millisecond-resolution wall clock and fail intermittently.
+    const service = createService({ now: makeAdvancingClock() });
 
     const attached = await service.attach({ localPath: gitFixtures.repositoryRoot });
     // One dependent per session: each archival must reach the log of the session that bound it.

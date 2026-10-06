@@ -14,11 +14,11 @@ import type {
   ProviderImportProgress,
 } from "@ai-sidekicks/contracts/provider/import";
 
-import { ProviderImportPanel } from "./ProviderImportPanel.js";
+import { ProviderImportPanel } from "../panel/ProviderImportPanel.js";
 import { useProviderImport, type ProviderImportBeginCall } from "./useProviderImport.js";
-import type { ImportProgressStream, ImportProgressSubscribeCall } from "./progress.js";
+import type { ImportProgressStream, ImportProgressSubscribeCall } from "../progress.js";
 import { settle } from "#test/helpers/settle.js";
-import { chooseProvider } from "./ProviderImportPanel.test-support.js";
+import { chooseProvider } from "../panel/ProviderImportPanel.test-support.js";
 
 /** The one import every case here starts, named so a remount can be shown to find it. */
 const IMPORT_ID = "provider-import-19" as ProviderImportId;
