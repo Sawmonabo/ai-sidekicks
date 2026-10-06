@@ -51,7 +51,7 @@ export async function startWorkflowFromLine(
   ) {
     return { status: "send-as-typed" };
   }
-  const listed = await readWorkflowDefinitions(input.operations.readDefinitionPage, sessionId);
+  const listed = await readWorkflowDefinitions(input.operations.readDefinitionPage);
   const match = matchWorkflowDefinition(listed.definitions, reading.definitionName);
   if (match.status !== "matched") {
     return { status: "send-as-typed" };

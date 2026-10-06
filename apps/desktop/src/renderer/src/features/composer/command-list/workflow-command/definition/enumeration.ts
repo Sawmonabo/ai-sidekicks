@@ -1,4 +1,4 @@
-// The definitions this session can start, read whole. The line handler resolves a typed name
+// Every saved workflow, read whole. The line handler resolves a typed name
 // against this list and the command list offers candidates from it, so one walk keeps the
 // two agreeing. `workflow.definitionList` is cursor paged and the walk follows `nextCursor`, capped
 // at a page count so a cursor that never ends cannot loop; a capped read answers
@@ -23,9 +23,8 @@ export interface WorkflowDefinitionPage {
   readonly nextCursor: string | undefined;
 }
 
-/** Reads one page of the definitions a session can start. */
+/** Reads one page of the saved workflows. */
 export type ReadWorkflowDefinitionPage = (request: {
-  readonly sessionId: string;
   readonly cursor?: string;
 }) => Promise<WorkflowDefinitionPage>;
 
@@ -36,13 +35,12 @@ export type WorkflowEnumerationLiveness = () => boolean;
 const ALWAYS_LIVE: WorkflowEnumerationLiveness = () => true;
 
 /**
- * Read every definition this session can start, following the wire's own cursor. A page read
+ * Read every saved workflow, following the wire's own cursor. A page read
  * that rejects rejects the whole walk, since a partial list would resolve a name against
  * definitions the daemon never finished listing. `isLive` stops the walk between pages.
  */
 export async function readWorkflowDefinitions(
   readPage: ReadWorkflowDefinitionPage,
-  sessionId: string,
   isLive: WorkflowEnumerationLiveness = ALWAYS_LIVE,
 ): Promise<WorkflowDefinitionEnumeration> {
   const definitions: WorkflowDefinitionSummary[] = [];
@@ -52,7 +50,7 @@ export async function readWorkflowDefinitions(
       // Superseded between pages: stop asking rather than fetch pages nobody can be shown.
       return { definitions, complete: false };
     }
-    const reply = await readPage(cursor === undefined ? { sessionId } : { sessionId, cursor });
+    const reply = await readPage(cursor === undefined ? {} : { cursor });
     definitions.push(...reply.definitions);
     cursor = reply.nextCursor;
     if (cursor === undefined) {

@@ -8,7 +8,6 @@ import { readWorkflowDefinitions } from "./enumeration.js";
 import {
   fixtureWorkflowStartOperations,
   recordedWorkflowCalls,
-  WORKFLOW_TEST_SESSION_ID,
 } from "../workflow-command.test-support.js";
 
 /** The names one walk carried back, in the order the pages served them. */
@@ -28,10 +27,7 @@ describe("readWorkflowDefinitions", () => {
       calls,
     });
 
-    const enumeration = await readWorkflowDefinitions(
-      operations.readDefinitionPage,
-      WORKFLOW_TEST_SESSION_ID,
-    );
+    const enumeration = await readWorkflowDefinitions(operations.readDefinitionPage);
 
     expect(namesOf(enumeration)).toStrictEqual(["nightly", "release", "deploy"]);
     expect(enumeration.complete).toBe(true);
@@ -55,9 +51,9 @@ describe("readWorkflowDefinitions", () => {
       endless: true,
     });
 
-    await expect(
-      readWorkflowDefinitions(operations.readDefinitionPage, WORKFLOW_TEST_SESSION_ID),
-    ).rejects.toThrow("page two is unreachable");
+    await expect(readWorkflowDefinitions(operations.readDefinitionPage)).rejects.toThrow(
+      "page two is unreachable",
+    );
   });
 
   it("stops at the page cap and says the search did not finish", async () => {
@@ -68,10 +64,7 @@ describe("readWorkflowDefinitions", () => {
       calls,
     });
 
-    const enumeration = await readWorkflowDefinitions(
-      operations.readDefinitionPage,
-      WORKFLOW_TEST_SESSION_ID,
-    );
+    const enumeration = await readWorkflowDefinitions(operations.readDefinitionPage);
 
     // Bounded: a cursor handed back forever would otherwise loop on a keystroke.
     expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);

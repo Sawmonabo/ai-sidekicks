@@ -62,7 +62,7 @@ const PATH_TAKING_VERBS: readonly PathTakingVerb[] = [
     method: "workflow.definitionImport",
     requestSchema:
       WORKFLOW_DEFINITION_METHOD_DESCRIPTORS["workflow.definitionImport"].requestSchema,
-    params: (file) => ({ filePath: file, scope: "shared" }),
+    params: (file) => ({ filePath: file }),
   },
   {
     method: "agent.definitionExport",

@@ -24,13 +24,13 @@ import {
   type WorkflowCalls,
 } from "../workflow-command/workflow-command.test-support.js";
 
-/** Stub calls recording which session each definition read named. */
+/** Stub calls holding the one workflow the line names, recording which session each start named. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {
-  return fixtureWorkflowStartOperations({ calls });
+  return fixtureWorkflowStartOperations({ calls, definitions: [{ name: "nightly-review" }] });
 }
 
-function readSessionIds(calls: WorkflowCalls): (string | undefined)[] {
-  return calls.listed.map((request) => request.sessionId);
+function startedSessionIds(calls: WorkflowCalls): string[] {
+  return calls.started.map((request) => request.sessionId);
 }
 
 function ComposerCommandZoneHarness(props: {
@@ -94,6 +94,6 @@ describe("the composer command zone reads the committed render's handlers", () =
 
     await executor.current?.(START_LINE);
 
-    expect(readSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
+    expect(startedSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
   });
 });

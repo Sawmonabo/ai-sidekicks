@@ -13,8 +13,6 @@ const PAGE_CURSOR_PREFIX = "page-";
 /** How a fixture definition differs from the default one. */
 export interface WorkflowDefinitionSeed {
   readonly name: string;
-  /** Defaults to `true`: one definition per name, resolved at this context. */
-  readonly resolvesAtThisContext?: boolean;
   /** Defaults to `version-<name>`, so a start's pin is readable in an assertion. */
   readonly latestWorkflowVersionId?: string;
 }
@@ -49,12 +47,9 @@ export function workflowDefinition(seed: WorkflowDefinitionSeed): WorkflowDefini
   return {
     id: `definition-${seed.name}` as WorkflowDefinitionId,
     name: seed.name,
-    scope: "session",
-    scopeRef: WORKFLOW_TEST_SESSION_ID,
     latestVersionNumber: 1,
     latestWorkflowVersionId: seed.latestWorkflowVersionId ?? `version-${seed.name}`,
     contentHash: `hash-${seed.name}`,
-    resolvesAtThisContext: seed.resolvesAtThisContext ?? true,
     triggerKind: "trigger.manual",
     enabled: true,
     tags: [],

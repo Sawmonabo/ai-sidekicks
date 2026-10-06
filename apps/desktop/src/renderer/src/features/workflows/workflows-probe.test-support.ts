@@ -13,12 +13,9 @@ export function definition(
   return {
     id: "release-checklist" as WorkflowDefinitionId,
     name: "Release checklist",
-    scope: "session",
-    scopeRef: PROBE_SESSION_ID,
     latestVersionNumber: 3,
     latestWorkflowVersionId: "release-checklist-version-3",
     contentHash: "b3:0f1e2d",
-    resolvesAtThisContext: false,
     triggerKind: "trigger.manual",
     enabled: true,
     tags: [],

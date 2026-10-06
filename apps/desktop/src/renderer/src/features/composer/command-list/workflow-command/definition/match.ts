@@ -11,24 +11,23 @@ export type WorkflowDefinitionMatch =
   | { readonly status: "none" }
   | { readonly status: "ambiguous"; readonly count: number };
 
-/** Match one typed name against the definitions a session can start. */
+/**
+ * Match one typed name against the saved workflows. A name is held once, but two names that differ
+ * only in case fold together, so that typed name is ambiguous.
+ */
 export function matchWorkflowDefinition(
   definitions: readonly WorkflowDefinitionSummary[],
   typedName: string,
 ): WorkflowDefinitionMatch {
   const wanted = foldName(typedName);
   const matches = definitions.filter((definition) => foldName(definition.name) === wanted);
-  // `resolvesAtThisContext` is the wire's answer to which entry a start picks when one name is
-  // defined at several scopes.
-  const resolved = matches.filter((definition) => definition.resolvesAtThisContext);
-  const candidates = resolved.length > 0 ? resolved : matches;
-  const [only] = candidates;
+  const [only] = matches;
   if (only === undefined) {
     return { status: "none" };
   }
-  return candidates.length === 1
+  return matches.length === 1
     ? { status: "matched", definition: only }
-    : { status: "ambiguous", count: candidates.length };
+    : { status: "ambiguous", count: matches.length };
 }
 
 /**

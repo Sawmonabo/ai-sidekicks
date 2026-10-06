@@ -11,7 +11,7 @@ import "./WorkflowStartCandidates.css";
 
 /** What the workflow candidate list is given: the enumeration and the name typed so far. */
 export interface WorkflowStartCandidatesProps {
-  /** What the walk read of the definitions this session can start. */
+  /** What the walk read of the saved workflows. */
   readonly definitions: readonly WorkflowDefinitionSummary[];
   /** False when the walk stopped short, so an empty match proves nothing. */
   readonly complete: boolean;
@@ -50,12 +50,12 @@ function renderReading(
       <Nothing
         kind="empty"
         title="No workflow this session can start matches what you have typed"
-        detail="Clear the name to see every definition this session resolves."
+        detail="Clear the name to see every workflow."
       />
     ) : (
       <PartialRead
         states={[{ kind: "cut", servedCount: definitions.length }]}
-        subject="this session's workflow definitions"
+        subject="the saved workflows"
       />
     );
   }
@@ -72,7 +72,6 @@ function renderReading(
           >
             {definition.name}
           </button>
-          <span className="meridian-workflow-start__candidate-scope">{definition.scope}</span>
         </li>
       ))}
     </ul>
