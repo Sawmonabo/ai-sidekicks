@@ -19,6 +19,7 @@ import {
   type AccountListReading,
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
+import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
 
 /** Provider-published limit identifiers, which the page must never draw. */
 export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
@@ -117,7 +118,9 @@ const READINESS: readonly ProviderReadiness[] = [
 /** A registry that has answered: three accounts, two providers, four stored readings. */
 export const ACCOUNT_REGISTRY: AccountListReading = {
   phase: "read",
-  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT],
+  accounts: [WORK_ACCOUNT, PERSONAL_ACCOUNT, BATCH_ACCOUNT].flatMap(
+    (account) => listedAccount(account) ?? [],
+  ),
   readiness: READINESS,
   usageWindows: [
     usageWindow({ limitId: "weekly_all", label: "Weekly, all models", usedPercent: 88 }),

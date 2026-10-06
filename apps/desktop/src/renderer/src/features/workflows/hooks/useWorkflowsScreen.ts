@@ -6,7 +6,7 @@ import type {
   WorkflowRunsPauseState,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
+import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ScreenContext } from "#renderer/registries/screens/context.js";
 import { sessionRoute, workflowRunsRoute, workflowsRunId } from "#renderer/routing/readers.js";
@@ -191,12 +191,12 @@ export function useWorkflowsScreen(
       if (accountsState.kind !== "loaded") {
         return { kind: "unread" };
       }
+      // An account still signing in has paid for nothing, so a payer is always a listed one.
       const payer = accountsState.value.accounts.find(
         (account) => account.accountId === providerAccountId,
       );
-      return payer === undefined
-        ? { kind: "removed" }
-        : { kind: "listed", label: accountLabel(payer) };
+      const listed = payer === undefined ? undefined : listedAccount(payer);
+      return listed === undefined ? { kind: "removed" } : { kind: "listed", label: listed.label };
     },
     [accountsState],
   );

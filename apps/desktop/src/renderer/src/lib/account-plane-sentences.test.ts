@@ -1,6 +1,7 @@
 // What every surface names an account by: the identity its provider reported, the plan in the
 // provider's own word, or for a pasted token or API key the name the person gave it beside the
 // credential's kind. One email can hold two accounts, so the plan and organization are part of it.
+// An account still signing in that nothing names yet is listed nowhere.
 
 import type {
   ProviderAccount,
@@ -8,7 +9,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { describe, expect, it } from "vitest";
 
-import { accountLabel } from "./account-plane-sentences.js";
+import { listedAccount } from "./account-plane-sentences.js";
 
 function account(overrides: Partial<ProviderAccount>): ProviderAccount {
   return {
@@ -31,7 +32,12 @@ function account(overrides: Partial<ProviderAccount>): ProviderAccount {
   };
 }
 
-describe("accountLabel", () => {
+/** The label `account` is listed under, or `undefined` where it is not listed. */
+function accountLabel(account: ProviderAccount): string | undefined {
+  return listedAccount(account)?.label;
+}
+
+describe("listedAccount", () => {
   it("names a signed-in account by its reported email, plan word and organization", () => {
     const signedIn = { observedAccountEmail: "sam@example.org" };
     expect(accountLabel(account({ ...signedIn, observedAccountPlan: "max" }))).toBe(
@@ -57,7 +63,12 @@ describe("accountLabel", () => {
     expect(accountLabel(account({ ...signedIn, observedAccountPlan: "unknown" }))).toBe(
       "sam@example.org",
     );
-    expect(accountLabel(account({}))).toBeUndefined();
+  });
+
+  it("leaves out an account still signing in that its provider has not named yet", () => {
+    // Such an account has no row until its sign-in ends, so no surface draws a blank name.
+    expect(listedAccount(account({ observedAccountPlan: "unknown" }))).toBeUndefined();
+    expect(listedAccount(account({}))).toBeUndefined();
   });
 
   it("names a pasted token or API-key account by its typed name and credential kind", () => {

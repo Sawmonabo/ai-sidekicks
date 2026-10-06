@@ -9,7 +9,7 @@ import {
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
+import type { ListedProviderAccount } from "#renderer/lib/account-plane-sentences.js";
 import { findReadRefusal, type WireReadState } from "#renderer/services/wire-reads/lifecycle.js";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -19,7 +19,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
  */
 export interface AccountRegistryReading extends WireReadState {
   /** Every account the registry carries, in the order the daemon sent them. */
-  readonly accounts: readonly ProviderAccount[];
+  readonly accounts: readonly ListedProviderAccount[];
   /** Each provider's readiness entry and its one remedy, as the last read computed it. */
   readonly readiness: readonly ProviderReadiness[];
 }
@@ -27,8 +27,8 @@ export interface AccountRegistryReading extends WireReadState {
 /** One account the axis may take, with the stored reading that renders beside it. */
 export interface AccountChoice {
   readonly accountId: string;
-  /** What the account is named by; `undefined` where its provider has reported nothing yet. */
-  readonly label: string | undefined;
+  /** What the account is named by. */
+  readonly label: string;
   readonly isProviderDefault: boolean;
   readonly healthState: ProviderAccount["healthState"];
   /** `null` where no observation has ever been recorded for this account. */
@@ -148,12 +148,12 @@ function providerForDriver(driverName: string | undefined): ProviderName | undef
  * row, so a provider's verdict is never attached to a row it was not computed for.
  */
 function accountChoiceFor(
-  account: ProviderAccount,
+  account: ListedProviderAccount,
   providerReadiness: ProviderReadiness | undefined,
 ): AccountChoice {
   return {
     accountId: account.accountId,
-    label: accountLabel(account),
+    label: account.label,
     isProviderDefault: account.isDefault,
     healthState: account.healthState,
     healthObservedAt: account.healthObservedAt,

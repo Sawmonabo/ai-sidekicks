@@ -22,8 +22,8 @@ export interface AccountChoiceListProps {
 export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Element {
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
-  // Never the id: an account the registry does not carry, or one nothing names yet, reads blank,
-  // and the field's advisory says the registry does not carry a pinned one.
+  // Never the id: an account the registry does not carry reads blank, and the field's advisory
+  // says the registry does not carry a pinned one.
   const labelFor = (accountId: string): string =>
     reading.choices.find((choice) => choice.accountId === accountId)?.label ?? "";
   return (

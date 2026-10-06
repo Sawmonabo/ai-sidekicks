@@ -19,7 +19,10 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts/provider/account/record";
 
-import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
+import {
+  listedAccount,
+  type ListedProviderAccount,
+} from "#renderer/lib/account-plane-sentences.js";
 import { compareInstants, parseInstant } from "#renderer/lib/instant.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
 
@@ -27,8 +30,8 @@ import { structuralKey } from "#renderer/lib/structural-key.js";
 export interface ProviderQuotaReading {
   readonly accountId: string;
   readonly limitId: string;
-  /** What the account is named by; `undefined` where its provider has reported nothing yet. */
-  readonly accountLabel: string | undefined;
+  /** What the account is named by. */
+  readonly accountLabel: string;
   /**
    * The window's own label where the provider publishes one, and its `limitId` verbatim where
    * it does not, since inventing a name would put a word on screen no provider used.
@@ -117,13 +120,19 @@ const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
  * hands out ordinals itself.
  */
 export class ProviderAccountFold {
-  readonly #accountsById = new Map<string, ProviderAccount>();
+  readonly #accountsById = new Map<string, ListedProviderAccount>();
   readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
   #nextArrivalOrdinal = 0;
 
-  /** Record an account whole. The registry sends state, not deltas. */
+  /**
+   * Record an account whole. The registry sends state, not deltas. An account still signing in
+   * that its provider has not named yet is not held, since it has no row until its sign-in ends.
+   */
   public putAccount(account: ProviderAccount): void {
-    this.#accountsById.set(account.accountId, account);
+    const listed = listedAccount(account);
+    if (listed !== undefined) {
+      this.#accountsById.set(account.accountId, listed);
+    }
   }
 
   /**
@@ -183,7 +192,7 @@ export class ProviderAccountFold {
    * sort: an account put again keeps its position and a new one appends, so a row does not move
    * under a person's cursor.
    */
-  public accounts(): readonly ProviderAccount[] {
+  public accounts(): readonly ListedProviderAccount[] {
     return [...this.#accountsById.values()];
   }
 
@@ -202,16 +211,12 @@ export class ProviderAccountFold {
    * Off the same held accounts as the readings, so a view naming a paying account joins
    * `accountId` to its label here instead of taking its own `providerAccount.list`, which
    * would be a second reading of one registry. Separate from {@link readings} because an
-   * account with no observed window still has a label to render. An account nothing names yet
-   * has no entry.
+   * account with no observed window still has a label to render.
    */
   public accountLabels(): ReadonlyMap<string, string> {
     const labels = new Map<string, string>();
     for (const account of this.#accountsById.values()) {
-      const label = accountLabel(account);
-      if (label !== undefined) {
-        labels.set(account.accountId, label);
-      }
+      labels.set(account.accountId, account.label);
     }
     return labels;
   }
@@ -220,12 +225,12 @@ export class ProviderAccountFold {
 /** One window and its account, as a view renders the pair. */
 function readingFor(
   usageWindow: ProviderAccountUsageWindow,
-  account: ProviderAccount,
+  account: ListedProviderAccount,
 ): ProviderQuotaReading {
   return {
     accountId: usageWindow.accountId,
     limitId: usageWindow.limitId,
-    accountLabel: accountLabel(account),
+    accountLabel: account.label,
     limitLabel: usageWindow.label ?? usageWindow.limitId,
     usedPercent: usageWindow.usedPercent,
     resetsAt: usageWindow.resetsAt,
@@ -248,6 +253,6 @@ function quotaKey(accountId: string, limitId: string): string {
  * urgency: a chip that moves when its number moves is hard to re-find when it matters.
  */
 function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
-  const byAccount = (left.accountLabel ?? "").localeCompare(right.accountLabel ?? "");
+  const byAccount = left.accountLabel.localeCompare(right.accountLabel);
   return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
 }

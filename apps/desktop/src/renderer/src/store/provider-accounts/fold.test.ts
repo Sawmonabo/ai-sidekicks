@@ -1,6 +1,7 @@
 // The quota fold, driven directly rather than through a bridge. Consumption does not fall inside
 // one window, so a lower same-window reading is held rather than hiding imminent exhaustion; a
-// moved reset horizon is a new window; and a reading is keyed by account and limit, not length.
+// moved reset horizon is a new window; a reading is keyed by account and limit, not length; and
+// an account still signing in that nothing names yet is not listed.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -108,5 +109,21 @@ describe("ProviderAccountFold — the readings a view renders", () => {
 
     expect(usedPercentFor(fold, "weekly-all")).toBe(90);
     expect(usedPercentFor(fold, "weekly-opus")).toBe(30);
+  });
+});
+
+describe("ProviderAccountFold — the accounts a view lists", () => {
+  it("lists an account still signing in only once its provider has named it", () => {
+    // Before its provider reports an identity the account has no name, so it has no row.
+    const fold = new ProviderAccountFold();
+    const signingIn = account({ observedAccountEmail: undefined, observedAccountPlan: undefined });
+    fold.putAccount(signingIn);
+    fold.mergeUsageWindow(usageWindow());
+    expect(fold.accounts()).toEqual([]);
+    expect(fold.accountLabels().size).toBe(0);
+    expect(fold.readings()).toEqual([]);
+
+    fold.putAccount(account());
+    expect(fold.accounts().map((listed) => listed.label)).toEqual(["sam@example.com · Team"]);
   });
 });

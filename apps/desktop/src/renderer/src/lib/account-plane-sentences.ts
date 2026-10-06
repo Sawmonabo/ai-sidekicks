@@ -85,27 +85,20 @@ const CREDENTIAL_KIND_WORDS: Readonly<
   unknown: null,
 };
 
+/** A provider account as a surface lists it, with the label every surface names it by. */
+export type ListedProviderAccount = ProviderAccount & { readonly label: string };
+
 /**
- * What every surface names an account by, and never its id. A token or API-key account reads the
- * name the person gave it beside the credential's kind (`Work · Codex API key`); every other
- * account reads the identity its provider reported: the email, the plan in the provider's own
- * word, then the organization (`sam@example.org · Team · Example Inc`). `undefined` where the
- * provider has reported none of the three yet.
+ * `account` as every surface lists it, or `undefined` for an account still signing in that its
+ * provider has not reported yet: such an account has no name, so it has no row until its sign-in
+ * ends. The label is never the account's id. A token or API-key account reads the name the person
+ * gave it beside the credential's kind (`Work · Codex API key`); every other account reads the
+ * identity its provider reported: the email, the plan in the provider's own word, then the
+ * organization (`sam@example.org · Team · Example Inc`).
  */
-export function accountLabel(account: ProviderAccount): string | undefined {
-  if (account.displayLabel !== undefined) {
-    const credentialKind =
-      account.observedAuthMode === null ? null : CREDENTIAL_KIND_WORDS[account.observedAuthMode];
-    return credentialKind === null
-      ? account.displayLabel
-      : `${account.displayLabel} · ${credentialKind(account.provider)}`;
-  }
-  const identity = [
-    account.observedAccountEmail,
-    planWord(account.provider, account.observedAccountPlan),
-    account.observedAccountOrgName,
-  ].filter((part) => part !== undefined);
-  return identity.length === 0 ? undefined : identity.join(" · ");
+export function listedAccount(account: ProviderAccount): ListedProviderAccount | undefined {
+  const label = labelOf(account);
+  return label === undefined ? undefined : { ...account, label };
 }
 
 /**
@@ -159,4 +152,20 @@ function planWord(provider: ProviderName, plan: string | undefined): string | un
     return undefined;
   }
   return codeWords(plan, provider === "codex" ? CODEX_PLAN_WORDS : {});
+}
+
+function labelOf(account: ProviderAccount): string | undefined {
+  if (account.displayLabel !== undefined) {
+    const credentialKind =
+      account.observedAuthMode === null ? null : CREDENTIAL_KIND_WORDS[account.observedAuthMode];
+    return credentialKind === null
+      ? account.displayLabel
+      : `${account.displayLabel} · ${credentialKind(account.provider)}`;
+  }
+  const identity = [
+    account.observedAccountEmail,
+    planWord(account.provider, account.observedAccountPlan),
+    account.observedAccountOrgName,
+  ].filter((part) => part !== undefined);
+  return identity.length === 0 ? undefined : identity.join(" · ");
 }

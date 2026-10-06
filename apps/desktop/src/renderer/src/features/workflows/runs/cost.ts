@@ -16,7 +16,7 @@ const MICROS_PER_DOLLAR = 1_000_000;
 export type PayerReading =
   | { readonly kind: "unread" }
   | { readonly kind: "removed" }
-  | { readonly kind: "listed"; readonly label: string | undefined };
+  | { readonly kind: "listed"; readonly label: string };
 
 /** The cost alone, `$0.1865` or `$7.30`; `$0.00` where nothing was spent. */
 export function costFigure(cost: WorkflowCost | undefined): string {
@@ -26,7 +26,7 @@ export function costFigure(cost: WorkflowCost | undefined): string {
 /**
  * The cost and the account that paid, `$7.30 · sam@example.com · Max`, or `$7.30 · Removed
  * account` for a payer the read registry no longer lists. Never the account's id: before the
- * registry is read, and for a listed account nothing names yet, it is the cost alone.
+ * registry is read it is the cost alone.
  */
 export function costWithPayer(
   cost: WorkflowCost | undefined,

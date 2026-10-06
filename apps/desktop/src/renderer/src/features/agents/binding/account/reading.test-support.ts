@@ -8,6 +8,7 @@ import type {
 } from "@ai-sidekicks/contracts/provider/account/record";
 
 import type { AccountRegistryReading } from "./axis.js";
+import { listedAccount } from "#renderer/lib/account-plane-sentences.js";
 
 /** The instant every stored observation in these suites was taken at. */
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
@@ -44,12 +45,17 @@ export function account(overrides: Partial<ProviderAccount> = {}): ProviderAccou
   };
 }
 
-/** A served registry reading over the accounts a case cares about. */
+/** A served registry reading over the accounts a case cares about, as the registry lists them. */
 export function served(
   accounts: readonly ProviderAccount[],
   readiness: readonly ProviderReadiness[] = [],
 ): AccountRegistryReading {
-  return { phase: "read", readRefusal: undefined, accounts, readiness };
+  return {
+    phase: "read",
+    readRefusal: undefined,
+    accounts: accounts.flatMap((account) => listedAccount(account) ?? []),
+    readiness,
+  };
 }
 
 /**

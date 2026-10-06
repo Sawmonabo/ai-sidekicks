@@ -11,10 +11,7 @@
 
 import "./AccountsFixtureBody.css";
 
-import {
-  type ProviderAccount,
-  type ProviderReadiness,
-} from "@ai-sidekicks/contracts/provider/account/record";
+import { type ProviderReadiness } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 import {
   Fragment,
@@ -25,7 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
-import { accountLabel } from "#renderer/lib/account-plane-sentences.js";
+import type { ListedProviderAccount } from "#renderer/lib/account-plane-sentences.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { type ProviderAccountReadout } from "../account-readout.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -134,13 +131,10 @@ export function AccountsFixtureBody(props: {
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
   const holdingAccountId = findRunningProviderSignInAccountId(signIn);
-  const holdingAccount =
+  const holdingAccountLabel =
     holdingAccountId === undefined
       ? undefined
-      : registry.accounts.find((account) => account.accountId === holdingAccountId);
-  const holdingAccountLabel =
-    holdingAccount === undefined ? undefined : accountLabel(holdingAccount);
-  const selectedLabel = selected === undefined ? undefined : accountLabel(selected);
+      : registry.accounts.find((account) => account.accountId === holdingAccountId)?.label;
 
   return (
     <>
@@ -202,7 +196,7 @@ export function AccountsFixtureBody(props: {
                 account={account}
                 selected={account.accountId === selected?.accountId}
                 nowMilliseconds={clock.now()}
-                onSelect={(chosen: ProviderAccount) => {
+                onSelect={(chosen: ListedProviderAccount) => {
                   setSelectedAccountId(chosen.accountId);
                   // Pressing the row does exactly what `Set as default` does.
                   if (!chosen.isDefault) {
@@ -218,9 +212,7 @@ export function AccountsFixtureBody(props: {
       {selected === undefined ? null : (
         <>
           <section className="meridian-settings-page__block">
-            {selectedLabel === undefined ? null : (
-              <h3 className="meridian-settings-page__block-title">{selectedLabel}</h3>
-            )}
+            <h3 className="meridian-settings-page__block-title">{selected.label}</h3>
             <AccountDetail account={selected} />
             <AccountDefaultControl
               account={selected}
@@ -266,9 +258,9 @@ export function AccountsFixtureBody(props: {
 
 /** The account a readiness entry's remedy names, where it names one the registry carries. */
 function findRemedyAccount(
-  accounts: readonly ProviderAccount[],
+  accounts: readonly ListedProviderAccount[],
   readiness: ProviderReadiness,
-): ProviderAccount | undefined {
+): ListedProviderAccount | undefined {
   const { remedy } = readiness;
   if (remedy === undefined || !("accountId" in remedy)) {
     return undefined;

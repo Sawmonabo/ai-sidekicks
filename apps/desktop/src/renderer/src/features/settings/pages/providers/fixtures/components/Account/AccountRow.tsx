@@ -1,4 +1,3 @@
-import type { ProviderAccount } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ReactNode } from "react";
 
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -7,7 +6,7 @@ import { formatDateTime } from "#renderer/lib/wire/figures.js";
 import {
   BILLING_MODE_WORDS,
   PROVIDER_READINESS_STATE_WORDS,
-  accountLabel,
+  type ListedProviderAccount,
 } from "#renderer/lib/account-plane-sentences.js";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { observationAgeInDays } from "../../quota-rows.js";
@@ -30,10 +29,10 @@ const STALE_OBSERVATION_DAYS = 14;
  * renders as its own sentence.
  */
 export function AccountRow(props: {
-  readonly account: ProviderAccount;
+  readonly account: ListedProviderAccount;
   readonly selected: boolean;
   readonly nowMilliseconds: number;
-  readonly onSelect: (account: ProviderAccount) => void;
+  readonly onSelect: (account: ListedProviderAccount) => void;
 }): ReactNode {
   const { account, selected, nowMilliseconds, onSelect } = props;
   const ageInDays =
@@ -51,7 +50,7 @@ export function AccountRow(props: {
           onSelect(account);
         }}
       >
-        <span className="meridian-accounts__row-label">{accountLabel(account)}</span>
+        <span className="meridian-accounts__row-label">{account.label}</span>
         <span className="meridian-accounts__row-chips">
           <Chip label={PROVIDER_LABELS[account.provider]} />
           {/* The billing-mode label beside every money figure, so plan-included usage is never
