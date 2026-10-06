@@ -4,7 +4,9 @@
 // material. The `daemon.status` topic carries main's link to that service to the console document,
 // through the real preload and main, with no key of what it delivers named for auth material
 // either. Once linked, `machineSettings.read()` reaches that service's settings verb and answers
-// the defaults of its fresh home folder.
+// the defaults of its fresh home folder. Neither side holds the other's object: an appearance the
+// page changes after sending it, and a record main handed it that the page changes, leave main's
+// kept record as sent.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +16,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { AppFacts } from "#shared/app-facts.js";
+import type { AppearanceChoice, AppearanceRecord, TextSize } from "#shared/appearance.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { createStubBridge, type PreloadApi } from "#shared/preload-api.js";
 import { withLaunchedApp } from "../helpers/electron/harness.js";
@@ -57,7 +60,7 @@ const SAMPLE_APP_FACTS: AppFacts = {
 };
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
-  it("matches PreloadApi, names no member for auth material, carries main's link state, and reads the settings", async () => {
+  it("matches PreloadApi, names no member for auth material, carries main's link state, reads the settings, and shares no object with main", async () => {
     await withLaunchedApp({}, async (appUnderTest) => {
       const pageSurface = await appUnderTest.consolePage.evaluate(() =>
         JSON.stringify(
@@ -115,6 +118,34 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the bridge surface", () => {
           ).desktopBridge.machineSettings.read(),
       );
       expect(reading).toStrictEqual({ settings: MACHINE_SETTINGS_DEFAULTS });
+
+      const textSizes = await appUnderTest.consolePage.evaluate(async () => {
+        const bridge = (window as unknown as { desktopBridge: PreloadApi }).desktopBridge;
+        const readKept = (): Promise<AppearanceRecord> =>
+          new Promise((resolve) => {
+            const stop = bridge.window.subscribeAppearance((record) => {
+              stop();
+              resolve(record);
+            });
+          });
+        const kept = await readKept();
+        const sent: TextSize = kept.textSize === 20 ? 18 : 20;
+        const choice: { -readonly [Key in keyof AppearanceChoice]: AppearanceChoice[Key] } = {
+          theme: kept.theme,
+          scheme: kept.scheme,
+          textSize: sent,
+          transcriptWidth: kept.transcriptWidth,
+        };
+        await bridge.window.setAppearance(choice, { ...kept.grounds });
+        choice.textSize = 15;
+        const handed = await readKept();
+        const handedTextSize = handed.textSize;
+        (handed as { textSize: TextSize }).textSize = 16;
+        const readAgain = await readKept();
+        return { sent, handed: handedTextSize, readAgain: readAgain.textSize };
+      });
+      expect(textSizes.handed).toBe(textSizes.sent);
+      expect(textSizes.readAgain).toBe(textSizes.sent);
     });
   });
 });
