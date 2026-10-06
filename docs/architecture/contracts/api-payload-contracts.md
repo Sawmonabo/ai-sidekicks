@@ -2127,7 +2127,7 @@ type DriverResumeResult =
 type RecoveryCondition = "recovery-needed" | "reauth-required";
 
 // Typed provider usage-limit signal (Plan-003 T3.44). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
-// names why a run needs the person; this one names a provider-stated allowance state, minted here
+// names why a run needs the person; this one names an allowance state the provider reported, minted here
 // and scoped per-account by Plan-023 keying on `(accountId, credentialGeneration)` (CP-003-6 ⇄
 // CP-023-2). Recognition is TYPED-ONLY (I-003-6): each driver leg keys on a structured provider
 // event it can name — never message prose, an exit code, or a bare HTTP status — and an
@@ -2135,18 +2135,17 @@ type RecoveryCondition = "recovery-needed" | "reauth-required";
 // not to be limited". The signal is a wire shape, so its Zod schema lives in `packages/contracts`
 // (`provider/driver/usage-limit.ts`, which Plan-003 T3.44 EXTEND creates), beside `RecoveryCondition`'s: it rides `run.failed`'s
 // `failureCause` (Spec-005 §Run Lifecycle), where a reload redraws the limit row from the stored
-// record, and the workflow park reads the same shape. No member is provider-verbatim — `cause` and
-// `provenance` are closed literals the driver selects and `resetsAt` a timestamp it composes — so
-// the schema checks what the record carries, not the provider's words.
+// record, and the workflow park reads the same shape. No member is provider-verbatim — `cause` is a
+// closed literal the driver selects and `resetsAt` a timestamp it composes — so the schema checks
+// what the record carries, not the provider's words.
 
 // One cause, plan-allowance exhaustion. The neighbor conditions (Codex workspace/member credit depletion and the Codex
 // spend-control ceiling, Claude billing faults) are account-plane or payment facts rather than
 // plan-allowance exhaustion, each named in the contracts file rather than absorbed here.
 type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
-// Whether the reset instant is the provider's own statement or the runtime's derivation, so a
-// consumer can tell the two apart. Primary sources, per the AGENTS.md citation standard: the
-// Codex leg stamps provider-stated off the published rate-limit shapes — the
+// The reset instant, when the provider gave one. Primary sources, per the AGENTS.md citation
+// standard: the Codex leg reads it off the published rate-limit shapes — the
 // `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
 // reference family's codex file records (Generated schema, Verified at the version that file
 // names), consumed by the shipped codex event-normalizer's push row. The Claude leg emits no
@@ -2155,17 +2154,12 @@ type ProviderUsageLimitCause = "plan-allowance-exhausted";
 // with no reset boundary — the mid-session retry taxonomy the provider-wire claude file
 // records (Binary probe, Verified at Claude Code 2.1.245). The sibling-axis rule and
 // typed-only recognition are `Spec-004 §Fallback Behavior`'s.
-type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
-
 interface ProviderUsageLimitResetBoundary {
   resetsAt: string; // RFC 3339 UTC — the encoding `WorkflowStep.resumeAt` already consumes
-  provenance: ProviderUsageLimitResetProvenance;
 }
 
 // The signal itself. The BOUNDARY IS OPTIONAL AND THE CAUSE IS NOT: a limit can be recognized
-// with no reset instant to report, but never without a cause — and carrying `resetsAt` and
-// `provenance` inside one shape makes "an instant with no provenance" and "a provenance stamp
-// with no instant" both inexpressible.
+// with no reset instant to report, but never without a cause.
 interface ProviderUsageLimitSignal {
   cause: ProviderUsageLimitCause;
   resetBoundary?: ProviderUsageLimitResetBoundary;
