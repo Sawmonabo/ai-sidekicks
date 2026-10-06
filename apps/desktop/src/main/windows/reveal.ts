@@ -78,7 +78,7 @@ export interface RevealState {
 
 /**
  * Puts a window on screen the way this launch asked for, maximized or fullscreen when its kept
- * place was. Called by `./window.ts`, the one reveal site, as it builds a window a person sees.
+ * place was. Called by `./factory.ts` as it builds a window a person sees.
  * Maximizing shows a window, so the kept state is applied only where the window is shown.
  */
 export function revealWindow(

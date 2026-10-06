@@ -554,9 +554,9 @@ const desktopConfig = defineConfig(
     },
   },
   {
-    // The main process spawns for real (the daemon supervisor and the PTY sidecar) through its own
-    // supervised lifetimes, not the test spawner, so it carries the dynamic-reach pair beside the
-    // import ban below, and the window-security bans, which main alone can break.
+    // The main process starts programs for real (the daemon service and the editor launcher)
+    // through its own supervised lifetimes, not the test spawner, so it carries the dynamic-reach
+    // pair beside the import ban below, and the window-security bans, which main alone can break.
     files: ["src/main/**/*.ts"],
     rules: { "no-restricted-syntax": ["error", ...MAIN_SYNTAX_BANS] },
   },

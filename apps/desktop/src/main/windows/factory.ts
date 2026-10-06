@@ -32,8 +32,8 @@ export interface RendererWindow {
   readonly view: WebContentsView;
 }
 
-/** What every window is built with: its ground, its answer to `window.open`, and the log. */
-export interface WindowGround {
+/** The options every window shares: its background, its answer to `window.open`, and the log. */
+export interface SharedWindowOptions {
   /** The kept ground the first frame is painted in, `#rrggbb`. */
   readonly background: string;
   /** Answers the renderer's own `window.open` from this window's document. */
@@ -42,14 +42,14 @@ export interface WindowGround {
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
 }
 
-/** Where a window a person sees opens, the state it is revealed into, and its ground. */
-export interface WindowFrame extends WindowGround {
+/** Where a window a person sees opens, the state it is revealed into, and its shared options. */
+export interface WindowFrame extends SharedWindowOptions {
   readonly bounds: Rectangle;
   readonly reveal: RevealState;
 }
 
-/** How a window is built: its rectangle, its ground, and its switches or a document to adopt. */
-interface LockedWindowOptions extends WindowGround {
+/** How a window is built: its rectangle, shared options, and switches or a document to adopt. */
+interface LockedWindowOptions extends SharedWindowOptions {
   readonly bounds: Rectangle;
   /** Appended to the renderer's command line, where the preload reads them. */
   readonly additionalArguments: readonly string[];
@@ -148,7 +148,7 @@ function resolveRendererDocumentUrl(): string {
 }
 
 /** How the hidden window is built: its ground, its renderer switches and the caller's load hook. */
-export interface HiddenWindowOptions extends WindowGround {
+export interface HiddenWindowOptions extends SharedWindowOptions {
   /**
    * The renderer switches: the app's facts, the console window used last, and on a fixture launch
    * its scenario (`#shared/fixture-launch.ts`).

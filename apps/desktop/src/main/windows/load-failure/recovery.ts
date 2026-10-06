@@ -22,8 +22,8 @@ const LOG_SOURCE = "main/windows/load-failure";
 
 /**
  * Exit status when a window has no document it can serve, not even the generated failure
- * document. Distinct from the other main exit codes (`1` startup failed, `2` and `4` smoke-probe
- * failures) so a harness can tell them apart.
+ * document. Distinct from the other main exit codes (`1` startup failed, and the smoke probe's
+ * failure codes in `../../probes/smoke.ts`) so a harness can tell them apart.
  */
 export const RENDERER_UNSERVABLE_EXIT_CODE = 5;
 

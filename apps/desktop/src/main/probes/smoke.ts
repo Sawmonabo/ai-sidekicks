@@ -2,11 +2,25 @@
 // build references nothing here and, with no top-level side effects, Rollup drops the whole
 // module from `out/main/index.js`.
 
+import { setTimeout as wait } from "node:timers/promises";
+
 import { app, net, type WebContents } from "electron";
 
 import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
 
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
+
+/** Exit status when a reading from the console document or its first window failed. */
+const READING_FAILED_EXIT_CODE = 2;
+
+/** Exit status when the served `index.html` could not be fetched back for its policy header. */
+const INDEX_FETCH_FAILED_EXIT_CODE = 4;
+
+/**
+ * How long the probe waits for the console document to open its first window, so a document that
+ * opens none ends in a tagged line before the harness gives up on the launch.
+ */
+const FIRST_WINDOW_DEADLINE_MS = 10_000;
 
 /** Per-invocation opt-in for the breadcrumb trail. */
 const READINESS_TRACE_ENV = "SIDEKICKS_SMOKE_TRACE_READINESS";
@@ -114,16 +128,27 @@ export async function runSmokeProbe(
     serializedReadings = (await webContents.executeJavaScript(rendererReadings)) as string;
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, error);
-    app.exit(2);
+    app.exit(READING_FAILED_EXIT_CODE);
+    return;
+  }
+
+  // The process exits on every path below, so the losing timer needs no clearing.
+  const firstWindow = await Promise.race([
+    firstWindowContents,
+    wait(FIRST_WINDOW_DEADLINE_MS, undefined),
+  ]);
+  if (firstWindow === undefined) {
+    console.error(`${SMOKE_PROBE_TAG} the console document opened no window`);
+    app.exit(READING_FAILED_EXIT_CODE);
     return;
   }
 
   let rootChildren: number;
   try {
-    rootChildren = (await (await firstWindowContents).executeJavaScript(windowReadings)) as number;
+    rootChildren = (await firstWindow.executeJavaScript(windowReadings)) as number;
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} the window's executeJavaScript failed:`, error);
-    app.exit(2);
+    app.exit(READING_FAILED_EXIT_CODE);
     return;
   }
 
@@ -135,7 +160,7 @@ export async function runSmokeProbe(
     await indexResponse.body?.cancel();
   } catch (error: unknown) {
     console.error(`${SMOKE_PROBE_TAG} index fetch failed:`, error);
-    app.exit(4);
+    app.exit(INDEX_FETCH_FAILED_EXIT_CODE);
     return;
   }
 

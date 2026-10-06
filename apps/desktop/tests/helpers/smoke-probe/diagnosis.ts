@@ -160,6 +160,9 @@ function diagnoseMissingProbe(result: SpawnResult): string {
   if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
     return "the renderer document loaded but the probe expression never evaluated in it.";
   }
+  if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} the console document opened no window`)) {
+    return "the console document loaded and answered the probe, but it never opened a window.";
+  }
   // Before the breadcrumb arm: this failure happens after `did-finish-load`, so that arm would
   // wrongly blame a hung `executeJavaScript` round trip.
   if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} index fetch failed`)) {

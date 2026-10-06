@@ -203,7 +203,7 @@ function loseTheRenderer(): void {
   vi.advanceTimersByTime(0);
 }
 
-describe("the console window", () => {
+describe("the hidden window", () => {
   it("is built hidden at start, its document handed the window used last", async () => {
     const openWindows = await createOpenWindows("darwin");
 

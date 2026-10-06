@@ -56,9 +56,8 @@ export class GcProbe {
   #windowAllClosedFired = false;
 
   /**
-   * Registers the probe-scoped `window-all-closed` listener. The window registry registers its
-   * own handler first (`../windows/registry.ts`); both run in the same `emit()`, and
-   * `app.quit` only schedules the quit sequence, so it cannot pre-empt this listener.
+   * Registers the probe-scoped `window-all-closed` listener. The window registry's own handler
+   * (`../windows/registry.ts`) does nothing, so this listener is the only one that acts on it.
    */
   public observe(electronApp: App): void {
     electronApp.on("window-all-closed", () => {
@@ -89,7 +88,7 @@ export class GcProbe {
     const allClosedFiredDuringLoop = this.#windowAllClosedFired;
     const windowsOpened = BaseWindow.getAllWindows().length;
 
-    // Off macOS the registry's `window-all-closed` handler schedules `app.quit()`; this keeps the
+    // Off macOS the registry quits once the last window a person sees closes; this keeps the
     // process alive for the post-close sample, and the `app.exit(0)` below bypasses `before-quit`.
     electronApp.on("before-quit", (event) => {
       event.preventDefault();

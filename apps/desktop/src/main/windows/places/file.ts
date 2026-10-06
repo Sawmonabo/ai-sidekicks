@@ -1,7 +1,7 @@
 // `window-places.json` in the user-data folder: which console window was used last, and where each
-// window was, one entry per window keyed by its place key (`../frame-name.ts`), holding its
-// rectangle in screen coordinates (which also say which display it was on) and whether it was
-// maximized or fullscreen. It is read once, before the hidden window is built, and written whole
+// window was, one entry per window keyed by its place key (`./key.ts`), holding its rectangle in
+// screen coordinates (which also say which display it was on) and whether it was maximized or
+// fullscreen. It is read once, before the hidden window is built, and written whole
 // when a window closes; the registry keeps in it the console windows open now, the last one
 // closed, and one place per pane kind (`../registry.ts`). Read defensively: a missing or
 // unreadable file reads as no window used last and no places, so the app comes up at the default

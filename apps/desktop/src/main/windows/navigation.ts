@@ -17,7 +17,7 @@
 //   `setWindowOpenHandler`   a popup, `window.open` or `target="_blank"`.
 //
 // Every popup is denied, same origin included, except the renderer's own `window.open` of a blank
-// document under a frame name main builds a window for (`./frame-name.ts`). That one is answered
+// document under a frame name main builds a window for (`./places/key.ts`). That one is answered
 // with main's own `createWindow`, so the window carries main's options and never the ones Chromium
 // would have built from the page's request. Only a blank document: the renderer draws into it, and
 // a second copy of the console document would be a second renderer with stores of its own.

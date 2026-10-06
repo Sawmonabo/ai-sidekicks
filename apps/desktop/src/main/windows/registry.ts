@@ -33,7 +33,7 @@ import type { WindowDefaultSizes } from "#shared/window/size.js";
 import type { KeptAppearance } from "../appearance/kept-record.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "../services/failure-message.js";
-import { paneKindOfPlaceKey, placeKeyForFrameName } from "./frame-name.js";
+import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
 import { newWindowBounds } from "./places/new-bounds.js";
 import type { WindowPlace, WindowPlaceFile } from "./places/file.js";
 import { fitOnScreen } from "./places/screen-fit.js";
@@ -63,7 +63,10 @@ export interface OpenWindowsOptions {
  */
 export type HiddenWindowStart = Pick<HiddenWindowOptions, "additionalArguments" | "beforeLoad">;
 
-/** One window a person sees: its id, the frame name it was opened under, and its place key. */
+/**
+ * One window a person sees: its id (the frame name it was opened under), its place key and its
+ * window.
+ */
 interface OpenWindow {
   readonly windowId: string;
   readonly placeKey: string;
