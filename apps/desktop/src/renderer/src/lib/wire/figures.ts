@@ -242,6 +242,25 @@ export function formatRelativeTime(
 }
 
 /**
+ * The first instant after `nowMilliseconds` at which {@link formatRelativeTime} reads differently
+ * for `fromIso`, so a view can wake then rather than poll: the next rounding step, or the next
+ * change of unit, whichever comes first. An unreadable stamp never changes.
+ */
+export function relativeTimeChangesAt(fromIso: string, nowMilliseconds: number): number {
+  const from = parseInstant(fromIso);
+  if (from.kind === "malformed") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const deltaMilliseconds = from.epochMilliseconds - nowMilliseconds;
+  const step = relativeTimeStepFor(deltaMilliseconds);
+  const shown = Math.round(deltaMilliseconds / step.milliseconds);
+  // As time passes the gap shrinks, and `Math.round` keeps `shown` until it falls below
+  // `shown - 0.5` steps; one millisecond past that it reads the next figure.
+  const roundingChangesAt = from.epochMilliseconds - (shown - 0.5) * step.milliseconds + 1;
+  return Math.min(roundingChangesAt, relativeTimeUnitChangesAt(deltaMilliseconds, nowMilliseconds));
+}
+
+/**
  * A wall-clock time for a transcript row, on the machine's own clock (`2:20:05 PM`), with
  * seconds; the date is shown separately by the day divider, never per row.
  */
@@ -380,6 +399,24 @@ function relativeTimeStepFor(deltaMilliseconds: number): {
 } {
   const gap = Math.abs(deltaMilliseconds);
   return RELATIVE_TIME_STEPS.find((step) => gap < step.belowMilliseconds) ?? RELATIVE_TIME_DAY_STEP;
+}
+
+/**
+ * When the unit {@link relativeTimeStepFor} picks next changes as time passes: a past instant's
+ * gap grows into the next threshold, and a future one's shrinks below the threshold under it.
+ */
+function relativeTimeUnitChangesAt(deltaMilliseconds: number, nowMilliseconds: number): number {
+  const gap = Math.abs(deltaMilliseconds);
+  if (deltaMilliseconds <= 0) {
+    const threshold = RELATIVE_TIME_STEPS.find((step) => gap < step.belowMilliseconds);
+    return threshold === undefined
+      ? Number.POSITIVE_INFINITY
+      : nowMilliseconds + threshold.belowMilliseconds - gap;
+  }
+  const below = RELATIVE_TIME_STEPS.findLast((step) => gap >= step.belowMilliseconds);
+  return below === undefined
+    ? Number.POSITIVE_INFINITY
+    : nowMilliseconds + gap - below.belowMilliseconds + 1;
 }
 
 /** How many days a week holds: an instant within one either side of today is named by weekday. */

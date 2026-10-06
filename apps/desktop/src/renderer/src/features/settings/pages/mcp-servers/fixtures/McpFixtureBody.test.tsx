@@ -1,8 +1,9 @@
-// The MCP fixture body, driven with the daemon verbs handed in as arguments. The three rows are
-// the arms the page must draw: a connected binding, one needing authorization while a leg is
+// The MCP fixture body, driven with the daemon verbs handed in as arguments. The three servers
+// are the arms the page must draw: a connected binding, one needing authorization while a leg is
 // fine, and one whose binding store could not be read; a plugin's server and a project's unused
 // copy of a name join them where a case reads where each binding applies. Every status and
-// outcome is drawn as the daemon reported it.
+// outcome is drawn as the daemon reported it, and a server's readings and controls are drawn only
+// once it is picked from the list.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +20,8 @@ import type {
 import type { McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Clock } from "#renderer/lib/clock.js";
+import { MILLISECONDS_PER_MINUTE } from "#renderer/lib/instant.js";
+import { REFRESH_MAX_WAIT_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { LOADING_NOTICE_DELAY_MS } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { unscriptedScenario } from "#test/helpers/fixture/bridge.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
@@ -214,10 +217,32 @@ async function renderSettledMcpPage(
   return { container, clock };
 }
 
-function rowNamed(container: HTMLElement, serverName: string, nth = 0): Element | undefined {
-  return [...container.querySelectorAll(".meridian-mcp__row")].filter((row) =>
-    (row.textContent ?? "").includes(serverName),
+function entryNamed(container: HTMLElement, serverName: string, nth = 0): Element | undefined {
+  return [...container.querySelectorAll(".meridian-mcp__entry")].filter(
+    (entry) =>
+      entry.querySelector(".meridian-mcp__entry-identity")?.firstChild?.textContent === serverName,
   )[nth];
+}
+
+/** Picks the named server from the list and answers the selected server's pane. */
+function selectServer(container: HTMLElement, serverName: string, nth = 0): Element {
+  const entry = entryNamed(container, serverName, nth);
+  if (entry === undefined) {
+    throw new Error(`the list drew no server named ${serverName}`);
+  }
+  fireEvent.click(entry);
+  const detail = container.querySelector(".meridian-mcp__detail");
+  if (detail === null) {
+    throw new Error("the page drew no selected server's pane");
+  }
+  return detail;
+}
+
+/** The chip labels inside `selector` within `scope`. */
+function chipLabelsIn(scope: Element | undefined, selector: string): readonly (string | null)[] {
+  return [...(scope?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
+    (label) => label.textContent,
+  );
 }
 
 describe("McpFixtureBody", () => {
@@ -225,13 +250,14 @@ describe("McpFixtureBody", () => {
     const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
     // The two legs disagree and the row's chip carries the daemon's aggregate; folding the legs
     // by eye would have to pick one.
-    const row = rowNamed(container, "issue-tracker");
-    const chipLabels = (selector: string): readonly (string | null)[] =>
-      [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
-        (label) => label.textContent,
-      );
-    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual(["Codex", "Needs sign-in"]);
-    expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["Needs sign-in", "Connected"]);
+    expect(
+      chipLabelsIn(entryNamed(container, "issue-tracker"), ".meridian-mcp__entry-identity"),
+    ).toStrictEqual(["Codex", "Needs sign-in"]);
+    const detail = selectServer(container, "issue-tracker");
+    expect(chipLabelsIn(detail, ".meridian-mcp__legs")).toStrictEqual([
+      "Needs sign-in",
+      "Connected",
+    ]);
   });
 
   it("draws every server state in the page's five words, and each provider by its name", async () => {
@@ -253,13 +279,13 @@ describe("McpFixtureBody", () => {
       ),
     );
     for (const [, status, providerName, word] of drawn) {
-      const row = rowNamed(container, `server-${status}`);
-      const chipLabels = (selector: string): readonly (string | null)[] =>
-        [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
-          (label) => label.textContent,
-        );
-      expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual([providerName, word]);
-      expect(chipLabels(".meridian-mcp__legs")).toStrictEqual([word]);
+      const serverName = `server-${status}`;
+      expect(
+        chipLabelsIn(entryNamed(container, serverName), ".meridian-mcp__entry-identity"),
+      ).toStrictEqual([providerName, word]);
+      expect(
+        chipLabelsIn(selectServer(container, serverName), ".meridian-mcp__legs"),
+      ).toStrictEqual([word]);
     }
   });
 
@@ -267,32 +293,23 @@ describe("McpFixtureBody", () => {
     const { container } = await renderSettledMcpPage(
       operationsServing([FILESYSTEM, ISSUE_TRACKER, SCRATCHPAD, REVIEWER]),
     );
-    const whereItApplies = (serverName: string): readonly (string | null)[] => [
-      ...[
-        ...(rowNamed(container, serverName)?.querySelector(".meridian-mcp__row-provenance")
-          ?.children ?? []),
-      ].map((part) => part.textContent),
-    ];
-    expect(whereItApplies("filesystem")).toStrictEqual(["All projects"]);
-    expect(whereItApplies("issue-tracker")).toStrictEqual([
-      "This project · in the repo",
-      "/work/repo",
-    ]);
-    expect(whereItApplies("scratchpad")).toStrictEqual([
-      "This project · not in the repo",
-      "/work/repo",
-    ]);
-    expect(whereItApplies("reviewer")).toStrictEqual(["From plugin review-tools"]);
+    const whereItApplies = (serverName: string): string | null | undefined =>
+      entryNamed(container, serverName)?.querySelector(".meridian-mcp__entry-place")?.textContent;
+    expect(whereItApplies("filesystem")).toBe("All projects");
+    // The place words alone: a project's root path is a wire value, never drawn beside them.
+    expect(whereItApplies("issue-tracker")).toBe("This project · in the repo");
+    expect(whereItApplies("scratchpad")).toBe("This project · not in the repo");
+    expect(whereItApplies("reviewer")).toBe("From plugin review-tools");
   });
 
   it("keeps both rows of a name set twice, the copy a project does not use saying so", async () => {
     const { container } = await renderSettledMcpPage(
       operationsServing([SCRATCHPAD, SHARED_SCRATCHPAD]),
     );
-    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-mcp__entry")).toHaveLength(2);
     const notUsedLine = "Not used in /work/repo: its own scratchpad takes its place.";
-    expect(rowNamed(container, "scratchpad", 0)?.textContent).not.toContain(notUsedLine);
-    expect(rowNamed(container, "scratchpad", 1)?.textContent).toContain(notUsedLine);
+    expect(entryNamed(container, "scratchpad", 0)?.textContent).not.toContain(notUsedLine);
+    expect(entryNamed(container, "scratchpad", 1)?.textContent).toContain(notUsedLine);
   });
 
   it("names every control the degraded row cannot draw, and invents no status", async () => {
@@ -305,10 +322,10 @@ describe("McpFixtureBody", () => {
       operationsServing([SCRATCHPAD, codexReadsItsOwnSwitch]),
     );
     const degradedLine = (nth: number): string | null | undefined =>
-      rowNamed(container, "scratchpad", nth)?.querySelector(".meridian-nothing--not-checked")
+      selectServer(container, "scratchpad", nth).querySelector(".meridian-nothing--not-checked")
         ?.textContent;
     expect(degradedLine(0)).toBe(
-      "On for runs and the per-tool settings cannot be read right now. Those controls are not " +
+      "“On for runs” and the per-tool settings cannot be read right now. Those controls are not " +
         "drawn because the reading they act on did not arrive; everything else on this page is " +
         "offered exactly as usual.",
     );
@@ -317,9 +334,9 @@ describe("McpFixtureBody", () => {
         "reading they act on did not arrive; everything else on this page is offered exactly as " +
         "usual.",
     );
-    expect(rowNamed(container, "scratchpad", 0)?.querySelectorAll('[role="switch"]')).toHaveLength(
-      0,
-    );
+    expect(
+      selectServer(container, "scratchpad", 0).querySelectorAll('[role="switch"]'),
+    ).toHaveLength(0);
   });
 
   it("says which provider has no servers, in place of the list or at its foot", async () => {
@@ -345,6 +362,7 @@ describe("McpFixtureBody", () => {
 
   it("settles a partial application in place: saved, and one session still on the old setting", async () => {
     const { container, clock } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
+    selectServer(container, "filesystem");
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(clock);
     const lines = [...container.querySelectorAll(".meridian-mcp__outcome p")].map(
@@ -363,6 +381,7 @@ describe("McpFixtureBody", () => {
       operationsServing([FILESYSTEM], { sendToolOverride, sendClearToolOverride }),
       () => "clear-press",
     );
+    selectServer(container, "filesystem");
     const [approval] = container.querySelectorAll(".meridian-mcp__tool select");
     if (approval === undefined) {
       throw new Error("the settled inventory rendered no approval choice to make");
@@ -391,6 +410,7 @@ describe("McpFixtureBody", () => {
       operationsServing([FILESYSTEM], { sendToolOverride }),
       () => "tool-press",
     );
+    selectServer(container, "filesystem");
     const toolRow = container.querySelector(".meridian-mcp__tool");
     const toolSwitch = toolRow?.querySelector('[role="switch"]');
     if (!(toolSwitch instanceof HTMLElement)) {
@@ -415,6 +435,7 @@ describe("McpFixtureBody", () => {
       operationsServing([FILESYSTEM], { sendEnabled }),
       () => "one-press",
     );
+    selectServer(container, "filesystem");
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(clock);
     expect(sendEnabled).toHaveBeenCalledTimes(1);
@@ -430,6 +451,46 @@ describe("McpFixtureBody", () => {
       }),
     );
     expect(screen.getByRole("button", { name: /try again/iu })).toBeDefined();
+  });
+});
+
+describe("McpFixtureBody — the list and the selected server", () => {
+  it("draws no readings or controls until a server is picked, and says how to pick", async () => {
+    const { container } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
+    const detail = container.querySelector(".meridian-mcp__detail");
+    expect(detail?.textContent).toBe("Pick a server on the left to see what it is allowed to do.");
+    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    expect(entryNamed(container, "filesystem")?.getAttribute("aria-current")).toBeNull();
+    // Negative control: picking it draws its readings and controls in the same pane.
+    const picked = selectServer(container, "filesystem");
+    expect(picked.textContent).toContain("Running sessions");
+    expect(picked.querySelectorAll('[role="switch"]').length).toBeGreaterThan(0);
+    expect(entryNamed(container, "filesystem")?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("moves a reading's age when the clock passes the next figure, and not before", async () => {
+    const fixture = fixtureBridge();
+    const { clock } = fixture.scenarioEngine;
+    // A minute old once the first read has settled, which moves the clock by the read's window.
+    const observedAt = new Date(
+      clock.now() + REFRESH_MAX_WAIT_MS - MILLISECONDS_PER_MINUTE,
+    ).toISOString();
+    const operations = operationsServing([{ ...FILESYSTEM, observedAt }]);
+    const { container } = render(mcpPageTree(fixture, operations));
+    await settleScheduledRead(clock);
+    const age = (): string | null | undefined =>
+      entryNamed(container, "filesystem")?.querySelector(".meridian-mcp__entry-identity")
+        ?.lastElementChild?.textContent;
+    expect(age()).toBe("1 minute ago");
+    // A minute and a half still rounds to one minute.
+    act(() => {
+      fixture.scenarioEngine.advance(MILLISECONDS_PER_MINUTE / 2);
+    });
+    expect(age()).toBe("1 minute ago");
+    act(() => {
+      fixture.scenarioEngine.advance(1);
+    });
+    expect(age()).toBe("2 minutes ago");
   });
 });
 
@@ -463,6 +524,7 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     const supersededBridge = fixtureBridge();
     const { container, rerender } = render(mcpPageTree(supersededBridge, superseded.operations));
     await settleScheduledRead(supersededBridge.scenarioEngine.clock);
+    selectServer(container, "filesystem");
     fireEvent.click(firstEnableButton(container));
     expect(container.textContent).not.toContain("Sending…");
     act(() => {
@@ -475,7 +537,7 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
     await settleScheduledRead(replacementBridge.scenarioEngine.clock);
     // The replacement answered its own inventory; the superseded press is not reported as in
     // flight against it.
-    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
+    expect(container.querySelectorAll(".meridian-mcp__entry")).toHaveLength(2);
     expect(container.textContent).not.toContain("Sending…");
 
     await act(async () => {
@@ -490,6 +552,7 @@ describe("McpFixtureBody — a bridge replaced under a mounted fixture body", ()
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
     const held = operationsHoldingTheirMutation();
     const { container, clock } = await renderSettledMcpPage(held.operations);
+    selectServer(container, "filesystem");
     fireEvent.click(firstEnableButton(container));
     await settleScheduledRead(clock);
 

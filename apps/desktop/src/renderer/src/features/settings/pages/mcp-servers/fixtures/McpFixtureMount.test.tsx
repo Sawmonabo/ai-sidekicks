@@ -1,7 +1,8 @@
 // The MCP servers page as a fixture launch mounts it: the fixture body registered into the page,
-// its inventory read and its changes reaching the scenario's scripted replies through
-// `callDaemon`, and the re-read after a change answering with what was written: a switched-off
-// binding stays off, and a tool's facet cleared back to the server's own leaves its other set.
+// its inventory listed, a picked server's changes reaching the scenario's scripted replies
+// through `callDaemon`, and the re-read after a change answering with what was written: a
+// switched-off binding stays off, and a tool's facet cleared back to the server's own leaves its
+// other set.
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,12 +33,12 @@ describe("McpFixtureMount", () => {
     );
     await settleScheduledRead(fixture.scenarioEngine.clock);
 
-    const rowNames = [...container.querySelectorAll(".meridian-mcp__row-identity")].map(
+    const serverNames = [...container.querySelectorAll(".meridian-mcp__entry-identity")].map(
       (identity) => identity.firstElementChild?.textContent,
     );
-    expect(rowNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad", "scratchpad"]);
+    expect(serverNames).toStrictEqual(["filesystem", "issue-tracker", "scratchpad", "scratchpad"]);
 
-    const [enableControl] = runSwitchesIn(container);
+    const [enableControl] = runSwitchesOf(container, 0);
     if (enableControl === undefined) {
       throw new Error("the scripted inventory rendered no enablement control to press");
     }
@@ -61,11 +62,14 @@ describe("McpFixtureMount", () => {
     );
     await settleScheduledRead(fixture.scenarioEngine.clock);
     const enablementControls = (): readonly (string | null)[] =>
-      runSwitchesIn(container).map((control) => control.getAttribute("aria-checked"));
+      // Read as each server is picked, since picking the next one redraws the pane.
+      [0, 1, 2, 3].flatMap((nth) =>
+        runSwitchesOf(container, nth).map((control) => control.getAttribute("aria-checked")),
+      );
     // The binding whose store could not be read sent no enablement, so it has no switch.
     expect(enablementControls()).toStrictEqual(["true", "true", "true"]);
 
-    const [disableControl] = runSwitchesIn(container);
+    const [disableControl] = runSwitchesOf(container, 0);
     if (disableControl === undefined) {
       throw new Error("the scripted inventory rendered no control to switch a binding off");
     }
@@ -90,6 +94,7 @@ describe("McpFixtureMount", () => {
       </FixtureBridgeProvider>,
     );
     await settleScheduledRead(fixture.scenarioEngine.clock);
+    selectEntry(container, 0);
     const writeFile = (): Element => {
       const row = [...container.querySelectorAll(".meridian-mcp__tool")].find((tool) =>
         (tool.textContent ?? "").startsWith("write_file"),
@@ -129,9 +134,19 @@ describe("McpFixtureMount", () => {
   });
 });
 
-/** Each row's `On for runs` switch, in row order. */
-function runSwitchesIn(container: HTMLElement): readonly HTMLElement[] {
-  return [...container.querySelectorAll(".meridian-switch__label")]
+/** Picks the `nth` server in the list. */
+function selectEntry(container: HTMLElement, nth: number): void {
+  const entry = container.querySelectorAll(".meridian-mcp__entry")[nth];
+  if (entry === undefined) {
+    throw new Error(`the scripted inventory drew no server at position ${String(nth)}`);
+  }
+  fireEvent.click(entry);
+}
+
+/** The `nth` server's `On for runs` switch, once it is picked; none where it has no reading. */
+function runSwitchesOf(container: HTMLElement, nth: number): readonly HTMLElement[] {
+  selectEntry(container, nth);
+  return [...container.querySelectorAll(".meridian-mcp__detail .meridian-switch__label")]
     .filter((label) => label.textContent === "On for runs")
     .map((label) => label.querySelector('[role="switch"]'))
     .filter((control): control is HTMLElement => control instanceof HTMLElement);

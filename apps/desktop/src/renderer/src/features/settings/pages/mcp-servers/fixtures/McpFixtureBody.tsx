@@ -1,9 +1,9 @@
-// The MCP servers fixture body: the server list, per-leg disclosure, per-tool settings and the
-// outcome of each change, drawn from the reading and the calls it is handed.
+// The MCP servers fixture body: the server list beside the selected server's readings, per-tool
+// settings and the outcome of each change, drawn from the reading and the calls it is handed.
 //
 // It authors none of what the MCP page must not: no aggregate status (the daemon's arrives on
-// the row), no derived eligibility (every control is offered), and no configuration, environment,
-// header, token or authorization-URL value (the wire carries names in their place).
+// the entry), no derived eligibility (every control is offered), and no configuration,
+// environment, header, token or authorization-URL value (the wire carries names in their place).
 //
 // The outcome ledger is one entry per control: a binding's own switch keyed by its scope-qualified
 // identity, and each tool's facet by that identity, the tool's name and the facet. It belongs
@@ -16,10 +16,16 @@ import "./McpFixtureBody.css";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import type { McpServerBindingRef, McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/server";
+import type {
+  McpServerBindingRef,
+  McpServerInventoryEntry,
+  McpToolOverrideFacet,
+} from "@ai-sidekicks/contracts/mcp/server";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { PROVIDER_LABELS } from "#renderer/lib/provider-labels.js";
 import { structuralKey } from "#renderer/lib/structural-key.js";
+import { relativeTimeChangesAt } from "#renderer/lib/wire/figures.js";
+import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -48,7 +54,8 @@ import {
   type SendMcpEnabled,
   type SendMcpToolOverride,
 } from "./mutation.js";
-import { ServerRow } from "./components/ServerRow.js";
+import { ServerDetail } from "./components/ServerDetail.js";
+import { ServerListEntry } from "./components/ServerListEntry.js";
 
 /** The subsystem a refused change names as its author. */
 const MCP_MUTATION_ORIGIN = "mcp-mutation";
@@ -65,14 +72,20 @@ export interface McpServerOperations {
   readonly sendClearToolOverride: SendMcpClearToolOverride;
 }
 
-/** The MCP servers list with its per-row controls, driven by the calls in `operations`. */
+/**
+ * The MCP servers list and the selected server's controls, driven by the calls in `operations`.
+ * Nothing is selected until a person picks a server.
+ */
 export function McpFixtureBody(props: {
   readonly bridge: PlatformBridge;
   /** Held stable by the caller: a new object restarts the inventory read. */
   readonly operations: McpServerOperations;
   /** Injected so a suite can assert that one press reused one key. */
   readonly mintKey?: IdempotencyKeyMinter;
-  /** The service's sessions, which name a running session a change failed on. */
+  /**
+   * The service's sessions, which name each running session on the page; absent, every one
+   * reads `A session`.
+   */
   readonly sessionDirectory?: SessionDirectoryState | undefined;
 }): ReactNode {
   const { bridge, operations, sessionDirectory } = props;
@@ -81,6 +94,9 @@ export function McpFixtureBody(props: {
   const clock = useClock();
   const ownerWindow = useOwnerWindow();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
+  // The selected server's binding key; a selection whose server leaves the inventory selects
+  // nothing.
+  const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
   // No key within the bridge: the binding is the key inside the map.
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
     ReadonlyMap<string, McpMutationOutcome>
@@ -187,6 +203,15 @@ export function McpFixtureBody(props: {
   };
 
   const state = usePushDrivenRead(inventoryRead);
+  const servers = state.kind === "loaded" ? state.value.servers : NO_SERVERS;
+  const observedStamps = observedStampsOf(servers);
+  // Woken when a drawn age would next read differently, `2 minutes ago` becoming `3 minutes ago`.
+  const nowMilliseconds = useDrawnInstant(clock, observedStamps, (instant) =>
+    Math.min(
+      Number.POSITIVE_INFINITY,
+      ...observedStamps.map((stamp) => relativeTimeChangesAt(stamp, instant)),
+    ),
+  );
   if (state.kind === "not-loaded") {
     return <Nothing kind="not-loaded" placement="block" title="Reading the server list…" />;
   }
@@ -207,7 +232,6 @@ export function McpFixtureBody(props: {
       />
     );
   }
-  const { servers } = state.value;
   // A provider with no tool servers set up says so in words, never as an empty list: in place of
   // the list when neither has any, and in quiet text at the list's foot otherwise.
   const providersWithNone = PROVIDER_NAMES.filter(
@@ -218,34 +242,68 @@ export function McpFixtureBody(props: {
       <Nothing key={provider} kind="empty" placement="block" title={noServersLineFor(provider)} />
     ));
   }
+  const selected =
+    selectedKey === undefined
+      ? undefined
+      : servers.find((entry) => mcpBindingKeyOf(entry) === selectedKey);
   return (
-    <>
-      <ul className="meridian-mcp__rows">
-        {servers.map((entry) => {
-          const key = mcpBindingKeyOf(entry);
-          return (
-            <ServerRow
-              key={key}
-              entry={entry}
-              outcome={outcomes.get(key) ?? IDLE_MCP_MUTATION}
-              toolOutcomeFor={(toolName, facet) =>
-                outcomes.get(toolOutcomeKeyOf(entry, toolName, facet)) ?? IDLE_MCP_MUTATION
-              }
-              onSetEnabled={setEnabled}
-              onChangeTool={changeTool}
-              sessionDirectory={sessionDirectory}
-              clock={clock}
-            />
-          );
-        })}
-      </ul>
-      {providersWithNone.map((provider) => (
-        <p key={provider} className="meridian-settings-page__aside">
-          {noServersLineFor(provider)}
-        </p>
-      ))}
-    </>
+    <div className="meridian-mcp">
+      <div className="meridian-mcp__list">
+        <ul className="meridian-mcp__entries" aria-label="Tool servers">
+          {servers.map((entry) => {
+            const key = mcpBindingKeyOf(entry);
+            return (
+              <ServerListEntry
+                key={key}
+                entry={entry}
+                isSelected={entry === selected}
+                onSelect={() => {
+                  setSelectedKey(key);
+                }}
+                nowMilliseconds={nowMilliseconds}
+              />
+            );
+          })}
+        </ul>
+        {providersWithNone.map((provider) => (
+          <p key={provider} className="meridian-settings-page__aside">
+            {noServersLineFor(provider)}
+          </p>
+        ))}
+      </div>
+      {/* Keyed by the server, so nothing one server's pane holds is carried to the next. */}
+      <ServerDetail
+        key={selected === undefined ? undefined : mcpBindingKeyOf(selected)}
+        entry={selected}
+        outcome={
+          selected === undefined
+            ? IDLE_MCP_MUTATION
+            : (outcomes.get(mcpBindingKeyOf(selected)) ?? IDLE_MCP_MUTATION)
+        }
+        toolOutcomeFor={(toolName, facet) =>
+          selected === undefined
+            ? IDLE_MCP_MUTATION
+            : (outcomes.get(toolOutcomeKeyOf(selected, toolName, facet)) ?? IDLE_MCP_MUTATION)
+        }
+        onSetEnabled={setEnabled}
+        onChangeTool={changeTool}
+        sessionDirectory={sessionDirectory}
+        clock={clock}
+        nowMilliseconds={nowMilliseconds}
+      />
+    </div>
   );
+}
+
+/** What the list holds before the inventory is served. */
+const NO_SERVERS: readonly McpServerInventoryEntry[] = [];
+
+/** Every reading time the page draws an age for: each server's own and each of its sessions'. */
+function observedStampsOf(servers: readonly McpServerInventoryEntry[]): readonly string[] {
+  return servers.flatMap((entry) => [
+    ...(entry.observedAt === undefined ? [] : [entry.observedAt]),
+    ...(entry.legs ?? []).flatMap((leg) => (leg.observedAt === undefined ? [] : [leg.observedAt])),
+  ]);
 }
 
 /** The ledger key of one facet of one tool on one binding. */

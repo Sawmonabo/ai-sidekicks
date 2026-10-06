@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-
+import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";
 import { MILLISECONDS_PER_SECOND } from "#renderer/lib/instant.js";
 import { dayClockChangesAt } from "#renderer/lib/wire/figures.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -26,41 +25,18 @@ export interface RunTimesDrawn {
  */
 export function useRunTimesNow(times: RunTimesDrawn): number {
   const { drawn, isTicking, namesDays, isPartOfDayShown } = times;
-  const clock = useClock();
-  const [reading, setReading] = useState(() => ({ drawn, instant: clock.now() }));
-  // New records read the clock again, so a run that started while nothing was ticking is not
-  // counted from an instant that went stale while no timer was armed. React's state adjusted in
-  // render: this pass is thrown away and rendered again with the new reading.
-  if (
-    reading.drawn.length !== drawn.length ||
-    reading.drawn.some((record, index) => record !== drawn[index])
-  ) {
-    setReading({ drawn, instant: Math.max(reading.instant, clock.now()) });
-  }
-  const { instant } = reading;
-  const wakeAt = Math.min(
-    isTicking ? nextSecondMark(instant) : Number.POSITIVE_INFINITY,
-    namesDays ? dayClockChangesAt(instant) : Number.POSITIVE_INFINITY,
-    isPartOfDayShown ? partOfDayChangesAt(instant) : Number.POSITIVE_INFINITY,
+  // A whole second, so every going row moves on the same one.
+  return useDrawnInstant(
+    useClock(),
+    drawn,
+    (instant) =>
+      Math.min(
+        isTicking ? nextSecondMark(instant) : Number.POSITIVE_INFINITY,
+        namesDays ? dayClockChangesAt(instant) : Number.POSITIVE_INFINITY,
+        isPartOfDayShown ? partOfDayChangesAt(instant) : Number.POSITIVE_INFINITY,
+      ),
+    wholeSecondAtOrBefore,
   );
-  useEffect(() => {
-    if (wakeAt === Number.POSITIVE_INFINITY) {
-      return undefined;
-    }
-    const handle = clock.scheduleTimeout(
-      () => {
-        // A whole second, so every going row moves on the same one; the last one passed, so a
-        // wake-up that arrives late, after the host slept, catches up in one step.
-        const crossed = Math.max(wakeAt, wholeSecondAtOrBefore(clock.now()));
-        setReading((current) => ({ ...current, instant: Math.max(current.instant, crossed) }));
-      },
-      Math.max(0, wakeAt - clock.now()),
-    );
-    return () => {
-      clock.cancel(handle);
-    };
-  }, [clock, wakeAt]);
-  return instant;
 }
 
 /** The clock's next whole second after `fromMilliseconds`. */

@@ -1,4 +1,5 @@
-/* The MCP fixture body's styles: one card per binding, and the lists inside it.
+/* The MCP fixture body's styles: the server list beside the selected server, and the lists
+ * inside it.
  *
  * Page-local, since a shared settings sheet would carry every page's rules; `McpFixtureBody.tsx`
  * imports it. Nothing outside `meridian-mcp__` appears, so no rule outlives the body. Every
@@ -7,49 +8,103 @@
  * would truncate the identifiers a person reads this page to compare.
  */
 
-.meridian-mcp__rows {
+/* The list and the selected server side by side, the selected one taking the wider share; a
+   pane too narrow for both stacks them. */
+.meridian-mcp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-mcp__list {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-mcp__entries {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-3);
+  gap: var(--meridian-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.meridian-mcp__row {
+.meridian-mcp__entry {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.meridian-mcp__row-identity,
-.meridian-mcp__row-provenance,
-.meridian-mcp__config,
-.meridian-mcp__row-actions {
+.meridian-mcp__entry:hover {
+  background: var(--meridian-surface-raised);
+}
+
+/* The selected server carries a hairline in the accent at its leading edge, as the page list's
+   current entry does. */
+.meridian-mcp__entry[aria-current="true"] {
+  box-shadow: inset var(--meridian-leading-edge) 0 0 0 var(--meridian-accent);
+}
+
+.meridian-mcp__entry-identity,
+.meridian-mcp__detail-head,
+.meridian-mcp__config {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--meridian-space-2);
 }
 
-.meridian-mcp__row-block {
+.meridian-mcp__entry-place,
+.meridian-mcp__entry-note {
+  display: block;
+}
+
+.meridian-mcp__detail {
+  display: flex;
+  flex: 2 1 24rem;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-mcp__detail-title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-mcp__detail-block {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
 }
 
-.meridian-mcp__row-block-title {
+.meridian-mcp__detail-block-title {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-sm);
   font-weight: 500;
 }
 
-/* Every enumeration on this card is bounded and scrolls inside its own box, so many legs,
+/* Every enumeration on this pane is bounded and scrolls inside its own box, so many legs,
    tools, names or arguments do not push the controls off the page. */
 .meridian-mcp__legs,
 .meridian-mcp__tools,
