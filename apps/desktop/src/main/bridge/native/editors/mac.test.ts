@@ -8,8 +8,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { EDITOR_CATALOG, findEditor, type EditorDefinition } from "./catalog.js";
-import { listEditors } from "./installed-editors.js";
-import { MacInstalledEditors } from "./mac-installed-editors.js";
+import { listEditors } from "./installed.js";
+import { MacInstalledEditors } from "./mac.js";
 import { runProgram } from "./program-runner.js";
 
 let scratch: string;

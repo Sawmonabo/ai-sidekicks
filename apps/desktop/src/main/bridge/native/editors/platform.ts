@@ -1,7 +1,7 @@
 // Picks this operating system's form of the installed editors.
 
-import type { InstalledEditors } from "./installed-editors.js";
-import { MacInstalledEditors } from "./mac-installed-editors.js";
+import type { InstalledEditors } from "./installed.js";
+import { MacInstalledEditors } from "./mac.js";
 import type { ProgramRunner } from "./program-runner.js";
 
 /**

@@ -42,13 +42,13 @@ async function connectWindowBridge() {
   vi.resetModules();
   const { ipcMain, ipcRenderer, nativeTheme } = (await import("electron")) as unknown as {
     ipcMain: { handle(channel: string, answer: (...args: never[]) => unknown): void };
-    ipcRenderer: Parameters<typeof import("#preload/window-bridge.js").createWindowBridge>[0];
+    ipcRenderer: Parameters<typeof import("#preload/window.js").createWindowBridge>[0];
     nativeTheme: never;
   };
   const { windowAnswers } = await import("./window.js");
   const { KeptAppearance } = await import("../appearance/kept-record.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
-  const { createWindowBridge } = await import("#preload/window-bridge.js");
+  const { createWindowBridge } = await import("#preload/window.js");
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,

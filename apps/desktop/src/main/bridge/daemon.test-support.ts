@@ -20,7 +20,7 @@ import { vi } from "vitest";
 
 import { appFactsSwitches } from "#shared/app-facts.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
-import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
+import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { DaemonConnection } from "#shared/daemon/status-topic.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { unlinkedState, type DaemonLink } from "../services/daemon/link/status.js";

@@ -1,7 +1,7 @@
 // The system clipboard, written by main for the page: a plain line, or the text with a formatted
 // flavor beside it, in one write, so a paste target picks the flavor it understands.
 
-import { z } from "zod";
+import * as z from "zod/mini";
 
 /** Each flavor one copy writes, by its MIME type. */
 export interface ClipboardFlavors {
@@ -14,7 +14,10 @@ export interface ClipboardHost {
   write(flavors: ClipboardFlavors): Promise<void>;
 }
 
-const clipboardContentSchema = z.object({ text: z.string(), html: z.string().optional() });
+const clipboardContentSchema = z.strictObject({
+  text: z.string(),
+  html: z.optional(z.string()),
+});
 
 /**
  * Put the page's content on the system clipboard in one write. Throws a `ZodError` for anything

@@ -26,8 +26,8 @@ export interface WindowHandlerContext {
   >;
 }
 
-/** One channel's answer, given the asking event and the one request it carried. */
-type WindowAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
+/** One bridge channel's answer, given the asking event and the one request it carried. */
+export type ChannelAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
 
 /** The channels the `window` members are answered on. */
 type WindowChannel =
@@ -59,7 +59,7 @@ const minimumSizeRequestSchema = z.strictObject({
 /** The `window` members' answers, by channel. Each throws on a request its schema refuses. */
 export function windowAnswers(
   context: WindowHandlerContext,
-): Readonly<Record<WindowChannel, WindowAnswer>> {
+): Readonly<Record<WindowChannel, ChannelAnswer>> {
   const requireConsoleDocument = (event: IpcMainInvokeEvent): void => {
     if (!context.openWindows.isConsoleDocument(event.sender)) {
       throw new Error("Only the console document asks about a window.");

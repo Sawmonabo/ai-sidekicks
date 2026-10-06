@@ -72,7 +72,7 @@ function oklchToLinearSrgb(color: OklchColor): LinearSrgbColor {
 const GAMUT_EPSILON = 1e-6;
 
 /** True when the color as authored renders inside sRGB with no gamut mapping. */
-export function isOklchInsideSrgbGamut(color: OklchColor): boolean {
+function isOklchInsideSrgbGamut(color: OklchColor): boolean {
   return isInsideSrgbGamut(oklchToLinearSrgb(color));
 }
 
@@ -91,13 +91,13 @@ function isInsideSrgbGamut(linear: LinearSrgbColor): boolean {
  * The number of bisection steps `fitChromaIntoSrgbGamut` takes. Twenty halvings of a 0.4-wide
  * chroma interval settle below 4e-7, finer than the decimals the emitted CSS carries.
  */
-export const GAMUT_FIT_BISECTION_STEPS = 20;
+const GAMUT_FIT_BISECTION_STEPS = 20;
 
 /**
  * Reduce chroma at fixed lightness and hue until the color is inside sRGB.
  * Returns the color unchanged when it already is.
  */
-export function fitChromaIntoSrgbGamut(color: OklchColor): OklchColor {
+function fitChromaIntoSrgbGamut(color: OklchColor): OklchColor {
   if (isOklchInsideSrgbGamut(color)) {
     return color;
   }
@@ -143,7 +143,7 @@ export function formatSrgbHex(color: SrgbColor): string {
  * measured on the triple the filter produced: scaling both channels does not preserve their
  * ratio, because relative luminance carries a 0.05 offset.
  */
-export function srgbContrastRatio(foreground: SrgbColor, background: SrgbColor): number {
+function srgbContrastRatio(foreground: SrgbColor, background: SrgbColor): number {
   const foregroundLuminance = srgbRelativeLuminance(foreground);
   const backgroundLuminance = srgbRelativeLuminance(background);
   const lighter = Math.max(foregroundLuminance, backgroundLuminance);
@@ -169,7 +169,7 @@ export function formatOklch(color: OklchColor): string {
 }
 
 /** Round a color to the precision `formatOklch` emits, so measurement matches paint. */
-export function roundToEmittedPrecision(color: OklchColor): OklchColor {
+function roundToEmittedPrecision(color: OklchColor): OklchColor {
   return {
     lightness: Number(color.lightness.toFixed(3)),
     chroma: Number(color.chroma.toFixed(4)),

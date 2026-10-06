@@ -3,7 +3,7 @@
 
 import type { PreloadApi } from "./preload-api.js";
 
-/** The channels the preload invokes and main answers through `ipcMain.handle`, by bridge member. */
+/** The channels the preload invokes, by bridge member; main answers each but the updater's. */
 export const BRIDGE_CHANNELS = {
   daemonCall: "daemon.call",
   closeDaemonSubscription: "daemon.unsubscribe",

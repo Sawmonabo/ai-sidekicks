@@ -5,10 +5,10 @@
 
 import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 import { MACHINE_SETTINGS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/machine-settings";
-import { z } from "zod";
+import * as z from "zod/mini";
 
 import { findEditor } from "./catalog.js";
-import type { InstalledEditors } from "./installed-editors.js";
+import type { InstalledEditors } from "./installed.js";
 import type { ProgramRunner } from "./program-runner.js";
 
 /** What an open needs: this system's installed editors, a program runner and the system default. */
@@ -52,9 +52,9 @@ export async function readChosenEditorId(link: {
   return reading.settings.editorId;
 }
 
-const editorOpenRequestSchema = z.object({
+const editorOpenRequestSchema = z.strictObject({
   ref: z.string(),
-  line: z.int().min(1).optional(),
+  line: z.optional(z.int().check(z.minimum(1))),
 });
 
 /**

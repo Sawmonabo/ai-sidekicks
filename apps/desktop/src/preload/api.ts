@@ -1,12 +1,11 @@
 // The object the preload exposes: every member carried over IPC, beside the build facts main
-// passed at start. Main does not answer the updater's channels yet, so an updater call rejects
-// with Electron's own no-handler error.
+// passed at start.
 
 import { ipcRenderer, webUtils } from "electron";
 
 import { readAppFactsSwitches } from "#shared/app-facts.js";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
-import { readLastUsedWindowIdSwitch } from "#shared/window/id.js";
+import { readLastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import {
   type EditorEntry,
   type FilePathRef,
@@ -18,10 +17,10 @@ import {
   type OpenDialogResults,
   type PreloadApi,
 } from "#shared/preload-api.js";
-import { createDaemonWire, DaemonSubscriptions } from "./daemon-wire.js";
-import { createMachineSettingsBridge } from "./machine-settings-bridge.js";
-import { createUpdateBridge } from "./update-bridge.js";
-import { createWindowBridge } from "./window-bridge.js";
+import { createDaemonWire, DaemonSubscriptions } from "./daemon.js";
+import { createMachineSettingsBridge } from "./machine-settings.js";
+import { createUpdateBridge } from "./update.js";
+import { createWindowBridge } from "./window.js";
 
 /** The bridge object `index.ts` exposes on `window.desktopBridge`. */
 export function createPreloadApi(argv: readonly string[]): PreloadApi {

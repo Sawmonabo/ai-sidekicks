@@ -3,8 +3,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { InstalledEditors } from "./installed-editors.js";
-import { openInEditor, parseEditorOpenRequest, type EditorOpening } from "./open-in-editor.js";
+import type { InstalledEditors } from "./installed.js";
+import { openInEditor, parseEditorOpenRequest, type EditorOpening } from "./open.js";
 
 /** A system that has exactly the editors given, at the app paths given. */
 function installedEditorsFinding(locations: Readonly<Record<string, string>>): InstalledEditors {

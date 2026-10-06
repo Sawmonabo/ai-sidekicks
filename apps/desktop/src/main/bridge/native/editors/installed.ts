@@ -1,8 +1,8 @@
 // Which of the catalog's editors this machine has, and how to open a file in one. Both differ by
-// operating system, so they sit behind `InstalledEditors`, one form per system, and
-// `system-installed-editors.ts` picks this system's. Finding an editor goes through the system's
-// own register of installed apps and never through a command path: an app started from the Dock
-// has no command path of the person's to search.
+// operating system, so they sit behind `InstalledEditors`, one form per system, and `platform.ts`
+// picks this system's. Finding an editor goes through the system's own register of installed apps
+// and never through a command path: an app started from the Dock has no command path of the
+// person's to search.
 
 import type { EditorEntry } from "#shared/preload-api.js";
 import { EDITOR_CATALOG, type EditorDefinition } from "./catalog.js";

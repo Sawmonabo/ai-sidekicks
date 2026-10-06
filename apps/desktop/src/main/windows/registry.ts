@@ -27,7 +27,7 @@ import type {
 import type { AppearanceRecord } from "#shared/appearance.js";
 import { APPEARANCE_VALUE_CHANNEL, REOPEN_WINDOW_CHANNEL } from "#shared/bridge-channels.js";
 import { consoleWindowId, isConsoleWindowId } from "#shared/window/frame-name.js";
-import { lastUsedWindowIdSwitch } from "#shared/window/id.js";
+import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { WindowDefaultSizes } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";

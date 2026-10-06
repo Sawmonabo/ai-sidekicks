@@ -8,10 +8,10 @@
 import { readRequiredSwitchValue } from "./renderer-switch.js";
 
 /** The operating systems a build runs on. */
-export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
+const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 
 /** The processor architectures a build runs on. */
-export const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
+const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
 
 /** One supported operating system, in Node's spelling. */
 export type SupportedPlatform = (typeof SUPPORTED_PLATFORMS)[number];

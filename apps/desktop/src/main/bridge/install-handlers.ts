@@ -32,23 +32,16 @@ import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
 import { copyToClipboard } from "./native/clipboard.js";
-import { listEditors } from "./native/editors/installed-editors.js";
-import {
-  openInEditor,
-  parseEditorOpenRequest,
-  readChosenEditorId,
-} from "./native/editors/open-in-editor.js";
+import { listEditors } from "./native/editors/installed.js";
+import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
-import { installedEditorsFor } from "./native/editors/system-installed-editors.js";
+import { installedEditorsFor } from "./native/editors/platform.js";
 import { machineSettingsAnswers } from "./machine-settings.js";
 import { refForDroppedFile, type PastedImages } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
 import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
-import { windowAnswers, type WindowHandlerContext } from "./window.js";
-
-/** One channel's answer, given the asking event and the one request it carried. */
-type ChannelAnswer = (event: IpcMainInvokeEvent, request: unknown) => unknown;
+import { type ChannelAnswer, windowAnswers, type WindowHandlerContext } from "./window.js";
 
 /** What main's bridge answers are built over. */
 export interface BridgeHandlerServices {
