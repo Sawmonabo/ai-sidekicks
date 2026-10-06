@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { NodeId } from "@ai-sidekicks/contracts/node-id";
+import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/repo/workspace";

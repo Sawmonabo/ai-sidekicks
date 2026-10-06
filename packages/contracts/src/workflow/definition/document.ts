@@ -51,7 +51,7 @@ export const WorkflowContentHashSchema: z.ZodType<string, string> = z.string().m
 /**
  * A node's id inside one document. Edges, expressions and step records address a node
  * by it, so renaming a node is a label edit and never a graph-wide rewrite. It is not
- * the runtime node id of `node-id.ts`.
+ * the runtime node id of `runtime-node/id.ts`.
  */
 export type WorkflowNodeId = string & { readonly __brand: "WorkflowNodeId" };
 /** Wire schema for {@link WorkflowNodeId}. */

@@ -18,7 +18,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
-import { NodeIdSchema, type NodeId } from "./node-id.js";
+import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";

@@ -13,7 +13,7 @@
 
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
-import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/node-id";
+import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import {
   RepoAttachResponseSchema,
   type RepoAttachRequest,

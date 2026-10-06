@@ -23,7 +23,7 @@
 // ceremony (RFC 9449 section 8) belong to the implementor. What is fixed is the operation and
 // the two header names, and `assertDpopCredentialMaterial` checks them.
 
-import type { NodeId } from "@ai-sidekicks/contracts/node-id";
+import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 /** The HTTP header carrying the DPoP-bound access token; callers and tests share this spelling. */

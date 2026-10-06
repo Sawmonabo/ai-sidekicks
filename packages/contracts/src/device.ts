@@ -20,8 +20,8 @@ import {
   NotificationKindSwitchesSchema,
   type NotificationKindSwitches,
 } from "./machine-settings.js";
-import { NodeIdSchema, type NodeId } from "./node-id.js";
-import type { RuntimeNodeProcedureDescriptors } from "./runtime-node.js";
+import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
+import type { RuntimeNodeProcedureDescriptors } from "./runtime-node/registration.js";
 import { wireFreeFormString } from "./free-form-string.js";
 import {
   ChannelPublicKeySchema,

@@ -7,7 +7,7 @@
 // which would close an eager module cycle.
 import { z } from "zod";
 
-import { NodeIdSchema, type NodeId } from "../node-id.js";
+import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import { PROJECT_NAME_MAX_LEN, ProjectIdSchema, type ProjectId } from "../project.js";
 import {
   RepoMountHealthSchema,

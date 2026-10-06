@@ -175,7 +175,7 @@ File: `packages/contracts/src/event/envelope.ts` (EXTEND — refactor existing `
 
 ##### T1.4 — Remove the `CapabilityDetails` event-payload wrapper
 
-File: `packages/contracts/src/event/version.ts`, `packages/contracts/src/event/envelope.ts` and `packages/contracts/src/runtime-node.ts` (EDIT). Provides: `CapabilityDetails` and the `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdatedPayload` aliases leave the contracts, with their schemas. No session event carries a driver's capability record: the record lives in the driver capability tables and `GetCapabilitiesResult` ([Plan-003](./003-provider-driver-contract-and-capabilities.md)), and a machine's capabilities are never a session's events. Depends: none. IdempotencyClass: N/A (type).
+File: `packages/contracts/src/event/version.ts`, `packages/contracts/src/event/envelope.ts` and `packages/contracts/src/runtime-node/registration.ts` (EDIT). Provides: `CapabilityDetails` and the `RuntimeNodeCapabilityDeclaredPayload` / `RuntimeNodeCapabilityUpdatedPayload` aliases leave the contracts, with their schemas. No session event carries a driver's capability record: the record lives in the driver capability tables and `GetCapabilitiesResult` ([Plan-003](./003-provider-driver-contract-and-capabilities.md)), and a machine's capabilities are never a session's events. Depends: none. IdempotencyClass: N/A (type).
 
 - **Spec coverage:** Spec-005 §Device And Machine List (control plane) (a machine's capabilities are never a session's events)
 - **Verifies invariant:** none (type removal; closes Plan-003 CP-003-3)

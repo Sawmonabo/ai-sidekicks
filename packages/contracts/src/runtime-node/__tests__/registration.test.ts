@@ -2,7 +2,7 @@
 // record, so the request's name must be an ACME challenge name and nothing else.
 import { describe, expect, it } from "vitest";
 
-import { RuntimeNodeCertificateChallengeSetRequestSchema } from "../runtime-node.js";
+import { RuntimeNodeCertificateChallengeSetRequestSchema } from "../registration.js";
 
 describe("runtimenode.certificateChallengeSet", () => {
   const value = "x".repeat(43);

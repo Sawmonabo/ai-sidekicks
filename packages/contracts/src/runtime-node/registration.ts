@@ -5,15 +5,15 @@
 // carry the statement a trusted key signed.
 import { z } from "zod";
 
-import { APP_VERSION_MAX_LEN } from "./device.js";
+import { APP_VERSION_MAX_LEN } from "../device.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
   EmptyPayloadSchema,
   type EmptyPayload,
-} from "./method-descriptor.js";
-import { NodeIdSchema, type NodeId } from "./node-id.js";
-import { wireFreeFormString } from "./free-form-string.js";
+} from "../method-descriptor.js";
+import { NodeIdSchema, type NodeId } from "./id.js";
+import { wireFreeFormString } from "../free-form-string.js";
 import {
   MACHINE_OR_DEVICE_NAME_MAX_LEN,
   MachineIdentityKeySchema,
@@ -23,7 +23,7 @@ import {
   type MachineIdentityKey,
   type RuntimeNodeRemovedStatement,
   type RuntimeNodeRenamedStatement,
-} from "./trust-statement.js";
+} from "../trust-statement.js";
 
 /** The longest DNS name, per RFC 1035. */
 const DNS_NAME_MAX_LEN = 253;

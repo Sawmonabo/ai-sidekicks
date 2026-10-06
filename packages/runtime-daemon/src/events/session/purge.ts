@@ -30,7 +30,7 @@ import type {
   EventCompactedPayload,
   EventCompactedRemovedSession,
 } from "@ai-sidekicks/contracts/event/declared-variants";
-import type { NodeId } from "@ai-sidekicks/contracts/node-id";
+import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Database, Statement } from "better-sqlite3";
 

@@ -11,7 +11,7 @@ import {
   type SourceEpoch,
   type SourcePosition,
 } from "./envelope.js";
-import { NodeIdSchema, type NodeId } from "../node-id.js";
+import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import type { RepoWorkspaceLifecyclePayload } from "../repo/mount.js";
 import type { SessionCreatedPayload } from "../session/created.js";
 import { wireFreeFormString } from "../free-form-string.js";

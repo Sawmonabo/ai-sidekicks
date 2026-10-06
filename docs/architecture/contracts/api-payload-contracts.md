@@ -1426,7 +1426,7 @@ Method-name strings are `dotted-camelCase` per `METHOD_NAME_FORMAT`, defined in 
 
 ### Machine Registration Method Registry
 
-The machine's own record on the control plane: the daemon registers it, and the person renames or removes it from any linked device. Every call is decided against the caller's verified PASETO `sub`; a call that changes a row decides against that row read under lock in the same transaction, and a caller who does not own the machine is refused `runtimenode.permission_denied`, the one refusal that never says whether the machine exists. The owning user is always the caller's verified identity and never a request member. The shapes are in `packages/contracts/src/runtime-node.ts`, and the statements rename and remove carry in `packages/contracts/src/trust-statement.ts`.
+The machine's own record on the control plane: the daemon registers it, and the person renames or removes it from any linked device. Every call is decided against the caller's verified PASETO `sub`; a call that changes a row decides against that row read under lock in the same transaction, and a caller who does not own the machine is refused `runtimenode.permission_denied`, the one refusal that never says whether the machine exists. The owning user is always the caller's verified identity and never a request member. The shapes are in `packages/contracts/src/runtime-node/registration.ts`, and the statements rename and remove carry in `packages/contracts/src/trust-statement.ts`.
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
