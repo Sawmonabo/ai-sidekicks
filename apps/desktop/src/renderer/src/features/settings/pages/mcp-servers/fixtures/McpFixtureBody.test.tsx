@@ -3,7 +3,7 @@
 // fine, and one whose binding store could not be read; a plugin's server and a project's unused
 // copy of a name join them where a case reads where each binding applies. Every status and
 // outcome is drawn as the daemon reported it, and a server's readings and controls are drawn only
-// once it is picked from the list.
+// while it is selected: the first server when the page opens, or the one picked from the list.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -325,7 +325,7 @@ describe("McpFixtureBody", () => {
       selectServer(container, "scratchpad", nth).querySelector(".meridian-nothing--not-checked")
         ?.textContent;
     expect(degradedLine(0)).toBe(
-      "“On for runs” and the per-tool settings cannot be read right now. Those controls are not " +
+      "On for runs and the per-tool settings cannot be read right now. Those controls are not " +
         "drawn because the reading they act on did not arrive; everything else on this page is " +
         "offered exactly as usual.",
     );
@@ -455,17 +455,45 @@ describe("McpFixtureBody", () => {
 });
 
 describe("McpFixtureBody — the list and the selected server", () => {
-  it("draws no readings or controls until a server is picked, and says how to pick", async () => {
-    const { container } = await renderSettledMcpPage(operationsServing([FILESYSTEM]));
-    const detail = container.querySelector(".meridian-mcp__detail");
-    expect(detail?.textContent).toBe("Pick a server on the left to see what it is allowed to do.");
-    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
-    expect(entryNamed(container, "filesystem")?.getAttribute("aria-current")).toBeNull();
-    // Negative control: picking it draws its readings and controls in the same pane.
-    const picked = selectServer(container, "filesystem");
-    expect(picked.textContent).toContain("Running sessions");
-    expect(picked.querySelectorAll('[role="switch"]').length).toBeGreaterThan(0);
+  it("opens on the first server, and selects nothing once the selected one leaves", async () => {
+    let served: readonly McpServerInventoryEntry[] = [FILESYSTEM, ISSUE_TRACKER];
+    let announceChange = (): void => undefined;
+    const { container, clock } = await renderSettledMcpPage(
+      operationsServing([], {
+        listInventory: async () => await Promise.resolve({ servers: served }),
+        subscribeInventoryChanges: (onChange) => {
+          announceChange = onChange;
+          return () => undefined;
+        },
+      }),
+    );
+    const detail = (): Element | null => container.querySelector(".meridian-mcp__detail");
     expect(entryNamed(container, "filesystem")?.getAttribute("aria-current")).toBe("true");
+    expect(detail()?.textContent).toContain("Running sessions");
+    expect(detail()?.querySelectorAll('[role="switch"]').length).toBeGreaterThan(0);
+
+    // Negative control: a server that is not the selected one leaving keeps the selection.
+    served = [FILESYSTEM];
+    act(() => {
+      announceChange();
+    });
+    await settleScheduledRead(clock);
+    expect(entryNamed(container, "filesystem")?.getAttribute("aria-current")).toBe("true");
+
+    served = [ISSUE_TRACKER];
+    act(() => {
+      announceChange();
+    });
+    await settleScheduledRead(clock);
+    expect(detail()?.textContent).toBe(
+      "Pick a server on the left to see what it is allowed to do.",
+    );
+    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    expect(entryNamed(container, "issue-tracker")?.getAttribute("aria-current")).toBeNull();
+    // Picking it draws its readings and controls in the same pane.
+    const picked = selectServer(container, "issue-tracker");
+    expect(picked.textContent).toContain("Running sessions");
+    expect(entryNamed(container, "issue-tracker")?.getAttribute("aria-current")).toBe("true");
   });
 
   it("moves a reading's age when the clock passes the next figure, and not before", async () => {

@@ -20,12 +20,12 @@ import { ToolSettingList } from "./ToolSettingList.js";
 import type { McpMutationOutcome, McpToolFacetChange } from "../mutation.js";
 
 // What the degraded server says when the per-tool readings are missing, and when the binding's
-// own switch is missing too, its control name set off in quotes.
+// own switch is missing too.
 const TOOL_READINGS_MISSING_LINE =
   "Per-tool settings cannot be read right now. Those controls are not drawn because the " +
   "reading they act on did not arrive; everything else on this page is offered exactly as usual.";
 const SWITCH_AND_TOOL_READINGS_MISSING_LINE =
-  "“On for runs” and the per-tool settings cannot be read right now. Those controls are not " +
+  "On for runs and the per-tool settings cannot be read right now. Those controls are not " +
   "drawn because the reading they act on did not arrive; everything else on this page is " +
   "offered exactly as usual.";
 

@@ -74,7 +74,8 @@ export interface McpServerOperations {
 
 /**
  * The MCP servers list and the selected server's controls, driven by the calls in `operations`.
- * Nothing is selected until a person picks a server.
+ * The first server is selected when the list is first served; nothing is, once the selected one
+ * leaves the list.
  */
 export function McpFixtureBody(props: {
   readonly bridge: PlatformBridge;
@@ -94,8 +95,8 @@ export function McpFixtureBody(props: {
   const clock = useClock();
   const ownerWindow = useOwnerWindow();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
-  // The selected server's binding key; a selection whose server leaves the inventory selects
-  // nothing.
+  // The selected server's binding key, the first server's until a person picks another; a
+  // selection whose server leaves the inventory selects nothing.
   const [selectedKey, setSelectedKey] = useState<string | undefined>(undefined);
   // No key within the bridge: the binding is the key inside the map.
   const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
@@ -242,10 +243,12 @@ export function McpFixtureBody(props: {
       <Nothing key={provider} kind="empty" placement="block" title={noServersLineFor(provider)} />
     ));
   }
-  const selected =
-    selectedKey === undefined
-      ? undefined
-      : servers.find((entry) => mcpBindingKeyOf(entry) === selectedKey);
+  const firstServer = servers[0];
+  if (selectedKey === undefined && firstServer !== undefined) {
+    // Set during render, so the first draw already shows the first server's pane.
+    setSelectedKey(mcpBindingKeyOf(firstServer));
+  }
+  const selected = servers.find((entry) => mcpBindingKeyOf(entry) === selectedKey);
   return (
     <div className="meridian-mcp">
       <div className="meridian-mcp__list">
