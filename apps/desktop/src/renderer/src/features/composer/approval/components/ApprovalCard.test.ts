@@ -264,7 +264,7 @@ describe("a network ask's Decline can block the host", () => {
 });
 
 describe("the action row is keyboard-walkable", () => {
-  it("moves focus between the faces with an arrow and with a vim key, and suppresses the page scroll", () => {
+  it("moves focus between the faces with the arrows, and suppresses the page scroll", () => {
     renderCard(pendingRecord());
     const actions = screen.getByRole("toolbar", { name: "Answer this request" });
     const decline = screen.getByRole("button", { name: "Decline" });
@@ -275,7 +275,7 @@ describe("the action row is keyboard-walkable", () => {
     expect(document.activeElement).toBe(allow);
     // `fireEvent` answers false when a handler called `preventDefault`.
     expect(arrowHandled).toBe(false);
-    fireEvent.keyDown(actions, { key: "h" });
+    fireEvent.keyDown(actions, { key: "ArrowLeft" });
     expect(document.activeElement).toBe(decline);
   });
 

@@ -4,9 +4,9 @@
 // carry a standing allow. On a network ask `Decline` carries an arrow that blocks the host for the
 // session. `Approve once` and a plain `Decline` send no `rememberedScope`. The answer names no
 // scope, so the daemon applies the one the ask was raised with. The faces are a `toolbar` walked
-// with arrows and `h`/`l`, both suppressing page scroll. The first press on a plain `Decline`
-// opens one optional `why not` line under the faces; a second press, or Enter in the line,
-// declines with what is typed there, and every decline sends that line while it is open.
+// with the left and right arrows, which do not scroll the page. The first press on a plain
+// `Decline` opens one optional `why not` line under the faces; a second press, or Enter in the
+// line, declines with what is typed there, and every decline sends that line while it is open.
 
 import type {
   ApprovalDecision,
@@ -375,12 +375,12 @@ function allowArrowFor(
   };
 }
 
-/** Arrow and vim movement, and nothing else. `0` means this key is not ours. */
+/** The left and right arrows, and nothing else. `0` means this key is not ours. */
 function movementStep(key: string): number {
-  if (key === "ArrowRight" || key === "l") {
+  if (key === "ArrowRight") {
     return 1;
   }
-  if (key === "ArrowLeft" || key === "h") {
+  if (key === "ArrowLeft") {
     return -1;
   }
   return 0;
