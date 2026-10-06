@@ -44,7 +44,7 @@ export function DiffFileEntryButton({
             {entry.path}
           </span>
           {entry.stepName === undefined ? null : (
-            <span className="meridian-diff-files__step" title={`Changed by ${entry.stepName}`}>
+            <span className="meridian-diff-files__step" title={entry.stepName}>
               {entry.stepName}
             </span>
           )}

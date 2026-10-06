@@ -99,19 +99,3 @@ export function outputSpeedLevelsFor(
   }
   return model.outputSpeedLevels ?? report.outputSpeedLevels;
 }
-
-/**
- * Whether this model's speed vocabulary carries this speed, so a speed change may be sent.
- * Fails closed: an unread catalog, an absent vocabulary and an empty one all answer no.
- */
-export function catalogCarriesOutputSpeed(
-  catalog: DriverCatalogReading | undefined,
-  driverName: string | undefined,
-  modelId: string | undefined,
-  outputSpeed: string,
-): boolean {
-  if (catalog === undefined) {
-    return false;
-  }
-  return outputSpeedLevelsFor(catalog, driverName, modelId)?.includes(outputSpeed) === true;
-}

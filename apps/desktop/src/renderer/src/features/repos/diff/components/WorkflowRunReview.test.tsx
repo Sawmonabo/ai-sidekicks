@@ -1,13 +1,14 @@
 // Review over a workflow run, read from the fixture daemon: a run that changed files draws them
 // with the step that changed each, a run that changed nothing says so, and a refused read shows
-// the daemon's refusal rather than an empty change set.
+// the daemon's refusal rather than an empty change set, with a `Try again` that reads it again.
 
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import { advanceScenarioUntil } from "#test/helpers/scenario-manual-clock.js";
 import type { WorkflowRunComparisonRef } from "#renderer/routing/panes/pane-address.js";
@@ -35,13 +36,14 @@ const PAUSED_RUN: WorkflowRunComparisonRef = {
 
 /**
  * Review over `comparison`, at the address the run page's `Open in Review` writes, in the run's
- * session, on a bridge the case answers. Returns once `settled` holds, driving the frozen clock.
+ * session, on a bridge the case answers. Returns the calls made and the engine driving the frozen
+ * clock, once `settled` holds.
  */
 async function renderRunReview(
   comparison: WorkflowRunComparisonRef,
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
   settled: () => void,
-): Promise<readonly RecordedDaemonCall[]> {
+): Promise<{ readonly calls: readonly RecordedDaemonCall[]; readonly engine: ScenarioEngine }> {
   const { bridge, calls, engine } = bridgeAnswering(answer);
   render(
     <DiffPane
@@ -53,12 +55,12 @@ async function renderRunReview(
     { wrapper: bridgeWrapper(bridge, engine.clock) },
   );
   await advanceScenarioUntil(engine, settled);
-  return calls;
+  return { calls, engine };
 }
 
 describe("Review over a workflow run", () => {
   it("draws the files the run changed, each marked with the step that changed it", async () => {
-    const calls = await renderRunReview(
+    const { calls } = await renderRunReview(
       FINISHED_RUN,
       async (_call, passThrough) => passThrough(),
       () => {
@@ -98,12 +100,19 @@ describe("Review over a workflow run", () => {
     expect(screen.queryByRole("button", { name: /All files/u })).toBeNull();
   });
 
-  it("shows the daemon's refusal, not an empty change set, when the read is refused", async () => {
-    await renderRunReview(
+  it("shows the daemon's refusal, not an empty change set, and reads again on Try again", async () => {
+    let diffReads = 0;
+    const { calls, engine } = await renderRunReview(
       FINISHED_RUN,
       async (call, passThrough) => {
         if (call.method === "gitflow.diffRead") {
-          throw { code: "gitflow.read_failed", message: "The run's snapshots could not be read." };
+          diffReads += 1;
+          if (diffReads === 1) {
+            throw {
+              code: "gitflow.read_failed",
+              message: "The run's snapshots could not be read.",
+            };
+          }
         }
         return passThrough();
       },
@@ -113,7 +122,15 @@ describe("Review over a workflow run", () => {
     );
 
     expect(screen.getByText("The run's snapshots could not be read.")).toBeDefined();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
     expect(screen.queryByText("This run changed no files")).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    });
+    await advanceScenarioUntil(engine, () => {
+      expect(screen.getByRole("button", { name: /reviews\/pr-412\.md/u })).toBeDefined();
+    });
+    expect(calls.filter((call) => call.method === "gitflow.diffRead")).toHaveLength(2);
+    expect(screen.queryByText("Could not load what this run changed")).toBeNull();
   });
 });

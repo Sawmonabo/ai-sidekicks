@@ -4,6 +4,7 @@
 // The chip's × is client-side abandonment with the daemon's reaper claiming the spool, and the
 // line under it says so rather than promising an instant reclaim.
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
@@ -54,15 +55,12 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           </span>
         ) : null}
         {chip.offersRetry ? (
-          <button
-            type="button"
-            className="meridian-composer-attachment__act"
-            onClick={() => {
+          <TryAgainButton
+            word="Retry"
+            onPress={() => {
               props.onRetry(chip.localId);
             }}
-          >
-            Retry
-          </button>
+          />
         ) : null}
         {chip.offersAbandon ? (
           <button

@@ -53,7 +53,7 @@ export const DiffRowView: React.MemoExoticComponent<
           <Glyph name="diff" size={GLYPH_SIZE_ROW} />
           {file?.path ?? ""}
           {file?.stepName === undefined ? null : (
-            <span className="meridian-diff__file-step">{`Changed by ${file.stepName}`}</span>
+            <span className="meridian-diff__file-step">{file.stepName}</span>
           )}
           {changeNotes.length === 0 ? null : (
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>

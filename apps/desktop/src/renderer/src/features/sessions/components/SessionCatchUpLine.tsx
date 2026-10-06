@@ -3,6 +3,7 @@
 // names no technical cause, which goes to the window's diagnostic capture, and `Try again` reads
 // each failed read again; the screen never polls.
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import {
@@ -38,19 +39,12 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
       {words === "could-not-catch-up" ? (
         <>
           {"Couldn't catch up · "}
-          <button
-            type="button"
-            className={
-              "meridian-action-button meridian-action-button--small " +
-              "meridian-action-button--outline"
-            }
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               props.sessionStore.failedDependentReads.retryFailed();
               props.onTryAgain(props.sessionStore.sessionId);
             }}
-          >
-            Try again
-          </button>
+          />
         </>
       ) : (
         "Catching up…"

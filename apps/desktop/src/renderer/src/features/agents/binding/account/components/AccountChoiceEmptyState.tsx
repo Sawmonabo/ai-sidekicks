@@ -2,6 +2,7 @@
 // empty states, only one of which is "the registry holds none"; an empty picker would report an
 // unanswered registry as an answer of nothing. A refusal renders verbatim with a way to retry.
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { AccountAxisReading } from "../axis.js";
@@ -36,11 +37,7 @@ export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): Re
       <InlineRefusal
         code={reading.refusal.code}
         detail={reading.refusal.detail}
-        action={
-          <button type="button" onClick={onReopen}>
-            Try again
-          </button>
-        }
+        action={<TryAgainButton onPress={onReopen} />}
       />
     );
   }

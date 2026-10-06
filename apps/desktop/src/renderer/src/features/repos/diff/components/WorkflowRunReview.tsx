@@ -3,11 +3,17 @@
 // scope row, base picker, notes or ship strip). Split from `DiffPane.tsx` so its read runs only for
 // a run's address.
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import type { PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
 import { useWorkflowRunDiff } from "../hooks/useWorkflowRunDiff.js";
 import type { WorkflowRunDiffRequest } from "../workflow-run-diff-read.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
+
+/** The loading line of a run's Review, drawn once its read has run past the short delay. */
+export const RUN_DIFF_LOADING_TITLE = "Loading what this run changed…";
 
 /** What the run's Review is drawn from: the daemon and the comparison to read. */
 export interface WorkflowRunReviewProps {
@@ -21,10 +27,11 @@ export interface WorkflowRunReviewProps {
  */
 export function WorkflowRunReview(props: WorkflowRunReviewProps): React.JSX.Element {
   const { state, readAgain } = useWorkflowRunDiff(props.bridge, props.request);
+  const clock = useClock();
   if (state.kind === "not-loaded") {
     return (
       <div className="meridian-diff-pane__empty-state">
-        <Nothing kind="not-loaded" placement="block" title="Loading what this run changed…" />
+        <LoadingNotice clock={clock} placement="block" title={RUN_DIFF_LOADING_TITLE} />
       </div>
     );
   }
@@ -36,18 +43,7 @@ export function WorkflowRunReview(props: WorkflowRunReviewProps): React.JSX.Elem
           placement="block"
           title="Could not load what this run changed"
           detail={state.refusal.detail}
-          action={
-            <button
-              type="button"
-              className={
-                "meridian-action-button meridian-action-button--small " +
-                "meridian-action-button--outline"
-              }
-              onClick={readAgain}
-            >
-              Try again
-            </button>
-          }
+          action={<TryAgainButton onPress={readAgain} />}
         />
       </div>
     );

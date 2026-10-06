@@ -19,6 +19,7 @@ import type { McpServerBindingRef } from "@ai-sidekicks/contracts/mcp/mcp";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/platform-bridge.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { usePushDrivenRead } from "#renderer/store/reads/hooks/usePushDrivenRead.js";
@@ -149,15 +150,11 @@ export function McpFixtureBody(props: {
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               setOpeningOrdinal((held) => held + 1);
             }}
-          >
-            Try again
-          </button>
+          />
         }
       />
     );

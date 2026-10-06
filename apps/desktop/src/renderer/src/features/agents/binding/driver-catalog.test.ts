@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { catalogCarriesOutputSpeed, effortLevelsFor } from "./driver-catalog.js";
+import { effortLevelsFor, outputSpeedLevelsFor } from "./driver-catalog.js";
 import {
   DRIVER_CATALOG_FIXTURE,
   SPEED_TIER_CATALOG_FIXTURE,
@@ -23,18 +23,18 @@ describe("driver catalog — effort is per model", () => {
 });
 
 describe("driver catalog — speed is per model where the provider publishes it so", () => {
-  const carries = (modelId: string, outputSpeed: string): boolean =>
-    catalogCarriesOutputSpeed(SPEED_TIER_CATALOG_FIXTURE, "codex", modelId, outputSpeed);
+  const levelsOf = (modelId: string): readonly string[] | undefined =>
+    outputSpeedLevelsFor(SPEED_TIER_CATALOG_FIXTURE, "codex", modelId);
 
-  it("refuses any speed on a model that publishes no tiers", () => {
-    // Its siblings publish tiers, so only reading this model's own absence refuses here.
-    expect(carries("untiered", "priority")).toBe(false);
+  it("answers undefined for a model that publishes no tiers", () => {
+    // Its siblings publish tiers, so only reading this model's own absence answers none here.
+    expect(levelsOf("untiered")).toBeUndefined();
   });
 
-  it("refuses a speed outside the model's own list, though a sibling model lists it", () => {
-    // A provider-wide list would admit `priority` here.
-    expect(carries("flex-only", "priority")).toBe(false);
-    // Negative control: the model that lists it admits it.
-    expect(carries("tiered", "priority")).toBe(true);
+  it("answers the model's own list, not one a sibling model lists", () => {
+    // A provider-wide list would carry `priority` here.
+    expect(levelsOf("flex-only")).not.toContain("priority");
+    // Negative control: the model that lists it carries it.
+    expect(levelsOf("tiered")).toContain("priority");
   });
 });

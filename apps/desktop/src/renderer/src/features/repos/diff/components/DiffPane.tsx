@@ -8,11 +8,13 @@ import "./diff.css";
 import type { SessionId } from "@ai-sidekicks/contracts/session/session";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/run";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
+import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PaneContextOf } from "#renderer/registries/panes/pane-body-for-kind.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
-import { WorkflowRunReview } from "./WorkflowRunReview.js";
+import { RUN_DIFF_LOADING_TITLE, WorkflowRunReview } from "./WorkflowRunReview.js";
 import { type DiffModel } from "../diff-model.js";
 
 /**
@@ -61,6 +63,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
   const { entity } = context;
   const sessionId = context.sessionStore?.sessionId;
+  const clock = useClock();
 
   return (
     <PaneFrame
@@ -74,7 +77,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
         sessionId === undefined ? (
           // The session's store is still opening; the read names the session it asks about.
           <div className="meridian-diff-pane__empty-state">
-            <Nothing kind="not-loaded" placement="block" title="Loading what this run changed…" />
+            <LoadingNotice clock={clock} placement="block" title={RUN_DIFF_LOADING_TITLE} />
           </div>
         ) : (
           <WorkflowRunReview

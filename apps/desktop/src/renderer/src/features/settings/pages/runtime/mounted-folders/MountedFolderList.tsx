@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useOwnerWindow } from "#renderer/hooks/owner-window/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useSettlementAnnouncement } from "#renderer/hooks/useSettlementAnnouncement.js";
@@ -98,15 +99,11 @@ export function MountedFolderList(props: {
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               setOpeningOrdinal((held) => held + 1);
             }}
-          >
-            Try again
-          </button>
+          />
         }
       />
     );

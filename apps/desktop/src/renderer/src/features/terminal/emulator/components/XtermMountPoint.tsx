@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useChunkLoad, type ChunkLoadState } from "#renderer/hooks/useChunkLoad.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
@@ -148,18 +149,7 @@ function renderEmulatorAbsence(
       kind="error"
       placement="block"
       title="Could not load the terminal"
-      action={
-        <button
-          type="button"
-          className={
-            "meridian-action-button meridian-action-button--small " +
-            "meridian-action-button--outline"
-          }
-          onClick={retry}
-        >
-          Retry
-        </button>
-      }
+      action={<TryAgainButton word="Retry" onPress={retry} />}
     />
   );
 }

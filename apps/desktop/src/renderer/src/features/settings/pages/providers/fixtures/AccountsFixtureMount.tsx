@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 
 import type { ProviderAccountListResponse } from "@ai-sidekicks/contracts/provider/account/account";
+import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { Clock } from "#renderer/lib/clock.js";
 import { callDaemon } from "#renderer/services/daemon/daemon-reply.js";
@@ -74,15 +75,11 @@ export function AccountsFixtureMount(): ReactNode {
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
-          <button
-            type="button"
-            className="meridian-settings-page__action meridian-action-button"
-            onClick={() => {
+          <TryAgainButton
+            onPress={() => {
               setOpeningOrdinal((held) => held + 1);
             }}
-          >
-            Try again
-          </button>
+          />
         }
       />
     );
