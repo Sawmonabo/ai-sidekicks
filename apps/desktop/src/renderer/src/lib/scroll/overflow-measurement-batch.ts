@@ -5,9 +5,9 @@
 // Carries no domain type: the scroll chokepoint imports this module, so importing its
 // vocabulary back would be a cycle. The pass is a `() => void` the caller closes over.
 
-import { getWindow } from "@floating-ui/utils/dom";
-
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
 export interface OverflowMeasurementBatchOptions {
@@ -31,7 +31,7 @@ export class OverflowMeasurementBatch {
   readonly #runPass: () => void;
   readonly #publishOnResize: () => void;
 
-  #resizeObserver: ResizeObserver | undefined;
+  #stopObservingResize: Unsubscribe | undefined;
   #armedFrame: ScheduledHandle | undefined;
   #disposed = false;
 
@@ -52,20 +52,17 @@ export class OverflowMeasurementBatch {
     });
   }
 
-  /** Re-runs the pass whenever the observed element resizes. */
+  /** Re-runs the pass whenever the observed element resizes, until `release`. */
   public observeResize(element: Element): void {
     if (this.#disposed) {
       return;
     }
-    const ObserverConstructor = getWindow(element).ResizeObserver;
-    const observer = new ObserverConstructor(() => {
+    this.#stopObservingResize = observeElementResize(element, () => {
       // Publish first, then arm: the window ranges against the publication, so it must not
       // wait on a frame.
       this.#publishOnResize();
       this.request();
     });
-    observer.observe(element);
-    this.#resizeObserver = observer;
   }
 
   /**
@@ -88,8 +85,8 @@ export class OverflowMeasurementBatch {
    * an unmount that may follow a failed attach.
    */
   public release(): void {
-    this.#resizeObserver?.disconnect();
-    this.#resizeObserver = undefined;
+    this.#stopObservingResize?.();
+    this.#stopObservingResize = undefined;
     if (this.#armedFrame !== undefined) {
       this.#clock.cancel(this.#armedFrame);
       this.#armedFrame = undefined;

@@ -1,5 +1,6 @@
 // The app's one `ResizeObserver` construction site, shared by the preview geometry, the
-// session pane layout, the terminal and the overlay-registration hook. Features never import each
+// session pane layout, the terminal, the overlay-registration hook and the scroll chokepoint's
+// overflow measurement. Features never import each
 // other, so `lib/` holds the one feature detection and teardown.
 
 import { getWindow } from "@floating-ui/utils/dom";
