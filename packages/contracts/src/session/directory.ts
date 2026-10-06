@@ -234,7 +234,7 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
       })
       .strict(),
   ],
-) as unknown as z.ZodType<SessionBinding, SessionBinding>;
+);
 
 /**
  * What `session.create` takes: where the session works and who leads it.

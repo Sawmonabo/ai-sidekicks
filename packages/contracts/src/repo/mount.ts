@@ -33,7 +33,7 @@ export const WorkspaceIdSchema: z.ZodType<WorkspaceId, WorkspaceId> =
  */
 export type ExecutionMode = "bound-root" | "provisioned-worktree";
 /** Wire schema for {@link ExecutionMode}. */
-export const ExecutionModeSchema: z.ZodType<ExecutionMode> = z.enum([
+export const ExecutionModeSchema: z.ZodType<ExecutionMode, ExecutionMode> = z.enum([
   "bound-root",
   "provisioned-worktree",
 ]);

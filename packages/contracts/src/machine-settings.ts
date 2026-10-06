@@ -400,13 +400,6 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   voice: { mode: "hold", callVoice: null },
 });
 
-// `ExecutionModeSchema` is single-T, so an object composing it infers `unknown` as that member's
-// input type; the cast restores the double-T annotation the change request carries.
-const DefaultCheckoutSchema = ExecutionModeSchema as unknown as z.ZodType<
-  ExecutionMode,
-  ExecutionMode
->;
-
 // Each member's value schema, stated once for the whole value and for a change.
 const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   updatesAutomatic: z.boolean(),
@@ -419,7 +412,7 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
     MACHINE_SETTINGS_NAME_MAX_LEN,
     "MachineSettings.advisorModel",
   ).nullable(),
-  defaultCheckout: DefaultCheckoutSchema,
+  defaultCheckout: ExecutionModeSchema,
   newSessionCarriesLastModel: z.boolean(),
   keepAwakeWhileAgentWorks: z.boolean(),
   keepAwakeForOtherDevices: z.boolean(),
