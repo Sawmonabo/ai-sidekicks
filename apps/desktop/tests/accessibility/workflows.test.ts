@@ -44,7 +44,7 @@ const AUDITED_VIEWS: readonly {
     label: "the Runs tab",
     mount: async () => (await mountWorkflowRunsTab()).element,
     // A runs-table heading and an attention line: each draws only once its own read has answered.
-    drawnWords: ["Started by", "waiting on your approval"],
+    drawnWords: ["Started by", "waiting on Approve release"],
   },
   {
     label: "a run's page waiting on a form",
