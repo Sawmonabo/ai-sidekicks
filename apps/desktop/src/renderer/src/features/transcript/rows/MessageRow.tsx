@@ -1,6 +1,6 @@
 // The message card for user, agent and reasoning rows: open body, the author's hue on the edge.
-// A reply's foot stands on its last row once it has had something to read: its time at rest, its
-// Copy revealed on hover and focus. A user's actions are revealed on hover. A live `liveText`
+// A reply's foot stands on its last row once the reply has drawn something to read, and stays
+// for the rest of the turn: its time at rest, its Copy revealed on hover and focus. A user's actions are revealed on hover. A live `liveText`
 // beats the stored body; a user body is the row's `summary` (`user.message` has no payload
 // variant); reasoning is composed by the mount so a policy-withheld body stays distinguishable
 // from an unreadable one.
@@ -21,9 +21,9 @@ import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session-events/wire-payload.js";
-import { outputKindOf } from "./bodies/output-kinds.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
+import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
 
 /** What a mount hands a message card, beyond the row itself. */
@@ -64,20 +64,22 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
   // own message, and a reply drawn as text, copy as plain text and nothing else.
   const copyFlavor: CopyFlavor =
-    isReply && copyText !== undefined && outputKindOf(copyText, assistantMediaType) === "prose"
-      ? "markdown"
-      : "text";
+    isReply && copyText !== undefined ? replyCopyFlavorOf(copyText, assistantMediaType) : "text";
   // A reply's time and Copy sit in its foot, on its last row, and Copy takes every row of the
-  // reply. The foot is drawn once the reply has had text, so a time never stands over an empty
-  // answer, and stays when that text is dropped; Copy shows only while there is text to take. The
-  // time stands at rest and only the Copy waits for a hover or focus.
-  const replyText = useReplyText(props.replyRowIds ?? NO_REPLY_ROWS, props.row.id, copyText);
+  // reply, as markdown when any row is drawn as prose. The foot is drawn once the reply has drawn
+  // text, so a time never stands over an empty answer, and both stay for the rest of the turn.
+  // The time stands at rest and only the Copy waits for a hover or focus.
+  const replyText = useReplyText(
+    props.replyRowIds ?? NO_REPLY_ROWS,
+    props.row.id,
+    isReply && copyText !== undefined ? { text: copyText, flavor: copyFlavor } : undefined,
+  );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
       return { text: copyText ?? "" };
     }
     const wholeReply = replyText.read();
-    return outputKindOf(wholeReply, assistantMediaType) === "prose"
+    return replyText.flavor === "markdown"
       ? replyClipboardContent(wholeReply)
       : { text: wholeReply };
   });
@@ -105,7 +107,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       authorLabel={props.row.actor ?? rowKind.label}
       isSuperseded={props.isSuperseded}
       footer={footer}
-      timePlacement={isReply ? (replyText.hasHadText ? "footer" : "none") : "gutter"}
+      timePlacement={isReply ? (replyText.hasText ? "footer" : "none") : "gutter"}
       footerVisibility={isReply ? "always" : "on-hover"}
     >
       <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>

@@ -51,7 +51,7 @@ describe("the reveal binding — what the viewport is told", () => {
 });
 
 describe("the reveal binding — what a row is published", () => {
-  it("retires the lanes a predicate names, and leaves the others publishing", () => {
+  it("retires the lanes a predicate names, keeping a reply row's text for its foot", () => {
     const clock = new ManualClock();
     const binding = mountBinding(clock);
     const otherLaneId = "session-1:42";
@@ -69,13 +69,24 @@ describe("the reveal binding — what a row is published", () => {
       });
       clock.runFrame();
     });
-    expect(binding.result.current.channel.publishedTextFor(LANE_ID)).toBeDefined();
+    const drawnBeforeRetire = binding.result.current.channel.publishedTextFor(LANE_ID);
+    expect(drawnBeforeRetire).toBeDefined();
 
     act(() => {
-      binding.result.current.retireLanes((laneId) => laneId === LANE_ID);
+      binding.result.current.retireLanes(
+        (laneId) => laneId === LANE_ID,
+        (laneId) => laneId === LANE_ID,
+      );
     });
     expect(binding.result.current.channel.publishedTextFor(LANE_ID)).toBeUndefined();
     expect(binding.result.current.channel.publishedTextFor(otherLaneId)).toBeDefined();
+    // A retired reply row keeps what it drew for its foot until the window lets the row go.
+    const drawnReplyText = binding.result.current.channel.drawnReplyText;
+    expect(drawnReplyText.drawnTextOf(LANE_ID)?.text).toBe(drawnBeforeRetire);
+    act(() => {
+      binding.result.current.forgetDrawnTextOutside((rowId) => rowId !== LANE_ID);
+    });
+    expect(drawnReplyText.drawnTextOf(LANE_ID)).toBeUndefined();
   });
 });
 

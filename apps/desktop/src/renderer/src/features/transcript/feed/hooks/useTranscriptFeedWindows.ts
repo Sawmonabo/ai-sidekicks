@@ -28,6 +28,7 @@ import { type SessionStore } from "#renderer/store/session/session-store.js";
 import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
+import { classifyTranscriptRow } from "../../rows/kind.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
 import { useRunGroupDisclosure } from "./useRunGroupDisclosure.js";
 
@@ -118,15 +119,22 @@ export function useTranscriptFeedWindows(
   );
 
   // A lane whose row this window no longer holds, or holds only inside a terminal run group, is
-  // a turn that is over, so the engine drops it. Asked of the engine's own lanes (at most one
-  // per streaming row) rather than walking the whole log on every event.
-  const retireRevealLanes = reveal.retireLanes;
+  // a turn that is over, so the engine drops it, keeping a reply row's text for its foot. Asked
+  // of the engine's own lanes (at most one per streaming row) rather than walking the whole log
+  // on every event. What a row drew is forgotten once the log's window lets the row go; a row
+  // only folded away is still held.
+  const { retireLanes: retireRevealLanes, forgetDrawnTextOutside } = reveal;
   useEffect(() => {
     retireRevealLanes(
       (laneId) =>
         !transcriptWindow.rowsByKey.has(laneId) || transcriptWindow.collapsedRowIds.has(laneId),
+      (laneId) => {
+        const row = unfurledWindow.rowsByKey.get(laneId);
+        return row !== undefined && classifyTranscriptRow(row)?.kind === "agent-message";
+      },
     );
-  }, [retireRevealLanes, transcriptWindow]);
+    forgetDrawnTextOutside((rowId) => unfurledWindow.rowsByKey.has(rowId));
+  }, [retireRevealLanes, forgetDrawnTextOutside, transcriptWindow, unfurledWindow]);
 
   // Read back off the viewport's reconciled snapshot, so find sees the window on screen; what
   // the cap took is the difference between the two.

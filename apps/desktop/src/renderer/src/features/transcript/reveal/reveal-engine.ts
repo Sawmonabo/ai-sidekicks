@@ -50,11 +50,6 @@ export class RevealEngine {
   readonly #diagnosticEmitter = new Emitter<RevealDiagnostic>("reveal diagnostic");
   /** Insertion order is the queue order the catch-up remainder is offered in. */
   readonly #lanesById = new Map<string, RevealLane>();
-  /**
-   * The ids of retired lanes that had published text, and no text: a reply's foot outlives the
-   * text it stood under. One id per lane this engine streamed, so it never outgrows the session.
-   */
-  readonly #retiredPublishedLaneIds = new Set<string>();
 
   #frameSubmitted = false;
   #disposed = false;
@@ -86,14 +81,6 @@ export class RevealEngine {
   /** The text a consumer may render for this lane. Empty for a lane never seen. */
   public publishedText(laneId: string): string {
     return this.#lanesById.get(laneId)?.publishedText ?? "";
-  }
-
-  /**
-   * Whether this lane has published text: true while it shows some, and still true after the
-   * lane retired and dropped it.
-   */
-  public hasPublishedText(laneId: string): boolean {
-    return this.publishedText(laneId) !== "" || this.#retiredPublishedLaneIds.has(laneId);
   }
 
   public laneState(laneId: string): RevealLaneState | undefined {
@@ -138,14 +125,8 @@ export class RevealEngine {
     return this.#diagnosticEmitter.subscribe(sink);
   }
 
-  /**
-   * Drop a lane whose run ended, so a finished turn stops costing memory; only whether it had
-   * published text is kept.
-   */
+  /** Drop a lane whose run ended, so a finished turn stops costing memory. */
   public retireLane(laneId: string): void {
-    if (this.publishedText(laneId) !== "") {
-      this.#retiredPublishedLaneIds.add(laneId);
-    }
     this.#lanesById.delete(laneId);
   }
 
@@ -155,7 +136,6 @@ export class RevealEngine {
     this.#frameEmitter.clear();
     this.#diagnosticEmitter.clear();
     this.#lanesById.clear();
-    this.#retiredPublishedLaneIds.clear();
     this.#disposed = true;
   }
 

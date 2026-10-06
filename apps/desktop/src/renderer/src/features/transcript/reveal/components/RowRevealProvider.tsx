@@ -1,11 +1,13 @@
 // The reveal engine's published text, reachable from a row body through a context rather than a
 // prop: row props carry what the list decides about a row, and live text is not that. The
 // channel is stable and each row reads its own lane through `useSyncExternalStore`, so a drained
-// frame that moved other lanes re-renders nothing here.
+// frame that moved other lanes re-renders nothing here. Beside it rides the record of what each
+// reply row has drawn, which outlives a retired lane.
 
 import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { type DrawnReplyText } from "../../copy/drawn-reply-text.js";
 
 /** How a row body reaches the text one lane of the reveal engine is publishing. */
 export interface RowRevealContextValue {
@@ -16,8 +18,8 @@ export interface RowRevealContextValue {
    * body and would render an empty one as a turn whose author said nothing.
    */
   readonly publishedTextFor: (laneId: string) => string | undefined;
-  /** Whether one lane has published text, still true after the lane retired and dropped it. */
-  readonly hasPublishedText: (laneId: string) => boolean;
+  /** What each reply row has drawn, kept after its lane retires or its row unmounts. */
+  readonly drawnReplyText: DrawnReplyText;
   /** Called once per drained frame. The row decides whether its text moved. */
   readonly subscribe: (sink: () => void) => Unsubscribe;
 }

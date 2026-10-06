@@ -29,6 +29,16 @@ import {
 import { useReveal } from "../reveal/hooks/useReveal.js";
 import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
+import { DrawnReplyText } from "../copy/drawn-reply-text.js";
+
+/** A channel that draws `liveTextByRowId` and keeps its own record of what reply rows drew. */
+function channelDrawing(liveTextByRowId: ReadonlyMap<string, string>): RowRevealContextValue {
+  return {
+    publishedTextFor: (rowId) => liveTextByRowId.get(rowId),
+    drawnReplyText: new DrawnReplyText(),
+    subscribe: () => () => undefined,
+  };
+}
 
 function renderMessageCard(
   overrides: {
@@ -150,19 +160,19 @@ describe("a message's Copy", () => {
       sampleRunRow({ id: "reply-next", type: "assistant.message" }),
     ]);
     expect(nextTurn.get("reply-next")).toStrictEqual(["reply-next"]);
-    const drawnText = new Map([
-      ["reply-opening", "Read **the reader** first."],
-      ["tool-between", "tool output: 3 files changed"],
-    ]);
+    // The last row is declared plain text, but an earlier row is drawn as prose, so the whole
+    // reply copies as markdown.
     const copied = await pressCopy({
       id: "reply-closing",
+      payload: { contentType: "text/plain" },
       content: { status: "available", body: "Then rename it." },
       replyRowIds: replyRows.get("reply-closing"),
-      revealChannel: {
-        publishedTextFor: (rowId) => drawnText.get(rowId),
-        hasPublishedText: (rowId) => drawnText.has(rowId),
-        subscribe: () => () => undefined,
-      },
+      revealChannel: channelDrawing(
+        new Map([
+          ["reply-opening", "Read **the reader** first."],
+          ["tool-between", "tool output: 3 files changed"],
+        ]),
+      ),
     });
 
     expect(copied).toStrictEqual([
@@ -181,7 +191,7 @@ describe("a message's Copy", () => {
 });
 
 describe("a reply's foot", () => {
-  it("stands on the reply's last row alone once it has text, and keeps its time when dropped", () => {
+  it("stands on the reply's last row alone once it has text, and keeps it when dropped", async () => {
     const occurredAt = "2026-09-02T10:00:00.000Z";
     const replyRows = replyRowIdsByFootRowId([
       sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
@@ -230,11 +240,7 @@ describe("a reply's foot", () => {
     const closingAfterText = renderMessageCard({
       id: "reply-closing",
       replyRowIds: replyRows.get("reply-closing"),
-      revealChannel: {
-        publishedTextFor: (rowId) => (rowId === "reply-opening" ? "Read it first." : undefined),
-        hasPublishedText: (rowId) => rowId === "reply-opening",
-        subscribe: () => () => undefined,
-      },
+      revealChannel: channelDrawing(new Map([["reply-opening", "Read it first."]])),
     });
     expect(timesIn(closingAfterText)).toHaveLength(1);
     expect(
@@ -242,7 +248,7 @@ describe("a reply's foot", () => {
     ).toHaveLength(1);
 
     // The reply's text was drawn and then dropped, as when its row leaves the window or folds into
-    // its run group: the foot keeps its time, and Copy waits for text to take.
+    // its run group: the foot keeps its time and its Copy, which still takes the dropped text.
     const clock = new ManualClock();
     const reveal = renderHook(() =>
       useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }),
@@ -255,18 +261,61 @@ describe("a reply's foot", () => {
     });
     expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBe("Rename it.");
     act(() => {
-      reveal.result.current.retireLanes((laneId) => laneId === "reply-closing");
+      reveal.result.current.retireLanes(
+        (laneId) => laneId === "reply-closing",
+        () => true,
+      );
     });
     expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBeUndefined();
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const copied: ClipboardContent[] = [];
+    vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
+      copied.push(content);
+    });
     const closingAfterDrop = renderMessageCard({
       id: "reply-closing",
       replyRowIds: replyRows.get("reply-closing"),
       revealChannel: reveal.result.current.channel,
+      fixture,
     });
     const footAfterDrop = closingAfterDrop.querySelector(".meridian-transcript-row-layout__footer");
     expect(timesIn(closingAfterDrop)).toHaveLength(1);
     expect(footAfterDrop?.contains(timesIn(closingAfterDrop)[0] ?? null)).toBe(true);
-    expect(footAfterDrop?.querySelector("button")).toBeNull();
+    const copyAfterDrop = footAfterDrop?.querySelector("button");
+    expect(copyAfterDrop?.textContent).toBe("Copy");
+    await act(async () => {
+      fireEvent.click(copyAfterDrop ?? closingAfterDrop);
+      await Promise.resolve();
+    });
+    expect(copied).toStrictEqual([{ text: "Rename it.", html: "<p>Rename it.</p>" }]);
+  });
+
+  it("keeps the foot on a new empty last row when the earlier row holds only a stored body", () => {
+    const occurredAt = "2026-09-02T10:00:00.000Z";
+    const replyRows = replyRowIdsByFootRowId([
+      sampleRunRow({ id: "reply-opening", type: "assistant.message" }),
+      sampleRunRow({ id: "reply-closing", type: "assistant.message" }),
+    ]);
+    const channel = channelDrawing(new Map());
+    // The new last row arrives with nothing to read, before the earlier row has drawn.
+    const closing = renderMessageCard({
+      id: "reply-closing",
+      replyRowIds: replyRows.get("reply-closing"),
+      revealChannel: channel,
+    });
+    expect(closing.querySelectorAll(`[title="${occurredAt}"]`)).toHaveLength(0);
+
+    // The earlier row draws its stored body, with no live text: the foot comes to the last row.
+    const opening = renderMessageCard({
+      id: "reply-opening",
+      content: { status: "available", body: "Read the reader first." },
+      replyRowIds: replyRows.get("reply-opening"),
+      revealChannel: channel,
+    });
+    expect(opening.querySelectorAll(`[title="${occurredAt}"]`)).toHaveLength(0);
+    const foot = closing.querySelector(".meridian-transcript-row-layout__footer");
+    expect(foot?.querySelectorAll(`[title="${occurredAt}"]`)).toHaveLength(1);
+    expect(foot?.querySelector("button")?.textContent).toBe("Copy");
   });
 });
 
