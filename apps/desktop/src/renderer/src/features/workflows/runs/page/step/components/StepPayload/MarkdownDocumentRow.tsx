@@ -1,4 +1,9 @@
-import { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
+import "./MarkdownDocumentRow.css";
+
+import {
+  MarkdownNodes,
+  type MarkdownRenderContext,
+} from "#renderer/components/Markdown/MarkdownNodes.js";
 import type { MarkdownDocumentRow as MarkdownDocumentRowData } from "./markdown-document-rows.js";
 
 /**
@@ -12,21 +17,17 @@ export function MarkdownDocumentRow(props: {
   const { row, context } = props;
   if (row.kind === "blocks") {
     return (
-      <div className="meridian-markdown meridian-markdown--row">
+      <div className="meridian-markdown meridian-workflow-payload__markdown-row">
         <MarkdownNodes nodes={row.nodes} context={context} />
       </div>
     );
   }
   return (
-    <div
-      className={
-        "meridian-markdown meridian-markdown--row " + "meridian-markdown__footnote-definition"
-      }
-    >
-      <span className="meridian-markdown__footnote-label">
+    <div className="meridian-markdown meridian-workflow-payload__footnote-definition">
+      <span className="meridian-workflow-payload__footnote-label">
         {row.definition.label ?? row.definition.identifier}
       </span>
-      <div className="meridian-markdown__footnote-body">
+      <div className="meridian-workflow-payload__footnote-body">
         <MarkdownNodes nodes={row.definition.children} context={context} />
       </div>
     </div>

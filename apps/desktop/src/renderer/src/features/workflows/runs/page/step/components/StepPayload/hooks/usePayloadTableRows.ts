@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
-import { parseMarkdownDocument } from "#renderer/components/Markdown/markdown-document-rows.js";
+import { parseMarkdownDocument } from "../markdown-document-rows.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
 import { PayloadTableRows, type PayloadTableRow } from "../payload-rows.js";
 

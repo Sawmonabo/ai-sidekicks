@@ -10,10 +10,7 @@ import type {
   WorkflowPairedItem,
 } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
-import type {
-  MarkdownDocumentRow,
-  ParsedMarkdownDocument,
-} from "#renderer/components/Markdown/markdown-document-rows.js";
+import type { MarkdownDocumentRow, ParsedMarkdownDocument } from "./markdown-document-rows.js";
 import type { MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
 import { formatByteQuantity, formatCount } from "#renderer/lib/wire/figures.js";
 

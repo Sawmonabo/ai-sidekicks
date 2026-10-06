@@ -2,7 +2,7 @@ import "./PayloadTable.css";
 
 import type { WorkflowItem } from "@ai-sidekicks/contracts/workflow/definition/definition";
 
-import { MarkdownDocumentRow } from "#renderer/components/Markdown/MarkdownDocumentRow.js";
+import { MarkdownDocumentRow } from "./MarkdownDocumentRow.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { useDrawnStringRead } from "./hooks/useDrawnStringRead.js";
 import { usePayloadTableRows } from "./hooks/usePayloadTableRows.js";

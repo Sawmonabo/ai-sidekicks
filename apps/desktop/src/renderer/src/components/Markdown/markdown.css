@@ -135,26 +135,6 @@
   color: var(--meridian-text-faint);
 }
 
-/* A document drawn on its own, one row at a time: a row's last block leaves no margin below it. */
-.meridian-markdown--row > :last-child {
-  margin-bottom: 0;
-}
-
-/* Its footnote definitions follow its blocks, each by its label. */
-.meridian-markdown__footnote-definition {
-  display: flex;
-  gap: var(--meridian-space-2);
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-markdown__footnote-label {
-  color: var(--meridian-accent-text);
-}
-
-.meridian-markdown__footnote-body {
-  min-width: 0;
-}
-
 /* Wide content scrolls inside its own container; the row never scrolls sideways. */
 .meridian-markdown__table-scroll {
   margin-bottom: var(--meridian-space-2);
