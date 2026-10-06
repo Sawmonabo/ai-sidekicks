@@ -4,11 +4,14 @@
 // between them, so proxy, certificate and locale settings are there with no terminal open and a
 // provider installed later is on the path. A shell that misses the deadline, prints no markers or
 // is still running when a stop comes during the start is ended, and the start goes on with the
-// account's default environment, what its passwd entry gives, and one line in the service log; the
-// start never waits on a shell. On Windows the service starts with the account's own environment.
+// account's default environment and one line in the service log: the home, shell, user name and
+// login name its passwd entry gives, the default search path, and on macOS the account's own
+// temporary folder. The start never waits on a shell. On Windows the service starts with the
+// account's own environment.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { promisify } from "node:util";
 
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 
@@ -23,6 +26,22 @@ const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 // the macOS SDK and in glibc.
 const DEFAULT_LOGIN_PATH = "/usr/bin:/bin";
 
+// `getconf` answers at once; a reading slower than this is treated as failed.
+const USER_TEMP_DIRECTORY_DEADLINE_MS = 1_000;
+
+const runProgram = promisify(execFile);
+
+/**
+ * Reads the account's private temporary folder on macOS, the `TMPDIR` a login session gets, with
+ * `getconf DARWIN_USER_TEMP_DIR` run directly, never through a shell. Rejects when it fails.
+ */
+export async function readDarwinUserTempDirectory(): Promise<string> {
+  const { stdout } = await runProgram("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
+    timeout: USER_TEMP_DIRECTORY_DEADLINE_MS,
+  });
+  return stdout.trimEnd();
+}
+
 /** What one capture runs with. */
 export interface LoginShellCaptureOptions {
   readonly platform: NodeJS.Platform;
@@ -30,6 +49,10 @@ export interface LoginShellCaptureOptions {
   readonly shell: string | null;
   /** The person's home folder, `os.userInfo().homedir`. */
   readonly homeDirectory: string;
+  /** The person's account name, `os.userInfo().username`. */
+  readonly userName: string;
+  /** Reads the account's temporary folder on macOS; consulted only when the capture falls back. */
+  readonly readUserTempDirectory: () => Promise<string>;
   readonly deadlineMs: number;
   /** The daemon's own environment: the one the shell starts with, and the base on Windows. */
   readonly serviceEnvironment: NodeJS.ProcessEnv;
@@ -42,7 +65,8 @@ export interface LoginShellCaptureOptions {
 /**
  * Captures the base environment for provider processes as name-value pairs. Never rejects for a
  * shell that hangs, fails, prints no markers or is abandoned: it says why in the service log and
- * returns the account's default environment, its home, its shell and the default search path.
+ * returns the account's default environment: `HOME`, `SHELL` where the account names one, `USER`
+ * and `LOGNAME`, `PATH` as `/usr/bin:/bin`, and on macOS `TMPDIR` when `getconf` reads it.
  */
 export async function captureLoginShellEnvironment(
   options: LoginShellCaptureOptions,
@@ -55,10 +79,7 @@ export async function captureLoginShellEnvironment(
       "The account names no login shell, so providers start with the account's default " +
         "environment.",
     );
-    return [
-      ["HOME", options.homeDirectory],
-      ["PATH", DEFAULT_LOGIN_PATH],
-    ];
+    return await readDefaultEnvironment(options, null);
   }
   const outcome = await runLoginShell(options.shell, options);
   if (outcome.kind === "captured") {
@@ -68,11 +89,48 @@ export async function captureLoginShellEnvironment(
     `The login shell (${options.shell}) ${outcome.reason}, so providers start with the ` +
       "account's default environment.",
   );
-  return [
-    ["HOME", options.homeDirectory],
-    ["SHELL", options.shell],
-    ["PATH", DEFAULT_LOGIN_PATH],
-  ];
+  return await readDefaultEnvironment(options, options.shell);
+}
+
+// What a login gives before any profile runs. A `TMPDIR` that cannot be read is left out, with
+// one line in the service log, and the start goes on.
+async function readDefaultEnvironment(
+  options: LoginShellCaptureOptions,
+  shell: string | null,
+): Promise<readonly SpawnEnvPair[]> {
+  const pairs: SpawnEnvPair[] = [["HOME", options.homeDirectory]];
+  if (shell !== null) {
+    pairs.push(["SHELL", shell]);
+  }
+  pairs.push(["USER", options.userName], ["LOGNAME", options.userName]);
+  pairs.push(["PATH", DEFAULT_LOGIN_PATH]);
+  if (options.platform === "darwin") {
+    const temporaryDirectory = await readUserTempDirectoryOrLog(options);
+    if (temporaryDirectory !== undefined) {
+      pairs.push(["TMPDIR", temporaryDirectory]);
+    }
+  }
+  return pairs;
+}
+
+async function readUserTempDirectoryOrLog(
+  options: LoginShellCaptureOptions,
+): Promise<string | undefined> {
+  let reason: string;
+  try {
+    const temporaryDirectory = await options.readUserTempDirectory();
+    if (temporaryDirectory.length > 0) {
+      return temporaryDirectory;
+    }
+    reason = "it printed nothing";
+  } catch (error) {
+    reason = error instanceof Error ? error.message : String(error);
+  }
+  options.writeServiceLog(
+    `The account's temporary folder could not be read (${reason}), so providers start with no ` +
+      "TMPDIR.",
+  );
+  return undefined;
 }
 
 type LoginShellOutcome =

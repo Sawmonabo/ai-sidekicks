@@ -19,6 +19,7 @@ import { DaemonProcess, resolveDataFolder } from "./daemon/daemon-process.js";
 import {
   captureLoginShellEnvironment,
   LOGIN_SHELL_DEADLINE_MS,
+  readDarwinUserTempDirectory,
 } from "./daemon/login-shell-environment.js";
 import { nodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
@@ -97,6 +98,8 @@ const daemon = await DaemonProcess.start({
       platform: process.platform,
       shell: account.shell,
       homeDirectory: account.homedir,
+      userName: account.username,
+      readUserTempDirectory: readDarwinUserTempDirectory,
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       serviceEnvironment: process.env,
       writeServiceLog,
