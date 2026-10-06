@@ -4217,9 +4217,9 @@ interface ApprovalProjectionReadResponse {
     // them here and never from the event stream.
     subject: string; // the derived subject the card names and the remembering answer would cover
     // the provider's own reason for asking, shown as given; absent when it sent none
-    providerReason?: string;
+    reason?: string;
     // whether the remembering answer (`Always allow <subject> this session`) is offered
-    rememberOffered: boolean;
+    standingAllowOffered: boolean;
     // whether that answer's project scope (`Always in this project`) is offered: never in a chat,
     // never on a card the daemon raises itself
     projectScopeOffered: boolean;
