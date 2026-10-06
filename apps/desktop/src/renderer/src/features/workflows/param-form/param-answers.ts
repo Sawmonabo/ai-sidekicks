@@ -4,6 +4,9 @@
 
 import type { WorkflowParamSpec } from "@ai-sidekicks/contracts/workflow/kind";
 import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workflow/run/step";
+import { parse as parseWithErrors, type ParseError } from "jsonc-parser";
+
+import type { PickedFolder } from "#shared/preload-api.js";
 
 /** The answers a form holds, keyed by field id. */
 export type ParamAnswers = Readonly<Record<string, unknown>>;
@@ -84,6 +87,15 @@ export function checkParamAnswers(
   return Object.keys(found.issues).length === 0
     ? { kind: "valid", values, paths: found.paths }
     : { kind: "invalid", issues: found.issues };
+}
+
+/**
+ * The folder a `path` field's answer holds, its token and its name, or `undefined` before a pick.
+ */
+export function readPickedFolder(answer: unknown): PickedFolder | undefined {
+  return typeof answer === "object" && answer !== null && "ref" in answer && "name" in answer
+    ? (answer as PickedFolder)
+    : undefined;
 }
 
 /**
@@ -192,7 +204,7 @@ function checkFieldList(
       found.issues[place] = outcome.issue;
     } else if (outcome.kind === "answered" && field.type === "path") {
       // The picker's token, which main swaps for the path at this one member.
-      found.paths.push({ field: place, path: String(outcome.value) });
+      found.paths.push({ field: place, path: (outcome.value as PickedFolder).ref });
     } else if (outcome.kind === "answered") {
       values[field.id] = outcome.value;
     }
@@ -219,7 +231,7 @@ function checkCollection(
 function checkLeaf(field: LeafParamSpec, answer: unknown): LeafOutcome {
   if (isEmptyAnswer(answer)) {
     return field.required === true
-      ? { kind: "refused", issue: "This field is required." }
+      ? { kind: "refused", issue: "Fill in this field." }
       : { kind: "empty" };
   }
   switch (field.type) {
@@ -277,8 +289,8 @@ function isListedOption(field: LeafParamSpec, value: unknown): boolean {
   return field.options?.some((option) => Object.is(option.value, value)) === true;
 }
 
-// A saved draft may already hold the parsed value; typed source is parsed here, and a refusal
-// keeps the parser's own words for where the text went wrong.
+// A saved draft may already hold the parsed value; typed source is parsed here. A refusal names
+// where the text went wrong by line and column, never in the parser's own words.
 function readJson(answer: unknown): LeafOutcome {
   if (typeof answer !== "string") {
     return { kind: "answered", value: answer };
@@ -289,6 +301,25 @@ function readJson(answer: unknown): LeafOutcome {
     if (!(parseFailure instanceof SyntaxError)) {
       throw parseFailure;
     }
-    return { kind: "refused", issue: `This is not valid JSON: ${parseFailure.message}` };
+    return { kind: "refused", issue: jsonIssue(answer) };
   }
+}
+
+// The platform parser names no position for most mistakes, so a second, strict parse that keeps
+// going past them finds the first one's offset.
+function jsonIssue(source: string): string {
+  const errors: ParseError[] = [];
+  parseWithErrors(source, errors, {
+    disallowComments: true,
+    allowTrailingComma: false,
+    allowEmptyContent: false,
+  });
+  const first = errors[0];
+  if (first === undefined) {
+    return "This is not valid JSON.";
+  }
+  const before = source.slice(0, first.offset);
+  const line = before.split("\n").length;
+  const column = first.offset - before.lastIndexOf("\n");
+  return `This is not valid JSON. Check line ${String(line)}, column ${String(column)}.`;
 }

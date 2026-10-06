@@ -21,7 +21,7 @@ export interface ParamFormProps {
   readonly isDisabled?: boolean;
   /** Prefix for the ids tying labels and issue text to their controls; unique per mounted form. */
   readonly idPrefix: string;
-  /** Open the platform's folder chooser for a path field: the folder's token, `null` on cancel. */
+  /** Open the platform's folder chooser for a path field: the folder, `null` on cancel. */
   readonly pickFolder: () => Promise<PickedFolder | null>;
 }
 
@@ -178,13 +178,12 @@ function ParamCollectionField(props: ParamCollectionFieldProps): React.JSX.Eleme
       )}
       <ActionButton
         className="meridian-workflow-param-form__entry-action"
-        aria-label={`Add ${field.label}`}
         disabled={props.isDisabled}
         onClick={() => {
           props.onAnswerChange([...entries, seedParamAnswers(field.fields)]);
         }}
       >
-        Add
+        {`Add ${field.label}`}
       </ActionButton>
     </fieldset>
   );

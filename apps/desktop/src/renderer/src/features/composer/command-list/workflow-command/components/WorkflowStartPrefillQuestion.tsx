@@ -23,7 +23,7 @@ export function WorkflowStartPrefillQuestion(props: {
         className="meridian-action-button meridian-action-button--small meridian-action-button--outline"
         onClick={prompt.keepLine}
       >
-        Keep it
+        Cancel
       </button>
       <button
         type="button"

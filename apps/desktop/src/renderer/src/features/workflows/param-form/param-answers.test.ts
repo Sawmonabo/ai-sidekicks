@@ -36,7 +36,8 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
       ...seedParamAnswers(FIELDS),
       count: "abc",
       tone: "loud",
-      payload: "{ retry: ",
+      // The mistake is the value missing after `limit`, at the `}` on the third line.
+      payload: '{\n  "retry": true,\n  "limit": }',
       // Hidden while `tone` is not 2, so this empty secret is never checked.
       token: "",
       reviewers: [{ name: "" }],
@@ -45,11 +46,11 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
     expect(checkParamAnswers(FIELDS, answers)).toEqual({
       kind: "invalid",
       issues: {
-        summary: "This field is required.",
+        summary: "Fill in this field.",
         count: "Enter a number.",
         tone: "Choose one of the listed options.",
-        payload: expect.stringMatching(/^This is not valid JSON: .*at position 2/u) as string,
-        "reviewers.0.name": "This field is required.",
+        payload: "This is not valid JSON. Check line 3, column 12.",
+        "reviewers.0.name": "Fill in this field.",
       },
     });
   });
@@ -62,7 +63,7 @@ describe("a form built from WorkflowParamSpec refuses an invalid answer", () => 
 
     expect(checkParamAnswers(fields, { retries: " 3 ", reason: "" })).toEqual({
       kind: "invalid",
-      issues: { reason: "This field is required." },
+      issues: { reason: "Fill in this field." },
     });
     expect(isParamFieldShown(fields[1]!, { retries: "2" }, fields)).toBe(false);
   });

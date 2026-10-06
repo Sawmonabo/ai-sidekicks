@@ -1,17 +1,19 @@
 // One leaf parameter drawn as the control its type calls for, with its label, help line and
 // issue. A number keeps the typed text and a select stores the option's real value; turning
 // either into what is sent is the check's job. A path is never typed: `Browse…` opens the
-// platform's folder chooser, and the answer is the token it hands back, since the page never
-// holds a path.
+// platform's folder chooser, and the answer is the folder it hands back, its token and its name,
+// since the page never holds a path; the name is drawn beside `Browse…` once one is picked.
 
 import { useState } from "react";
 
 import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow/kind";
 
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/refusal.js";
 import type { PickedFolder } from "#shared/preload-api.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { readPickedFolder } from "./param-answers.js";
 
 /** What the form hands one leaf field. */
 export interface ParamLeafFieldProps {
@@ -24,8 +26,8 @@ export interface ParamLeafFieldProps {
   /** The control's id; the help line and issue take it as their prefix. */
   readonly controlId: string;
   /**
-   * Open the platform's folder chooser: the picked folder's token, or `null` when the person
-   * canceled. A path field's `Browse…` presses it.
+   * Open the platform's folder chooser: the picked folder's token and name, or `null` when the
+   * person canceled. A path field's `Browse…` presses it.
    */
   readonly pickFolder: () => Promise<PickedFolder | null>;
 }
@@ -221,6 +223,7 @@ function FolderPicker(
   const [isChoosing, setIsChoosing] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | undefined>(undefined);
   const { onAnswerChange, pickFolder } = props;
+  const picked = readPickedFolder(props.answer);
   const browse = (): void => {
     setIsChoosing(true);
     setRefusal(undefined);
@@ -228,7 +231,7 @@ function FolderPicker(
       (folder) => {
         setIsChoosing(false);
         if (folder !== null) {
-          onAnswerChange(folder.ref);
+          onAnswerChange(folder);
         }
       },
       (failure: unknown) => {
@@ -249,6 +252,7 @@ function FolderPicker(
       >
         Browse…
       </ActionButton>
+      {picked === undefined ? null : <WireFigure value={picked.name} />}
       {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
     </div>
   );
@@ -258,7 +262,7 @@ function FolderPicker(
 const FOLDER_CHOOSER_FAILED = refuse(
   "workflows",
   "workflows.folder_chooser_failed",
-  "The folder chooser could not open.",
+  "Could not open the folder chooser.",
 );
 
 function MultiselectChoices(props: ParamLeafFieldProps): React.JSX.Element {

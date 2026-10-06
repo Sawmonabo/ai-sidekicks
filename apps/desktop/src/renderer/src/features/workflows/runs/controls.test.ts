@@ -1,6 +1,6 @@
-// `Retry from this step` acts only on the latest execution of a node whose step failed: an
-// earlier pass that a later one superseded refuses in words, so the panel never offers to retry
-// a step the run has already moved past.
+// `Retry from this step` acts only on the latest execution of a node whose step failed, on a run
+// no longer going: a run still going, a step that did not fail and an earlier pass a later one
+// superseded each refuse in their own words, so the panel never offers a retry that cannot act.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,7 +32,25 @@ describe("Retry from this step", () => {
     expect(retryAvailability(withEarlierPass, latest)).toStrictEqual({ kind: "allowed" });
     expect(retryAvailability(withEarlierPass, earlier)).toStrictEqual({
       kind: "refused",
-      reason: "Only this step's latest run can be retried.",
+      reason: "Retry · this step has a later run",
+    });
+  });
+
+  it("refuses a run still going and a step that did not fail, each in its own words", () => {
+    const run = failedRun();
+    const failed = run.steps.find((step) => step.status === "failed");
+    const succeeded = run.steps.find((step) => step.status === "succeeded");
+    if (failed === undefined || succeeded === undefined) {
+      throw new Error("the fixture's failed run has no failed or no succeeded step");
+    }
+
+    expect(retryAvailability({ ...run, state: "running" }, failed)).toStrictEqual({
+      kind: "refused",
+      reason: "Retry · this run is still going",
+    });
+    expect(retryAvailability(run, succeeded)).toStrictEqual({
+      kind: "refused",
+      reason: "Retry · this step did not fail",
     });
   });
 });

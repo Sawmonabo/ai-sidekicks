@@ -47,17 +47,15 @@ export function retryAvailability(
   step: WorkflowStep,
 ): RunControlAvailability {
   if (isGoing(run.state)) {
-    return { kind: "refused", reason: "Retry once this run has stopped." };
+    return { kind: "refused", reason: "Retry · this run is still going" };
   }
   if (step.status !== "failed") {
-    return { kind: "refused", reason: "Only a step that failed can be retried." };
+    return { kind: "refused", reason: "Retry · this step did not fail" };
   }
   const isSuperseded = run.steps.some(
     (other) => other.nodeId === step.nodeId && isLaterStep(other, step),
   );
-  return isSuperseded
-    ? { kind: "refused", reason: "Only this step's latest run can be retried." }
-    : ALLOWED;
+  return isSuperseded ? { kind: "refused", reason: "Retry · this step has a later run" } : ALLOWED;
 }
 
 /** Whether a run in this state is still going: new, running or waiting. */

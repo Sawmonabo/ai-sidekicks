@@ -11,7 +11,7 @@ import type {
   WorkflowStepKey,
 } from "@ai-sidekicks/contracts/workflow/run/step";
 
-import type { FilePathRef } from "#shared/preload-api.js";
+import type { FilePathRef, PickedFolder } from "#shared/preload-api.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -162,8 +162,8 @@ describe("a step's form submit", () => {
     });
     expect(result.current.read.kind).toBe("read");
 
-    // What the folder chooser hands back: main's token for the picked folder.
-    const pickedFolder = "file-path-ref-1" as FilePathRef;
+    // What the folder chooser hands back: main's token for the picked folder, and its name.
+    const pickedFolder: PickedFolder = { ref: "file-path-ref-1" as FilePathRef, name: "app" };
     await act(async () => {
       result.current.changeAnswers({ target: [{ folder: pickedFolder, note: "the app" }] });
       await crossMacrotaskBoundary();
@@ -177,10 +177,10 @@ describe("a step's form submit", () => {
     expect(submits).toHaveLength(1);
     expect(submits[0]?.params).toMatchObject({
       fields: { target: [{ note: "the app" }] },
-      paths: [{ field: "target.0.folder", path: pickedFolder }],
+      paths: [{ field: "target.0.folder", path: pickedFolder.ref }],
     });
     expect(JSON.stringify((submits[0]?.params as { fields: unknown }).fields)).not.toContain(
-      pickedFolder,
+      pickedFolder.ref,
     );
   });
 });

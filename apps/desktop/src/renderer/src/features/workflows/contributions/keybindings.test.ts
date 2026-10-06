@@ -110,7 +110,7 @@ describe("the workflows screen's chords", () => {
     await pressChordOf("workflows.answerThisRun", document.body);
     // The form's required fields are empty, so the submit it waited for says so in place.
     await advanceScenarioUntil(mounted.engine, () => {
-      expect(screen.getAllByText("This field is required.").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Fill in this field.").length).toBeGreaterThan(0);
     });
   });
 });

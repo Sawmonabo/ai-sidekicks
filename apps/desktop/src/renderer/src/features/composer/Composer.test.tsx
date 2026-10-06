@@ -1,7 +1,7 @@
 // The palette's `Run a workflow` over a line holding unsent words asks above the draft, and only
 // the answer decides whether the words go: the composer draws the question, never drops it.
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { commandRegistry } from "#renderer/registries/commands/window-command-registry.js";
@@ -47,16 +47,25 @@ describe("the palette's workflow entry over unsent words", () => {
     const line = mountComposerWithLine("ship the parser fix");
 
     expect(line.value).toBe("ship the parser fix");
-    fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+    const question = screen.getByRole("group", { name: "Replace the draft" });
+    expect(question.querySelector("p")?.textContent).toBe(
+      "Replace your unsent message with /workflow run?",
+    );
+    expect(
+      within(question)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Cancel", "Replace"]);
+    fireEvent.click(within(question).getByRole("button", { name: "Replace" }));
 
     expect(line.value).toBe("/workflow run ");
     expect(screen.queryByRole("group", { name: "Replace the draft" })).toBeNull();
   });
 
-  it("keeps the words when the person keeps them", () => {
+  it("keeps the words when the person cancels", () => {
     const line = mountComposerWithLine("ship the parser fix");
 
-    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(line.value).toBe("ship the parser fix");
     expect(screen.queryByRole("group", { name: "Replace the draft" })).toBeNull();
