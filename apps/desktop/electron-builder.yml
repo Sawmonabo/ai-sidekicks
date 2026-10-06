@@ -1,0 +1,11 @@
+# Packages the desktop app. `package` builds the bundles with electron-vite and packages them, from
+# `out/`, into an unsigned macOS app in `dist/`.
+appId: io.github.sawmonabo.ai-sidekicks
+files:
+  - out/**
+  # The renderer's type-check output, which the app never loads.
+  - "!out/tsc-renderer/**"
+mac:
+  # The Icon Composer document: electron-builder compiles it with Xcode's `actool` into the
+  # bundle's asset catalog, and into an `.icns` for macOS before 26.
+  icon: build/icon.icon

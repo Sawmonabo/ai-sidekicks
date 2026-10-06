@@ -5,8 +5,6 @@
 // diagnostic log says why and the window used last says so on its banner. About is the platform's
 // own panel, filled once before the first install with the running app's name and version.
 
-import path from "node:path";
-
 import { app, Menu, type MenuItemConstructorOptions } from "electron";
 
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appearance.js";
@@ -14,6 +12,7 @@ import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/appeara
 import type { KeptAppearance } from "./appearance/kept-record.js";
 import type { OpenWindows } from "./windows/registry.js";
 import type { MainDiagnosticLog } from "./services/diagnostic-log.js";
+import { resourceFilePath } from "./services/resource-file.js";
 import { describeFailure } from "#shared/failure-message.js";
 
 /** The About panel's icon. Windows and Linux take it from a file on disk; macOS from the bundle. */
@@ -42,7 +41,9 @@ export function installApplicationMenu(
   app.setAboutPanelOptions({
     applicationName: app.getName(),
     applicationVersion: app.getVersion(),
-    ...(isMacOS ? { version: app.getVersion() } : { iconPath: aboutIconPath() }),
+    ...(isMacOS
+      ? { version: app.getVersion() }
+      : { iconPath: resourceFilePath(ABOUT_ICON_FILE, import.meta.dirname) }),
   });
   let tickedScheme = appearance.scheme;
   const install = (): void => {
@@ -71,13 +72,6 @@ export function installApplicationMenu(
       install();
     }
   });
-}
-
-// An installed app carries the icon beside its archive, since Linux's dialog cannot read inside it.
-function aboutIconPath(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, ABOUT_ICON_FILE)
-    : path.join(import.meta.dirname, "../../resources", ABOUT_ICON_FILE);
 }
 
 function applicationMenuTemplate(

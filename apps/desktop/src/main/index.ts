@@ -40,6 +40,7 @@ import {
 import { keyProfileToInstall } from "./services/install-profile.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
+import { resourceFilePath } from "./services/resource-file.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
 import { installActivationPolicy } from "./windows/reveal.js";
@@ -53,6 +54,9 @@ const STDERR_LOG: Pick<MainDiagnosticLog, "write"> = {
 
 // The build writes the main bundle to `out/main/` and the renderer to `out/renderer/`.
 const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
+
+// The app icon at the Dock's size, inset by the system's icon margin, for a development run.
+const DOCK_ICON_FILE = "dock-icon.png";
 
 // Runs at module evaluation, before `app.ready`: Electron refuses scheme registration after
 // ready, and a scheme that is not `standard` has no origin, so no IndexedDB or `localStorage`,
@@ -184,6 +188,11 @@ function startApplication(): void {
         log,
       );
       installApplicationMenu(appearance, log, openWindows);
+      // A development run is the stock Electron app, whose bundle shows Electron's icon in the
+      // Dock; an installed app's bundle carries its own. `dock` exists only on macOS.
+      if (!app.isPackaged) {
+        app.dock?.setIcon(resourceFilePath(DOCK_ICON_FILE, import.meta.dirname));
+      }
       const daemonLink = new DaemonLink();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
